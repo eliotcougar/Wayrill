@@ -1,0 +1,123 @@
+.traffic-unit-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+.traffic-unit-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 230px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.traffic-unit-settings select {
+  width: 100%;
+  min-height: 33px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  color-scheme: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.traffic-units-disclosure {
+  position: relative;
+}
+.traffic-units-disclosure summary {
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+.traffic-units-disclosure > .traffic-unit-settings {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 360px;
+  max-width: calc(100vw - 72px);
+  margin: 0;
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  box-shadow: 0 8px 24px var(--shadow-dialog);
+}
+.runtime-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 10px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+.runtime-indicator.running {
+  color: var(--success);
+  border-color: currentColor;
+}
+.runtime-dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.running .runtime-dot {
+  background: currentColor;
+}
+.rule-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rule-detail-normal {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.rule-detail-normal[hidden] {
+  display: none;
+}
+.expanded-rule-field {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.expanded-rule-field h3 {
+  margin: 0;
+}
+.expanded-rule-field textarea {
+  background: var(--surface-sunken);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 9px 10px;
+  width: 100%;
+  font-size: 12px;
+  flex: 1;
+  min-height: 150px;
+  resize: none;
+  font-family: var(--font-mono, monospace);
+}
+.expanded-rule-field > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (forced-colors: active) {
+  .runtime-indicator.running {
+    color: Highlight;
+  }
+}

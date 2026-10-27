@@ -1,0 +1,495 @@
+.stash-window {
+  width: min(1120px, calc(100vw - 40px));
+  height: min(840px, calc(100vh - 40px));
+}
+.subscription-health-fields {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 0;
+  min-width: 0;
+}
+.subscription-health-intervals,
+.subscription-refresh-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px 18px;
+}
+.stash-import .stash-checkbox {
+  min-height: 34px;
+  margin: 0;
+}
+.subscription-settings-actions,
+.subscription-maintenance-status,
+.stash-import-modes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.subscription-maintenance-status {
+  margin-top: 10px;
+}
+.subscription-maintenance-status > span {
+  flex: 1;
+  min-width: 180px;
+}
+.stash-settings-fields {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.subscription-request-settings {
+  border-block: 1px solid var(--border);
+  padding: 10px 0;
+}
+.subscription-request-settings > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.subscription-request-settings[open] > summary {
+  margin-bottom: 12px;
+}
+.subscription-request-settings > label + label {
+  margin-top: 12px;
+}
+.stash-import h3,
+.stash-import .field-help {
+  margin: 0;
+}
+
+.stash-health {
+  font-variant-numeric: tabular-nums;
+}
+.stash-toolbar,
+.stash-search,
+.stash-group-controls,
+.stash-pagination {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border, var(--border));
+}
+.stash-toolbar > span {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.stash-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.stash-notice > span {
+  flex: 1;
+  min-width: 0;
+}
+.stash-notice > button {
+  flex-shrink: 0;
+}
+.stash-body {
+  overflow: auto;
+  flex: 1;
+  padding: 0 20px 15px;
+}
+.stash-body > .runtime-error,
+.stash-body > .runtime-notice {
+  margin-top: 12px;
+}
+.stash-search,
+.stash-group-controls {
+  padding: 14px 0;
+  align-items: flex-end;
+}
+.stash-group-controls > button {
+  min-height: 34px;
+}
+.stash-search label,
+.stash-group-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 0;
+  max-width: 100%;
+}
+.stash-group-controls > label {
+  flex: 1 1 250px;
+}
+.stash-group-controls select,
+.stash-search select {
+  width: 100%;
+  max-width: 100%;
+}
+.stash-search > label:first-child {
+  flex: 1 1 240px;
+}
+.stash-search > label:nth-child(2) {
+  flex: 0 1 220px;
+}
+.stash-search > .runtime-scope {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  margin: 0 0 0 auto;
+}
+.stash-window input:not([type='checkbox']):not([type='radio']),
+.stash-window textarea,
+.stash-window select {
+  background: var(--surface-sunken);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+  min-width: 0;
+}
+.stash-import {
+  padding: 15px;
+  background: var(--surface-adjacent);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  margin-top: 12px;
+  display: grid;
+  gap: 14px;
+}
+.stash-import label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.stash-import textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.stash-subscription {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+}
+.subscription-request-settings textarea {
+  min-height: 62px;
+}
+.stash-checkbox {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 12px 0;
+}
+.stash-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) max-content;
+}
+.stash-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  gap: 14px;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  font-size: 12px;
+}
+.stash-row > * {
+  min-width: 0;
+}
+.stash-row strong,
+.stash-row small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.stash-row small {
+  color: var(--text-secondary);
+  margin-top: 5px;
+}
+.stash-row strong {
+  color: var(--text);
+}
+.stash-header {
+  position: sticky;
+  top: 0;
+  background: var(--surface-adjacent);
+  z-index: 1;
+  color: var(--text-secondary);
+}
+.stash-problem {
+  color: var(--warning) !important;
+}
+.stash-entry-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+.stash-entry-actions > * {
+  flex-shrink: 0;
+}
+.stash-entry-actions button,
+.stash-toolbar button,
+.stash-choice {
+  white-space: nowrap;
+}
+.stash-entry-actions button {
+  font-size: 11px;
+  padding: 6px 8px;
+}
+.stash-pagination {
+  justify-content: center;
+  border: 0;
+  padding: 15px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.stash-empty {
+  padding: 25px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.rule-node.has-errors {
+  box-shadow: 0 0 0 2px var(--danger);
+}
+.node-problem {
+  font-size: 10px;
+  color: var(--danger);
+  padding: 5px 12px;
+  background: var(--danger-soft);
+}
+.storage-alert {
+  background: var(--surface-raised);
+  color: var(--danger);
+  padding: 7px 20px;
+  font-size: 12px;
+}
+.runtime-draft-badge {
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  font-size: 12px;
+}
+.runtime-diagnostics {
+  display: grid;
+  gap: 5px;
+}
+.runtime-diagnostics button {
+  text-align: left;
+  font-size: 12px;
+}
+.status-runtime {
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+.status-runtime.online {
+  color: var(--success);
+}
+
+.stash-window > .result-pager {
+  border-top: 1px solid var(--border);
+  padding: 10px 20px;
+}
+.stash-window [aria-busy='true'] {
+  opacity: 0.75;
+}
+@media (max-width: 700px) {
+  .stash-table {
+    grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr);
+  }
+  .stash-entry-actions {
+    grid-column: 1/-1;
+  }
+  .stash-header > span:last-child {
+    display: none;
+  }
+  .stash-window {
+    width: calc(100vw - 20px);
+  }
+  .stash-subscription,
+  .subscription-refresh-fields,
+  .subscription-health-intervals {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stash-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 32px;
+}
+.stash-choice input {
+  accent-color: var(--accent-fill);
+  width: 16px;
+  height: 16px;
+}
+.stash-replacement-summary {
+  display: grid;
+  gap: 4px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-adjacent);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.stash-replacement-summary span {
+  color: var(--text-secondary);
+}
+
+.stash-entry-editor {
+  width: min(760px, calc(100vw - 48px));
+}
+.stash-entry-editor-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 18px;
+}
+.stash-entry-editor .inspector {
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+.stash-entry-editor .inspector-content {
+  overflow: visible;
+}
+.stash-entry-editor .rule-editor-footer {
+  flex-shrink: 0;
+}
+.stash-entry-actions .icon-button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.subscription-settings-window {
+  width: min(720px, calc(100vw - 40px));
+  height: fit-content;
+  max-height: calc(100vh - 40px);
+}
+.subscription-settings-form.stash-import {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 18px 20px;
+  overflow: auto;
+  min-height: 0;
+}
+.subscription-settings-actions {
+  position: sticky;
+  bottom: -18px;
+  background: var(--surface-adjacent);
+  margin: 0 -20px -18px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  z-index: 1;
+}
+
+.subscription-settings-window h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.subscription-duplicate {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.subscription-groups {
+  padding-top: 14px;
+}
+.subscription-group-tools,
+.subscription-group-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.subscription-group-tools > label {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.subscription-group-tools > button {
+  min-height: 34px;
+}
+.subscription-group-list {
+  margin-top: 12px;
+}
+.subscription-group-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.subscription-group-summary {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.subscription-group-summary > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.subscription-group-name,
+.subscription-group-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-align: start;
+  font: inherit;
+}
+.subscription-group-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.subscription-group-link {
+  text-decoration: underline;
+}
+.subscription-group-actions {
+  align-items: flex-start;
+}
+.stash-remove-confirmation {
+  flex-shrink: 0;
+  margin: 10px 20px;
+  max-height: 30vh;
+  overflow: auto;
+}
+@media (max-width: 760px) {
+  .subscription-group-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stash-entry-actions .stash-star[aria-pressed='true'] {
+  color: var(--main-outbound);
+  background: color-mix(in srgb, var(--main-outbound) 12%, transparent);
+}

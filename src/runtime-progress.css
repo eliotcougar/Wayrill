@@ -1,0 +1,98 @@
+.workspace-area {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.workspace-area > .workspace-body {
+  min-width: 0;
+}
+.runtime-progress-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+  backdrop-filter: blur(5px);
+  cursor: wait;
+}
+.runtime-progress-card {
+  display: grid;
+  gap: 14px;
+  width: min(360px, calc(100% - 32px));
+  padding: 26px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px #0003;
+  color: var(--text);
+}
+.runtime-progress-card strong {
+  font-size: 16px;
+}
+.runtime-progress-card span {
+  line-height: 1.4;
+}
+.runtime-progress-card progress {
+  width: 100%;
+  height: 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  accent-color: var(--accent);
+  overflow: hidden;
+}
+.runtime-progress-card progress::-webkit-progress-bar {
+  background: var(--surface-sunken);
+}
+.runtime-progress-card progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 6px;
+}
+.runtime-progress-card progress:indeterminate {
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 25%,
+    var(--accent) 50%,
+    var(--surface-sunken) 75%
+  );
+  background-size: 200% 100%;
+  animation: runtime-pending 1.4s linear infinite;
+}
+.runtime-progress-card progress:indeterminate::-webkit-progress-bar {
+  background: transparent;
+}
+@keyframes runtime-pending {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .runtime-progress-card progress:indeterminate {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .runtime-progress-overlay {
+    background: Canvas;
+  }
+  .runtime-progress-card {
+    border-color: CanvasText;
+  }
+  .runtime-progress-card progress {
+    border: 1px solid CanvasText;
+  }
+}
+@media (max-width: 800px) {
+  .workspace-area {
+    flex: none;
+  }
+  .workspace-area > .workspace-body {
+    width: 100%;
+  }
+}
+
+.runtime-window .workspace-area > .workspace-body {
+  overflow: hidden;
+}

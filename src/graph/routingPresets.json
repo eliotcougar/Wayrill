@@ -1,0 +1,549 @@
+{
+  "snapshot": "2026-10-07",
+  "traffic": [
+    {
+      "id": "ru-blocked",
+      "country": "Russia",
+      "label": "Russia · blocked destinations",
+      "defaultOutput": "direct",
+      "domainStrategy": "IPOnDemand",
+      "rules": [
+        {
+          "name": "BitTorrent direct",
+          "output": "direct",
+          "conditions": {
+            "protocol": "bittorrent"
+          }
+        },
+        {
+          "name": "Block ads",
+          "output": "block",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:category-ads-all"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:ru-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:private"
+          }
+        },
+        {
+          "name": "Public DNS via proxy",
+          "output": "proxy",
+          "conditions": {
+            "ip": "1.0.0.1\n1.1.1.1\n8.8.8.8\n8.8.4.4"
+          }
+        },
+        {
+          "name": "Voice UDP via proxy",
+          "output": "proxy",
+          "conditions": {
+            "port": "50000-65535",
+            "network": "udp"
+          }
+        },
+        {
+          "name": "Blocked IPs via proxy",
+          "output": "proxy",
+          "conditions": {
+            "ip": "ext:ru-geoip.dat:ru-blocked"
+          }
+        },
+        {
+          "name": "Blocked domains via proxy",
+          "output": "proxy",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:ru-blocked"
+          }
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-custom-routing-list/main/v2rayN/only_blocked.json",
+      "sourceSha256": "9abf30f0a52be9036b59cfb8664c552e33ae36a722be09dac7b90fc560666bb0"
+    },
+    {
+      "id": "ru-local",
+      "country": "Russia",
+      "label": "Russia · domestic direct",
+      "defaultOutput": "proxy",
+      "domainStrategy": "IPOnDemand",
+      "rules": [
+        {
+          "name": "BitTorrent direct",
+          "output": "direct",
+          "conditions": {
+            "protocol": "bittorrent"
+          }
+        },
+        {
+          "name": "Block ads",
+          "output": "block",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:category-ads-all"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:ru-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:private"
+          }
+        },
+        {
+          "name": "Domestic destinations direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:ru-available-only-inside",
+            "ip": "ext:ru-geoip.dat:ru"
+          }
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-custom-routing-list/main/v2rayN/all_except_ru.json",
+      "sourceSha256": "27f1159b42e31743cc57ed6a32cc44b801224d501e7bc57d00fac16bc71a9b5b"
+    },
+    {
+      "id": "ru-all",
+      "country": "Russia",
+      "label": "Russia · proxy all",
+      "defaultOutput": "proxy",
+      "domainStrategy": null,
+      "rules": [
+        {
+          "name": "Block ads",
+          "output": "block",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:category-ads-all"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:ru-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ru-geosite.dat:private"
+          }
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-custom-routing-list/main/v2rayN/all.json",
+      "sourceSha256": "cc1d46397df4b3b9a187d8dbea1a3ce4786df0e498ca34702cc583fb339a9f29"
+    },
+    {
+      "id": "ir-local",
+      "country": "Iran",
+      "label": "Iran · domestic direct",
+      "defaultOutput": "proxy",
+      "domainStrategy": "IPOnDemand",
+      "rules": [
+        {
+          "name": "Iran DNS direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "8.8.8.8"
+          }
+        },
+        {
+          "name": "Block UDP 443",
+          "output": "block",
+          "conditions": {
+            "port": "443",
+            "network": "udp"
+          }
+        },
+        {
+          "name": "BitTorrent direct",
+          "output": "direct",
+          "conditions": {
+            "protocol": "bittorrent"
+          }
+        },
+        {
+          "name": "Block ads",
+          "output": "block",
+          "conditions": {
+            "domain": "ext:ir-geosite.dat:category-ads-all"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:ir-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ir-geosite.dat:private"
+          }
+        },
+        {
+          "name": "Iran domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ir-geosite.dat:ir"
+          }
+        },
+        {
+          "name": "Iran IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:ir-geoip.dat:ir"
+          }
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/main/v2rayN/all_except_ir.json",
+      "sourceSha256": "1893a78ba7b209d363ce18831cf2cd900c1643b4f3bce62cc138fda5bfdfcc0a"
+    },
+    {
+      "id": "ir-all",
+      "country": "Iran",
+      "label": "Iran · proxy all",
+      "defaultOutput": "proxy",
+      "domainStrategy": null,
+      "rules": [
+        {
+          "name": "Block UDP 443",
+          "output": "block",
+          "conditions": {
+            "port": "443",
+            "network": "udp"
+          }
+        },
+        {
+          "name": "BitTorrent direct",
+          "output": "direct",
+          "conditions": {
+            "protocol": "bittorrent"
+          }
+        },
+        {
+          "name": "Block ads",
+          "output": "block",
+          "conditions": {
+            "domain": "ext:ir-geosite.dat:category-ads-all"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:ir-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:ir-geosite.dat:private"
+          }
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/main/v2rayN/all.json",
+      "sourceSha256": "c5c780f859ad7218520103baf9084a263d7b03c06b2a8063ef142d86ea83e4ea"
+    },
+    {
+      "id": "cn-local",
+      "country": "China",
+      "label": "China · domestic direct",
+      "defaultOutput": "proxy",
+      "domainStrategy": null,
+      "rules": [
+        {
+          "name": "Block UDP 443",
+          "output": "block",
+          "conditions": {
+            "port": "443",
+            "network": "udp"
+          }
+        },
+        {
+          "name": "Google via proxy",
+          "output": "proxy",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:google"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:cn-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:private"
+          }
+        },
+        {
+          "name": "Domestic DNS IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "223.5.5.5\n223.6.6.6\n2400:3200::1\n2400:3200:baba::1\n119.29.29.29\n1.12.12.12\n120.53.53.53\n2402:4e00::\n2402:4e00:1::\n180.76.76.76\n2400:da00::6666\n114.114.114.114\n114.114.115.115\n114.114.114.119\n114.114.115.119\n114.114.114.110\n114.114.115.110\n180.184.1.1\n180.184.2.2\n101.226.4.6\n218.30.118.6\n123.125.81.6\n140.207.198.6\n1.2.4.8\n210.2.4.8\n52.80.66.66\n117.50.22.22\n2400:7fc0:849e:200::4\n2404:c2c0:85d8:901::4\n117.50.10.10\n52.80.52.52\n2400:7fc0:849e:200::8\n2404:c2c0:85d8:901::8\n117.50.60.30\n52.80.60.30"
+          }
+        },
+        {
+          "name": "Domestic DNS domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "domain:alidns.com\ndomain:doh.pub\ndomain:dot.pub\ndomain:360.cn\ndomain:onedns.net"
+          }
+        },
+        {
+          "name": "China IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:cn-geoip.dat:cn"
+          }
+        },
+        {
+          "name": "China domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:cn"
+          }
+        }
+      ],
+      "source": "v2rayN/ServiceLib/Sample/custom_routing_white",
+      "sourceSha256": "0423dc5a97733ccc5c730805245f1a8f052f713393e413c887a32b8fe42fdbae"
+    },
+    {
+      "id": "cn-blocked",
+      "country": "China",
+      "label": "China · blocked destinations",
+      "defaultOutput": "direct",
+      "domainStrategy": null,
+      "rules": [
+        {
+          "name": "BitTorrent direct",
+          "output": "direct",
+          "conditions": {
+            "protocol": "bittorrent"
+          }
+        },
+        {
+          "name": "IP check via proxy",
+          "output": "proxy",
+          "conditions": {
+            "domain": "api.ip.sb"
+          }
+        },
+        {
+          "name": "Block UDP 443",
+          "output": "block",
+          "conditions": {
+            "port": "443",
+            "network": "udp"
+          }
+        },
+        {
+          "name": "Google via proxy",
+          "output": "proxy",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:google"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:cn-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:private"
+          }
+        },
+        {
+          "name": "Foreign DNS IPs via proxy",
+          "output": "proxy",
+          "conditions": {
+            "ip": "1.1.1.1\n1.0.0.1\n2606:4700:4700::1111\n2606:4700:4700::1001\n1.1.1.2\n1.0.0.2\n2606:4700:4700::1112\n2606:4700:4700::1002\n1.1.1.3\n1.0.0.3\n2606:4700:4700::1113\n2606:4700:4700::1003\n8.8.8.8\n8.8.4.4\n2001:4860:4860::8888\n2001:4860:4860::8844\n94.140.14.14\n94.140.15.15\n2a10:50c0::ad1:ff\n2a10:50c0::ad2:ff\n94.140.14.15\n94.140.15.16\n2a10:50c0::bad1:ff\n2a10:50c0::bad2:ff\n94.140.14.140\n94.140.14.141\n2a10:50c0::1:ff\n2a10:50c0::2:ff\n208.67.222.222\n208.67.220.220\n2620:119:35::35\n2620:119:53::53\n208.67.222.123\n208.67.220.123\n2620:119:35::123\n2620:119:53::123\n9.9.9.9\n149.112.112.112\n2620:fe::9\n2620:fe::fe\n9.9.9.11\n149.112.112.11\n2620:fe::11\n2620:fe::fe:11\n9.9.9.10\n149.112.112.10\n2620:fe::10\n2620:fe::fe:10\n77.88.8.8\n77.88.8.1\n2a02:6b8::feed:0ff\n2a02:6b8:0:1::feed:0ff\n77.88.8.88\n77.88.8.2\n2a02:6b8::feed:bad\n2a02:6b8:0:1::feed:bad\n77.88.8.7\n77.88.8.3\n2a02:6b8::feed:a11\n2a02:6b8:0:1::feed:a11"
+          }
+        },
+        {
+          "name": "Foreign DNS domains via proxy",
+          "output": "proxy",
+          "conditions": {
+            "domain": "domain:cloudflare-dns.com\ndomain:one.one.one.one\ndomain:dns.google\ndomain:adguard-dns.com\ndomain:opendns.com\ndomain:umbrella.com\ndomain:quad9.net\ndomain:yandex.net"
+          }
+        },
+        {
+          "name": "Restricted service IPs via proxy",
+          "output": "proxy",
+          "conditions": {
+            "ip": "ext:cn-geoip.dat:facebook\next:cn-geoip.dat:fastly\next:cn-geoip.dat:google\next:cn-geoip.dat:netflix\next:cn-geoip.dat:telegram\next:cn-geoip.dat:twitter"
+          }
+        },
+        {
+          "name": "Blocked domains via proxy",
+          "output": "proxy",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:gfw\next:cn-geosite.dat:greatfire"
+          }
+        }
+      ],
+      "source": "v2rayN/ServiceLib/Sample/custom_routing_black",
+      "sourceSha256": "b80196abba78cef9819076e739e21f55936de8294936fadc2127f24438231125"
+    },
+    {
+      "id": "cn-all",
+      "country": "China",
+      "label": "China · proxy all",
+      "defaultOutput": "proxy",
+      "domainStrategy": null,
+      "rules": [
+        {
+          "name": "Block UDP 443",
+          "output": "block",
+          "conditions": {
+            "port": "443",
+            "network": "udp"
+          }
+        },
+        {
+          "name": "Private IPs direct",
+          "output": "direct",
+          "conditions": {
+            "ip": "ext:cn-geoip.dat:private"
+          }
+        },
+        {
+          "name": "Private domains direct",
+          "output": "direct",
+          "conditions": {
+            "domain": "ext:cn-geosite.dat:private"
+          }
+        }
+      ],
+      "source": "v2rayN/ServiceLib/Sample/custom_routing_global",
+      "sourceSha256": "6c38808991e4000b7c1b929d591fc42fe2b4a61f0af4ca688f051f0441fd8929"
+    }
+  ],
+  "dns": [
+    {
+      "id": "ru-dns",
+      "country": "Russia",
+      "label": "Russia DNS",
+      "roles": [
+        {
+          "id": "fallback",
+          "name": "Fallback",
+          "servers": ["1.1.1.1", "8.8.8.8", "https://dns.google/dns-query"]
+        }
+      ],
+      "rules": [],
+      "fallbackFirst": false,
+      "hosts": {
+        "dns.google": "8.8.8.8",
+        "proxy.example.com": "127.0.0.1"
+      },
+      "source": "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-custom-routing-list/main/v2rayN/dns_v2ray_normal",
+      "sourceSha256": "89aab1620ca3661ac0b3904e3b452f9918682fc57f0056d232c45462466e98ce"
+    },
+    {
+      "id": "ir-dns",
+      "country": "Iran",
+      "label": "Iran DNS",
+      "roles": [
+        {
+          "id": "domestic",
+          "name": "Iran DNS",
+          "servers": ["8.8.8.8"]
+        },
+        {
+          "id": "fallback",
+          "name": "Fallback",
+          "servers": ["1.1.1.1", "9.9.9.10"]
+        }
+      ],
+      "rules": [
+        {
+          "name": "Iran domains",
+          "output": "domestic",
+          "domains": "domain:ir\next:ir-geosite.dat:ir",
+          "expectedIPs": "ext:ir-geoip.dat:ir",
+          "skipFallback": false
+        }
+      ],
+      "fallbackFirst": true,
+      "hosts": {
+        "geosite:category-ads-all": "127.0.0.1"
+      },
+      "source": "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/main/v2rayN/dns_v2ray_normal.json",
+      "sourceSha256": "d9cfeb63bce742a2238d8034f61f040bcb45233750e2e205952e51c530e39624"
+    },
+    {
+      "id": "cn-dns",
+      "country": "China",
+      "label": "China DNS",
+      "roles": [
+        {
+          "id": "google",
+          "name": "Google DNS",
+          "servers": ["1.1.1.1"]
+        },
+        {
+          "id": "domestic",
+          "name": "China DNS",
+          "servers": ["223.5.5.5"]
+        },
+        {
+          "id": "fallback",
+          "name": "Fallback",
+          "servers": ["1.1.1.1", "8.8.8.8", "https://dns.google/dns-query"]
+        }
+      ],
+      "rules": [
+        {
+          "name": "Google domains",
+          "output": "google",
+          "domains": "ext:cn-geosite.dat:google",
+          "expectedIPs": "",
+          "skipFallback": true
+        },
+        {
+          "name": "China domains",
+          "output": "domestic",
+          "domains": "ext:cn-geosite.dat:cn",
+          "expectedIPs": "ext:cn-geoip.dat:cn",
+          "skipFallback": true
+        }
+      ],
+      "fallbackFirst": false,
+      "hosts": {
+        "dns.google": "8.8.8.8",
+        "proxy.example.com": "127.0.0.1"
+      },
+      "source": "v2rayN/ServiceLib/Sample/dns_v2ray_normal",
+      "sourceSha256": "e21d03e6ea12fe335d36b3309ade567eea4d653e4f3c75c0659dcb03282d15a5"
+    }
+  ]
+}

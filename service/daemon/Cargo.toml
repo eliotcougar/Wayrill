@@ -1,0 +1,37 @@
+[package]
+name = "wayrill-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+wayrill-diagnostics = { path = "../diagnostics" }
+wayrill-protocol = { path = "../protocol" }
+wayrill-ipc = { path = "../ipc" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+windows-sys = { workspace = true, features = ["Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_System_Rpc", "Win32_Security_Isolation"] }
+windows-service = "0.8.1"
+sha2 = "0.10"
+url = "2"
+idna = "=1.1.0"
+rquickjs = { version = "=0.14.0", default-features = false, features = ["array-buffer"] }
+base64 = "0.22.1"
+unicode-segmentation = "1.13"
+prost = "0.14"
+ipnet = "2"
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"] }
+tonic-prost = "0.14"
+reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "native-tls"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+
+[build-dependencies]
+serde_json.workspace = true
+
+[[bin]]
+name = "wayrill-service"
+path = "src/main.rs"
+[[bin]]
+name = "wayrillctl"
+path = "src/ctl.rs"

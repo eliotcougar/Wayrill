@@ -1,0 +1,29 @@
+[package]
+name = "wayrill"
+version = "0.31.18"
+description = "Wayrill routing workspace"
+edition = "2021"
+rust-version = "1.77.2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+wayrill-diagnostics = { path = "../service/diagnostics" }
+tauri = { version = "2", features = ["tray-icon"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+url = "2"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Controls_Dialogs", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Networking_WinHttp"] }
+tokio = { version = "1.53", features = ["time", "sync"] }
+wayrill-ipc = { path = "../service/ipc" }
+wayrill-protocol = { path = "../service/protocol" }
+tauri-plugin-single-instance = "2.5.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

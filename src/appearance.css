@@ -1,0 +1,62 @@
+.theme-choices {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.theme-choices legend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.theme-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+.theme-choice:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.theme-choice:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-choice input {
+  accent-color: var(--accent);
+  margin: 0;
+  flex-shrink: 0;
+}
+.theme-choice strong,
+.theme-choice small {
+  display: block;
+}
+.theme-choice strong {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.theme-choice small,
+.theme-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.theme-note {
+  margin: 14px 0 0;
+}
+.theme-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (forced-colors: active) {
+  .theme-choice:has(input:checked) {
+    border: 2px solid Highlight;
+  }
+}

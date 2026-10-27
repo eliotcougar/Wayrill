@@ -1,0 +1,18 @@
+[
+  {
+    "path": "LICENSE",
+    "sha256": "c8c14751d8d7a60927ca47221c88c50ada4a7b3644a3082ffa1d35eaa597ee94"
+  },
+  {
+    "path": "provenance.json",
+    "sha256": "531c44f55fc4e422c2bc68218e6f54193cb911de50f4321a0325145e27b99c7e"
+  },
+  {
+    "path": "THIRD-PARTY-NOTICES.md",
+    "sha256": "d5a66edd5f8a36430bda893428c80594454810a817e87b05fc3cfe76a8d26d13"
+  },
+  {
+    "path": "wayrill-capture.exe",
+    "sha256": "1bdf172ecadfb6b3b50df136aeba41c7c23c01e1b2df368c8cb2344bd868913b"
+  }
+]

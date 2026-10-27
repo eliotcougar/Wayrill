@@ -1,0 +1,218 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import { exportFile } from '../exportFile';
+import type { DiagnosticSource } from '../diagnostics';
+import DiagnosticsDialog from './DiagnosticsDialog';
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: () => true }));
+vi.mock('../exportFile', () => ({ exportFile: vi.fn().mockResolvedValue(true) }));
+let root: Root, host: HTMLDivElement;
+const entry = (message: string, component = 'TUN', level = 'error') =>
+  JSON.stringify({ timeMs: 1000, pid: 100, component, level, message });
+const source = (name: DiagnosticSource['source'], text: string): DiagnosticSource => ({
+  source: name,
+  folder: name === 'desktop' ? 'C:/user/Logs' : 'C:/service/Logs',
+  error: null,
+  text,
+});
+const recent = () => [
+  source(
+    'service',
+    [entry('recent event 192.168.1.2'), entry('observer message', 'attribution', 'warning')].join(
+      '\n',
+    ),
+  ),
+  source('sharing', entry('sharing message', 'TUN', 'info')),
+  source('desktop', entry('desktop message', 'renderer', 'error')),
+];
+const output = () => host.querySelector<HTMLTextAreaElement>('textarea')!;
+const group = (name: string) =>
+  [...host.querySelectorAll('fieldset')].find(
+    (field) => field.querySelector('legend')?.textContent === `Visible ${name}`,
+  )!;
+const check = (groupName: string, label: string) =>
+  [...group(groupName).querySelectorAll('label')]
+    .find((row) => row.textContent?.trim() === label)!
+    .querySelector('input')!;
+const button = (name: string) =>
+  [...host.querySelectorAll('button')].find(
+    (row) => row.textContent?.includes(name) || row.getAttribute('aria-label') === name,
+  )!;
+const render = async () =>
+  act(async () => root.render(<DiagnosticsDialog maskAddress="full" onClose={() => {}} />));
+const click = async (element: HTMLElement) => act(async () => element.click());
+const tick = async () =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-21T00:00:00Z'));
+  vi.clearAllMocks();
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  root = createRoot(host);
+  vi.mocked(invoke).mockImplementation(async (_method, args) => ({
+    sources: (args as { retained?: boolean })?.retained
+      ? [
+          source(
+            'service',
+            [
+              entry('older retained event example.com:443'),
+              entry('older warning', 'attribution', 'warning'),
+            ].join('\n'),
+          ),
+          source('desktop', entry('retained desktop', 'renderer')),
+        ]
+      : recent(),
+  }));
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+  vi.useRealTimers();
+});
+it('filters individual components and exact levels with independent All checkboxes', async () => {
+  await render();
+  expect(invoke).toHaveBeenCalledWith('diagnostics_read', { retained: false });
+  expect(output().value).toContain('192.168.1.2');
+  await click(check('sources', 'Networking service / attribution'));
+  expect(output().value).not.toContain('observer message');
+  expect(check('sources', 'All').indeterminate).toBe(true);
+  await click(check('levels', 'Error'));
+  expect(output().value).not.toContain('recent event');
+  expect(output().value).not.toContain('desktop message');
+  expect(output().value).toContain('sharing message');
+  await click(check('sources', 'All'));
+  expect(check('sources', 'All').indeterminate).toBe(false);
+  expect(output().value).toContain('observer message');
+  await click(check('sources', 'All'));
+  expect(output().value).toBe('');
+  await click(button('Reset log filters'));
+  expect(output().value).toContain('desktop message');
+  expect(output().value).toContain('observer message');
+  expect(button('Reset log filters').disabled).toBe(true);
+});
+it('keeps collecting while paused, holds the visible text, and immediately catches up on resume', async () => {
+  await render();
+  await click(button('Pause display'));
+  const held = output().value;
+  vi.mocked(invoke).mockResolvedValue({
+    sources: [source('service', entry('new live event', 'attribution'))],
+  });
+  await tick();
+  await tick();
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([method]) => method === 'diagnostics_read'),
+  ).toHaveLength(3);
+  expect(output().value).toBe(held);
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('Display paused at');
+  await click(button('Resume display'));
+  expect(output().value).toContain('new live event');
+  expect(output().value).not.toContain('recent event');
+});
+it('exports filtered retained history with masking, independently of the held tail', async () => {
+  await render();
+  await click(check('sources', 'All'));
+  await click(check('sources', 'Networking service / TUN'));
+  await click(check('levels', 'All'));
+  await click(check('levels', 'Error'));
+  await click(button('Pause display'));
+  await click(button('Save diagnostics'));
+  expect(invoke).toHaveBeenCalledWith('diagnostics_read', { retained: true });
+  const text = vi.mocked(exportFile).mock.calls[0][1];
+  expect(text).toContain('older retained event');
+  expect(text).not.toContain('example.com');
+  expect(text).not.toContain('older warning');
+  expect(text).not.toContain('retained desktop');
+  expect(text).not.toContain('C:/service/Logs');
+  expect(output().value).toContain('192.168.1.2');
+});
+it('retries failed live reads without erasing entries or an export error', async () => {
+  await render();
+  vi.mocked(invoke).mockRejectedValueOnce(new Error('temporary file read failure'));
+  await tick();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    'temporary file read failure',
+  );
+  expect(output().value).toContain('recent event');
+  await tick();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  vi.mocked(exportFile).mockRejectedValueOnce(new Error('export failed'));
+  await click(button('Save diagnostics'));
+  await tick();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('export failed');
+});
+it('does not overlap live reads and ignores a pending reply after unmount', async () => {
+  let complete!: (result: { sources: DiagnosticSource[] }) => void;
+  vi.mocked(invoke).mockReturnValue(
+    new Promise((resolve) => {
+      complete = resolve;
+    }),
+  );
+  await render();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(invoke).toHaveBeenCalledTimes(1);
+  await act(async () => root.unmount());
+  await act(async () => complete({ sources: recent() }));
+  expect(vi.getTimerCount()).toBe(0);
+  root = createRoot(host);
+});
+it('lets All include new sources but leaves new sources hidden after All is cleared', async () => {
+  await render();
+  vi.mocked(invoke).mockResolvedValue({
+    sources: [source('service', entry('new logger', 'new component', 'debug'))],
+  });
+  await tick();
+  expect(output().value).toContain('new logger');
+  await click(check('sources', 'All'));
+  vi.mocked(invoke).mockResolvedValue({
+    sources: [source('service', entry('another logger', 'another component', 'debug'))],
+  });
+  await tick();
+  expect(output().value).toBe('');
+  expect(check('sources', 'Networking service / another component').checked).toBe(false);
+});
+it('opens the desktop folder when only a desktop component is selected', async () => {
+  await render();
+  await click(check('sources', 'All'));
+  await click(check('sources', 'Desktop app / renderer'));
+  await click(button('Open folder'));
+  expect(invoke).toHaveBeenCalledWith('diagnostics_open', { source: 'desktop' });
+});
+
+it('Escape closes a filter popover and restores its trigger rather than closing the dialog', async () => {
+  await render();
+  const details = host.querySelector('details')!;
+  details.open = true;
+  const checkbox = check('sources', 'All');
+  checkbox.focus();
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  await act(async () => {
+    checkbox.dispatchEvent(escape);
+  });
+  expect(escape.defaultPrevented).toBe(true);
+  expect(details.open).toBe(false);
+  expect(document.activeElement).toBe(details.querySelector('summary'));
+  expect(host.querySelector('dialog')?.open).toBe(true);
+});
+
+it('keeps the inspection scroll while paused and follows the latest entry on resume', async () => {
+  await render();
+  Object.defineProperty(output(), 'scrollHeight', { configurable: true, value: 1200 });
+  output().scrollTop = 150;
+  await click(button('Pause display'));
+  await click(check('levels', 'Error'));
+  await tick();
+  expect(output().scrollTop).toBe(150);
+  await click(button('Resume display'));
+  expect(output().scrollTop).toBe(1200);
+});

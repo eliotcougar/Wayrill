@@ -1,0 +1,64 @@
+[package]
+name = "wayrill-capture"
+version = "0.29.22"
+edition = "2021"
+rust-version = "1.99"
+license = "GPL-3.0-only"
+description = "Contained Windows capture worker for Wayrill"
+
+[features]
+default = ["windivert"]
+windivert = []
+
+[[bin]]
+name = "wayrill-capture"
+path = "src/main.rs"
+required-features = ["windivert"]
+
+[[bin]]
+name = "wayrill-attribution"
+path = "src/bin/attribution.rs"
+
+# These targets exercise modules deliberately absent from the attribution-only build.
+[[example]]
+name = "native_probe"
+required-features = ["windivert"]
+
+[[test]]
+name = "divert_monitor"
+required-features = ["windivert"]
+
+[[test]]
+name = "lease"
+required-features = ["windivert"]
+
+[[test]]
+name = "udp_lifecycle"
+required-features = ["windivert"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows-sys = { version = "0.61", features = ["Win32_Globalization", "Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_SystemInformation", "Win32_System_Services", "Win32_System_Performance", "Win32_System_Diagnostics_Etw", "Win32_System_Time", "Win32_System_ProcessStatus", "Win32_System_Environment", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_WindowsFirewall", "Win32_Networking_WinSock"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+windows = { version = "0.62.2", features = ["ApplicationModel", "Management_Deployment", "Win32_System_WinRT", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_Wmi", "Win32_NetworkManagement_WindowsFirewall"] }
+sha2 = "0.10"
+socket2 = "0.6"
+bytemuck = { version = "1.25.2", features = ["must_cast"] }
+getrandom = "0.4.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+# This GPL worker is built and optimized separately from the coordinator.
+[workspace]
+resolver = "2"

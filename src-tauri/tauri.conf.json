@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Wayrill",
+  "version": "0.31.18",
+  "identifier": "app.wayrill.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wayrill",
+        "width": 1200,
+        "height": 680,
+        "center": true,
+        "dragDropEnabled": false,
+        "minWidth": 640,
+        "minHeight": 480,
+        "backgroundColor": "#10151d"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "useLocalToolsDir": true,
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "installer-hooks.nsh",
+        "template": "installer/installer.nsi"
+      }
+    },
+    "resources": {
+      "../.tools/installer-service/capture/": "Service/capture/",
+      "../.tools/installer-service/attribution/": "Service/attribution/",
+      "../.tools/installer-service/tun-core/": "Service/tun-core/",
+      "../.tools/installer-service/docs/": "Service/docs/",
+      "../.tools/installer-service/scripts/": "Service/scripts/",
+      "../.tools/installer-service/xray/": "Service/xray/",
+      "../.tools/installer-service/api.schema.json": "Service/api.schema.json",
+      "../.tools/installer-service/capture-source.zip": "Service/capture-source.zip",
+      "../.tools/installer-service/dependencies.json": "Service/dependencies.json",
+      "../.tools/installer-service/limits.json": "Service/limits.json",
+      "../.tools/installer-service/manifest.json": "Service/manifest.json",
+      "../.tools/installer-service/THIRD-PARTY-NOTICES.md": "Service/THIRD-PARTY-NOTICES.md",
+      "../.tools/installer-service/LICENSE": "Service/LICENSE",
+      "../.tools/installer-service/wayrill-service.exe": "Service/wayrill-service.exe",
+      "../.tools/installer-service/wayrillctl.exe": "Service/wayrillctl.exe",
+      "../.tools/installer-service/windivert/WinDivert.dll": "Service/windivert/WinDivert.dll",
+      "../.tools/installer-service/windivert/LICENSE": "Service/windivert/LICENSE",
+      "../.tools/installer-service/windivert/windivert.h": "Service/windivert/WinDivert.h",
+      "../.tools/installer-service/routing-assets/": "Service/routing-assets/"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+Wayrill schematic router: libavoid-js 0.4.5 (LGPL-2.1-or-later).
+JavaScript/WebAssembly port by Vladyslav Hnatiuk and contributors.
+libavoid: Michael Wybrow and contributors; Monash University.
+See libavoid-LGPL-2.1.txt for the original license terms.
+
+Wrapper source: https://github.com/Aksem/libavoid-js
+Pinned commit: 28a6fe20c2f1f809afdbeca8d789e65357614c4f
+C++ source used by its build script: https://github.com/Aksem/adaptagrams/tree/v1.0.4
+Routing API: https://www.adaptagrams.org/documentation/namespaceAvoid.html
+
+Wayrill release assets include the verified npm package, wrapper and C++
+source archives prepared by tools/Prepare-ThirdPartySources.ps1, with
+SHA256.json. THIRD_PARTY_NOTICES.md contains rebuild/replacement guidance.
+The published dependency runtime and WASM are unmodified. Wayrill's
+TypeScript adapter, port mapping and independent geometry checks are in
+src/graph/libavoid.ts and src/graph/edgePaths.ts.

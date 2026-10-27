@@ -1,0 +1,10 @@
+
+Дополнительные параметры прокси-сервера WinHTTP:
+
+{
+	"ProxyIsEnabled":	false,
+	"AutoConfigIsEnabled":	false,
+	"AutoDetect":	true,
+	"PerUserProxySettings":	true
+}
+

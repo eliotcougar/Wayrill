@@ -1,0 +1,3589 @@
+diff --git a/app/dispatcher/fakednssniffer.go b/app/dispatcher/fakednssniffer.go
+index 9476288c..eed4c654 100644
+--- a/app/dispatcher/fakednssniffer.go
++++ b/app/dispatcher/fakednssniffer.go
+@@ -27,10 +27,22 @@ func newFakeDNSSniffer(ctx context.Context) (protocolSnifferWithMetadata, error)
+ 		return protocolSnifferWithMetadata{}, errNotInit
+ 	}
+ 	return protocolSnifferWithMetadata{protocolSniffer: func(ctx context.Context, bytes []byte) (SniffResult, error) {
++		if err := ctx.Err(); err != nil {
++			return nil, err
++		}
+ 		outbounds := session.OutboundsFromContext(ctx)
+ 		ob := outbounds[len(outbounds)-1]
+ 		if ob.Target.Network == net.Network_TCP || ob.Target.Network == net.Network_UDP {
+-			domainFromFakeDNS := fakeDNSEngine.GetDomainFromFakeDNS(ob.Target.Address)
++			var domainFromFakeDNS string
++			if engine, ok := fakeDNSEngine.(dns.FakeDNSEngineContext); ok {
++				var err error
++				domainFromFakeDNS, err = engine.ReverseLookup(ctx, ob.Target.Address)
++				if err != nil {
++					return nil, err
++				}
++			} else {
++				domainFromFakeDNS = fakeDNSEngine.GetDomainFromFakeDNS(ob.Target.Address)
++			}
+ 			if domainFromFakeDNS != "" {
+ 				errors.LogInfo(ctx, "fake dns got domain: ", domainFromFakeDNS, " for ip: ", ob.Target.Address.String())
+ 				return &fakeDNSSniffResult{domainName: domainFromFakeDNS}, nil
+diff --git a/app/dispatcher/sniffer.go b/app/dispatcher/sniffer.go
+index d6acf0d9..5ff367a0 100644
+--- a/app/dispatcher/sniffer.go
++++ b/app/dispatcher/sniffer.go
+@@ -98,8 +98,11 @@ func (s *Sniffer) SniffMetadata(c context.Context) (SniffResult, error) {
+ 			pendingSniffer = append(pendingSniffer, si)
+ 			continue
+ 		}
++		if err != nil {
++			return nil, err
++		}
+ 
+-		if err == nil && result != nil {
++		if result != nil {
+ 			return result, nil
+ 		}
+ 	}
+diff --git a/app/dns/cache_controller.go b/app/dns/cache_controller.go
+index 6e2fd6c9..c84c98d7 100644
+--- a/app/dns/cache_controller.go
++++ b/app/dns/cache_controller.go
+@@ -14,7 +14,6 @@ import (
+ 	dns_feature "github.com/xtls/xray-core/features/dns"
+ 
+ 	"golang.org/x/net/dns/dnsmessage"
+-	"golang.org/x/sync/singleflight"
+ )
+ 
+ const (
+@@ -37,7 +36,8 @@ type CacheController struct {
+ 	pub           *pubsub.Service
+ 	cacheCleanup  *task.Periodic
+ 	highWatermark int
+-	requestGroup  singleflight.Group
++	requestGroup  queryGroup
++	queryTimeout  time.Duration
+ }
+ 
+ func NewCacheController(name string, disableCache bool, serveStale bool, serveExpiredTTL uint32) *CacheController {
+@@ -48,6 +48,7 @@ func NewCacheController(name string, disableCache bool, serveStale bool, serveEx
+ 		serveExpiredTTL: -int32(serveExpiredTTL),
+ 		ips:             make(map[string]*record),
+ 		pub:             pubsub.NewService(),
++		queryTimeout:    sharedQueryTimeout,
+ 	}
+ 
+ 	c.cacheCleanup = &task.Periodic{
+diff --git a/app/dns/dns.go b/app/dns/dns.go
+index e452bda5..c5e6b146 100644
+--- a/app/dns/dns.go
++++ b/app/dns/dns.go
+@@ -209,6 +209,11 @@ func (s *DNS) Start() error {
+ 
+ // Close implements common.Closable.
+ func (s *DNS) Close() error {
++	for _, client := range s.clients {
++		if cached, ok := client.server.(CachedNameserver); ok {
++			cached.getCacheController().requestGroup.close()
++		}
++	}
+ 	if s.script != nil {
+ 		s.script.close()
+ 	}
+@@ -253,6 +258,26 @@ func (s *DNS) MayUseSystemResolver() bool {
+ 
+ // LookupIP implements dns.Client.
+ func (s *DNS) LookupIP(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	return s.lookupIP(s.ctx, domain, option)
++}
++
++// LookupIPContext is the private bridge's cancellable native lookup. Preserve the
++// resolver's original routing context; caller metadata must not change DNS routes.
++func (s *DNS) LookupIPContext(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	query, cancel := context.WithCancel(s.ctx)
++	defer cancel()
++	stop := context.AfterFunc(ctx, cancel)
++	defer stop()
++	if err := ctx.Err(); err != nil {
++		return nil, 0, err
++	}
++	return s.lookupIP(query, domain, option)
++}
++
++func (s *DNS) lookupIP(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, 0, err
++	}
+ 	// Normalize the FQDN form query
+ 	domain = strings.TrimSuffix(domain, ".")
+ 	if domain == "" {
+@@ -297,12 +322,12 @@ func (s *DNS) LookupIP(domain string, option dns.IPOption) ([]net.IP, uint32, er
+ 
+ 	// Name servers lookup
+ 	if s.script != nil {
+-		return s.script.query(domain, option)
++		return s.script.queryContext(ctx, domain, option)
+ 	}
+ 	if s.enableParallelQuery {
+-		return s.parallelQuery(domain, option)
++		return s.parallelQuery(ctx, domain, option)
+ 	} else {
+-		return s.serialQuery(domain, option)
++		return s.serialQuery(ctx, domain, option)
+ 	}
+ }
+ 
+@@ -402,7 +427,7 @@ func mergeQueryErrors(domain string, errs []error) error {
+ 	return errors.New("returning nil for domain ", domain).Base(noRNF)
+ }
+ 
+-func (s *DNS) serialQuery(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++func (s *DNS) serialQuery(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
+ 	var errs []error
+ 	for _, client := range s.sortClients(domain) {
+ 		if !option.FakeEnable && strings.EqualFold(client.Name(), "FakeDNS") {
+@@ -410,7 +435,10 @@ func (s *DNS) serialQuery(domain string, option dns.IPOption) ([]net.IP, uint32,
+ 			continue
+ 		}
+ 
+-		ips, ttl, err := client.QueryIP(s.ctx, domain, option)
++		if err := ctx.Err(); err != nil {
++			return nil, 0, err
++		}
++		ips, ttl, err := client.QueryIP(ctx, domain, option)
+ 
+ 		if len(ips) > 0 {
+ 			return ips, ttl, nil
+@@ -425,11 +453,11 @@ func (s *DNS) serialQuery(domain string, option dns.IPOption) ([]net.IP, uint32,
+ 	return nil, 0, mergeQueryErrors(domain, errs)
+ }
+ 
+-func (s *DNS) parallelQuery(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++func (s *DNS) parallelQuery(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
+ 	var errs []error
+ 	clients := s.sortClients(domain)
+ 
+-	resultsChan := asyncQueryAll(domain, option, clients, s.ctx)
++	resultsChan := asyncQueryAll(domain, option, clients, ctx)
+ 
+ 	groups, groupOf := makeGroups( /*s.ctx,*/ clients)
+ 	results := make([]*queryResult, len(clients))
+@@ -440,7 +468,12 @@ func (s *DNS) parallelQuery(domain string, option dns.IPOption) ([]net.IP, uint3
+ 
+ 	nextGroup := 0
+ 	for range clients {
+-		result := <-resultsChan
++		var result queryResult
++		select {
++		case <-ctx.Done():
++			return nil, 0, ctx.Err()
++		case result = <-resultsChan:
++		}
+ 		results[result.index] = &result
+ 
+ 		gi := groupOf[result.index]
+diff --git a/app/dns/fakedns/address_width_test.go b/app/dns/fakedns/address_width_test.go
+new file mode 100644
+index 00000000..b0aa59ff
+--- /dev/null
++++ b/app/dns/fakedns/address_width_test.go
+@@ -0,0 +1,36 @@
++package fakedns
++
++import (
++	"fmt"
++	"testing"
++
++	"github.com/xtls/xray-core/common/net"
++)
++
++func TestAllocationPreservesAddressWidth(t *testing.T) {
++	for _, pool := range []string{"0.1.0.0/16", "::100:0/112"} {
++		t.Run(pool, func(t *testing.T) {
++			h, err := NewFakeDNSHolderConfigOnly(&FakeDnsPool{IpPool: pool, LruSize: 32})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := h.Start(); err != nil {
++				t.Fatal(err)
++			}
++			_, prefix, _ := net.ParseCIDR(pool)
++			for i := 0; i < 64; i++ {
++				domain := fmt.Sprintf("width-%d.example", i)
++				ips := h.GetFakeIPForDomain(domain)
++				if len(ips) != 1 || ips[0] == nil || !ips[0].Family().IsIP() || !prefix.Contains(ips[0].IP()) {
++					t.Fatalf("allocation outside %s: %v", pool, ips)
++				}
++				if got := h.GetDomainFromFakeDNS(ips[0]); got != domain {
++					t.Fatalf("reverse = %q", got)
++				}
++				if got := h.GetFakeIPForDomain(domain); len(got) != 1 || got[0] != ips[0] {
++					t.Fatal("unstable allocation")
++				}
++			}
++		})
++	}
++}
+diff --git a/app/dns/fakedns/command/command.pb.go b/app/dns/fakedns/command/command.pb.go
+new file mode 100644
+index 00000000..1d039c71
+--- /dev/null
++++ b/app/dns/fakedns/command/command.pb.go
+@@ -0,0 +1,493 @@
++// Code generated by protoc-gen-go. DO NOT EDIT.
++// versions:
++// 	protoc-gen-go v1.36.11
++// 	protoc        v6.33.5
++// source: app/dns/fakedns/command/command.proto
++
++package command
++
++import (
++	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
++	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
++	reflect "reflect"
++	sync "sync"
++	unsafe "unsafe"
++)
++
++const (
++	// Verify that this generated code is sufficiently up-to-date.
++	_ = protoimpl.EnforceVersion(20 - protoimpl.MinVersion)
++	// Verify that runtime/protoimpl is sufficiently up-to-date.
++	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
++)
++
++type Config struct {
++	state         protoimpl.MessageState `protogen:"open.v1"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *Config) Reset() {
++	*x = Config{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[0]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *Config) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*Config) ProtoMessage() {}
++
++func (x *Config) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[0]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use Config.ProtoReflect.Descriptor instead.
++func (*Config) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{0}
++}
++
++type GetPoolsRequest struct {
++	state         protoimpl.MessageState `protogen:"open.v1"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *GetPoolsRequest) Reset() {
++	*x = GetPoolsRequest{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[1]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *GetPoolsRequest) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*GetPoolsRequest) ProtoMessage() {}
++
++func (x *GetPoolsRequest) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[1]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use GetPoolsRequest.ProtoReflect.Descriptor instead.
++func (*GetPoolsRequest) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{1}
++}
++
++type GetPoolsResponse struct {
++	state   protoimpl.MessageState `protogen:"open.v1"`
++	IpPools []string               `protobuf:"bytes,1,rep,name=ip_pools,json=ipPools,proto3" json:"ip_pools,omitempty"`
++	// Optional occupancy snapshot; each address-family mapping counts once.
++	Usage         []*PoolUsage `protobuf:"bytes,2,rep,name=usage,proto3" json:"usage,omitempty"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *GetPoolsResponse) Reset() {
++	*x = GetPoolsResponse{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[2]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *GetPoolsResponse) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*GetPoolsResponse) ProtoMessage() {}
++
++func (x *GetPoolsResponse) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[2]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use GetPoolsResponse.ProtoReflect.Descriptor instead.
++func (*GetPoolsResponse) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{2}
++}
++
++func (x *GetPoolsResponse) GetIpPools() []string {
++	if x != nil {
++		return x.IpPools
++	}
++	return nil
++}
++
++func (x *GetPoolsResponse) GetUsage() []*PoolUsage {
++	if x != nil {
++		return x.Usage
++	}
++	return nil
++}
++
++type PoolUsage struct {
++	state         protoimpl.MessageState `protogen:"open.v1"`
++	IpPool        string                 `protobuf:"bytes,1,opt,name=ip_pool,json=ipPool,proto3" json:"ip_pool,omitempty"`
++	Used          uint64                 `protobuf:"varint,2,opt,name=used,proto3" json:"used,omitempty"`
++	Capacity      uint64                 `protobuf:"varint,3,opt,name=capacity,proto3" json:"capacity,omitempty"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *PoolUsage) Reset() {
++	*x = PoolUsage{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[3]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *PoolUsage) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*PoolUsage) ProtoMessage() {}
++
++func (x *PoolUsage) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[3]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use PoolUsage.ProtoReflect.Descriptor instead.
++func (*PoolUsage) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{3}
++}
++
++func (x *PoolUsage) GetIpPool() string {
++	if x != nil {
++		return x.IpPool
++	}
++	return ""
++}
++
++func (x *PoolUsage) GetUsed() uint64 {
++	if x != nil {
++		return x.Used
++	}
++	return 0
++}
++
++func (x *PoolUsage) GetCapacity() uint64 {
++	if x != nil {
++		return x.Capacity
++	}
++	return 0
++}
++
++type AllocateRequest struct {
++	state         protoimpl.MessageState `protogen:"open.v1"`
++	Domain        string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
++	Ipv4          bool                   `protobuf:"varint,2,opt,name=ipv4,proto3" json:"ipv4,omitempty"`
++	Ipv6          bool                   `protobuf:"varint,3,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *AllocateRequest) Reset() {
++	*x = AllocateRequest{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[4]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *AllocateRequest) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*AllocateRequest) ProtoMessage() {}
++
++func (x *AllocateRequest) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[4]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use AllocateRequest.ProtoReflect.Descriptor instead.
++func (*AllocateRequest) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{4}
++}
++
++func (x *AllocateRequest) GetDomain() string {
++	if x != nil {
++		return x.Domain
++	}
++	return ""
++}
++
++func (x *AllocateRequest) GetIpv4() bool {
++	if x != nil {
++		return x.Ipv4
++	}
++	return false
++}
++
++func (x *AllocateRequest) GetIpv6() bool {
++	if x != nil {
++		return x.Ipv6
++	}
++	return false
++}
++
++type AllocateResponse struct {
++	state protoimpl.MessageState `protogen:"open.v1"`
++	// Network byte order: exactly 4 or 16 bytes per address.
++	Ips           [][]byte `protobuf:"bytes,1,rep,name=ips,proto3" json:"ips,omitempty"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *AllocateResponse) Reset() {
++	*x = AllocateResponse{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[5]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *AllocateResponse) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*AllocateResponse) ProtoMessage() {}
++
++func (x *AllocateResponse) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[5]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use AllocateResponse.ProtoReflect.Descriptor instead.
++func (*AllocateResponse) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{5}
++}
++
++func (x *AllocateResponse) GetIps() [][]byte {
++	if x != nil {
++		return x.Ips
++	}
++	return nil
++}
++
++type ReverseLookupRequest struct {
++	state         protoimpl.MessageState `protogen:"open.v1"`
++	Ip            []byte                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *ReverseLookupRequest) Reset() {
++	*x = ReverseLookupRequest{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[6]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *ReverseLookupRequest) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*ReverseLookupRequest) ProtoMessage() {}
++
++func (x *ReverseLookupRequest) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[6]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use ReverseLookupRequest.ProtoReflect.Descriptor instead.
++func (*ReverseLookupRequest) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{6}
++}
++
++func (x *ReverseLookupRequest) GetIp() []byte {
++	if x != nil {
++		return x.Ip
++	}
++	return nil
++}
++
++type ReverseLookupResponse struct {
++	state protoimpl.MessageState `protogen:"open.v1"`
++	// Empty for an unknown or evicted mapping; this call never allocates.
++	Domain        string `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
++	unknownFields protoimpl.UnknownFields
++	sizeCache     protoimpl.SizeCache
++}
++
++func (x *ReverseLookupResponse) Reset() {
++	*x = ReverseLookupResponse{}
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[7]
++	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++	ms.StoreMessageInfo(mi)
++}
++
++func (x *ReverseLookupResponse) String() string {
++	return protoimpl.X.MessageStringOf(x)
++}
++
++func (*ReverseLookupResponse) ProtoMessage() {}
++
++func (x *ReverseLookupResponse) ProtoReflect() protoreflect.Message {
++	mi := &file_app_dns_fakedns_command_command_proto_msgTypes[7]
++	if x != nil {
++		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
++		if ms.LoadMessageInfo() == nil {
++			ms.StoreMessageInfo(mi)
++		}
++		return ms
++	}
++	return mi.MessageOf(x)
++}
++
++// Deprecated: Use ReverseLookupResponse.ProtoReflect.Descriptor instead.
++func (*ReverseLookupResponse) Descriptor() ([]byte, []int) {
++	return file_app_dns_fakedns_command_command_proto_rawDescGZIP(), []int{7}
++}
++
++func (x *ReverseLookupResponse) GetDomain() string {
++	if x != nil {
++		return x.Domain
++	}
++	return ""
++}
++
++var File_app_dns_fakedns_command_command_proto protoreflect.FileDescriptor
++
++const file_app_dns_fakedns_command_command_proto_rawDesc = "" +
++	"\n" +
++	"%app/dns/fakedns/command/command.proto\x12\x1cxray.app.dns.fakedns.command\"\b\n" +
++	"\x06Config\"\x11\n" +
++	"\x0fGetPoolsRequest\"l\n" +
++	"\x10GetPoolsResponse\x12\x19\n" +
++	"\bip_pools\x18\x01 \x03(\tR\aipPools\x12=\n" +
++	"\x05usage\x18\x02 \x03(\v2'.xray.app.dns.fakedns.command.PoolUsageR\x05usage\"T\n" +
++	"\tPoolUsage\x12\x17\n" +
++	"\aip_pool\x18\x01 \x01(\tR\x06ipPool\x12\x12\n" +
++	"\x04used\x18\x02 \x01(\x04R\x04used\x12\x1a\n" +
++	"\bcapacity\x18\x03 \x01(\x04R\bcapacity\"Q\n" +
++	"\x0fAllocateRequest\x12\x16\n" +
++	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x12\n" +
++	"\x04ipv4\x18\x02 \x01(\bR\x04ipv4\x12\x12\n" +
++	"\x04ipv6\x18\x03 \x01(\bR\x04ipv6\"$\n" +
++	"\x10AllocateResponse\x12\x10\n" +
++	"\x03ips\x18\x01 \x03(\fR\x03ips\"&\n" +
++	"\x14ReverseLookupRequest\x12\x0e\n" +
++	"\x02ip\x18\x01 \x01(\fR\x02ip\"/\n" +
++	"\x15ReverseLookupResponse\x12\x16\n" +
++	"\x06domain\x18\x01 \x01(\tR\x06domain2\xe6\x02\n" +
++	"\x0eFakeDNSService\x12k\n" +
++	"\bGetPools\x12-.xray.app.dns.fakedns.command.GetPoolsRequest\x1a..xray.app.dns.fakedns.command.GetPoolsResponse\"\x00\x12k\n" +
++	"\bAllocate\x12-.xray.app.dns.fakedns.command.AllocateRequest\x1a..xray.app.dns.fakedns.command.AllocateResponse\"\x00\x12z\n" +
++	"\rReverseLookup\x122.xray.app.dns.fakedns.command.ReverseLookupRequest\x1a3.xray.app.dns.fakedns.command.ReverseLookupResponse\"\x00Bv\n" +
++	" com.xray.app.dns.fakedns.commandP\x01Z1github.com/xtls/xray-core/app/dns/fakedns/command\xaa\x02\x1cXray.App.Dns.Fakedns.Commandb\x06proto3"
++
++var (
++	file_app_dns_fakedns_command_command_proto_rawDescOnce sync.Once
++	file_app_dns_fakedns_command_command_proto_rawDescData []byte
++)
++
++func file_app_dns_fakedns_command_command_proto_rawDescGZIP() []byte {
++	file_app_dns_fakedns_command_command_proto_rawDescOnce.Do(func() {
++		file_app_dns_fakedns_command_command_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_app_dns_fakedns_command_command_proto_rawDesc), len(file_app_dns_fakedns_command_command_proto_rawDesc)))
++	})
++	return file_app_dns_fakedns_command_command_proto_rawDescData
++}
++
++var file_app_dns_fakedns_command_command_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
++var file_app_dns_fakedns_command_command_proto_goTypes = []any{
++	(*Config)(nil),                // 0: xray.app.dns.fakedns.command.Config
++	(*GetPoolsRequest)(nil),       // 1: xray.app.dns.fakedns.command.GetPoolsRequest
++	(*GetPoolsResponse)(nil),      // 2: xray.app.dns.fakedns.command.GetPoolsResponse
++	(*PoolUsage)(nil),             // 3: xray.app.dns.fakedns.command.PoolUsage
++	(*AllocateRequest)(nil),       // 4: xray.app.dns.fakedns.command.AllocateRequest
++	(*AllocateResponse)(nil),      // 5: xray.app.dns.fakedns.command.AllocateResponse
++	(*ReverseLookupRequest)(nil),  // 6: xray.app.dns.fakedns.command.ReverseLookupRequest
++	(*ReverseLookupResponse)(nil), // 7: xray.app.dns.fakedns.command.ReverseLookupResponse
++}
++var file_app_dns_fakedns_command_command_proto_depIdxs = []int32{
++	3, // 0: xray.app.dns.fakedns.command.GetPoolsResponse.usage:type_name -> xray.app.dns.fakedns.command.PoolUsage
++	1, // 1: xray.app.dns.fakedns.command.FakeDNSService.GetPools:input_type -> xray.app.dns.fakedns.command.GetPoolsRequest
++	4, // 2: xray.app.dns.fakedns.command.FakeDNSService.Allocate:input_type -> xray.app.dns.fakedns.command.AllocateRequest
++	6, // 3: xray.app.dns.fakedns.command.FakeDNSService.ReverseLookup:input_type -> xray.app.dns.fakedns.command.ReverseLookupRequest
++	2, // 4: xray.app.dns.fakedns.command.FakeDNSService.GetPools:output_type -> xray.app.dns.fakedns.command.GetPoolsResponse
++	5, // 5: xray.app.dns.fakedns.command.FakeDNSService.Allocate:output_type -> xray.app.dns.fakedns.command.AllocateResponse
++	7, // 6: xray.app.dns.fakedns.command.FakeDNSService.ReverseLookup:output_type -> xray.app.dns.fakedns.command.ReverseLookupResponse
++	4, // [4:7] is the sub-list for method output_type
++	1, // [1:4] is the sub-list for method input_type
++	1, // [1:1] is the sub-list for extension type_name
++	1, // [1:1] is the sub-list for extension extendee
++	0, // [0:1] is the sub-list for field type_name
++}
++
++func init() { file_app_dns_fakedns_command_command_proto_init() }
++func file_app_dns_fakedns_command_command_proto_init() {
++	if File_app_dns_fakedns_command_command_proto != nil {
++		return
++	}
++	type x struct{}
++	out := protoimpl.TypeBuilder{
++		File: protoimpl.DescBuilder{
++			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
++			RawDescriptor: unsafe.Slice(unsafe.StringData(file_app_dns_fakedns_command_command_proto_rawDesc), len(file_app_dns_fakedns_command_command_proto_rawDesc)),
++			NumEnums:      0,
++			NumMessages:   8,
++			NumExtensions: 0,
++			NumServices:   1,
++		},
++		GoTypes:           file_app_dns_fakedns_command_command_proto_goTypes,
++		DependencyIndexes: file_app_dns_fakedns_command_command_proto_depIdxs,
++		MessageInfos:      file_app_dns_fakedns_command_command_proto_msgTypes,
++	}.Build()
++	File_app_dns_fakedns_command_command_proto = out.File
++	file_app_dns_fakedns_command_command_proto_goTypes = nil
++	file_app_dns_fakedns_command_command_proto_depIdxs = nil
++}
+diff --git a/app/dns/fakedns/command/command.proto b/app/dns/fakedns/command/command.proto
+new file mode 100644
+index 00000000..9821a353
+--- /dev/null
++++ b/app/dns/fakedns/command/command.proto
+@@ -0,0 +1,48 @@
++syntax = "proto3";
++
++package xray.app.dns.fakedns.command;
++option csharp_namespace = "Xray.App.Dns.Fakedns.Command";
++option go_package = "github.com/xtls/xray-core/app/dns/fakedns/command";
++option java_package = "com.xray.app.dns.fakedns.command";
++option java_multiple_files = true;
++
++message Config {}
++
++message GetPoolsRequest {}
++message GetPoolsResponse {
++  repeated string ip_pools = 1;
++  // Optional occupancy snapshot; each address-family mapping counts once.
++  repeated PoolUsage usage = 2;
++}
++
++message PoolUsage {
++  string ip_pool = 1;
++  uint64 used = 2;
++  uint64 capacity = 3;
++}
++
++message AllocateRequest {
++  string domain = 1;
++  bool ipv4 = 2;
++  bool ipv6 = 3;
++}
++message AllocateResponse {
++  // Network byte order: exactly 4 or 16 bytes per address.
++  repeated bytes ips = 1;
++}
++
++message ReverseLookupRequest {
++  bytes ip = 1;
++}
++message ReverseLookupResponse {
++  // Empty for an unknown or evicted mapping; this call never allocates.
++  string domain = 1;
++}
++
++// Operates on the same bounded allocator used by local DNS and sniffing.
++// Clients must use a single authority for overlapping address pools.
++service FakeDNSService {
++  rpc GetPools(GetPoolsRequest) returns (GetPoolsResponse) {}
++  rpc Allocate(AllocateRequest) returns (AllocateResponse) {}
++  rpc ReverseLookup(ReverseLookupRequest) returns (ReverseLookupResponse) {}
++}
+diff --git a/app/dns/fakedns/command/command_grpc.pb.go b/app/dns/fakedns/command/command_grpc.pb.go
+new file mode 100644
+index 00000000..50e88253
+--- /dev/null
++++ b/app/dns/fakedns/command/command_grpc.pb.go
+@@ -0,0 +1,203 @@
++// Code generated by protoc-gen-go-grpc. DO NOT EDIT.
++// versions:
++// - protoc-gen-go-grpc v1.6.0
++// - protoc             v6.33.5
++// source: app/dns/fakedns/command/command.proto
++
++package command
++
++import (
++	context "context"
++	grpc "google.golang.org/grpc"
++	codes "google.golang.org/grpc/codes"
++	status "google.golang.org/grpc/status"
++)
++
++// This is a compile-time assertion to ensure that this generated file
++// is compatible with the grpc package it is being compiled against.
++// Requires gRPC-Go v1.64.0 or later.
++const _ = grpc.SupportPackageIsVersion9
++
++const (
++	FakeDNSService_GetPools_FullMethodName      = "/xray.app.dns.fakedns.command.FakeDNSService/GetPools"
++	FakeDNSService_Allocate_FullMethodName      = "/xray.app.dns.fakedns.command.FakeDNSService/Allocate"
++	FakeDNSService_ReverseLookup_FullMethodName = "/xray.app.dns.fakedns.command.FakeDNSService/ReverseLookup"
++)
++
++// FakeDNSServiceClient is the client API for FakeDNSService service.
++//
++// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
++//
++// Operates on the same bounded allocator used by local DNS and sniffing.
++// Clients must use a single authority for overlapping address pools.
++type FakeDNSServiceClient interface {
++	GetPools(ctx context.Context, in *GetPoolsRequest, opts ...grpc.CallOption) (*GetPoolsResponse, error)
++	Allocate(ctx context.Context, in *AllocateRequest, opts ...grpc.CallOption) (*AllocateResponse, error)
++	ReverseLookup(ctx context.Context, in *ReverseLookupRequest, opts ...grpc.CallOption) (*ReverseLookupResponse, error)
++}
++
++type fakeDNSServiceClient struct {
++	cc grpc.ClientConnInterface
++}
++
++func NewFakeDNSServiceClient(cc grpc.ClientConnInterface) FakeDNSServiceClient {
++	return &fakeDNSServiceClient{cc}
++}
++
++func (c *fakeDNSServiceClient) GetPools(ctx context.Context, in *GetPoolsRequest, opts ...grpc.CallOption) (*GetPoolsResponse, error) {
++	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
++	out := new(GetPoolsResponse)
++	err := c.cc.Invoke(ctx, FakeDNSService_GetPools_FullMethodName, in, out, cOpts...)
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++func (c *fakeDNSServiceClient) Allocate(ctx context.Context, in *AllocateRequest, opts ...grpc.CallOption) (*AllocateResponse, error) {
++	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
++	out := new(AllocateResponse)
++	err := c.cc.Invoke(ctx, FakeDNSService_Allocate_FullMethodName, in, out, cOpts...)
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++func (c *fakeDNSServiceClient) ReverseLookup(ctx context.Context, in *ReverseLookupRequest, opts ...grpc.CallOption) (*ReverseLookupResponse, error) {
++	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
++	out := new(ReverseLookupResponse)
++	err := c.cc.Invoke(ctx, FakeDNSService_ReverseLookup_FullMethodName, in, out, cOpts...)
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++// FakeDNSServiceServer is the server API for FakeDNSService service.
++// All implementations must embed UnimplementedFakeDNSServiceServer
++// for forward compatibility.
++//
++// Operates on the same bounded allocator used by local DNS and sniffing.
++// Clients must use a single authority for overlapping address pools.
++type FakeDNSServiceServer interface {
++	GetPools(context.Context, *GetPoolsRequest) (*GetPoolsResponse, error)
++	Allocate(context.Context, *AllocateRequest) (*AllocateResponse, error)
++	ReverseLookup(context.Context, *ReverseLookupRequest) (*ReverseLookupResponse, error)
++	mustEmbedUnimplementedFakeDNSServiceServer()
++}
++
++// UnimplementedFakeDNSServiceServer must be embedded to have
++// forward compatible implementations.
++//
++// NOTE: this should be embedded by value instead of pointer to avoid a nil
++// pointer dereference when methods are called.
++type UnimplementedFakeDNSServiceServer struct{}
++
++func (UnimplementedFakeDNSServiceServer) GetPools(context.Context, *GetPoolsRequest) (*GetPoolsResponse, error) {
++	return nil, status.Error(codes.Unimplemented, "method GetPools not implemented")
++}
++func (UnimplementedFakeDNSServiceServer) Allocate(context.Context, *AllocateRequest) (*AllocateResponse, error) {
++	return nil, status.Error(codes.Unimplemented, "method Allocate not implemented")
++}
++func (UnimplementedFakeDNSServiceServer) ReverseLookup(context.Context, *ReverseLookupRequest) (*ReverseLookupResponse, error) {
++	return nil, status.Error(codes.Unimplemented, "method ReverseLookup not implemented")
++}
++func (UnimplementedFakeDNSServiceServer) mustEmbedUnimplementedFakeDNSServiceServer() {}
++func (UnimplementedFakeDNSServiceServer) testEmbeddedByValue()                        {}
++
++// UnsafeFakeDNSServiceServer may be embedded to opt out of forward compatibility for this service.
++// Use of this interface is not recommended, as added methods to FakeDNSServiceServer will
++// result in compilation errors.
++type UnsafeFakeDNSServiceServer interface {
++	mustEmbedUnimplementedFakeDNSServiceServer()
++}
++
++func RegisterFakeDNSServiceServer(s grpc.ServiceRegistrar, srv FakeDNSServiceServer) {
++	// If the following call panics, it indicates UnimplementedFakeDNSServiceServer was
++	// embedded by pointer and is nil.  This will cause panics if an
++	// unimplemented method is ever invoked, so we test this at initialization
++	// time to prevent it from happening at runtime later due to I/O.
++	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
++		t.testEmbeddedByValue()
++	}
++	s.RegisterService(&FakeDNSService_ServiceDesc, srv)
++}
++
++func _FakeDNSService_GetPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
++	in := new(GetPoolsRequest)
++	if err := dec(in); err != nil {
++		return nil, err
++	}
++	if interceptor == nil {
++		return srv.(FakeDNSServiceServer).GetPools(ctx, in)
++	}
++	info := &grpc.UnaryServerInfo{
++		Server:     srv,
++		FullMethod: FakeDNSService_GetPools_FullMethodName,
++	}
++	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
++		return srv.(FakeDNSServiceServer).GetPools(ctx, req.(*GetPoolsRequest))
++	}
++	return interceptor(ctx, in, info, handler)
++}
++
++func _FakeDNSService_Allocate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
++	in := new(AllocateRequest)
++	if err := dec(in); err != nil {
++		return nil, err
++	}
++	if interceptor == nil {
++		return srv.(FakeDNSServiceServer).Allocate(ctx, in)
++	}
++	info := &grpc.UnaryServerInfo{
++		Server:     srv,
++		FullMethod: FakeDNSService_Allocate_FullMethodName,
++	}
++	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
++		return srv.(FakeDNSServiceServer).Allocate(ctx, req.(*AllocateRequest))
++	}
++	return interceptor(ctx, in, info, handler)
++}
++
++func _FakeDNSService_ReverseLookup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
++	in := new(ReverseLookupRequest)
++	if err := dec(in); err != nil {
++		return nil, err
++	}
++	if interceptor == nil {
++		return srv.(FakeDNSServiceServer).ReverseLookup(ctx, in)
++	}
++	info := &grpc.UnaryServerInfo{
++		Server:     srv,
++		FullMethod: FakeDNSService_ReverseLookup_FullMethodName,
++	}
++	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
++		return srv.(FakeDNSServiceServer).ReverseLookup(ctx, req.(*ReverseLookupRequest))
++	}
++	return interceptor(ctx, in, info, handler)
++}
++
++// FakeDNSService_ServiceDesc is the grpc.ServiceDesc for FakeDNSService service.
++// It's only intended for direct use with grpc.RegisterService,
++// and not to be introspected or modified (even as a copy)
++var FakeDNSService_ServiceDesc = grpc.ServiceDesc{
++	ServiceName: "xray.app.dns.fakedns.command.FakeDNSService",
++	HandlerType: (*FakeDNSServiceServer)(nil),
++	Methods: []grpc.MethodDesc{
++		{
++			MethodName: "GetPools",
++			Handler:    _FakeDNSService_GetPools_Handler,
++		},
++		{
++			MethodName: "Allocate",
++			Handler:    _FakeDNSService_Allocate_Handler,
++		},
++		{
++			MethodName: "ReverseLookup",
++			Handler:    _FakeDNSService_ReverseLookup_Handler,
++		},
++	},
++	Streams:  []grpc.StreamDesc{},
++	Metadata: "app/dns/fakedns/command/command.proto",
++}
+diff --git a/app/dns/fakedns/fake.go b/app/dns/fakedns/fake.go
+index e00f0ec6..c25ee22f 100644
+--- a/app/dns/fakedns/fake.go
++++ b/app/dns/fakedns/fake.go
+@@ -23,16 +23,23 @@ type Holder struct {
+ }
+ 
+ func (fkdns *Holder) IsIPInIPPool(ip net.Address) bool {
++	fkdns.mu.Lock()
++	defer fkdns.mu.Unlock()
+ 	if ip.Family().IsDomain() {
+ 		return false
+ 	}
+-	return fkdns.ipRange.Contains(ip.IP())
++	return fkdns.ipRange != nil && fkdns.ipRange.Contains(ip.IP())
+ }
+ 
+ func (fkdns *Holder) GetFakeIPForDomain3(domain string, ipv4, ipv6 bool) []net.Address {
++	fkdns.mu.Lock()
++	defer fkdns.mu.Unlock()
++	if fkdns.ipRange == nil {
++		return nil
++	}
+ 	isIPv6 := fkdns.ipRange.IP.To4() == nil
+ 	if (isIPv6 && ipv6) || (!isIPv6 && ipv4) {
+-		return fkdns.GetFakeIPForDomain(domain)
++		return fkdns.getFakeIPForDomain(domain)
+ 	}
+ 	return []net.Address{}
+ }
+@@ -76,6 +83,8 @@ func (fkdns *Holder) initializeFromConfig() error {
+ }
+ 
+ func (fkdns *Holder) initialize(ipPoolCidr string, lruSize int) error {
++	fkdns.mu.Lock()
++	defer fkdns.mu.Unlock()
+ 	var ipRange *net.IPNet
+ 	var err error
+ 
+@@ -97,6 +106,13 @@ func (fkdns *Holder) initialize(ipPoolCidr string, lruSize int) error {
+ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
+ 	fkdns.mu.Lock()
+ 	defer fkdns.mu.Unlock()
++	return fkdns.getFakeIPForDomain(domain)
++}
++
++func (fkdns *Holder) getFakeIPForDomain(domain string) []net.Address {
++	if fkdns.ipRange == nil {
++		return nil
++	}
+ 	if v, ok := fkdns.domainToIP.Get(domain); ok {
+ 		return []net.Address{v.(net.Address)}
+ 	}
+@@ -109,8 +125,9 @@ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
+ 	bigIntIP := big.NewInt(0).SetBytes(fkdns.ipRange.IP)
+ 	bigIntIP = bigIntIP.Add(bigIntIP, new(big.Int).SetUint64(currentTimeMillis))
+ 	var ip net.Address
++	address := make([]byte, len(fkdns.ipRange.IP))
+ 	for {
+-		ip = net.IPAddress(bigIntIP.Bytes())
++		ip = net.IPAddress(bigIntIP.FillBytes(address))
+ 
+ 		// if we run for a long time, we may go back to beginning and start seeing the IP in use
+ 		if _, ok := fkdns.domainToIP.PeekKeyFromValue(ip); !ok {
+@@ -118,7 +135,7 @@ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
+ 		}
+ 
+ 		bigIntIP = bigIntIP.Add(bigIntIP, big.NewInt(1))
+-		if !fkdns.ipRange.Contains(bigIntIP.Bytes()) {
++		if bigIntIP.BitLen() > bits || !fkdns.ipRange.Contains(bigIntIP.FillBytes(address)) {
+ 			bigIntIP = big.NewInt(0).SetBytes(fkdns.ipRange.IP)
+ 		}
+ 	}
+@@ -128,12 +145,17 @@ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
+ 
+ // GetDomainFromFakeDNS checks if an IP is a fake IP and have corresponding domain name
+ func (fkdns *Holder) GetDomainFromFakeDNS(ip net.Address) string {
+-	if !ip.Family().IsIP() || !fkdns.ipRange.Contains(ip.IP()) {
++	fkdns.mu.Lock()
++	if !ip.Family().IsIP() || fkdns.ipRange == nil || !fkdns.ipRange.Contains(ip.IP()) {
++		fkdns.mu.Unlock()
+ 		return ""
+ 	}
+-	if k, ok := fkdns.domainToIP.GetKeyFromValue(ip); ok {
++	k, ok := fkdns.domainToIP.GetKeyFromValue(ip)
++	fkdns.mu.Unlock()
++	if ok {
+ 		return k.(string)
+ 	}
++	// Log handlers may inspect pool statistics; do not invoke them under mu.
+ 	errors.LogInfo(context.Background(), "A fake ip request to ", ip, ", however there is no matching domain name in fake DNS")
+ 	return ""
+ }
+@@ -232,7 +254,7 @@ func init() {
+ 		if f, err = NewFakeDNSHolderConfigOnly(config.(*FakeDnsPool)); err != nil {
+ 			return nil, err
+ 		}
+-		return f, nil
++		return wayrillShared(ctx, f)
+ 	}))
+ 
+ 	common.Must(common.RegisterConfig((*FakeDnsPoolMulti)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
+@@ -241,6 +263,6 @@ func init() {
+ 		if f, err = NewFakeDNSHolderMulti(config.(*FakeDnsPoolMulti)); err != nil {
+ 			return nil, err
+ 		}
+-		return f, nil
++		return wayrillShared(ctx, f)
+ 	}))
+ }
+diff --git a/app/dns/fakedns/logging_test.go b/app/dns/fakedns/logging_test.go
+new file mode 100644
+index 00000000..3261314b
+--- /dev/null
++++ b/app/dns/fakedns/logging_test.go
+@@ -0,0 +1,53 @@
++package fakedns
++
++import (
++	"context"
++	"os"
++	"os/exec"
++	"testing"
++	"time"
++
++	"github.com/xtls/xray-core/common/log"
++	"github.com/xtls/xray-core/common/net"
++)
++
++type statsLogHandler struct {
++	holder *Holder
++	calls  int
++}
++
++func (h *statsLogHandler) Handle(log.Message) {
++	h.holder.GetFakeDNSStats()
++	h.calls++
++}
++
++func TestReverseMissAllowsLoggingStats(t *testing.T) {
++	// Isolate the process-wide log handler and bound a deadlock regression.
++	const child = "XRAY_TEST_FAKEDNS_LOG_STATS"
++	if os.Getenv(child) != "1" {
++		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		defer cancel()
++		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestReverseMissAllowsLoggingStats$", "-test.timeout=5s")
++		cmd.Env = append(os.Environ(), child+"=1")
++		if output, err := cmd.CombinedOutput(); err != nil {
++			t.Fatalf("logging statistics blocked reverse lookup: %v\n%s", err, output)
++		}
++		return
++	}
++	h, err := NewFakeDNSHolderConfigOnly(&FakeDnsPool{IpPool: "198.18.0.0/24", LruSize: 4})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := h.Start(); err != nil {
++		t.Fatal(err)
++	}
++	defer h.Close()
++	logger := &statsLogHandler{holder: h}
++	log.RegisterHandler(logger)
++	if got := h.GetDomainFromFakeDNS(net.ParseAddress("198.18.0.1")); got != "" {
++		t.Fatal(got)
++	}
++	if logger.calls != 1 {
++		t.Fatalf("log callback count = %d", logger.calls)
++	}
++}
+diff --git a/app/dns/fakedns/stats.go b/app/dns/fakedns/stats.go
+new file mode 100644
+index 00000000..3e8b7155
+--- /dev/null
++++ b/app/dns/fakedns/stats.go
+@@ -0,0 +1,29 @@
++package fakedns
++
++import "github.com/xtls/xray-core/features/dns"
++
++func (h *Holder) GetFakeDNSStats() []dns.FakeDNSPoolStats {
++	h.mu.Lock()
++	defer h.mu.Unlock()
++	if h.domainToIP == nil || h.ipRange == nil {
++		return nil
++	}
++	cache, ok := h.domainToIP.(interface{ Usage() (int, int) })
++	if !ok {
++		return nil
++	}
++	used, capacity := cache.Usage()
++	return []dns.FakeDNSPoolStats{{IPPool: h.ipRange.String(), Used: uint64(used), Capacity: uint64(capacity)}}
++}
++
++func (h *HolderMulti) GetFakeDNSStats() []dns.FakeDNSPoolStats {
++	var result []dns.FakeDNSPoolStats
++	for _, holder := range h.holders {
++		stats := holder.GetFakeDNSStats()
++		if len(stats) == 0 {
++			return nil
++		}
++		result = append(result, stats...)
++	}
++	return result
++}
+diff --git a/app/dns/fakedns/stats_test.go b/app/dns/fakedns/stats_test.go
+new file mode 100644
+index 00000000..6cca61d8
+--- /dev/null
++++ b/app/dns/fakedns/stats_test.go
+@@ -0,0 +1,105 @@
++package fakedns
++
++import (
++	"fmt"
++	"sync"
++	"testing"
++
++	"github.com/xtls/xray-core/features/dns"
++)
++
++func TestPoolStatsFamiliesAndEviction(t *testing.T) {
++	h, err := NewFakeDNSHolderMulti(&FakeDnsPoolMulti{Pools: []*FakeDnsPool{
++		{IpPool: dns.FakeIPv4Pool, LruSize: 2}, {IpPool: dns.FakeIPv6Pool, LruSize: 2},
++	}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if h.GetFakeDNSStats() != nil {
++		t.Fatal("uninitialized pools reported as usable")
++	}
++	if err := h.Start(); err != nil {
++		t.Fatal(err)
++	}
++	defer h.Close()
++	stats := h.GetFakeDNSStats()
++	if len(stats) != 2 || stats[0].Used != 0 || stats[1].Used != 0 || stats[0].Capacity != 2 || stats[1].Capacity != 2 {
++		t.Fatalf("empty pool stats: %+v", stats)
++	}
++	first := h.GetFakeIPForDomain3("first.example", true, false)[0]
++	h.GetFakeIPForDomain3("first.example", true, true)
++	stats = h.GetFakeDNSStats()
++	if stats[0].Used != 1 || stats[1].Used != 1 {
++		t.Fatalf("family mappings counted incorrectly: %+v", stats)
++	}
++	h.GetFakeIPForDomain3("second.example", true, false)
++	for i := 0; i < 20; i++ {
++		h.GetFakeDNSStats()
++	}
++	h.GetFakeIPForDomain3("third.example", true, false)
++	if got := h.GetDomainFromFakeDNS(first); got != "" {
++		t.Fatalf("statistics changed eviction order: %q", got)
++	}
++	stats = h.GetFakeDNSStats()
++	if stats[0].Used != 2 || stats[1].Used != 1 {
++		t.Fatalf("eviction changed occupied slots: %+v", stats)
++	}
++	stats[0].Used = 999
++	if h.GetFakeDNSStats()[0].Used != 2 {
++		t.Fatal("caller modified the allocator through a snapshot")
++	}
++}
++
++func TestConcurrentPoolStats(t *testing.T) {
++	h, err := NewFakeDNSHolderConfigOnly(&FakeDnsPool{IpPool: dns.FakeIPv4Pool, LruSize: 16})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var wg sync.WaitGroup
++	wg.Add(1)
++	go func() {
++		defer wg.Done()
++		for i := 0; i < 1000; i++ {
++			h.GetFakeDNSStats()
++		}
++	}()
++	if err := h.Start(); err != nil {
++		t.Fatal(err)
++	}
++	wg.Wait()
++	for worker := 0; worker < 8; worker++ {
++		wg.Add(1)
++		go func(worker int) {
++			defer wg.Done()
++			for i := 0; i < 100; i++ {
++				ips := h.GetFakeIPForDomain(fmt.Sprintf("%d-%d.example", worker, i))
++				h.GetDomainFromFakeDNS(ips[0])
++				stats := h.GetFakeDNSStats()
++				if len(stats) != 1 || stats[0].Capacity != 16 || stats[0].Used > 16 {
++					t.Errorf("invalid concurrent snapshot: %+v", stats)
++					return
++				}
++			}
++		}(worker)
++	}
++	wg.Wait()
++}
++
++func TestFailedPoolStartupHasNoStats(t *testing.T) {
++	h, err := NewFakeDNSHolderMulti(&FakeDnsPoolMulti{Pools: []*FakeDnsPool{
++		{IpPool: dns.FakeIPv4Pool, LruSize: 8}, {IpPool: "invalid", LruSize: 8},
++	}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer h.Close()
++	if err := h.Start(); err == nil {
++		t.Fatal("invalid second pool started")
++	}
++	if h.holders[0].GetFakeDNSStats() == nil {
++		t.Fatal("first pool was not initialized before the failure")
++	}
++	if stats := h.GetFakeDNSStats(); stats != nil {
++		t.Fatalf("partial initialization published stats: %+v", stats)
++	}
++}
+diff --git a/app/dns/fakedns/wayrill_lifecycle_test.go b/app/dns/fakedns/wayrill_lifecycle_test.go
+new file mode 100644
+index 00000000..24a1b890
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_lifecycle_test.go
+@@ -0,0 +1,38 @@
++package fakedns
++
++import (
++	"context"
++	"github.com/xtls/xray-core/common"
++	xnet "github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/transport"
++	"github.com/xtls/xray-core/transport/pipe"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestWayrillResolverCancellationReleasesUnreadClient(t *testing.T) {
++	t.Setenv("WAYRILL_FAKEDNS", "127.0.0.1:1:"+strings.Repeat("a", 64))
++	reader, writer := pipe.New()
++	outReader, outWriter := pipe.New()
++	defer common.Interrupt(reader)
++	defer common.Interrupt(writer)
++	defer common.Interrupt(outReader)
++	defer common.Interrupt(outWriter)
++	ctx, cancel := context.WithCancel(session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wr-tun-resolver-native-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)}))
++	defer cancel()
++	done := make(chan error, 1)
++	go func() {
++		_, err := WayrillHandleResolver(ctx, &transport.Link{Reader: reader, Writer: outWriter}, resolverTestClient{})
++		done <- err
++	}()
++	// No request bytes arrive. Parent cancellation must interrupt the blocked read,
++	// not wait for the independent eight-second timeout.
++	cancel()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("cancelled resolver retained its blocked input")
++	}
++}
+diff --git a/app/dns/fakedns/wayrill_native_context_test.go b/app/dns/fakedns/wayrill_native_context_test.go
+new file mode 100644
+index 00000000..922cae41
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_native_context_test.go
+@@ -0,0 +1,175 @@
++package fakedns_test
++
++import (
++	"context"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/xtls/xray-core/app/dispatcher"
++	native "github.com/xtls/xray-core/app/dns"
++	"github.com/xtls/xray-core/app/dns/fakedns"
++	"github.com/xtls/xray-core/app/dns/fakedns/command"
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/serial"
++	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/core"
++	"github.com/xtls/xray-core/features/dns"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
++)
++
++type nativeService struct {
++	command.UnimplementedFakeDNSServiceServer
++	entered chan struct{}
++	exited  chan struct{}
++	err     error
++}
++
++func (*nativeService) GetPools(context.Context, *command.GetPoolsRequest) (*command.GetPoolsResponse, error) {
++	return &command.GetPoolsResponse{IpPools: []string{"198.18.0.0/24"}}, nil
++}
++
++func (s *nativeService) wait(ctx context.Context) error {
++	close(s.entered)
++	defer close(s.exited)
++	if s.err != nil {
++		return s.err
++	}
++	<-ctx.Done()
++	return status.FromContextError(ctx.Err()).Err()
++}
++
++func (s *nativeService) Allocate(ctx context.Context, _ *command.AllocateRequest) (*command.AllocateResponse, error) {
++	return nil, s.wait(ctx)
++}
++
++func (s *nativeService) ReverseLookup(ctx context.Context, _ *command.ReverseLookupRequest) (*command.ReverseLookupResponse, error) {
++	return nil, s.wait(ctx)
++}
++
++func nativeCall(t *testing.T, path string, backend *nativeService) func(context.Context) error {
++	t.Helper()
++	l, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	g := grpc.NewServer()
++	command.RegisterFakeDNSServiceServer(g, backend)
++	go g.Serve(l)
++	t.Cleanup(g.Stop)
++	t.Setenv("WAYRILL_FAKEDNS", l.Addr().String()+":"+strings.Repeat("a", 64))
++	instance, err := core.New(&core.Config{App: []*serial.TypedMessage{serial.ToTypedMessage(&fakedns.FakeDnsPoolMulti{
++		Pools: []*fakedns.FakeDnsPool{{IpPool: "198.18.0.0/24", LruSize: 4}},
++	})}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { instance.Close() })
++	if err := instance.Start(); err != nil {
++		t.Fatal(err)
++	}
++	if path == "DNS" {
++		s := native.NewFakeDNSServer(instance.GetFeature((*dns.FakeDNSEngine)(nil)).(dns.FakeDNSEngine))
++		return func(ctx context.Context) error {
++			_, _, err := s.QueryIP(ctx, "native.example", dns.IPOption{IPv4Enable: true})
++			return err
++		}
++	}
++	return func(ctx context.Context) error {
++		// XrayKey is exported for tests; production obtains it from core context.
++		ctx = context.WithValue(ctx, core.XrayKey(1), instance)
++		ctx = session.ContextWithOutbounds(ctx, []*session.Outbound{{Target: net.TCPDestination(net.ParseAddress("198.18.0.1"), 443)}})
++		_, err := dispatcher.NewSniffer(ctx).SniffMetadata(ctx)
++		return err
++	}
++}
++
++func TestWayrillNativeMappingCancellation(t *testing.T) {
++	for _, path := range []string{"DNS", "metadata"} {
++		for _, mode := range []string{"cancel", "deadline", "already-canceled", "backend-error"} {
++			t.Run(path+"/"+mode, func(t *testing.T) {
++				backend := &nativeService{entered: make(chan struct{}), exited: make(chan struct{})}
++				if mode == "backend-error" {
++					backend.err = status.Error(codes.Unavailable, "authority unavailable")
++				}
++				call := nativeCall(t, path, backend)
++				ctx, cancel := context.WithCancel(context.Background())
++				defer cancel()
++				if mode == "deadline" {
++					var timeoutCancel context.CancelFunc
++					ctx, timeoutCancel = context.WithTimeout(ctx, 150*time.Millisecond)
++					defer timeoutCancel()
++				}
++				if mode == "already-canceled" {
++					cancel()
++					if err := call(ctx); !errors.Is(err, context.Canceled) {
++						t.Fatal(err)
++					}
++					select {
++					case <-backend.entered:
++						t.Fatal("canceled request reached authority")
++					default:
++					}
++					return
++				}
++				done := make(chan error, 1)
++				go func() { done <- call(ctx) }()
++				select {
++				case <-backend.entered:
++				case <-time.After(time.Second):
++					t.Fatal("native request did not reach authority")
++				}
++				want := codes.DeadlineExceeded
++				if mode == "cancel" {
++					want = codes.Canceled
++					cancel()
++				} else if mode == "backend-error" {
++					want = codes.Unavailable
++				}
++				select {
++				case err := <-done:
++					if status.Code(err) != want {
++						t.Fatalf("want %v, got %v", want, err)
++					}
++				case <-time.After(time.Second):
++					t.Fatal("native adapter lost request cancellation")
++				}
++				select {
++				case <-backend.exited:
++				case <-time.After(time.Second):
++					t.Fatal("authority call was left running")
++				}
++			})
++		}
++	}
++}
++
++func TestWayrillNativeLocalEngineCompatibility(t *testing.T) {
++	instance, err := core.New(&core.Config{App: []*serial.TypedMessage{serial.ToTypedMessage(&fakedns.FakeDnsPoolMulti{
++		Pools: []*fakedns.FakeDnsPool{{IpPool: "198.18.0.0/24", LruSize: 4}},
++	})}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { instance.Close() })
++	if err := instance.Start(); err != nil {
++		t.Fatal(err)
++	}
++	engine := instance.GetFeature((*dns.FakeDNSEngine)(nil)).(dns.FakeDNSEngine)
++	if _, ok := engine.(dns.FakeDNSEngineContext); ok {
++		t.Fatal("fixture must exercise context-free local compatibility")
++	}
++	ips, ttl, err := native.NewFakeDNSServer(engine).QueryIP(context.Background(), "local.example", dns.IPOption{IPv4Enable: true})
++	if err != nil || len(ips) != 1 || ttl != 1 {
++		t.Fatalf("local allocation: %v, %d, %v", ips, ttl, err)
++	}
++	ctx := context.WithValue(context.Background(), core.XrayKey(1), instance)
++	ctx = session.ContextWithOutbounds(ctx, []*session.Outbound{{Target: net.TCPDestination(net.IPAddress(ips[0]), 443)}})
++	result, err := dispatcher.NewSniffer(ctx).SniffMetadata(ctx)
++	if err != nil || result == nil || result.Domain() != "local.example" {
++		t.Fatalf("local reverse lookup: %v, %v", result, err)
++	}
++}
+diff --git a/app/dns/fakedns/wayrill_request_context_test.go b/app/dns/fakedns/wayrill_request_context_test.go
+new file mode 100644
+index 00000000..90392c8e
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_request_context_test.go
+@@ -0,0 +1,90 @@
++package fakedns
++
++import (
++	"context"
++	"errors"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/xtls/xray-core/app/dns/fakedns/command"
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/features/dns"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
++)
++
++func TestWayrillEndedMappingLifetimeRejectsNewRequests(t *testing.T) {
++	address, secret := sharedTestPool(t)
++	client := sharedTestClient(t, address, secret).(*wayrillRemote)
++	client.cancel()
++	var invoked atomic.Uint64
++	var workers sync.WaitGroup
++	for i := 0; i < 32; i++ {
++		workers.Go(func() {
++			for j := 0; j < 128; j++ {
++				err := client.call(context.Background(), "cancelled", func(context.Context, command.FakeDNSServiceClient) error {
++					invoked.Add(1)
++					return nil
++				})
++				if !errors.Is(err, context.Canceled) {
++					t.Errorf("mapping after lifetime cancellation: %v", err)
++					return
++				}
++			}
++		})
++	}
++	workers.Wait()
++	if invoked.Load() != 0 || len(client.slots) != 0 || client.failures.Load() != 0 {
++		t.Fatal("ended lifetime admitted new mapping work or reported an authority failure")
++	}
++}
++
++func TestWayrillMappingRequestCancellation(t *testing.T) {
++	l, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	server := grpc.NewServer()
++	defer server.Stop()
++	source := &waitingFakeService{started: make(chan struct{}, 32)}
++	command.RegisterFakeDNSServiceServer(server, source)
++	go server.Serve(l)
++	client := sharedTestClient(t, l.Addr().String(), strings.Repeat("a", 64)).(*wayrillRemote)
++	var engine dns.FakeDNSEngineContext = client
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	done := make(chan error, 1)
++	go func() { _, err := engine.ReverseLookup(ctx, net.ParseAddress("198.18.0.1")); done <- err }()
++	select {
++	case <-source.started:
++	case <-time.After(time.Second):
++		t.Fatal("request did not reach authority")
++	}
++	cancel()
++	select {
++	case err := <-done:
++		if status.Code(err) != codes.Canceled {
++			t.Fatal(err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("mapping call lost cancellation")
++	}
++	if len(client.slots) != 0 || client.failures.Load() != 0 || client.reported.Load() != 0 {
++		t.Fatal("canceled request leaked admission or reported an authority failure")
++	}
++	// Already-canceled callers must not wait behind the bounded admission queue.
++	for i := 0; i < cap(client.slots); i++ {
++		client.slots <- struct{}{}
++	}
++	_, err = engine.ReverseLookup(ctx, net.ParseAddress("198.18.0.1"))
++	if !errors.Is(err, context.Canceled) {
++		t.Fatal(err)
++	}
++	for len(client.slots) > 0 {
++		<-client.slots
++	}
++}
+diff --git a/app/dns/fakedns/wayrill_resolver.go b/app/dns/fakedns/wayrill_resolver.go
+new file mode 100644
+index 00000000..f0d11529
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_resolver.go
+@@ -0,0 +1,177 @@
++package fakedns
++
++// The private resolver bridge preserves native DNS lookup options. Ordinary DNS
++// wire messages cannot distinguish client FakeDNS answers from a real-IP lookup
++// made by Freedom, routing, or a proxy transport.
++import (
++	"bufio"
++	"context"
++	"crypto/subtle"
++	"encoding/json"
++	"fmt"
++	stdnet "net"
++	"net/netip"
++	"net/url"
++	"os"
++	"strings"
++	"time"
++
++	"github.com/xtls/xray-core/common"
++	"github.com/xtls/xray-core/common/buf"
++	errutil "github.com/xtls/xray-core/common/errors"
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/features/dns"
++	"github.com/xtls/xray-core/transport"
++)
++
++type wayrillLookup struct {
++	Auth   string       `json:"auth"`
++	Domain string       `json:"domain"`
++	Option dns.IPOption `json:"option"`
++}
++type wayrillAnswer struct {
++	IPs    []string `json:"ips,omitempty"`
++	TTL    uint32   `json:"ttl"`
++	RCode  uint16   `json:"rcode,omitempty"`
++	Empty  bool     `json:"empty,omitempty"`
++	Failed bool     `json:"failed,omitempty"`
++}
++type WayrillResolver struct {
++	address, secret string
++	slots           chan struct{}
++}
++
++func NewWayrillResolver(u *url.URL) (*WayrillResolver, error) {
++	_, secret, err := wayrillEndpoint(os.Getenv("WAYRILL_FAKEDNS"))
++	if err != nil {
++		return nil, err
++	}
++	a, err := netip.ParseAddrPort(u.Host)
++	if err != nil || a.Addr() != netip.MustParseAddr("127.0.0.1") || a.Port() == 0 || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
++		return nil, fmt.Errorf("invalid private resolver endpoint")
++	}
++	return &WayrillResolver{a.String(), secret, make(chan struct{}, 32)}, nil
++}
++func (*WayrillResolver) Name() string         { return "Wayrill native resolver" }
++func (*WayrillResolver) IsDisableCache() bool { return true }
++func (r *WayrillResolver) QueryIP(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	if !wayrillDomain(domain) {
++		return nil, 0, fmt.Errorf("invalid resolver domain")
++	}
++	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
++	defer cancel()
++	select {
++	case r.slots <- struct{}{}:
++		defer func() { <-r.slots }()
++	case <-ctx.Done():
++		return nil, 0, ctx.Err()
++	}
++	c, err := (&stdnet.Dialer{}).DialContext(ctx, "tcp4", r.address)
++	if err != nil {
++		return nil, 0, err
++	}
++	defer c.Close()
++	stop := context.AfterFunc(ctx, func() { c.Close() })
++	defer stop()
++	deadline, _ := ctx.Deadline()
++	if err = c.SetDeadline(deadline); err != nil {
++		return nil, 0, err
++	}
++	if err = json.NewEncoder(c).Encode(wayrillLookup{r.secret, domain, option}); err != nil {
++		return nil, 0, err
++	}
++	data, err := bufio.NewReaderSize(c, wayrillFrame).ReadSlice('\n')
++	if err != nil {
++		return nil, 0, err
++	}
++	var answer wayrillAnswer
++	if err = wayrillDecode(data, &answer); err != nil {
++		return nil, 0, err
++	}
++	if answer.RCode != 0 {
++		return nil, answer.TTL, dns.RCodeError(answer.RCode)
++	}
++	if answer.Empty {
++		return nil, answer.TTL, dns.ErrEmptyResponse
++	}
++	if answer.Failed {
++		return nil, 0, fmt.Errorf("native resolver query failed")
++	}
++	ips := make([]net.IP, 0, len(answer.IPs))
++	for _, s := range answer.IPs {
++		ip, err := netip.ParseAddr(s)
++		if err != nil || ip.Zone() != "" || ip.Is4() && !option.IPv4Enable || ip.Is6() && !option.IPv6Enable {
++			return nil, 0, fmt.Errorf("invalid native resolver response")
++		}
++		ips = append(ips, ip.AsSlice())
++	}
++	return ips, answer.TTL, nil
++}
++
++type wayrillContextClient interface {
++	LookupIPContext(context.Context, string, dns.IPOption) ([]net.IP, uint32, error)
++}
++
++var wayrillResolverSlots = make(chan struct{}, 32)
++
++func WayrillHandleResolver(ctx context.Context, link *transport.Link, client dns.Client) (bool, error) {
++	inbound := session.InboundFromContext(ctx)
++	if os.Getenv("WAYRILL_FAKEDNS") == "" || inbound == nil || !strings.HasPrefix(inbound.Tag, "wr-tun-resolver-native-") {
++		return false, nil
++	}
++	// This handler is reachable only through the service-generated loopback
++	// inbound. Authentication remains mandatory, even for a local caller.
++	if !inbound.Source.IsValid() || !inbound.Source.Address.Family().IsIP() || !inbound.Source.Address.IP().IsLoopback() {
++		return true, fmt.Errorf("private resolver is loopback only")
++	}
++	_, secret, err := wayrillEndpoint(os.Getenv("WAYRILL_FAKEDNS"))
++	if err != nil {
++		return true, err
++	}
++	select {
++	case wayrillResolverSlots <- struct{}{}:
++		defer func() { <-wayrillResolverSlots }()
++	default:
++		return true, fmt.Errorf("native resolver capacity exceeded")
++	}
++	native, ok := client.(wayrillContextClient)
++	if !ok {
++		return true, fmt.Errorf("private resolver requires cancellable native DNS")
++	}
++	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
++	defer cancel()
++	stop := context.AfterFunc(ctx, func() { common.Interrupt(link.Reader); common.Interrupt(link.Writer) })
++	defer stop()
++	reader := &buf.BufferedReader{Reader: link.Reader}
++	defer reader.Close()
++	data, err := bufio.NewReaderSize(reader, 2048).ReadSlice('\n')
++	if err != nil {
++		return true, err
++	}
++	var request wayrillLookup
++	if wayrillDecode(data, &request) != nil || subtle.ConstantTimeCompare([]byte(request.Auth), []byte(secret)) != 1 || !wayrillDomain(request.Domain) || !request.Option.IPv4Enable && !request.Option.IPv6Enable {
++		return true, fmt.Errorf("invalid private resolver request")
++	}
++	ips, ttl, queryErr := native.LookupIPContext(ctx, request.Domain, request.Option)
++	if ctx.Err() != nil {
++		return true, ctx.Err()
++	}
++	answer := wayrillAnswer{TTL: ttl, RCode: dns.RCodeFromError(queryErr)}
++	if queryErr != nil && answer.RCode == 0 {
++		answer.Empty = errutil.Cause(queryErr) == dns.ErrEmptyResponse
++		answer.Failed = !answer.Empty
++	}
++	for _, ip := range ips {
++		answer.IPs = append(answer.IPs, ip.String())
++	}
++	data, err = json.Marshal(answer)
++	if err != nil || len(data) >= wayrillFrame {
++		return true, fmt.Errorf("invalid private resolver response size")
++	}
++	writer := buf.NewBufferedWriter(link.Writer)
++	if _, err = writer.Write(append(data, '\n')); err != nil {
++		return true, err
++	}
++	return true, writer.Flush()
++}
+diff --git a/app/dns/fakedns/wayrill_resolver_test.go b/app/dns/fakedns/wayrill_resolver_test.go
+new file mode 100644
+index 00000000..d9b701a9
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_resolver_test.go
+@@ -0,0 +1,98 @@
++package fakedns
++
++import (
++	"context"
++	"net"
++	"net/url"
++	"strings"
++	"sync"
++	"testing"
++
++	"github.com/xtls/xray-core/common/buf"
++	xnet "github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/features/dns"
++	"github.com/xtls/xray-core/transport"
++)
++
++type resolverTestClient struct{}
++
++func (resolverTestClient) Type() interface{} { return dns.ClientType() }
++func (resolverTestClient) Start() error      { return nil }
++func (resolverTestClient) Close() error      { return nil }
++func (resolverTestClient) LookupIP(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	if domain == "empty.example" {
++		return nil, 7, dns.ErrEmptyResponse
++	}
++	if domain == "rcode.example" {
++		return nil, 0, dns.RCodeError(3)
++	}
++	ip := "192.0.2.1"
++	if option.FakeEnable {
++		ip = "198.18.0.1"
++	}
++	if option.IPv6Enable && !option.IPv4Enable {
++		ip = "2001:db8::1"
++		if option.FakeEnable {
++			ip = "2001:2::1"
++		}
++	}
++	return []net.IP{net.ParseIP(ip)}, 123, nil
++}
++func (c resolverTestClient) LookupIPContext(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, 0, err
++	}
++	return c.LookupIP(domain, option)
++}
++func TestWayrillResolverPreservesNativeLookupOptions(t *testing.T) {
++	t.Setenv("WAYRILL_FAKEDNS", "127.0.0.1:1:"+strings.Repeat("a", 64))
++	l, e := net.Listen("tcp4", "127.0.0.1:0")
++	if e != nil {
++		t.Fatal(e)
++	}
++	var pending sync.WaitGroup
++	done := make(chan struct{})
++	go func() {
++		defer close(done)
++		for {
++			c, e := l.Accept()
++			if e != nil {
++				return
++			}
++			pending.Add(1)
++			go func() {
++				defer pending.Done()
++				defer c.Close()
++				ctx := session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wr-tun-resolver-native-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)})
++				handled, err := WayrillHandleResolver(ctx, &transport.Link{Reader: buf.NewReader(c), Writer: buf.NewWriter(c)}, resolverTestClient{})
++				if !handled || err != nil {
++					t.Errorf("resolver: handled=%v err=%v", handled, err)
++				}
++			}()
++		}
++	}()
++	t.Cleanup(func() { l.Close(); <-done; pending.Wait() })
++	u, _ := url.Parse("wayrill-dns://" + l.Addr().String())
++	client, e := NewWayrillResolver(u)
++	if e != nil {
++		t.Fatal(e)
++	}
++	for _, test := range []struct {
++		option dns.IPOption
++		want   string
++	}{{dns.IPOption{IPv4Enable: true}, "192.0.2.1"}, {dns.IPOption{IPv4Enable: true, FakeEnable: true}, "198.18.0.1"}, {dns.IPOption{IPv6Enable: true}, "2001:db8::1"}, {dns.IPOption{IPv6Enable: true, FakeEnable: true}, "2001:2::1"}} {
++		ips, ttl, e := client.QueryIP(context.Background(), "one.example", test.option)
++		if e != nil || len(ips) != 1 || ips[0].String() != test.want || ttl != 123 {
++			t.Fatalf("options %+v: %v ttl=%d err=%v", test.option, ips, ttl, e)
++		}
++	}
++	_, ttl, e := client.QueryIP(context.Background(), "empty.example", dns.IPOption{IPv4Enable: true})
++	if e != dns.ErrEmptyResponse || ttl != 7 {
++		t.Fatal("empty response was lost", ttl, e)
++	}
++	_, _, e = client.QueryIP(context.Background(), "rcode.example", dns.IPOption{IPv4Enable: true})
++	if dns.RCodeFromError(e) != 3 {
++		t.Fatal("DNS response code was lost", e)
++	}
++}
+diff --git a/app/dns/fakedns/wayrill_shared.go b/app/dns/fakedns/wayrill_shared.go
+new file mode 100644
+index 00000000..86aa3eb4
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_shared.go
+@@ -0,0 +1,376 @@
++package fakedns
++
++// Private Wayrill integration. The protobuf contract is shared with the general
++// FakeDNS API proposal; authentication and endpoint injection belong to the app.
++import (
++	"bytes"
++	"context"
++	"crypto/subtle"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"io"
++	stdnet "net"
++	"net/netip"
++	"os"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/xtls/xray-core/app/dns/fakedns/command"
++	"github.com/xtls/xray-core/common/errors"
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/features/dns"
++	"golang.org/x/net/netutil"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/keepalive"
++	"google.golang.org/grpc/metadata"
++	"google.golang.org/grpc/peer"
++	"google.golang.org/grpc/status"
++)
++
++const wayrillFrame = 32768
++const wayrillDeadline = 1800 * time.Millisecond
++const wayrillAuthHeader = "x-wayrill-auth"
++
++func wayrillEndpoint(value string) (string, string, error) {
++	fields := strings.Split(value, ":")
++	if len(fields) != 3 || fields[0] != "127.0.0.1" || len(fields[2]) != 64 {
++		return "", "", fmt.Errorf("invalid shared FakeDNS endpoint")
++	}
++	if _, err := hex.DecodeString(fields[2]); err != nil {
++		return "", "", fmt.Errorf("invalid shared FakeDNS credential")
++	}
++	address := fields[0] + ":" + fields[1]
++	parsed, err := netip.ParseAddrPort(address)
++	if err != nil || parsed.Port() == 0 {
++		return "", "", fmt.Errorf("invalid shared FakeDNS address")
++	}
++	return address, fields[2], nil
++}
++
++func wayrillDomain(domain string) bool {
++	return len(domain) > 0 && len(domain) <= 253 && !strings.ContainsAny(domain, "\x00\r\n\t ")
++}
++
++// The native resolver bridge has a different contract (IPOption, TTL and RCode)
++// and remains separate from the allocator RPCs.
++func wayrillDecode(data []byte, value any) error {
++	decoder := json.NewDecoder(bytes.NewReader(data))
++	decoder.DisallowUnknownFields()
++	if err := decoder.Decode(value); err != nil {
++		return err
++	}
++	if decoder.Decode(new(any)) != io.EOF {
++		return fmt.Errorf("trailing private DNS data")
++	}
++	return nil
++}
++
++type wayrillCredential string
++
++func (c wayrillCredential) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
++	return map[string]string{wayrillAuthHeader: string(c)}, nil
++}
++
++// The dialer below accepts only a literal loopback endpoint, bypassing proxies.
++func (wayrillCredential) RequireTransportSecurity() bool { return false }
++
++type wayrillRemote struct {
++	dns.FakeDNSEngineRev0
++	ctx             context.Context
++	cancel          context.CancelFunc
++	address, secret string
++	lifecycle       sync.Mutex
++	conn            *grpc.ClientConn
++	client          atomic.Pointer[wayrillRPCClient]
++	slots           chan struct{}
++	failures        atomic.Uint64
++	reported        atomic.Int64
++}
++type wayrillRPCClient struct{ command.FakeDNSServiceClient }
++
++func wayrillShared(ctx context.Context, local dns.FakeDNSEngineRev0) (dns.FakeDNSEngineRev0, error) {
++	value := os.Getenv("WAYRILL_FAKEDNS")
++	if value == "" {
++		return local, nil
++	}
++	address, secret, err := wayrillEndpoint(value)
++	if err != nil {
++		return nil, err
++	}
++	ctx, cancel := context.WithCancel(ctx)
++	return &wayrillRemote{FakeDNSEngineRev0: local, ctx: ctx, cancel: cancel,
++		address: address, secret: secret, slots: make(chan struct{}, 32)}, nil
++}
++
++func (r *wayrillRemote) Start() error {
++	r.lifecycle.Lock()
++	defer r.lifecycle.Unlock()
++	if err := r.ctx.Err(); err != nil {
++		return err
++	}
++	if r.conn != nil {
++		return nil
++	}
++	if err := r.FakeDNSEngineRev0.Start(); err != nil {
++		return err
++	}
++	conn, err := grpc.NewClient("passthrough:///wayrill-fakedns",
++		grpc.WithTransportCredentials(insecure.NewCredentials()),
++		grpc.WithPerRPCCredentials(wayrillCredential(r.secret)),
++		grpc.WithContextDialer(func(ctx context.Context, _ string) (stdnet.Conn, error) {
++			return (&stdnet.Dialer{}).DialContext(ctx, "tcp4", r.address)
++		}),
++		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(2048), grpc.MaxCallRecvMsgSize(wayrillFrame)))
++	if err != nil {
++		return err
++	}
++	defer func() {
++		if r.conn == nil {
++			conn.Close()
++		}
++	}()
++	client := command.NewFakeDNSServiceClient(conn)
++	ctx, cancel := context.WithTimeout(r.ctx, wayrillDeadline)
++	defer cancel()
++	response, err := client.GetPools(ctx, &command.GetPoolsRequest{})
++	if err != nil {
++		return fmt.Errorf("shared FakeDNS readiness: %w", err)
++	}
++	// Every consumer must agree with the authority's geometry before dispatch.
++	want := wayrillPools(r.FakeDNSEngineRev0)
++	if len(want) != len(response.IpPools) {
++		return fmt.Errorf("shared FakeDNS pools differ from runtime configuration")
++	}
++	for i, prefix := range want {
++		if prefix != response.IpPools[i] {
++			return fmt.Errorf("shared FakeDNS pools differ from runtime configuration")
++		}
++	}
++	if err := r.ctx.Err(); err != nil {
++		return err
++	}
++	r.conn = conn
++	r.client.Store(&wayrillRPCClient{client})
++	return nil
++}
++
++func (r *wayrillRemote) Close() error {
++	// Cancellation precedes the lifecycle lock, releasing queued and active RPCs
++	// even if Start is still waiting for its readiness response.
++	r.cancel()
++	r.lifecycle.Lock()
++	defer r.lifecycle.Unlock()
++	if r.conn != nil {
++		r.conn.Close()
++		r.conn = nil
++	}
++	return r.FakeDNSEngineRev0.Close()
++}
++
++func (r *wayrillRemote) call(ctx context.Context, operation string, invoke func(context.Context, command.FakeDNSServiceClient) error) (err error) {
++	defer func(caller context.Context) {
++		if caller.Err() == nil {
++			r.reportFailure(operation, err)
++		}
++	}(ctx)
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	// AfterFunc cancellation is asynchronous, even for an ended lifetime.
++	// Reject new requests before admission so they cannot reach the authority.
++	if err := r.ctx.Err(); err != nil {
++		return err
++	}
++	client := r.client.Load()
++	if client == nil {
++		return fmt.Errorf("shared FakeDNS is not started")
++	}
++	// Admission and execution share one deadline. Bursts wait instead of being
++	// silently converted into unknown mappings; active calls remain bounded.
++	ctx, cancel := context.WithTimeout(ctx, wayrillDeadline)
++	defer cancel()
++	stop := context.AfterFunc(r.ctx, cancel)
++	defer stop()
++	select {
++	case r.slots <- struct{}{}:
++		defer func() { <-r.slots }()
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++	return invoke(ctx, client)
++}
++
++func (r *wayrillRemote) reportFailure(operation string, err error) {
++	if err == nil || r.ctx.Err() != nil {
++		return
++	}
++	r.failures.Add(1)
++	now, previous := time.Now().UnixNano(), r.reported.Load()
++	if now-previous >= int64(5*time.Second) && r.reported.CompareAndSwap(previous, now) {
++		// Never include credentials or domains. Unknown mappings are successful RPCs.
++		errors.LogWarning(r.ctx, "Shared FakeDNS gRPC ", operation, " failed (", status.Code(err), "; ", r.failures.Swap(0), " failures since last report).")
++	}
++}
++
++func (r *wayrillRemote) GetFakeIPForDomain(domain string) []net.Address {
++	return r.GetFakeIPForDomain3(domain, true, true)
++}
++func (r *wayrillRemote) GetFakeIPForDomain3(domain string, ipv4, ipv6 bool) []net.Address {
++	ips, _ := r.Allocate(r.ctx, domain, ipv4, ipv6)
++	return ips
++}
++
++func (r *wayrillRemote) Allocate(ctx context.Context, domain string, ipv4, ipv6 bool) ([]net.Address, error) {
++	if !wayrillDomain(domain) || !ipv4 && !ipv6 {
++		return nil, fmt.Errorf("invalid FakeDNS allocation request")
++	}
++	var result []net.Address
++	err := r.call(ctx, "allocate", func(ctx context.Context, client command.FakeDNSServiceClient) error {
++		response, err := client.Allocate(ctx, &command.AllocateRequest{Domain: domain, Ipv4: ipv4, Ipv6: ipv6})
++		if err != nil {
++			return err
++		}
++		for _, raw := range response.Ips {
++			if len(raw) != 4 && len(raw) != 16 {
++				return fmt.Errorf("invalid shared FakeDNS address")
++			}
++			ip := net.IPAddress(raw)
++			if !r.IsIPInIPPool(ip) || ip.Family().IsIPv4() && !ipv4 || ip.Family().IsIPv6() && !ipv6 {
++				return fmt.Errorf("shared FakeDNS address outside requested pools or families")
++			}
++			result = append(result, ip)
++		}
++		if len(result) == 0 {
++			return fmt.Errorf("shared FakeDNS returned no addresses")
++		}
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return result, nil
++}
++func (r *wayrillRemote) GetDomainFromFakeDNS(ip net.Address) string {
++	domain, _ := r.ReverseLookup(r.ctx, ip)
++	return domain
++}
++
++func (r *wayrillRemote) ReverseLookup(ctx context.Context, ip net.Address) (string, error) {
++	if ip == nil || !r.IsIPInIPPool(ip) {
++		return "", nil
++	}
++	var domain string
++	err := r.call(ctx, "reverse", func(ctx context.Context, client command.FakeDNSServiceClient) error {
++		response, err := client.ReverseLookup(ctx, &command.ReverseLookupRequest{Ip: ip.IP()})
++		if err != nil {
++			return err
++		}
++		domain = response.Domain
++		if domain != "" && !wayrillDomain(domain) {
++			return fmt.Errorf("invalid shared FakeDNS domain")
++		}
++		return nil
++	})
++	if err != nil {
++		return "", err
++	}
++	return domain, nil
++}
++
++func wayrillPools(engine dns.FakeDNSEngineRev0) []string {
++	switch e := engine.(type) {
++	case *Holder:
++		return []string{e.ipRange.String()}
++	case *HolderMulti:
++		var pools []string
++		for _, holder := range e.holders {
++			pools = append(pools, holder.ipRange.String())
++		}
++		return pools
++	}
++	return nil
++}
++
++type wayrillMappingService struct {
++	command.UnimplementedFakeDNSServiceServer
++	engine dns.FakeDNSEngineRev0
++	pools  []string
++}
++
++func (s *wayrillMappingService) GetPools(context.Context, *command.GetPoolsRequest) (*command.GetPoolsResponse, error) {
++	response := &command.GetPoolsResponse{IpPools: s.pools}
++	if engine, ok := s.engine.(dns.FakeDNSStatsProvider); ok {
++		for _, pool := range engine.GetFakeDNSStats() {
++			response.Usage = append(response.Usage, &command.PoolUsage{IpPool: pool.IPPool, Used: pool.Used, Capacity: pool.Capacity})
++		}
++	}
++	return response, nil
++}
++func (s *wayrillMappingService) Allocate(ctx context.Context, request *command.AllocateRequest) (*command.AllocateResponse, error) {
++	if !wayrillDomain(request.Domain) || !request.Ipv4 && !request.Ipv6 {
++		return nil, status.Error(codes.InvalidArgument, "invalid domain or address families")
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, status.FromContextError(err).Err()
++	}
++	response := &command.AllocateResponse{}
++	for _, ip := range s.engine.GetFakeIPForDomain3(request.Domain, request.Ipv4, request.Ipv6) {
++		response.Ips = append(response.Ips, ip.IP())
++	}
++	if len(response.Ips) == 0 {
++		return nil, status.Error(codes.FailedPrecondition, "no pool for requested families")
++	}
++	return response, nil
++}
++func (s *wayrillMappingService) ReverseLookup(ctx context.Context, request *command.ReverseLookupRequest) (*command.ReverseLookupResponse, error) {
++	if len(request.Ip) != 4 && len(request.Ip) != 16 {
++		return nil, status.Error(codes.InvalidArgument, "invalid IP address")
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, status.FromContextError(err).Err()
++	}
++	return &command.ReverseLookupResponse{Domain: s.engine.GetDomainFromFakeDNS(net.IPAddress(request.Ip))}, nil
++}
++
++// WayrillServe keeps the upstream HolderMulti authoritative: no replicas, reverse
++// caches or additional allocation/eviction rules.
++func WayrillServe(listener stdnet.Listener, secret string, engine dns.FakeDNSEngineRev0) error {
++	if _, _, err := wayrillEndpoint(listener.Addr().String() + ":" + secret); err != nil {
++		return err
++	}
++	slots := make(chan struct{}, 32)
++	server := grpc.NewServer(grpc.MaxConcurrentStreams(32), grpc.MaxHeaderListSize(4096), grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: time.Minute}), grpc.MaxRecvMsgSize(2048), grpc.MaxSendMsgSize(wayrillFrame),
++		grpc.ConnectionTimeout(wayrillDeadline), grpc.UnaryInterceptor(func(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
++			p, ok := peer.FromContext(ctx)
++			if !ok {
++				return nil, status.Error(codes.PermissionDenied, "loopback connection required")
++			}
++			local, l := p.LocalAddr.(*stdnet.TCPAddr)
++			remote, r := p.Addr.(*stdnet.TCPAddr)
++			if !l || !r || !local.IP.IsLoopback() || !remote.IP.IsLoopback() {
++				return nil, status.Error(codes.PermissionDenied, "loopback connection required")
++			}
++			m, _ := metadata.FromIncomingContext(ctx)
++			credentials := m.Get(wayrillAuthHeader)
++			if len(credentials) != 1 || subtle.ConstantTimeCompare([]byte(credentials[0]), []byte(secret)) != 1 {
++				return nil, status.Error(codes.Unauthenticated, "invalid FakeDNS credential")
++			}
++			ctx, cancel := context.WithTimeout(ctx, wayrillDeadline)
++			defer cancel()
++			select {
++			case slots <- struct{}{}:
++				defer func() { <-slots }()
++			case <-ctx.Done():
++				return nil, status.FromContextError(ctx.Err()).Err()
++			}
++			return handler(ctx, request)
++		}))
++	defer server.Stop()
++	command.RegisterFakeDNSServiceServer(server, &wayrillMappingService{engine: engine, pools: wayrillPools(engine)})
++	return server.Serve(netutil.LimitListener(listener, 64))
++}
+diff --git a/app/dns/fakedns/wayrill_shared_test.go b/app/dns/fakedns/wayrill_shared_test.go
+new file mode 100644
+index 00000000..b9e77677
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_shared_test.go
+@@ -0,0 +1,298 @@
++package fakedns
++
++import (
++	"context"
++	"errors"
++	"github.com/xtls/xray-core/app/dns/fakedns/command"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/metadata"
++	"google.golang.org/grpc/status"
++	"net"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	xnet "github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/features/dns"
++)
++
++type countedFakeListener struct {
++	net.Listener
++	accepted atomic.Int64
++}
++
++func (l *countedFakeListener) Accept() (net.Conn, error) {
++	c, err := l.Listener.Accept()
++	if err == nil {
++		l.accepted.Add(1)
++	}
++	return c, err
++}
++func sharedTestPool(t *testing.T) (string, string) {
++	address, secret, _ := sharedCountedPool(t)
++	return address, secret
++}
++func sharedCountedPool(t *testing.T) (string, string, *countedFakeListener) {
++	t.Helper()
++	engine, err := NewFakeDNSHolderMulti(&FakeDnsPoolMulti{Pools: []*FakeDnsPool{
++		{IpPool: "198.18.0.0/29", LruSize: 2},
++		{IpPool: "2001:2::/125", LruSize: 2},
++	}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = engine.Start(); err != nil {
++		t.Fatal(err)
++	}
++	listener, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	counted := &countedFakeListener{Listener: listener}
++	secret := strings.Repeat("a", 64)
++	done := make(chan error, 1)
++	go func() {
++		done <- WayrillServe(counted, secret, engine)
++	}()
++	t.Cleanup(func() {
++		listener.Close()
++		select {
++		case <-done:
++		case <-time.After(3 * time.Second):
++			t.Error("FakeDNS server did not drain")
++		}
++		engine.Close()
++	})
++	return listener.Addr().String(), secret, counted
++}
++
++func sharedTestClient(t *testing.T, address, secret string) dns.FakeDNSEngineRev0 {
++	t.Helper()
++	local, err := NewFakeDNSHolderMulti(&FakeDnsPoolMulti{Pools: []*FakeDnsPool{
++		{IpPool: "198.18.0.0/29", LruSize: 2}, {IpPool: "2001:2::/125", LruSize: 2},
++	}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv("WAYRILL_FAKEDNS", address+":"+secret)
++	client, err := wayrillShared(context.Background(), local)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = client.Start(); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { client.Close() })
++	return client
++}
++
++func TestWayrillSharedFakeDNSAcrossCoreLifetimes(t *testing.T) {
++	address, secret := sharedTestPool(t)
++	first := sharedTestClient(t, address, secret)
++	second := sharedTestClient(t, address, secret)
++	ips := first.GetFakeIPForDomain3("one.example", true, true)
++	if len(ips) != 2 {
++		t.Fatalf("Expected dual stack, got %v", ips)
++	}
++	for _, ip := range ips {
++		if second.GetDomainFromFakeDNS(ip) != "one.example" {
++			t.Fatal("Cross-core reverse lookup failed")
++		}
++	}
++	first.Close()
++	replacement := sharedTestClient(t, address, secret)
++	for _, ip := range ips {
++		if replacement.GetDomainFromFakeDNS(ip) != "one.example" {
++			t.Fatal("Core replacement lost shared mapping")
++		}
++	}
++	// Allocation and eviction belong to the native HolderMulti, not per-client caches.
++	second.GetFakeIPForDomain3("two.example", true, true)
++	second.GetFakeIPForDomain3("three.example", true, true)
++	for _, ip := range ips {
++		if replacement.GetDomainFromFakeDNS(ip) == "one.example" {
++			t.Fatal("An evicted mapping was retained in a client")
++		}
++	}
++	if len(second.GetFakeIPForDomain3("v4.example", true, false)) != 1 {
++		t.Fatal("IPv4 family selection failed")
++	}
++	if len(second.GetFakeIPForDomain3("v6.example", false, true)) != 1 {
++		t.Fatal("IPv6 family selection failed")
++	}
++	if second.GetDomainFromFakeDNS(xnet.ParseAddress("192.0.2.1")) != "" {
++		t.Fatal("Recovered a domain outside the pool")
++	}
++}
++
++func TestWayrillSharedFakeDNSRejectsUnauthenticatedAndMalformedRequests(t *testing.T) {
++	address, secret := sharedTestPool(t)
++	conn, err := grpc.NewClient("passthrough:///"+address, grpc.WithTransportCredentials(insecure.NewCredentials()))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer conn.Close()
++	client := command.NewFakeDNSServiceClient(conn)
++	for _, auth := range [][]string{nil, {"wrong"}, {secret, secret}} {
++		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++		for _, credential := range auth {
++			ctx = metadata.AppendToOutgoingContext(ctx, wayrillAuthHeader, credential)
++		}
++		_, err = client.GetPools(ctx, &command.GetPoolsRequest{})
++		cancel()
++		if status.Code(err) != codes.Unauthenticated {
++			t.Fatalf("authentication: %v", err)
++		}
++	}
++	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), wayrillAuthHeader, secret), time.Second)
++	defer cancel()
++	for _, request := range []*command.AllocateRequest{
++		{Domain: "bad.example"}, {Domain: "bad\n.example", Ipv4: true}, {Domain: strings.Repeat("a", 254), Ipv4: true},
++	} {
++		if _, err = client.Allocate(ctx, request); status.Code(err) != codes.InvalidArgument {
++			t.Fatalf("validation: %v", err)
++		}
++	}
++	if _, err = client.ReverseLookup(ctx, &command.ReverseLookupRequest{Ip: []byte{1, 2, 3}}); status.Code(err) != codes.InvalidArgument {
++		t.Fatal(err)
++	}
++	if _, err = client.Allocate(ctx, &command.AllocateRequest{Domain: strings.Repeat("a", 4096), Ipv4: true}); status.Code(err) != codes.ResourceExhausted {
++		t.Fatal(err)
++	}
++	if result, err := client.ReverseLookup(ctx, &command.ReverseLookupRequest{Ip: []byte{192, 0, 2, 1}}); err != nil || result.Domain != "" {
++		t.Fatalf("unknown is not a failure: %v %v", result, err)
++	}
++	healthy := sharedTestClient(t, address, secret)
++	if len(healthy.GetFakeIPForDomain("healthy.example")) != 2 {
++		t.Fatal("Rejected requests damaged the pool")
++	}
++}
++
++func TestWayrillSharedFakeDNSBurstReusesConnectionAndDrains(t *testing.T) {
++	address, secret, listener := sharedCountedPool(t)
++	client := sharedTestClient(t, address, secret).(*wayrillRemote)
++	var group sync.WaitGroup
++	start := make(chan struct{})
++	for i := 0; i < 256; i++ {
++		group.Add(1)
++		go func() {
++			defer group.Done()
++			<-start
++			if len(client.GetFakeIPForDomain3("burst.example", true, true)) != 2 {
++				t.Error("legitimate burst rejected")
++			}
++		}()
++	}
++	close(start)
++	group.Wait()
++	if listener.accepted.Load() != 1 {
++		t.Fatalf("mapping calls did not reuse one connection: %d", listener.accepted.Load())
++	}
++	if len(client.slots) != 0 {
++		t.Fatal("mapping slots leaked")
++	}
++	// All consumers share the same native LRU, and Close never closes authority.
++	ips := client.GetFakeIPForDomain("persistent.example")
++	client.Close()
++	replacement := sharedTestClient(t, address, secret)
++	for _, ip := range ips {
++		if replacement.GetDomainFromFakeDNS(ip) != "persistent.example" {
++			t.Fatal("consumer Close lost mapping")
++		}
++	}
++}
++
++func TestWayrillSharedFakeDNSEndpointValidation(t *testing.T) {
++	for _, value := range []string{"0.0.0.0:1:" + strings.Repeat("a", 64), "127.0.0.1:0:" + strings.Repeat("a", 64), "127.0.0.1:1:short", "127.0.0.1:1:" + strings.Repeat("z", 64)} {
++		if _, _, err := wayrillEndpoint(value); err == nil {
++			t.Fatal("Accepted invalid private endpoint")
++		}
++	}
++}
++
++// Block inside a real gRPC handler to exercise active stream cancellation and
++// queued callers together, independently of network timing or pool speed.
++type waitingFakeService struct {
++	command.UnimplementedFakeDNSServiceServer
++	started chan struct{}
++}
++
++func (s *waitingFakeService) GetPools(context.Context, *command.GetPoolsRequest) (*command.GetPoolsResponse, error) {
++	return &command.GetPoolsResponse{IpPools: []string{"198.18.0.0/29", "2001:2::/125"}}, nil
++}
++func (s *waitingFakeService) ReverseLookup(ctx context.Context, _ *command.ReverseLookupRequest) (*command.ReverseLookupResponse, error) {
++	s.started <- struct{}{}
++	<-ctx.Done()
++	return nil, status.FromContextError(ctx.Err()).Err()
++}
++func TestWayrillSharedFakeDNSCloseCancelsActiveAndQueued(t *testing.T) {
++	listener, err := net.Listen("tcp4", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	server := grpc.NewServer()
++	defer server.Stop()
++	source := &waitingFakeService{started: make(chan struct{}, 128)}
++	command.RegisterFakeDNSServiceServer(server, source)
++	go server.Serve(listener)
++	client := sharedTestClient(t, listener.Addr().String(), strings.Repeat("a", 64)).(*wayrillRemote)
++	var group sync.WaitGroup
++	for i := 0; i < 128; i++ {
++		group.Add(1)
++		go func() { defer group.Done(); client.GetDomainFromFakeDNS(xnet.ParseAddress("198.18.0.1")) }()
++	}
++	for i := 0; i < 32; i++ {
++		select {
++		case <-source.started:
++		case <-time.After(time.Second):
++			t.Fatal("active streams did not reach server")
++		}
++	}
++	began := time.Now()
++	client.Close()
++	done := make(chan struct{})
++	go func() { group.Wait(); close(done) }()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("Close retained active or queued callers")
++	}
++	if len(client.slots) != 0 || time.Since(began) > time.Second {
++		t.Fatal("Close did not drain admission")
++	}
++	if err := client.Start(); err == nil {
++		t.Fatal("closed consumer restarted")
++	}
++}
++
++func TestWayrillSharedFakeDNSStartFailureAndClose(t *testing.T) {
++	address, secret := sharedTestPool(t)
++	t.Setenv("WAYRILL_FAKEDNS", address+":"+strings.Repeat("b", 64))
++	local, _ := NewFakeDNSHolderMulti(&FakeDnsPoolMulti{Pools: []*FakeDnsPool{{IpPool: "198.18.0.0/29", LruSize: 2}}})
++	object, err := wayrillShared(context.Background(), local)
++	if err != nil {
++		t.Fatal(err)
++	}
++	client := object.(*wayrillRemote)
++	if err := client.Start(); status.Code(errors.Unwrap(err)) != codes.Unauthenticated {
++		t.Fatalf("wrong credential: %v", err)
++	}
++	if client.conn != nil || client.client.Load() != nil {
++		t.Fatal("failed Start published a connection")
++	}
++	client.Close()
++	// A valid credential still cannot attach a mismatched pool configuration.
++	t.Setenv("WAYRILL_FAKEDNS", address+":"+secret)
++	object, err = wayrillShared(context.Background(), local)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer object.Close()
++	if err = object.Start(); err == nil {
++		t.Fatal("mismatched pool geometry accepted")
++	}
++}
+diff --git a/app/dns/fakedns/wayrill_usage_test.go b/app/dns/fakedns/wayrill_usage_test.go
+new file mode 100644
+index 00000000..9a145247
+--- /dev/null
++++ b/app/dns/fakedns/wayrill_usage_test.go
+@@ -0,0 +1,58 @@
++package fakedns
++
++import (
++	"context"
++	"fmt"
++	"sync"
++	"testing"
++
++	"github.com/xtls/xray-core/app/dns/fakedns/command"
++)
++
++func TestWayrillMappingOccupancy(t *testing.T) {
++	engine, err := NewFakeDNSHolderMulti(&FakeDnsPoolMulti{Pools: []*FakeDnsPool{
++		{IpPool: "198.18.0.0/28", LruSize: 3},
++		{IpPool: "2001:2::/124", LruSize: 5},
++	}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := engine.Start(); err != nil {
++		t.Fatal(err)
++	}
++	defer engine.Close()
++	service := &wayrillMappingService{engine: engine, pools: wayrillPools(engine)}
++	check := func(want4, want6 uint64) {
++		t.Helper()
++		reply, err := service.GetPools(context.Background(), &command.GetPoolsRequest{})
++		if err != nil || len(reply.Usage) != 2 {
++			t.Fatalf("usage: %v %v", reply, err)
++		}
++		if reply.Usage[0].Used != want4 || reply.Usage[0].Capacity != 3 || reply.Usage[1].Used != want6 || reply.Usage[1].Capacity != 5 {
++			t.Fatalf("unexpected occupancy: %v", reply.Usage)
++		}
++	}
++	check(0, 0)
++	ip := engine.GetFakeIPForDomain3("one.example", true, true)
++	check(1, 1)
++	engine.GetFakeIPForDomain3("one.example", true, true)
++	engine.GetDomainFromFakeDNS(ip[0])
++	check(1, 1)
++	engine.GetFakeIPForDomain3("v4.example", true, false)
++	check(2, 1)
++	// Concurrent allocation, reverse lookup and telemetry must stay bounded.
++	var workers sync.WaitGroup
++	for w := 0; w < 8; w++ {
++		workers.Add(1)
++		go func(w int) {
++			defer workers.Done()
++			for i := 0; i < 100; i++ {
++				ips := engine.GetFakeIPForDomain3(fmt.Sprintf("host-%d-%d.example", w, i), true, true)
++				engine.GetDomainFromFakeDNS(ips[0])
++				_, _ = service.GetPools(context.Background(), &command.GetPoolsRequest{})
++			}
++		}(w)
++	}
++	workers.Wait()
++	check(3, 5)
++}
+diff --git a/app/dns/nameserver.go b/app/dns/nameserver.go
+index 5112f358..a1cca965 100644
+--- a/app/dns/nameserver.go
++++ b/app/dns/nameserver.go
+@@ -2,6 +2,7 @@ package dns
+ 
+ import (
+ 	"context"
++	"github.com/xtls/xray-core/app/dns/fakedns"
+ 	"net/url"
+ 	"strings"
+ 	"time"
+@@ -52,6 +53,8 @@ func NewServer(ctx context.Context, dest net.Destination, dispatcher routing.Dis
+ 			return nil, err
+ 		}
+ 		switch {
++		case u.Scheme == "wayrill-dns":
++			return fakedns.NewWayrillResolver(u)
+ 		case strings.EqualFold(u.String(), "localhost"):
+ 			return NewLocalNameServer(), nil
+ 		case strings.EqualFold(u.Scheme, "https"): // DNS-over-HTTPS Remote mode
+@@ -140,6 +143,10 @@ func NewClient(
+ 		if ns.TimeoutMs > 0 {
+ 			timeoutMs = time.Duration(ns.TimeoutMs) * time.Millisecond
+ 		}
++		if cached, ok := server.(CachedNameserver); ok {
++			cache := cached.getCacheController()
++			cache.queryTimeout = max(cache.queryTimeout, timeoutMs)
++		}
+ 
+ 		checkSystem := ns.QueryStrategy == QueryStrategy_USE_SYS
+ 
+diff --git a/app/dns/nameserver_cached.go b/app/dns/nameserver_cached.go
+index cbd2f031..84e2fecf 100644
+--- a/app/dns/nameserver_cached.go
++++ b/app/dns/nameserver_cached.go
+@@ -8,7 +8,6 @@ import (
+ 	"github.com/xtls/xray-core/common/errors"
+ 	"github.com/xtls/xray-core/common/log"
+ 	"github.com/xtls/xray-core/common/net"
+-	"github.com/xtls/xray-core/common/signal/pubsub"
+ 	"github.com/xtls/xray-core/features/dns"
+ )
+ 
+@@ -48,29 +47,65 @@ func queryIP(ctx context.Context, s CachedNameserver, domain string, option dns.
+ }
+ 
+ func pull(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) {
+-	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
++	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sharedQueryTimeout)
+ 	defer cancel()
+ 
+ 	fetch(nctx, s, fqdn, option)
+ }
+ 
+ func fetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) ([]net.IP, uint32, error) {
+-	key := fqdn
+-	switch {
+-	case option.IPv4Enable && option.IPv6Enable:
+-		key = key + "46"
+-	case option.IPv4Enable:
+-		key = key + "4"
+-	case option.IPv6Enable:
+-		key = key + "6"
++	if err := ctx.Err(); err != nil {
++		return nil, 0, err
+ 	}
+-
+-	v, _, _ := s.getCacheController().requestGroup.Do(key, func() (any, error) {
+-		return doFetch(ctx, s, fqdn, option), nil
+-	})
+-	ret := v.(result)
+-
+-	return ret.ips, ret.ttl, ret.error
++	cache := s.getCacheController()
++	join := func(ipv4 bool) (*sharedQuery, func()) {
++		family := "6"
++		if ipv4 {
++			family = "4"
++		}
++		return cache.requestGroup.join(ctx, fqdn+family, cache.queryTimeout, func(queryCtx context.Context) result {
++			return doFetch(queryCtx, s, fqdn, dns.IPOption{IPv4Enable: ipv4, IPv6Enable: !ipv4})
++		})
++	}
++	var q4, q6 *sharedQuery
++	if option.IPv4Enable {
++		q, release := join(true)
++		q4 = q
++		defer release()
++	}
++	if option.IPv6Enable {
++		q, release := join(false)
++		q6 = q
++		defer release()
++	}
++	var ips []net.IP
++	ttl := uint32(dns.DefaultTTL)
++	var errs []error
++	for _, q := range []*sharedQuery{q4, q6} {
++		if q == nil {
++			continue
++		}
++		r := q.wait(ctx)
++		if len(r.ips) > 0 {
++			if option.IPv4Enable != option.IPv6Enable {
++				return r.ips, r.ttl, nil
++			}
++			ips = append(ips, r.ips...)
++			ttl = min(ttl, r.ttl)
++		} else if r.error != nil {
++			errs = append(errs, r.error)
++		}
++	}
++	if len(ips) > 0 {
++		return ips, ttl, nil
++	}
++	if len(errs) > 0 {
++		if len(errs) == 1 || go_errors.Is(errs[0], errs[1]) {
++			return nil, 0, errs[0]
++		}
++		return nil, 0, errors.Combine(errs...)
++	}
++	return nil, 0, dns.ErrEmptyResponse
+ }
+ 
+ type result struct {
+@@ -82,44 +117,29 @@ type result struct {
+ func doFetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) result {
+ 	sub4, sub6 := s.getCacheController().registerSubscribers(fqdn, option)
+ 	defer closeSubscribers(sub4, sub6)
+-
+-	noResponseErrCh := make(chan error, 2)
+-	onEvent := func(sub *pubsub.Subscriber) (*IPRecord, error) {
+-		if sub == nil {
+-			return nil, nil
+-		}
+-		select {
+-		case <-ctx.Done():
+-			return nil, ctx.Err()
+-		case err := <-noResponseErrCh:
+-			return nil, err
+-		case msg := <-sub.Wait():
+-			sub.Close()
+-			return msg.(*IPRecord), nil // should panic
+-		}
++	sub := sub4
++	if sub == nil {
++		sub = sub6
+ 	}
+ 
++	// fetch shares each family separately, including transport errors.
++	noResponseErrCh := make(chan error, 1)
+ 	start := time.Now()
+ 	s.sendQuery(ctx, noResponseErrCh, fqdn, option)
+-
+-	rec4, err4 := onEvent(sub4)
+-	rec6, err6 := onEvent(sub6)
+-
+-	var errs []error
+-	if err4 != nil {
+-		errs = append(errs, err4)
+-	}
+-	if err6 != nil {
+-		errs = append(errs, err6)
++	var ips []net.IP
++	var ttl int32
++	var err error
++	select {
++	case <-ctx.Done():
++		err = ctx.Err()
++	case err = <-noResponseErrCh:
++	case msg := <-sub.Wait():
++		ips, ttl, err = msg.(*IPRecord).getIPs()
+ 	}
+-
+-	ips, ttl, err := merge(option, rec4, rec6, errs...)
+ 	var rTTL uint32
+ 	if ttl > 0 {
+ 		rTTL = uint32(ttl)
+-	} else if ttl == 0 && go_errors.Is(err, errRecordNotFound) {
+-		rTTL = 0
+-	} else { // edge case: where a fast rep's ttl expires during the rtt of a slower, parallel query
++	} else if len(ips) > 0 { // the reply's TTL may expire during the query
+ 		rTTL = 1
+ 	}
+ 
+diff --git a/app/dns/nameserver_fakedns.go b/app/dns/nameserver_fakedns.go
+index f2127c9e..72728ddf 100644
+--- a/app/dns/nameserver_fakedns.go
++++ b/app/dns/nameserver_fakedns.go
+@@ -26,12 +26,21 @@ func (s *FakeDNSServer) IsDisableCache() bool {
+ }
+ 
+ func (f *FakeDNSServer) QueryIP(ctx context.Context, domain string, opt dns.IPOption) ([]net.IP, uint32, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, 0, err
++	}
+ 	if f.fakeDNSEngine == nil {
+ 		return nil, 0, errors.New("Unable to locate a fake DNS Engine")
+ 	}
+ 
+ 	var ips []net.Address
+-	if fkr0, ok := f.fakeDNSEngine.(dns.FakeDNSEngineRev0); ok {
++	if engine, ok := f.fakeDNSEngine.(dns.FakeDNSEngineContext); ok {
++		var err error
++		ips, err = engine.Allocate(ctx, domain, opt.IPv4Enable, opt.IPv6Enable)
++		if err != nil {
++			return nil, 0, err
++		}
++	} else if fkr0, ok := f.fakeDNSEngine.(dns.FakeDNSEngineRev0); ok {
+ 		ips = fkr0.GetFakeIPForDomain3(domain, opt.IPv4Enable, opt.IPv6Enable)
+ 	} else {
+ 		ips = f.fakeDNSEngine.GetFakeIPForDomain(domain)
+diff --git a/app/dns/nameserver_tcp.go b/app/dns/nameserver_tcp.go
+index 185dbad3..33eca178 100644
+--- a/app/dns/nameserver_tcp.go
++++ b/app/dns/nameserver_tcp.go
+@@ -169,6 +169,8 @@ func (s *TCPNameServer) sendQuery(ctx context.Context, noResponseErrCh chan<- er
+ 				return
+ 			}
+ 			defer conn.Close()
++			stop := context.AfterFunc(dnsCtx, func() { conn.Close() })
++			defer stop()
+ 			dnsReqBuf := buf.New()
+ 			err = binary.Write(dnsReqBuf, binary.BigEndian, uint16(b.Len()))
+ 			if err != nil {
+diff --git a/app/dns/query_group.go b/app/dns/query_group.go
+new file mode 100644
+index 00000000..0b57c1f8
+--- /dev/null
++++ b/app/dns/query_group.go
+@@ -0,0 +1,100 @@
++package dns
++
++import (
++	"context"
++	"sync"
++	"time"
++)
++
++const sharedQueryTimeout = 8 * time.Second
++
++// A query belongs to the nameserver, not to its first waiter. The last waiter
++// leaving cancels it; a nameserver budget also bounds continuously joined work.
++type sharedQuery struct {
++	ctx     context.Context
++	done    chan struct{}
++	cancel  context.CancelFunc
++	waiters int
++	result  result
++}
++
++type queryGroup struct {
++	sync.Mutex
++	queries map[string]*sharedQuery
++	closed  bool
++}
++
++func (g *queryGroup) join(ctx context.Context, key string, timeout time.Duration, run func(context.Context) result) (*sharedQuery, func()) {
++	g.Lock()
++	defer g.Unlock()
++	if g.closed {
++		q := &sharedQuery{done: make(chan struct{}), result: result{error: context.Canceled}}
++		close(q.done)
++		return q, func() {}
++	}
++	q := g.queries[key]
++	if q != nil && q.ctx.Err() != nil {
++		delete(g.queries, key)
++		q = nil
++	}
++	if q == nil {
++		queryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
++		q = &sharedQuery{ctx: queryCtx, done: make(chan struct{}), cancel: cancel}
++		if g.queries == nil {
++			g.queries = make(map[string]*sharedQuery)
++		}
++		g.queries[key] = q
++		go func() {
++			defer cancel()
++			q.result = run(queryCtx)
++			g.Lock()
++			if g.queries[key] == q {
++				delete(g.queries, key)
++			}
++			close(q.done)
++			g.Unlock()
++		}()
++	}
++	q.waiters++
++	return q, func() {
++		g.Lock()
++		defer g.Unlock()
++		q.waiters--
++		if q.waiters == 0 {
++			if g.queries[key] == q {
++				delete(g.queries, key)
++			}
++			q.cancel()
++		}
++	}
++}
++
++func (q *sharedQuery) wait(ctx context.Context) result {
++	// Prefer a completed family even if the other family used up the budget.
++	select {
++	case <-q.done:
++		return q.result
++	default:
++	}
++	select {
++	case <-q.done:
++		return q.result
++	case <-ctx.Done():
++		select {
++		case <-q.done:
++			return q.result
++		default:
++			return result{error: ctx.Err()}
++		}
++	}
++}
++
++func (g *queryGroup) close() {
++	g.Lock()
++	defer g.Unlock()
++	g.closed = true
++	for key, q := range g.queries {
++		delete(g.queries, key)
++		q.cancel()
++	}
++}
+diff --git a/app/dns/script.go b/app/dns/script.go
+index c4cae519..94505bb8 100644
+--- a/app/dns/script.go
++++ b/app/dns/script.go
+@@ -1,6 +1,7 @@
+ package dns
+ 
+ import (
++	"context"
+ 	"time"
+ 
+ 	"github.com/xtls/xray-core/common/errors"
+@@ -57,8 +58,12 @@ func (e *scriptEngine) close() {
+ 	}
+ }
+ 
+-func (e *scriptEngine) query(domain string, option dns.IPOption) (ips []net.IP, ttl uint32, queryErr error) {
+-	if err := e.pool.WithState(nil, 0, func(L *lua.LState) error {
++func (e *scriptEngine) query(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
++	return e.queryContext(nil, domain, option)
++}
++
++func (e *scriptEngine) queryContext(ctx context.Context, domain string, option dns.IPOption) (ips []net.IP, ttl uint32, queryErr error) {
++	if err := e.pool.WithState(ctx, 0, func(L *lua.LState) error {
+ 		if err := callLuaQuery(L, domain, option); err != nil {
+ 			return err
+ 		}
+diff --git a/app/dns/wayrill_cached_context_test.go b/app/dns/wayrill_cached_context_test.go
+new file mode 100644
+index 00000000..7414b406
+--- /dev/null
++++ b/app/dns/wayrill_cached_context_test.go
+@@ -0,0 +1,72 @@
++package dns
++
++import (
++	"context"
++	"errors"
++	"testing"
++	"time"
++
++	fdns "github.com/xtls/xray-core/features/dns"
++)
++
++type wayrillSharedWaitingServer struct {
++	cache   *CacheController
++	started chan struct{}
++}
++
++func (s *wayrillSharedWaitingServer) getCacheController() *CacheController { return s.cache }
++func (s *wayrillSharedWaitingServer) sendQuery(context.Context, chan<- error, string, fdns.IPOption) {
++	s.started <- struct{}{}
++}
++
++func TestWayrillSharedDNSWaiterCancellation(t *testing.T) {
++	source := &wayrillSharedWaitingServer{
++		cache: NewCacheController("waiting", false, false, 0), started: make(chan struct{}, 2),
++	}
++	option := fdns.IPOption{IPv4Enable: true}
++	leader, cancelLeader := context.WithCancel(context.Background())
++	defer cancelLeader()
++	finished := make(chan struct{})
++	go func() {
++		defer close(finished)
++		fetch(leader, source, "shared.example.", option)
++	}()
++	select {
++	case <-source.started:
++	case <-time.After(time.Second):
++		t.Fatal("shared upstream query did not start")
++	}
++	defer func() {
++		cancelLeader()
++		select {
++		case <-finished:
++		case <-time.After(time.Second):
++			t.Error("shared upstream query did not drain")
++		}
++	}()
++	// Another legitimate DNS client can own a longer-running query. A native
++	// bridge waiter must still release its own slot when its deadline expires.
++	waiter, cancelWaiter := context.WithTimeout(context.Background(), 50*time.Millisecond)
++	defer cancelWaiter()
++	done := make(chan error, 1)
++	go func() { _, _, err := fetch(waiter, source, "shared.example.", option); done <- err }()
++	<-waiter.Done()
++	select {
++	case err := <-done:
++		if !errors.Is(err, context.DeadlineExceeded) {
++			t.Fatalf("waiter error: %v", err)
++		}
++	case <-time.After(500 * time.Millisecond):
++		t.Fatal("cancelled DNS waiter remained blocked on another client's query")
++	}
++	select {
++	case <-finished:
++		t.Fatal("cancelling a waiter stopped another client's upstream query")
++	default:
++	}
++	select {
++	case <-source.started:
++		t.Fatal("waiter duplicated the shared upstream query")
++	default:
++	}
++}
+diff --git a/app/dns/wayrill_context_test.go b/app/dns/wayrill_context_test.go
+new file mode 100644
+index 00000000..0e2ad13c
+--- /dev/null
++++ b/app/dns/wayrill_context_test.go
+@@ -0,0 +1,81 @@
++package dns
++
++import (
++	"context"
++	"github.com/xtls/xray-core/common/net"
++	fdns "github.com/xtls/xray-core/features/dns"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++type wayrillContextKey struct{}
++type wayrillWaitingServer struct {
++	started, drained chan struct{}
++	value            any
++}
++
++func (*wayrillWaitingServer) Name() string         { return "waiting" }
++func (*wayrillWaitingServer) IsDisableCache() bool { return true }
++func (s *wayrillWaitingServer) QueryIP(ctx context.Context, _ string, _ fdns.IPOption) ([]net.IP, uint32, error) {
++	s.value = ctx.Value(wayrillContextKey{})
++	close(s.started)
++	<-ctx.Done()
++	close(s.drained)
++	return nil, 0, ctx.Err()
++}
++
++func TestWayrillNativeLookupCancellation(t *testing.T) {
++	for _, mode := range []string{"serial", "parallel", "script"} {
++		t.Run(mode, func(t *testing.T) {
++			source := &wayrillWaitingServer{started: make(chan struct{}), drained: make(chan struct{})}
++			option := fdns.IPOption{IPv4Enable: true}
++			original := context.WithValue(context.Background(), wayrillContextKey{}, "native-scope")
++			server := &DNS{ctx: original, ipOption: &option, clients: []*Client{{server: source, ipOption: &option, timeoutMs: time.Minute}}}
++			server.hosts, _ = NewStaticHosts(nil)
++			server.enableParallelQuery = mode == "parallel"
++			if mode == "script" {
++				file := filepath.Join(t.TempDir(), "query.lua")
++				if err := os.WriteFile(file, []byte(`local s=require("xray.dns").Servers[1]; function HandleDNSQuery(d,v4,v6,f) return s:Query(d,v4,v6,f) end`), 0600); err != nil {
++					t.Fatal(err)
++				}
++				engine, err := newScriptEngine(file)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if err = engine.start(server); err != nil {
++					t.Fatal(err)
++				}
++				defer engine.close()
++				server.script = engine
++			}
++			ctx, cancel := context.WithCancel(context.WithValue(context.Background(), wayrillContextKey{}, "caller-must-not-route-dns"))
++			defer cancel()
++			done := make(chan error, 1)
++			go func() { _, _, err := server.LookupIPContext(ctx, "cancel.example", option); done <- err }()
++			select {
++			case <-source.started:
++			case <-time.After(time.Second):
++				t.Fatal("native query did not start")
++			}
++			cancel()
++			select {
++			case err := <-done:
++				if err == nil {
++					t.Fatal("cancelled lookup succeeded")
++				}
++			case <-time.After(time.Second):
++				t.Fatal("native lookup outlived cancellation")
++			}
++			select {
++			case <-source.drained:
++			case <-time.After(time.Second):
++				t.Fatal("upstream query leaked")
++			}
++			if source.value != "native-scope" {
++				t.Fatal("caller changed the resolver routing context")
++			}
++		})
++	}
++}
+diff --git a/app/dns/wayrill_query_group_test.go b/app/dns/wayrill_query_group_test.go
+new file mode 100644
+index 00000000..c5332f62
+--- /dev/null
++++ b/app/dns/wayrill_query_group_test.go
+@@ -0,0 +1,159 @@
++package dns
++
++import (
++	"context"
++	"errors"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/xtls/xray-core/common/net"
++	fdns "github.com/xtls/xray-core/features/dns"
++	"golang.org/x/net/dns/dnsmessage"
++)
++
++func querySignal(t *testing.T, ch <-chan struct{}) {
++	t.Helper()
++	select {
++	case <-ch:
++	case <-time.After(time.Second):
++		t.Fatal("query did not reach the expected lifecycle checkpoint")
++	}
++}
++
++func TestSharedQueryWaiterOwnership(t *testing.T) {
++	type scopeKey struct{}
++	var group queryGroup
++	first, cancelFirst := context.WithCancel(context.WithValue(context.Background(), scopeKey{}, "resolver-scope"))
++	defer cancelFirst()
++	finish := make(chan struct{})
++	var calls atomic.Int32
++	run := func(ctx context.Context) result {
++		calls.Add(1)
++		if ctx.Value(scopeKey{}) != "resolver-scope" {
++			t.Error("query lost routing context values")
++		}
++		select {
++		case <-ctx.Done():
++			return result{error: ctx.Err()}
++		case <-finish:
++			return result{ips: []net.IP{net.ParseIP("192.0.2.1")}, ttl: 60}
++		}
++	}
++	q, releaseFirst := group.join(first, "domain4", time.Second, run)
++	follower, releaseFollower := group.join(context.Background(), "domain4", time.Second, run)
++	if q != follower {
++		t.Fatal("same family was not coalesced")
++	}
++	cancelFirst()
++	if r := q.wait(first); !errors.Is(r.error, context.Canceled) {
++		t.Fatalf("first waiter did not cancel: %v", r.error)
++	}
++	releaseFirst()
++	if err := q.ctx.Err(); err != nil {
++		t.Fatal("first waiter canceled shared operation:", err)
++	}
++	close(finish)
++	querySignal(t, follower.done)
++	if r := follower.wait(context.Background()); len(r.ips) != 1 || r.error != nil || calls.Load() != 1 {
++		t.Fatalf("follower lost shared answer: %+v (%d calls)", r, calls.Load())
++	}
++	releaseFollower()
++}
++
++func TestSharedQueryRetirement(t *testing.T) {
++	for _, mode := range []string{"last-waiter", "budget", "shutdown"} {
++		t.Run(mode, func(t *testing.T) {
++			var group queryGroup
++			blockExit := make(chan struct{})
++			defer close(blockExit)
++			budget := time.Second
++			if mode == "budget" {
++				budget = 10 * time.Millisecond
++			}
++			q, release := group.join(context.Background(), "domain4", budget, func(ctx context.Context) result {
++				<-ctx.Done()
++				<-blockExit
++				return result{error: ctx.Err()}
++			})
++			if mode == "last-waiter" {
++				release()
++			} else if mode == "shutdown" {
++				group.close()
++			}
++			querySignal(t, q.ctx.Done())
++			if mode == "shutdown" {
++				release()
++				next, done := group.join(context.Background(), "domain4", time.Second, func(context.Context) result {
++					t.Error("closed group started a query")
++					return result{}
++				})
++				defer done()
++				if r := next.wait(context.Background()); !errors.Is(r.error, context.Canceled) {
++					t.Fatal(r.error)
++				}
++				return
++			}
++			nextFinish := make(chan struct{})
++			next, done := group.join(context.Background(), "domain4", time.Second, func(context.Context) result {
++				<-nextFinish
++				return result{}
++			})
++			defer done()
++			if next == q {
++				t.Fatal("retired query was reused")
++			}
++			if mode == "budget" {
++				release()
++			}
++			// Retirement of the old generation must not erase the replacement.
++			blockExit <- struct{}{}
++			querySignal(t, q.done)
++			group.Lock()
++			present := group.queries["domain4"] == next
++			group.Unlock()
++			close(nextFinish)
++			querySignal(t, next.done)
++			if !present {
++				t.Fatal("old query removed its replacement")
++			}
++		})
++	}
++}
++
++type partialQueryServer struct {
++	cache     *CacheController
++	firstIPv6 bool
++}
++
++func (s *partialQueryServer) getCacheController() *CacheController { return s.cache }
++func (s *partialQueryServer) Name() string                         { return "partial-test" }
++func (s *partialQueryServer) IsDisableCache() bool                 { return s.cache.disableCache }
++func (s *partialQueryServer) QueryIP(ctx context.Context, domain string, opt fdns.IPOption) ([]net.IP, uint32, error) {
++	return queryIP(ctx, s, domain, opt)
++}
++func (s *partialQueryServer) sendQuery(ctx context.Context, _ chan<- error, fqdn string, option fdns.IPOption) {
++	if option.IPv4Enable == option.IPv6Enable {
++		panic("shared queries must be per-family")
++	}
++	if option.IPv6Enable == s.firstIPv6 {
++		typ, ip := dnsmessage.TypeA, net.ParseIP("192.0.2.1")
++		if s.firstIPv6 {
++			typ, ip = dnsmessage.TypeAAAA, net.ParseIP("2001:db8::1")
++		}
++		s.cache.updateRecord(&dnsRequest{reqType: typ, domain: fqdn, start: time.Now()}, &IPRecord{IP: []net.IP{ip}, Expire: time.Now().Add(time.Minute)})
++	}
++}
++
++func TestSharedQueryPartialFamilyAtDeadline(t *testing.T) {
++	for _, ipv6 := range []bool{false, true} {
++		s := &partialQueryServer{cache: NewCacheController("partial-test", true, false, 0), firstIPv6: ipv6}
++		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
++		ips, ttl, err := s.QueryIP(ctx, "partial.example", fdns.IPOption{IPv4Enable: true, IPv6Enable: true})
++		cancel()
++		if err != nil || len(ips) != 1 || ttl == 0 || (ips[0].To4() == nil) != ipv6 {
++			t.Fatalf("lost completed family (IPv6=%v): %v, ttl=%d, err=%v", ipv6, ips, ttl, err)
++		}
++		s.cache.requestGroup.close()
++	}
++}
+diff --git a/app/dns/wayrill_shared_ttl_test.go b/app/dns/wayrill_shared_ttl_test.go
+new file mode 100644
+index 00000000..d198070a
+--- /dev/null
++++ b/app/dns/wayrill_shared_ttl_test.go
+@@ -0,0 +1,75 @@
++package dns
++
++import (
++	"context"
++	"fmt"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/xtls/xray-core/common/net"
++	fdns "github.com/xtls/xray-core/features/dns"
++	"golang.org/x/net/dns/dnsmessage"
++)
++
++type wayrillSharedTTLServer struct {
++	cache *CacheController
++	ttl   uint32
++	sends atomic.Int32
++}
++
++func (s *wayrillSharedTTLServer) getCacheController() *CacheController { return s.cache }
++func (s *wayrillSharedTTLServer) sendQuery(_ context.Context, _ chan<- error, fqdn string, option fdns.IPOption) {
++	for _, family := range []struct {
++		enabled bool
++		typ     dnsmessage.Type
++		ip      string
++	}{
++		{option.IPv4Enable, dnsmessage.TypeA, "192.0.2.1"},
++		{option.IPv6Enable, dnsmessage.TypeAAAA, "2001:db8::1"},
++	} {
++		if family.enabled {
++			s.sends.Add(1)
++			s.cache.updateRecord(&dnsRequest{reqType: family.typ, domain: fqdn, start: time.Now()},
++				&IPRecord{IP: []net.IP{net.ParseIP(family.ip)}, Expire: time.Now().Add(time.Duration(s.ttl) * time.Second)})
++		}
++	}
++}
++
++func TestSharedQueryTTLSemantics(t *testing.T) {
++	for _, sourceTTL := range []uint32{0, 60, 300, 3600} {
++		for _, disableCache := range []bool{true, false} {
++			for _, option := range []fdns.IPOption{{IPv4Enable: true}, {IPv6Enable: true}, {IPv4Enable: true, IPv6Enable: true}} {
++				t.Run(fmt.Sprintf("ttl%d-cacheDisabled%t-v4%t-v6%t", sourceTTL, disableCache, option.IPv4Enable, option.IPv6Enable), func(t *testing.T) {
++					s := &wayrillSharedTTLServer{cache: NewCacheController("ttl-review", disableCache, false, 0), ttl: sourceTTL}
++					t.Cleanup(s.cache.requestGroup.close)
++					t.Cleanup(func() { s.cache.cacheCleanup.Close() })
++					wantIPs := 1
++					wantTTL := sourceTTL
++					if wantTTL == 0 {
++						wantTTL = 1
++					}
++					if option.IPv4Enable && option.IPv6Enable {
++						wantIPs = 2
++						wantTTL = min(wantTTL, fdns.DefaultTTL)
++					}
++					for request := 0; request < 2; request++ {
++						ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++						ips, ttl, err := queryIP(ctx, s, "ttl-review.example", option)
++						cancel()
++						if err != nil || len(ips) != wantIPs || ttl != wantTTL {
++							t.Fatalf("request %d: ips=%v ttl=%d err=%v; want %d addresses ttl=%d", request, ips, ttl, err, wantIPs, wantTTL)
++						}
++					}
++					wantSends := wantIPs
++					if disableCache || sourceTTL == 0 {
++						wantSends *= 2
++					}
++					if got := s.sends.Load(); got != int32(wantSends) {
++						t.Fatalf("sent %d wire questions, want %d", got, wantSends)
++					}
++				})
++			}
++		}
++	}
++}
+diff --git a/app/metrics/metrics.go b/app/metrics/metrics.go
+index 6d1cff72..9295457f 100644
+--- a/app/metrics/metrics.go
++++ b/app/metrics/metrics.go
+@@ -16,6 +16,7 @@ import (
+ 	xnet "github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/signal/done"
+ 	"github.com/xtls/xray-core/core"
++	"github.com/xtls/xray-core/features/dns"
+ 	"github.com/xtls/xray-core/features/extension"
+ 	"github.com/xtls/xray-core/features/outbound"
+ 	feature_stats "github.com/xtls/xray-core/features/stats"
+@@ -155,6 +156,13 @@ func (p *MetricsHandler) handleDebugVars(w http.ResponseWriter, r *http.Request)
+ 	})
+ 	vars["stats"] = marshalJSON(p.stats())
+ 	vars["observatory"] = marshalJSON(p.observatoryStatus())
++	// Read-only app telemetry. Shared authorities report through their existing
++	// authenticated health channel; ordinary cores report their local allocator.
++	if provider, ok := core.MustFromContext(p.ctx).GetFeature((*dns.FakeDNSEngine)(nil)).(dns.FakeDNSStatsProvider); ok {
++		if stats := provider.GetFakeDNSStats(); stats != nil {
++			vars["fakeDns"] = marshalJSON(stats)
++		}
++	}
+ 
+ 	payload, err := json.Marshal(vars)
+ 	if err != nil {
+diff --git a/app/metrics/wayrill_usage_test.go b/app/metrics/wayrill_usage_test.go
+new file mode 100644
+index 00000000..02570555
+--- /dev/null
++++ b/app/metrics/wayrill_usage_test.go
+@@ -0,0 +1,50 @@
++package metrics
++
++import (
++	"encoding/json"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/xtls/xray-core/app/dns/fakedns"
++	"github.com/xtls/xray-core/common/serial"
++	"github.com/xtls/xray-core/core"
++	"github.com/xtls/xray-core/features/dns"
++)
++
++func TestWayrillFakeDNSMetrics(t *testing.T) {
++	config := metricsTestConfig(&Config{Tag: "metrics_out"})
++	config.App = append(config.App, serial.ToTypedMessage(&fakedns.FakeDnsPoolMulti{Pools: []*fakedns.FakeDnsPool{{IpPool: "198.18.0.0/28", LruSize: 3}}}))
++	server, err := core.New(config)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = server.Start(); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { server.Close() })
++	check := func(used float64) {
++		t.Helper()
++		response := httptest.NewRecorder()
++		metricsHandler(t, server).httpHandler().ServeHTTP(response, httptest.NewRequest("GET", "/debug/vars", nil))
++		var payload map[string]json.RawMessage
++		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
++			t.Fatal(err)
++		}
++		var pools []map[string]any
++		if err := json.Unmarshal(payload["fakeDns"], &pools); err != nil {
++			t.Fatal(err)
++		}
++		if len(pools) != 1 || pools[0]["capacity"] != float64(3) {
++			t.Fatalf("bad telemetry: %s", payload["fakeDns"])
++		}
++		got, present := pools[0]["used"].(float64)
++		if !present || got != used {
++			t.Fatalf("used=%v, want %v", got, used)
++		}
++	}
++	check(0)
++	engine := server.GetFeature((*dns.FakeDNSEngine)(nil)).(dns.FakeDNSEngine)
++	engine.GetFakeIPForDomain("example.org")
++	check(1)
++	check(1)
++}
+diff --git a/common/cache/wayrill_usage.go b/common/cache/wayrill_usage.go
+new file mode 100644
+index 00000000..50a10b73
+--- /dev/null
++++ b/common/cache/wayrill_usage.go
+@@ -0,0 +1,9 @@
++package cache
++
++// Usage snapshots occupancy without touching recency or enumerating entries.
++// It is optional on Lru so existing implementations keep their interface.
++func (l *lru) Usage() (used, capacity int) {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	return l.doubleLinkedlist.Len(), l.capacity
++}
+diff --git a/features/dns/fakedns.go b/features/dns/fakedns.go
+index 021f820b..69d436d8 100644
+--- a/features/dns/fakedns.go
++++ b/features/dns/fakedns.go
+@@ -1,6 +1,8 @@
+ package dns
+ 
+ import (
++	"context"
++
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/features"
+ )
+@@ -21,3 +23,26 @@ type FakeDNSEngineRev0 interface {
+ 	IsIPInIPPool(ip net.Address) bool
+ 	GetFakeIPForDomain3(domain string, IPv4, IPv6 bool) []net.Address
+ }
++
++// FakeDNSEngineContext is an optional mapping capability for engines that perform
++// I/O. Callers should use it to preserve request cancellation and backend errors.
++// The context-free engine interfaces remain supported for local implementations.
++type FakeDNSEngineContext interface {
++	Allocate(context.Context, string, bool, bool) ([]net.Address, error)
++	ReverseLookup(context.Context, net.Address) (string, error)
++}
++
++// FakeDNSPoolStats counts retained address-family mappings, not active connections.
++// It contains no domains or individual allocated addresses.
++type FakeDNSPoolStats struct {
++	IPPool   string `json:"ipPool"`
++	Used     uint64 `json:"used"`
++	Capacity uint64 `json:"capacity"`
++}
++
++// FakeDNSStatsProvider is an optional, read-only local allocator capability.
++// Snapshots must not allocate mappings or change LRU recency. A nil snapshot
++// means statistics are unavailable, for example before the pools start.
++type FakeDNSStatsProvider interface {
++	GetFakeDNSStats() []FakeDNSPoolStats
++}
+diff --git a/proxy/dns/dns.go b/proxy/dns/dns.go
+index efeb56cd..5160a417 100644
+--- a/proxy/dns/dns.go
++++ b/proxy/dns/dns.go
+@@ -3,6 +3,7 @@ package dns
+ import (
+ 	"context"
+ 	go_errors "errors"
++	"github.com/xtls/xray-core/app/dns/fakedns"
+ 	"io"
+ 	"strings"
+ 	"sync"
+@@ -153,6 +154,9 @@ func (h *Handler) applyRules(qType dnsmessage.Type, domain string) (RuleAction,
+ 
+ // Process implements proxy.Outbound.
+ func (h *Handler) Process(ctx context.Context, link *transport.Link, d internet.Dialer) error {
++	if handled, err := fakedns.WayrillHandleResolver(ctx, link, h.client); handled {
++		return err
++	}
+ 	outbounds := session.OutboundsFromContext(ctx)
+ 	ob := outbounds[len(outbounds)-1]
+ 	if !ob.Target.IsValid() {

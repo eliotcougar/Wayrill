@@ -1,0 +1,15 @@
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.wasm binary
+# The core build verifies these exact source bytes, not normalized text.
+service/xray-patches/*.patch -text -whitespace
+service/core-init/*.go -text whitespace=cr-at-eol
+service/core-control/*.go -text whitespace=cr-at-eol
+service/tun-core/*.go -text whitespace=cr-at-eol
+# Preserve exact vendor notices and localized Windows-output fixtures.
+public/licenses/* -text -whitespace
+docs/licenses/* -text -whitespace
+service/capture/LICENSE -text -whitespace
+service/routing-assets/*LICENSE -text -whitespace
+service/daemon/fixtures/*.txt -text -whitespace

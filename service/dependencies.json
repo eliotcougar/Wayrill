@@ -1,0 +1,125 @@
+{
+  "xray": {
+    "version": "26.10.21",
+    "prerelease": true,
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.10.21/Xray-windows-64.zip",
+    "archiveSha256": "FC58C39EE2F2717B4C54D28D374362389E5319B20AE44AEA76EA45A5243EC827",
+    "executableSha256": "32D071B52DA365542C9E0750779760835670E7C88995F43E677842CEB4AFDBFC",
+    "license": "MPL-2.0",
+    "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.10.21",
+    "sourceCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+    "wintunDllSha256": "E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE",
+    "officialExecutableSha256": "C77A00EB84FB93AE044C2D771A1CABCC033B81E487253FBC35B12DF6879C1E15",
+    "sourceArchiveSha256": "57A862FDD1E978FC0C74C624D94555257CECF4E97E0A7DF646168E1272AAFF50",
+    "build": {
+      "tag": "Wayrill-socket-defaults",
+      "goVersion": "1.27.3",
+      "fakeDnsPatch": "service/xray-patches/shared-fakedns.patch",
+      "fakeDnsPatchSha256": "D7DC4F46F68837AFC04DB77DC837D44DF5F0890BA3AE3DCD5F73C4E92BDC62BC",
+      "initializerFiles": {
+        "udp_windows.go": "A8D638AFF1145152469653B1279723E85072847216D0DFECE9FBABE64C48C087",
+        "udp_windows_test.go": "535B3D8AA6D34D6D4EC75CDA432B14372C019C3D6F55F7C35140AF207099BBC8"
+      },
+      "goArchiveSha256": "F26081F438319757F8A1B46D7D0B2C5EC7583D4038E485E0AA725CFDE7885FFF"
+    }
+  },
+  "winDivert": {
+    "version": "2.2.2-A",
+    "url": "https://reqrypt.org/download/WinDivert-2.2.2-A.zip",
+    "archiveSha256": "63CB41763BB4B20F600B6DE04E991A9C2BE73279E317D4D82F237B150C5F3F15",
+    "dllSha256": "C1E060EE19444A259B2162F8AF0F3FE8C4428A1C6F694DCE20DE194AC8D7D9A2",
+    "driverSha256": "8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2",
+    "license": "LGPL-3.0-or-later",
+    "source": "https://github.com/basil00/WinDivert"
+  },
+  "routingData": {
+    "snapshot": "2026-10-26",
+    "files": [
+      {
+        "path": "ru-geoip.dat",
+        "bytes": 18021203,
+        "sha256": "B0E63487C2AD267AD9211D0DF7E473867220B020A89BC8B8F251C3F69B1320C5",
+        "sourceSha256": "B0E63487C2AD267AD9211D0DF7E473867220B020A89BC8B8F251C3F69B1320C5",
+        "sourceUrl": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610260916/geoip.dat",
+        "release": "202610260916",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/runetfreedom/russia-v2ray-rules-dat"
+      },
+      {
+        "path": "ru-geosite.dat",
+        "bytes": 73703302,
+        "sha256": "76FDBE01687A6CC7683B50C38CEEA84941458E8371D215918DAF555665A537CD",
+        "sourceSha256": "76FDBE01687A6CC7683B50C38CEEA84941458E8371D215918DAF555665A537CD",
+        "sourceUrl": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610260916/geosite.dat",
+        "release": "202610260916",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/runetfreedom/russia-v2ray-rules-dat"
+      },
+      {
+        "path": "ir-geoip.dat",
+        "bytes": 16506288,
+        "sha256": "CFF2AB137BB5F84D65A502A7548D0F9FD97F0572E006691C6C7FE5A0D410C834",
+        "sourceSha256": "CFF2AB137BB5F84D65A502A7548D0F9FD97F0572E006691C6C7FE5A0D410C834",
+        "sourceUrl": "https://github.com/Chocolate4U/Iran-v2ray-rules/releases/download/202610261027/geoip.dat",
+        "release": "202610261027",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/Chocolate4U/Iran-v2ray-rules"
+      },
+      {
+        "path": "ir-geosite.dat",
+        "bytes": 8217035,
+        "sha256": "69D3E3C78EA5567369B3AA697A6AB76E82E28F2BAFDCABE4A887518E50E9AF5F",
+        "sourceSha256": "69D3E3C78EA5567369B3AA697A6AB76E82E28F2BAFDCABE4A887518E50E9AF5F",
+        "sourceUrl": "https://github.com/Chocolate4U/Iran-v2ray-rules/releases/download/202610261027/geosite.dat",
+        "release": "202610261027",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/Chocolate4U/Iran-v2ray-rules"
+      },
+      {
+        "path": "cn-geoip.dat",
+        "bytes": 16570425,
+        "sha256": "A6271D3C96361D96156E6D3F7CF1550EF21B00D2F951DEB772F464DB91E89AC5",
+        "sourceSha256": "A6271D3C96361D96156E6D3F7CF1550EF21B00D2F951DEB772F464DB91E89AC5",
+        "sourceUrl": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610242205/geoip.dat",
+        "release": "202610242205",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/Loyalsoldier/v2ray-rules-dat"
+      },
+      {
+        "path": "cn-geosite.dat",
+        "bytes": 11391470,
+        "sha256": "E16EE9AF893247F9C8B15C5259E5C0A6AE491B85EE351C22F1954E696EBB8997",
+        "sourceSha256": "E16EE9AF893247F9C8B15C5259E5C0A6AE491B85EE351C22F1954E696EBB8997",
+        "sourceUrl": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610242205/geosite.dat",
+        "release": "202610242205",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/Loyalsoldier/v2ray-rules-dat"
+      }
+    ]
+  },
+  "resourceData": {
+    "snapshot": "2026-10-26",
+    "files": [
+      {
+        "path": "geoip.dat",
+        "bytes": 3974726,
+        "sha256": "E996525D5B519F086DACAD90F8AF776A053FD5FDAB838B3DEF809151BEAFE53B",
+        "sourceSha256": "E996525D5B519F086DACAD90F8AF776A053FD5FDAB838B3DEF809151BEAFE53B",
+        "sourceUrl": "https://github.com/XTLS/Xray-rules-dat/releases/download/20261025203849/geoip-lite.dat",
+        "release": "20261025203849",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/XTLS/Xray-rules-dat"
+      },
+      {
+        "path": "geosite.dat",
+        "bytes": 6540378,
+        "sha256": "3BC82B9ECAEDF43A12F5655AC62CEB9A625E4657949224750D14E9C4B08C3DCE",
+        "sourceSha256": "3BC82B9ECAEDF43A12F5655AC62CEB9A625E4657949224750D14E9C4B08C3DCE",
+        "sourceUrl": "https://github.com/XTLS/Xray-rules-dat/releases/download/20261025203849/geosite.dat",
+        "release": "20261025203849",
+        "license": "GPL-3.0-only",
+        "sourceRepository": "https://github.com/XTLS/Xray-rules-dat"
+      }
+    ]
+  }
+}

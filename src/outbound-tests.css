@@ -1,0 +1,163 @@
+.outbound-tests-window {
+  width: min(1100px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.outbound-test-buttons,
+.outbound-speed-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.outbound-test-buttons {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.outbound-test-buttons > button {
+  flex-shrink: 0;
+}
+.outbound-speed-summary {
+  white-space: nowrap;
+}
+.outbound-tests-window:not([open]) {
+  display: none;
+}
+.outbound-tests-window .dialog-body {
+  min-height: 0;
+  overflow: auto;
+}
+.outbound-test-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.outbound-test-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.outbound-test-row {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 1.1fr) minmax(125px, 0.8fr) minmax(105px, 0.7fr) minmax(150px, 1.4fr)
+    68px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.outbound-test-table {
+  min-width: 700px;
+}
+.outbound-test-row .outbound-test-buttons {
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+.outbound-test-row > span {
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.outbound-test-row .passed {
+  color: var(--text);
+}
+.outbound-test-row .failed {
+  color: var(--danger);
+}
+.outbound-test-summary {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 4px 0 0;
+  text-align: left;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  cursor: pointer;
+}
+.outbound-test-summary.passed {
+  color: var(--accent);
+}
+.outbound-test-summary.outbound-speed-summary {
+  display: flex;
+}
+.outbound-test-summary.failed {
+  color: var(--danger);
+}
+.udp-test-badge {
+  display: inline-block;
+  margin-inline-start: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.udp-test-badge.reachable {
+  color: var(--success);
+}
+.udp-test-badge.unreachable {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+@media (forced-colors: active) {
+  .udp-test-badge.reachable,
+  .udp-test-badge.unreachable {
+    color: CanvasText;
+  }
+}
+.outbound-test-summary:hover {
+  text-decoration: underline;
+}
+.toolbar-traffic {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.toolbar-traffic span {
+  display: inline-block;
+  min-width: 73px;
+}
+@media (forced-colors: active) {
+  .outbound-test-summary,
+  .outbound-test-row .passed,
+  .outbound-test-row .failed {
+    color: CanvasText;
+  }
+}
+
+.app-dialog:has(#test-settings-title) .dialog-footer,
+.outbound-tests-window .dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* A test result is a separate row below the summary, with the same gap on every card. */
+.rule-node .outbound-test-summary {
+  padding: 0;
+  margin: 0 0 12px;
+  line-height: 16px;
+}
+.rule-node .outbound-test-summary:last-child {
+  margin-bottom: 0;
+}
+
+.rule-node .outbound-test-summary + .node-edit-button {
+  margin-top: 0;
+}
+
+.outbound-observation-summary {
+  cursor: default;
+}
+.outbound-observation-summary:hover {
+  text-decoration: none;
+}

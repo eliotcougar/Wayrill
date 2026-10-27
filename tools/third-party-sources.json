@@ -1,0 +1,21 @@
+{
+  "component": "libavoid-js 0.4.5",
+  "files": [
+    {
+      "name": "libavoid-js-0.4.5.tgz",
+      "url": "https://registry.npmjs.org/libavoid-js/-/libavoid-js-0.4.5.tgz",
+      "sha256": "82395DA8F431385872D06461CC5CCE395C6042443C95A67B05DC27F22EDC4CD0",
+      "npmPackage": "libavoid-js"
+    },
+    {
+      "name": "libavoid-js-source.zip",
+      "url": "https://codeload.github.com/Aksem/libavoid-js/zip/28a6fe20c2f1f809afdbeca8d789e65357614c4f",
+      "sha256": "A5CF37EE44D18DD980B8D98C1DB938AF0CD3EEAC0CAE0B8DACD7469C2980779D"
+    },
+    {
+      "name": "adaptagrams-source.zip",
+      "url": "https://codeload.github.com/Aksem/adaptagrams/zip/refs/tags/v1.0.4",
+      "sha256": "1440E68F95C3B85BCB27B558C4162518243EC2A6AB50B2AF331676BC27689A62"
+    }
+  ]
+}

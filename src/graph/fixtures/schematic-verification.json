@@ -1,0 +1,272 @@
+{
+  "nodes": [
+    {
+      "id": "socks",
+      "x": 0.0,
+      "y": 80.0,
+      "width": 212.0,
+      "height": 176.59375
+    },
+    {
+      "id": "routes",
+      "x": 340.0,
+      "y": 0.0,
+      "width": 212.0,
+      "height": 312.59375
+    },
+    {
+      "id": "dns",
+      "x": 340.0,
+      "y": 340.0,
+      "width": 212.0,
+      "height": 204.59375
+    },
+    {
+      "id": "dns-routes",
+      "x": 690.0,
+      "y": 470.0,
+      "width": 212.0,
+      "height": 285.59375
+    },
+    {
+      "id": "local-dns",
+      "x": 1040.0,
+      "y": 450.0,
+      "width": 212.0,
+      "height": 204.59375
+    },
+    {
+      "id": "remote-dns",
+      "x": 1040.0,
+      "y": 730.0,
+      "width": 212.0,
+      "height": 204.59375
+    },
+    {
+      "id": "block",
+      "x": 1390.0,
+      "y": 0.0,
+      "width": 212.0,
+      "height": 153.59375
+    },
+    {
+      "id": "preferred",
+      "x": 1390.0,
+      "y": 280.0,
+      "width": 212.0,
+      "height": 153.59375
+    },
+    {
+      "id": "direct",
+      "x": 1390.0,
+      "y": 560.0,
+      "width": 212.0,
+      "height": 153.59375
+    },
+    {
+      "id": "http",
+      "x": 0.0,
+      "y": 340.0,
+      "width": 212.0,
+      "height": 176.59375
+    },
+    {
+      "id": "verification-group",
+      "x": 690.0,
+      "y": 40.0,
+      "width": 212.0,
+      "height": 204.59375
+    },
+    {
+      "id": "verification-observatory",
+      "x": 1040.0,
+      "y": 30.0,
+      "width": 212.0,
+      "height": 177.59375
+    }
+  ],
+  "edges": [
+    {
+      "id": "data-rules",
+      "source": "socks",
+      "target": "routes",
+      "sourceHandle": "data",
+      "targetHandle": "in",
+      "kind": "traffic",
+      "sourceX": 212.0,
+      "sourceY": 219.59375,
+      "targetX": 340.0,
+      "targetY": 156.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "dns-local",
+      "source": "dns-routes",
+      "target": "local-dns",
+      "sourceHandle": "local",
+      "targetHandle": "in",
+      "kind": "resolver",
+      "sourceX": 902.0,
+      "sourceY": 714.09375,
+      "targetX": 1040.0,
+      "targetY": 552.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "dns-remote",
+      "source": "dns-routes",
+      "target": "remote-dns",
+      "sourceHandle": "remote",
+      "targetHandle": "in",
+      "kind": "resolver",
+      "sourceX": 902.0,
+      "sourceY": 741.09375,
+      "targetX": 1040.0,
+      "targetY": 832.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "handler-resolver",
+      "source": "dns",
+      "target": "dns-routes",
+      "sourceHandle": "resolver",
+      "targetHandle": "in",
+      "kind": "resolver",
+      "sourceX": 552.0,
+      "sourceY": 530.09375,
+      "targetX": 690.0,
+      "targetY": 612.796875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "http-data",
+      "source": "http",
+      "target": "routes",
+      "sourceHandle": "data",
+      "targetHandle": "in",
+      "kind": "traffic",
+      "sourceX": 212.0,
+      "sourceY": 479.59375,
+      "targetX": 340.0,
+      "targetY": 156.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "http-dns",
+      "source": "http",
+      "target": "dns",
+      "sourceHandle": "dns",
+      "targetHandle": "in",
+      "kind": "dns-traffic",
+      "sourceX": 212.0,
+      "sourceY": 502.59375,
+      "targetX": 340.0,
+      "targetY": 442.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "local-query",
+      "source": "local-dns",
+      "target": "direct",
+      "sourceHandle": "queries",
+      "targetHandle": "in",
+      "kind": "dns-traffic",
+      "sourceX": 1252.0,
+      "sourceY": 640.09375,
+      "targetX": 1390.0,
+      "targetY": 636.796875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "remote-query",
+      "source": "remote-dns",
+      "target": "verification-group",
+      "sourceHandle": "queries",
+      "targetHandle": "in",
+      "kind": "dns-traffic",
+      "sourceX": 1252.0,
+      "sourceY": 920.09375,
+      "targetX": 690.0,
+      "targetY": 142.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "routes-block",
+      "source": "routes",
+      "target": "block",
+      "sourceHandle": "blocked",
+      "targetHandle": "in",
+      "kind": "traffic",
+      "sourceX": 552.0,
+      "sourceY": 244.09375,
+      "targetX": 1390.0,
+      "targetY": 76.796875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "routes-direct",
+      "source": "routes",
+      "target": "direct",
+      "sourceHandle": "direct",
+      "targetHandle": "in",
+      "kind": "traffic",
+      "sourceX": 552.0,
+      "sourceY": 271.09375,
+      "targetX": 1390.0,
+      "targetY": 636.796875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "routes-vless",
+      "source": "routes",
+      "target": "verification-group",
+      "sourceHandle": "preferred",
+      "targetHandle": "in",
+      "kind": "traffic",
+      "sourceX": 552.0,
+      "sourceY": 298.09375,
+      "targetX": 690.0,
+      "targetY": 142.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "socks-dns",
+      "source": "socks",
+      "target": "dns",
+      "sourceHandle": "dns",
+      "targetHandle": "in",
+      "kind": "dns-traffic",
+      "sourceX": 212.0,
+      "sourceY": 242.59375,
+      "targetX": 340.0,
+      "targetY": 442.296875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    },
+    {
+      "id": "verification-observation",
+      "source": "verification-group",
+      "target": "verification-observatory",
+      "sourceHandle": "observation",
+      "targetHandle": "in",
+      "kind": "observation",
+      "sourceX": 902.0,
+      "sourceY": 230.09375,
+      "targetX": 1040.0,
+      "targetY": 118.796875,
+      "sourcePosition": "right",
+      "targetPosition": "left"
+    }
+  ]
+}

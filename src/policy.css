@@ -1,0 +1,368 @@
+.policy-editor-body {
+  overflow: auto;
+  padding: 24px 28px;
+  container-type: size;
+}
+.policy-editor-body > .field {
+  max-width: 680px;
+}
+.policy-explanation,
+.policy-shared-note {
+  padding: 14px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  line-height: 1.6;
+  margin: 10px 0 20px;
+}
+.policy-shared-note {
+  border-color: var(--success-border);
+  background: var(--surface-adjacent);
+  color: var(--success);
+}
+.policy-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.policy-set-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  gap: 24px;
+  margin: 20px 0;
+  align-items: start;
+}
+.policy-set-layout h3 {
+  margin: 0 0 12px;
+}
+.policy-set-sources section + section {
+  margin-top: 24px;
+}
+.policy-set-preview {
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+  position: static;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-adjacent);
+  padding: 16px;
+  min-width: 0;
+}
+.policy-set-preview .editor-field {
+  margin-bottom: 8px;
+}
+.policy-set-preview > :not(.policy-candidate-table) {
+  flex-shrink: 0;
+}
+.policy-source-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  background: var(--surface-raised);
+}
+.policy-source-card h4 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.policy-source-count {
+  color: var(--success);
+  font-size: 12px;
+}
+.policy-count {
+  border-radius: 12px;
+  padding: 3px 8px;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.policy-picker-actions {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.policy-picker-actions > button,
+.policy-picker-actions > .editor-field input,
+.policy-picker-actions > .editor-field select {
+  min-height: 38px;
+}
+.policy-picker-actions > label {
+  flex: 1;
+  min-width: 160px;
+  margin: 0;
+}
+.policy-stash-picker {
+  border: 1px solid var(--border);
+  padding: 12px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.policy-picker-list,
+.policy-manual-list {
+  max-height: 270px;
+  overflow: auto;
+  margin-top: 12px;
+}
+.policy-picker-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.policy-picker-row > span {
+  min-width: 0;
+}
+.policy-picker-row strong,
+.policy-candidate-table strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.policy-picker-row small,
+.policy-candidate-table small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.policy-picker-row button {
+  flex-shrink: 0;
+}
+.policy-candidate-table {
+  flex: 1 1 auto;
+  min-height: 112px;
+  max-height: 330px;
+  overflow: auto;
+}
+.policy-candidate-table table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.policy-candidate-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-adjacent);
+  text-align: left;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 8px;
+}
+.policy-candidate-table th:first-child {
+  width: 65%;
+}
+.policy-candidate-table td {
+  border-top: 1px solid var(--border);
+  padding: 10px 8px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.policy-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.policy-pagination button {
+  font-size: 11px;
+  padding: 7px 9px;
+}
+.policy-empty {
+  color: var(--text-muted);
+  line-height: 1.6;
+  padding: 12px 0;
+}
+.policy-fallback-current {
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+@media (max-width: 700px) {
+  .policy-editor-body {
+    padding: 16px;
+  }
+}
+@media (max-width: 850px) {
+  .policy-set-layout {
+    grid-template-columns: 1fr;
+  }
+  .policy-set-preview {
+    position: static;
+    max-height: none;
+  }
+}
+
+.policy-draft-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.policy-draft-summary small {
+  flex-basis: 100%;
+  color: var(--text-muted);
+}
+.policy-source-totals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  margin: 0 0 10px;
+  font-size: 11px;
+}
+.policy-source-totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.policy-fallback {
+  max-width: 760px;
+  margin-top: 20px;
+}
+.policy-fallback > .field {
+  max-width: 100%;
+  margin-bottom: 12px;
+}
+.policy-fallback .policy-picker-actions {
+  gap: 8px;
+  align-items: flex-end;
+}
+.policy-fallback .policy-picker-actions > button,
+.policy-picker-actions > .editor-field input,
+.policy-picker-actions > .editor-field select {
+  min-height: 38px;
+}
+.policy-picker-actions > label {
+  min-width: 240px;
+}
+.policy-fallback .policy-picker-actions > button {
+  min-height: 32px;
+  margin: 0;
+  font-size: 11px;
+}
+.policy-fallback .policy-picker-actions > label select {
+  min-height: 32px;
+}
+
+.policy-name-field {
+  margin: 12px 20px;
+  flex-shrink: 0;
+}
+.prepared-library {
+  min-width: 0;
+}
+.prepared-search {
+  flex: 1;
+  min-width: 180px;
+}
+.prepared-library .stash-toolbar {
+  align-items: center;
+}
+.prepared-library .stash-entry-main {
+  min-width: 0;
+  flex: 1;
+}
+.prepared-library .stash-entry-main strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prepared-library .stash-entry-main small {
+  color: var(--muted);
+}
+.prepared-library .stash-entry-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.prepared-library .stash-entry {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+@media (max-width: 600px) {
+  .prepared-library .stash-entry {
+    flex-wrap: wrap;
+  }
+  .prepared-library .stash-entry-main {
+    flex-basis: 100%;
+  }
+}
+
+/* Keep the working area useful on a 1280 x 800 laptop. */
+.policy-editor .rule-editor-titlebar {
+  padding: 10px 20px;
+}
+.policy-editor .rule-editor-titlebar h2 {
+  margin: 0;
+}
+.policy-editor .policy-name-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 20px;
+}
+.policy-name-field > span {
+  margin: 0;
+}
+.policy-name-field > input {
+  flex: 1;
+  min-width: 0;
+}
+.policy-editor .rule-editor-tabs {
+  padding-top: 0;
+}
+.policy-editor .rule-editor-tabs button {
+  padding: 8px 15px;
+}
+.policy-editor-body {
+  padding: 14px 20px;
+}
+.policy-set-layout {
+  gap: 16px;
+  margin: 0;
+}
+.policy-set-preview {
+  position: sticky;
+  top: 0;
+  padding: 12px;
+  max-height: min(480px, calc(100cqh - 28px));
+  overflow: auto;
+}
+.policy-source-card {
+  padding: 12px;
+}
+.policy-picker-list {
+  max-height: 200px;
+}
+.policy-editor .rule-editor-footer {
+  padding: 10px 20px;
+}
+@media (max-width: 850px) {
+  .policy-set-preview {
+    position: static;
+    max-height: none;
+  }
+}

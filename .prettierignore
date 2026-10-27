@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src/graph/protocolSource.ts
+src/graph/xrayCoreDefaults.json
+src-tauri/gen/
+src-tauri/target/
+service/target/
+.tools/
+package-lock.json

@@ -1,0 +1,57 @@
+.diagnostics-window {
+  width: min(1000px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 40px));
+}
+.diagnostics-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  flex: 1;
+  min-height: 0;
+}
+.diagnostics-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.diagnostics-toolbar > button,
+.diagnostics-toolbar summary {
+  min-height: 36px;
+}
+.diagnostics-toolbar .routing-log-choice-filter fieldset {
+  left: 0;
+  right: auto;
+  width: max-content;
+  max-width: min(400px, calc(100vw - 80px));
+}
+.diagnostics-toolbar input[type='checkbox'] {
+  flex-shrink: 0;
+  margin: 0;
+}
+.diagnostics-folder {
+  margin-inline-start: auto;
+}
+.diagnostics-output {
+  flex: 1;
+  min-height: 180px;
+  resize: none;
+  font: 12px/1.5 var(--font-mono, monospace);
+  white-space: pre;
+  overflow: auto;
+  background: var(--surface-sunken);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 10px;
+}
+.diagnostics-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}

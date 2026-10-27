@@ -1,0 +1,3808 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wayrill:service-api:1",
+  "title": "Wayrill Service API v1",
+  "description": "Wayrill local service API v1. Typed startup, core lifecycle, resources and Windows capture commands.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/event"
+    }
+  ],
+  "$defs": {
+    "request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.setScope"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "enum": [
+                    "user",
+                    "machine"
+                  ]
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "scope",
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "service.hello"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "service.status"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "tun.interfaces"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "config.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "core.stop"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "disableSharing": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windivert.stop"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "config.validate"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "config": {
+                  "type": "object",
+                  "description": "Complete Xray JSON; guarded/normalized by Rust and validated by the pinned core, maximum serialized size 16 MiB."
+                },
+                "capture": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/capturePlan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "config"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "config.apply"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "config": {
+                  "type": "object",
+                  "description": "Complete Xray JSON; guarded/normalized by Rust and validated by the pinned core, maximum serialized size 16 MiB."
+                },
+                "expectedRevision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                },
+                "capture": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/capturePlan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "displayNames": {
+                  "$ref": "#/$defs/displayNames"
+                },
+                "sourceGraph": {
+                  "type": "string",
+                  "maxLength": 67108864,
+                  "description": "Authored graph, stored encrypted with the profile transaction. Prefer a sourceGraphToken for large graphs."
+                },
+                "sourceGraphToken": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "config",
+                "expectedRevision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "core.start"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                }
+              },
+              "required": [
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "core.restart"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                }
+              },
+              "required": [
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windivert.startDiagnostic"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "port": {
+                  "type": "integer",
+                  "minimum": 1024,
+                  "maximum": 65535
+                }
+              },
+              "required": [
+                "port"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "events.subscribe"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "afterSequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                },
+                "afterInstanceId": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "afterSequence"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "config.applyAndStart"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "config": {
+                  "type": "object",
+                  "description": "Complete Xray JSON; guarded/normalized by Rust and validated by the pinned core, maximum serialized size 16 MiB."
+                },
+                "expectedRevision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                },
+                "capture": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/capturePlan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "displayNames": {
+                  "$ref": "#/$defs/displayNames"
+                },
+                "sourceGraph": {
+                  "type": "string",
+                  "maxLength": 67108864,
+                  "description": "Authored graph, stored encrypted with the profile transaction. Prefer a sourceGraphToken for large graphs."
+                },
+                "sourceGraphToken": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "config",
+                "expectedRevision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "traffic.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "traffic.history"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "traffic.endpoints"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ]
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 16400
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              },
+              "required": [
+                "scope",
+                "offset"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windows.catalog"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windows.loopback.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windows.loopback.set"
+            },
+            "params": {
+              "$ref": "#/$defs/loopbackChanges"
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.status"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.configure"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "$ref": "#/$defs/resourcePlan"
+                  }
+                },
+                "reloadAfterAutoUpdates": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "files"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.update"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "$ref": "#/$defs/resourcePlan"
+                  }
+                }
+              },
+              "required": [
+                "files"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.ensure"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "$ref": "#/$defs/resourcePlan"
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]+\\.dat$",
+                    "maxLength": 200
+                  }
+                }
+              },
+              "required": [
+                "files",
+                "required"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.uploadBegin"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "file": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]+\\.dat$",
+                  "maxLength": 200
+                },
+                "kind": {
+                  "enum": [
+                    "geoip",
+                    "geosite"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 134217728
+                }
+              },
+              "required": [
+                "file",
+                "kind",
+                "bytes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.uploadChunk"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "upload": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 134217728
+                },
+                "hex": {
+                  "type": "string",
+                  "pattern": "^(?:[0-9a-f]{2})+$",
+                  "maxLength": 2097152
+                }
+              },
+              "required": [
+                "upload",
+                "offset",
+                "hex"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.uploadCommit"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "upload": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "upload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.uploadCancel"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "upload": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "upload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.restoreAll"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "capture.stop"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.set"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "enum": [
+                    "wininet",
+                    "envUser",
+                    "envMachine",
+                    "winhttpLegacy",
+                    "winhttpMachine",
+                    "winhttpUser"
+                  ]
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "mode": {
+                  "enum": [
+                    "proxy",
+                    "automatic"
+                  ]
+                },
+                "inputTag": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "allInputTag": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "allProtocol": {
+                  "enum": [
+                    "http",
+                    "socks5",
+                    "socks5h"
+                  ]
+                },
+                "bypass": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "pacUrl": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "http": {
+                  "type": "boolean"
+                },
+                "https": {
+                  "type": "boolean"
+                },
+                "ftp": {
+                  "type": "boolean"
+                },
+                "all": {
+                  "type": "boolean"
+                },
+                "autoDetect": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "channel",
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.clear"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "enum": [
+                    "wininet",
+                    "envUser",
+                    "envMachine",
+                    "winhttpLegacy",
+                    "winhttpMachine",
+                    "winhttpUser"
+                  ]
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "channel",
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.restore"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "enum": [
+                    "wininet",
+                    "envUser",
+                    "envMachine",
+                    "winhttpLegacy",
+                    "winhttpMachine",
+                    "winhttpUser"
+                  ]
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "channel",
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.keepExternal"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "enum": [
+                    "wininet",
+                    "envUser",
+                    "envMachine",
+                    "winhttpLegacy",
+                    "winhttpMachine",
+                    "winhttpUser"
+                  ]
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "channel",
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "capture.start"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "inputTags": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 16,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 256
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "inputTags"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windivert.driver.install"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "windivert.driver.uninstall"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "expectedVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "startup.set"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "expectedRevision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                }
+              },
+              "required": [
+                "enabled",
+                "expectedRevision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "traffic.reset"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "outbounds.testGet"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "job"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "outbounds.testCancel"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "job"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "outbounds.testStart"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "testUrl": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "countryUrl": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "targets": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "config": {
+                        "type": "object"
+                      },
+                      "outboundTag": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "config",
+                      "outboundTag"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "testUrl",
+                "countryUrl",
+                "targets"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "system.capture.diagnose"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "enum": [
+                    "winhttpLegacy",
+                    "winhttpMachine",
+                    "winhttpUser"
+                  ]
+                }
+              },
+              "required": [
+                "channel"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "tun.sharing.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "tun.sharing.restore"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "tun.sharing.keep"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "expectedVersion": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "expectedVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "routing.log"
+            },
+            "params": {
+              "type": "object",
+              "required": [
+                "filterId"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "filterId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                }
+              }
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "resources.browse"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]+\\.dat$",
+                  "maxLength": 200
+                },
+                "kind": {
+                  "enum": [
+                    "geoip",
+                    "geosite"
+                  ]
+                },
+                "group": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "query": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4000000
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "attributes": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "inverse": {
+                  "type": "boolean"
+                },
+                "cidr": {
+                  "type": "string",
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "file",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "config.refreshOutbounds"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "config": {
+                  "type": "object",
+                  "description": "Complete Xray JSON; guarded/normalized by Rust and validated by the pinned core, maximum serialized size 16 MiB."
+                },
+                "expectedRevision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709552000
+                },
+                "capture": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/capturePlan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "displayNames": {
+                  "$ref": "#/$defs/displayNames"
+                },
+                "sourceGraph": {
+                  "type": "string",
+                  "maxLength": 67108864,
+                  "description": "Authored graph, stored encrypted with the profile transaction. Prefer a sourceGraphToken for large graphs."
+                },
+                "sourceGraphToken": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "config",
+                "expectedRevision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.status"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.read"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "stash",
+                    "applied"
+                  ]
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.uploadStart"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "save",
+                    "context",
+                    "source"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 268435456
+                }
+              },
+              "required": [
+                "kind",
+                "bytes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.uploadChunk"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 524288
+                }
+              },
+              "required": [
+                "token",
+                "offset",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.uploadCommit"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "token"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.uploadAbort"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "token"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.run"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "groupId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "operation": {
+                  "enum": [
+                    "refresh",
+                    "test"
+                  ]
+                },
+                "entryIds": {
+                  "type": "array",
+                  "maxItems": 50000,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "groupId",
+                "operation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.job"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "job"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "subscriptions.cancel"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "groupId": {
+                  "type": "string"
+                },
+                "automaticOnly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": {
+              "const": 1
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "method": {
+              "const": "service.sync"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "apiVersion",
+            "id",
+            "method"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "response"
+        },
+        "apiVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": {},
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "required": [
+        "type",
+        "apiVersion",
+        "id",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ],
+            "properties": {
+              "result": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "event"
+        },
+        "apiVersion": {
+          "const": 1
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timestampMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "kind": {
+          "type": "string"
+        },
+        "payload": {}
+      },
+      "required": [
+        "type",
+        "apiVersion",
+        "instanceId",
+        "sequence",
+        "timestampMs",
+        "kind",
+        "payload"
+      ],
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "apiVersion": {
+          "const": 1
+        },
+        "serviceVersion": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "ownerSid": {
+          "type": "string"
+        },
+        "uptimeSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "config": {
+          "type": "object",
+          "properties": {
+            "present": {
+              "type": "boolean"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "sha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-fA-F0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "present",
+            "revision",
+            "sha256"
+          ],
+          "additionalProperties": true
+        },
+        "core": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "stopped",
+                "starting",
+                "stopping",
+                "running",
+                "failed"
+              ]
+            },
+            "pid": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "version": {
+              "type": "string"
+            },
+            "lastError": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/error"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "userSid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "pid",
+            "generation",
+            "version",
+            "lastError",
+            "userSid"
+          ],
+          "additionalProperties": true
+        },
+        "winDivert": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "mode": {
+              "const": "sniffOnly"
+            },
+            "state": {
+              "enum": [
+                "stopped",
+                "running",
+                "failed"
+              ]
+            },
+            "packets": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "lastError": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709552000
+            }
+          },
+          "required": [
+            "available",
+            "mode",
+            "state",
+            "packets",
+            "bytes"
+          ],
+          "additionalProperties": true
+        },
+        "systemProxy": {
+          "type": "object",
+          "properties": {
+            "managed": {
+              "type": "boolean"
+            },
+            "conflict": {
+              "type": "boolean"
+            },
+            "recoveryPending": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "managed",
+            "conflict",
+            "recoveryPending"
+          ],
+          "additionalProperties": true
+        },
+        "traffic": {
+          "$ref": "#/$defs/traffic"
+        },
+        "capture": {
+          "$ref": "#/$defs/captureStatus"
+        },
+        "startup": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "runtimeAccount": {
+              "const": "LocalService"
+            },
+            "lastAttemptMs": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "lastError": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/error"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "waitingForNetwork": {
+              "type": "boolean"
+            },
+            "attempts": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "enabled",
+            "runtimeAccount",
+            "lastAttemptMs",
+            "lastError",
+            "waitingForNetwork",
+            "attempts"
+          ],
+          "additionalProperties": false
+        },
+        "tun": {
+          "$ref": "#/$defs/tunStatus"
+        },
+        "lifecycle": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "operation": {
+                  "enum": [
+                    "start",
+                    "restart",
+                    "reloadResources",
+                    "apply",
+                    "stop"
+                  ]
+                },
+                "stage": {
+                  "enum": [
+                    "preflight",
+                    "resolve",
+                    "validate",
+                    "checkpoint",
+                    "retireTun",
+                    "retireSharing",
+                    "startSharing",
+                    "updateRules",
+                    "drainCapture",
+                    "saveCounters",
+                    "restoreSettings",
+                    "stopCore",
+                    "saveProfile",
+                    "prepare",
+                    "startCore",
+                    "waitCore",
+                    "startTun",
+                    "startCapture",
+                    "applySettings",
+                    "commit"
+                  ]
+                },
+                "percent": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "recovering": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "operation",
+                "stage",
+                "percent",
+                "recovering"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "apiVersion",
+        "serviceVersion",
+        "instanceId",
+        "ownerSid",
+        "uptimeSeconds",
+        "config",
+        "core",
+        "winDivert",
+        "systemProxy",
+        "traffic",
+        "startup"
+      ],
+      "additionalProperties": true
+    },
+    "byteTotal": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Exact unsigned byte total; decode with BigInt, not Number."
+    },
+    "trafficPoint": {
+      "type": "object",
+      "properties": {
+        "sampleId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timestampMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "elapsedMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uploadPerSecond": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "downloadPerSecond": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "sampleId",
+        "timestampMs",
+        "elapsedMs",
+        "uploadPerSecond",
+        "downloadPerSecond"
+      ],
+      "additionalProperties": false
+    },
+    "trafficHistory": {
+      "type": "object",
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "$ref": "#/$defs/trafficPoint"
+          }
+        }
+      },
+      "required": [
+        "generation",
+        "revision",
+        "points"
+      ],
+      "additionalProperties": false
+    },
+    "trafficEndpoint": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "enum": [
+            "inbound",
+            "outbound"
+          ]
+        },
+        "tag": {
+          "type": "string"
+        },
+        "uploadBytes": {
+          "$ref": "#/$defs/byteTotal"
+        },
+        "downloadBytes": {
+          "$ref": "#/$defs/byteTotal"
+        },
+        "uploadPerSecond": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "downloadPerSecond": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "scope",
+        "tag",
+        "uploadBytes",
+        "downloadBytes",
+        "uploadPerSecond",
+        "downloadPerSecond"
+      ],
+      "additionalProperties": false
+    },
+    "traffic": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "collecting",
+            "unavailable",
+            "stopped"
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sampleIntervalMs": {
+          "const": 2000
+        },
+        "sampleId": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastSample": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/trafficPoint"
+            }
+          ]
+        },
+        "uploadBytes": {
+          "$ref": "#/$defs/byteTotal"
+        },
+        "downloadBytes": {
+          "$ref": "#/$defs/byteTotal"
+        },
+        "accumulatedUploadBytes": {
+          "$ref": "#/$defs/byteTotal"
+        },
+        "accumulatedDownloadBytes": {
+          "$ref": "#/$defs/byteTotal"
+        },
+        "uploadPerSecond": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "downloadPerSecond": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trafficEndpoint"
+          },
+          "maxItems": 128
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "persistenceError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "endpointCounts": {
+          "type": "object",
+          "properties": {
+            "inbound": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outbound": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "inbound",
+            "outbound"
+          ],
+          "additionalProperties": false
+        },
+        "endpointsTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "generation",
+        "revision",
+        "sampleIntervalMs",
+        "sampleId",
+        "lastSample",
+        "uploadBytes",
+        "downloadBytes",
+        "accumulatedUploadBytes",
+        "accumulatedDownloadBytes",
+        "uploadPerSecond",
+        "downloadPerSecond",
+        "endpoints",
+        "error",
+        "persistenceError",
+        "endpointCounts",
+        "endpointsTruncated"
+      ],
+      "additionalProperties": false
+    },
+    "trafficEndpointPage": {
+      "type": "object",
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sampleId": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scope": {
+          "enum": [
+            "inbound",
+            "outbound"
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endpoints": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/trafficEndpoint"
+          }
+        }
+      },
+      "required": [
+        "generation",
+        "revision",
+        "sampleId",
+        "scope",
+        "offset",
+        "total",
+        "endpoints"
+      ],
+      "additionalProperties": false
+    },
+    "captureSelector": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "process",
+            "package",
+            "service"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "mode": {
+          "enum": [
+            "name",
+            "path",
+            "folder"
+          ]
+        },
+        "children": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "mode",
+        "children",
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
+    "captureInterface": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "monitored": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "monitored"
+      ],
+      "additionalProperties": false
+    },
+    "captureInterfaces": {
+      "type": "object",
+      "properties": {
+        "monitorNewInterfaces": {
+          "type": "boolean"
+        },
+        "interfaces": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "$ref": "#/$defs/captureInterface"
+          }
+        }
+      },
+      "required": [
+        "monitorNewInterfaces",
+        "interfaces"
+      ],
+      "additionalProperties": false
+    },
+    "captureInput": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "selectors": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/captureSelector"
+          }
+        },
+        "ports": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "networks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "tcp",
+              "udp"
+            ]
+          }
+        },
+        "predicates": {
+          "type": "array",
+          "maxItems": 768,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4096,
+            "items": {
+              "$ref": "#/$defs/captureSelector"
+            }
+          }
+        },
+        "masks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{1,192}$"
+          }
+        },
+        "source": {
+          "const": "tun",
+          "description": "Service-owned TUN application attribution; omitted for WinDivert."
+        },
+        "ambiguousMask": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{1,192}$",
+          "description": "Reserved TUN ambiguity identity, distinct from all ordinary masks; omitted means Block."
+        }
+      },
+      "required": [
+        "tag",
+        "selectors",
+        "ports",
+        "networks"
+      ],
+      "additionalProperties": false
+    },
+    "capturePlan": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 17,
+          "items": {
+            "$ref": "#/$defs/captureInput"
+          }
+        },
+        "interfaces": {
+          "$ref": "#/$defs/captureInterfaces"
+        },
+        "bypassLocalTraffic": {
+          "type": "boolean"
+        },
+        "sharingDisabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Durable sharing-off intent without a packet capture worker; mutually exclusive with active tunSharing."
+        },
+        "tunSharing": {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "expectedVersion": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "publicId": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+            },
+            "privateId": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+            },
+            "upstreamTags": {
+              "type": "array",
+              "maxItems": 16384,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "ipv6": {
+              "type": "boolean",
+              "default": false,
+              "description": "Share IPv6 using a dual-stack host TUN; preserve native IPv4 DHCP/NAT."
+            }
+          },
+          "required": [
+            "tag",
+            "expectedVersion",
+            "publicId",
+            "privateId",
+            "upstreamTags"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "inputs",
+        "interfaces",
+        "bypassLocalTraffic"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "properties": {
+            "inputs": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "tunSharing"
+          ]
+        },
+        {
+          "required": [
+            "sharingDisabled"
+          ],
+          "properties": {
+            "sharingDisabled": {
+              "const": true
+            }
+          }
+        }
+      ],
+      "not": {
+        "required": [
+          "sharingDisabled",
+          "tunSharing"
+        ],
+        "properties": {
+          "sharingDisabled": {
+            "const": true
+          }
+        }
+      }
+    },
+    "loopbackChanges": {
+      "type": "object",
+      "properties": {
+        "expectedVersion": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "family",
+              "enabled"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "expectedVersion",
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "captureStatus": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "stopped",
+            "running",
+            "failed"
+          ]
+        },
+        "mode": {
+          "const": "routing"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptimeSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interfaces": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/captureInterfaces"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firewallManaged": {
+          "type": "boolean"
+        },
+        "firewallRecoveryError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "availability": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "available",
+                "blocked",
+                "unknown"
+              ]
+            },
+            "message": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "state",
+        "mode",
+        "inputs"
+      ],
+      "additionalProperties": true
+    },
+    "displayNames": {
+      "type": "object",
+      "properties": {
+        "inbound": {
+          "type": "object",
+          "maxProperties": 16384,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "outbound": {
+          "type": "object",
+          "maxProperties": 16384,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "routing": {
+          "type": "object",
+          "maxProperties": 16384,
+          "propertyNames": {
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/$defs/routingHop"
+            }
+          }
+        },
+        "routingDefault": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/routingHop"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "resourcePlan": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+\\.dat$",
+          "maxLength": 200
+        },
+        "kind": {
+          "enum": [
+            "geoip",
+            "geosite"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "autoUpdate": {
+          "type": "boolean"
+        },
+        "intervalHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8760
+        },
+        "fetchOnUse": {
+          "type": "boolean"
+        },
+        "throughWayrill": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file",
+        "kind",
+        "url",
+        "autoUpdate",
+        "intervalHours",
+        "fetchOnUse"
+      ],
+      "additionalProperties": false
+    },
+    "tunStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "pid",
+        "name",
+        "interfaceIndex",
+        "uplink",
+        "sharedPid",
+        "sharedName",
+        "sharing"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "running",
+            "stopped"
+          ]
+        },
+        "pid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interfaceIndex": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "uplink": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sharedPid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "sharedName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sharing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "managed",
+            "recoveryPending",
+            "lastError",
+            "upstream",
+            "private"
+          ],
+          "properties": {
+            "managed": {
+              "type": "boolean"
+            },
+            "recoveryPending": {
+              "type": "boolean"
+            },
+            "lastError": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/error"
+                }
+              ]
+            },
+            "upstream": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ipv6Forwarding": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "upstream",
+                "original",
+                "phase"
+              ],
+              "properties": {
+                "upstream": {
+                  "type": "string"
+                },
+                "original": {
+                  "type": "boolean"
+                },
+                "phase": {
+                  "enum": [
+                    "captured",
+                    "disabling",
+                    "active",
+                    "restoring"
+                  ]
+                }
+              }
+            },
+            "ipv6Clients": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "private",
+                "prefix",
+                "phase"
+              ],
+              "properties": {
+                "private": {
+                  "type": "string"
+                },
+                "prefix": {
+                  "type": "string"
+                },
+                "phase": {
+                  "enum": [
+                    "captured",
+                    "activating",
+                    "active",
+                    "restoring"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "routingHop": {
+      "type": "object",
+      "required": [
+        "filterId",
+        "ruleId",
+        "rule",
+        "outputId",
+        "output"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "filterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "ruleId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "outputId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      }
+    }
+  }
+}

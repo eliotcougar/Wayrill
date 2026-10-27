@@ -1,0 +1,11 @@
+{
+  "maxOutbounds": 16384,
+  "maxRoutingRules": 16384,
+  "configBytes": 16777216,
+  "frameBytes": 33554432,
+  "metricsResponseBytes": 8388608,
+  "snapshotEndpoints": 128,
+  "endpointPageSize": 100,
+  "maxPathVisits": 65536,
+  "maxPredicateTerms": 4096
+}

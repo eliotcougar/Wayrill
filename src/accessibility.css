@@ -1,0 +1,272 @@
+/* WebView2 applies Windows text enlargement itself. Reflow, never scale twice. */
+.app-shell {
+  min-width: 0;
+}
+.menu-bar,
+.toolbar,
+.status-bar {
+  min-width: 0;
+}
+.menus,
+.toolbar,
+.status-bar,
+.rule-editor-footer {
+  flex-wrap: wrap;
+}
+.menu-bar {
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+.menus {
+  min-width: 0;
+}
+.menu-dropdown {
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+}
+.menu-dropdown button {
+  gap: 12px;
+}
+.toolbar {
+  row-gap: 8px;
+}
+.status-bar {
+  height: auto;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  flex-shrink: 0;
+}
+.rule-editor-footer {
+  gap: 8px;
+}
+.rule-editor-footer > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.editor-tab-list {
+  overflow-x: auto;
+  padding: 3px;
+}
+.editor-tab-list [role='tab'] {
+  flex-shrink: 0;
+}
+.rule-editor-tabs {
+  min-width: 0;
+}
+.editor-tab-panel,
+.runtime-body {
+  min-width: 0;
+}
+.editor-field,
+.editor-field input,
+.editor-field textarea,
+.editor-field select {
+  min-width: 0;
+  max-width: 100%;
+}
+:where([tabindex], summary, pre):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+@media (max-width: 800px) {
+  .app-shell {
+    overflow: auto;
+  }
+  .menu-bar,
+  .toolbar {
+    padding: 8px;
+  }
+  .brand,
+  .toolbar-divider,
+  .toolbar-spacer {
+    display: none;
+  }
+  .toolbar .view-tools,
+  .toolbar .check-button {
+    display: flex;
+  }
+  .workspace-name {
+    width: 100%;
+  }
+  .workspace-body {
+    flex: none;
+    flex-direction: column;
+  }
+  .node-palette,
+  .inspector {
+    width: 100%;
+    max-height: 220px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .canvas-area {
+    flex: none;
+    height: 340px;
+  }
+  .status-help {
+    display: none;
+  }
+  .rule-editor-window,
+  .runtime-window {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+  }
+  .rule-editor-titlebar,
+  .runtime-body,
+  .rule-editor-footer {
+    padding: 12px;
+  }
+  .rule-editor-tabs {
+    padding: 3px 6px 0;
+  }
+  .rule-editor-tabs button {
+    padding: 8px 10px;
+  }
+  .rule-editor-columns,
+  .capture-editor-body,
+  .defaults-columns {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .rule-editor-body {
+    overflow: auto;
+  }
+  .ordered-rules {
+    min-height: 170px;
+    max-height: 260px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .dns-field-grid,
+  .editor-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .runtime-actions,
+  .dns-preview-heading {
+    flex-wrap: wrap;
+  }
+}
+
+/* A short logical viewport occurs with maximum Windows text size + laptop DPI.
+   Scroll the complete dialog so its header/footer never squeeze away the form. */
+@media (max-height: 450px) {
+  .app-shell {
+    overflow: auto;
+  }
+  .workspace-body {
+    min-height: 180px;
+  }
+  .rule-editor-window[open] {
+    overflow: auto;
+  }
+  .rule-editor-window > :not([hidden]) {
+    flex: none;
+  }
+  .rule-editor-window > .runtime-body,
+  .rule-editor-window > .rule-editor-body {
+    flex: none;
+    min-height: 140px;
+    overflow: visible;
+  }
+  .rule-editor-titlebar p {
+    margin-top: 4px;
+  }
+}
+
+@media (forced-colors: active) {
+  .brand-mark {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+  :root[data-theme],
+  :root {
+    --surface: Canvas;
+    --text: CanvasText;
+    --text-muted: CanvasText;
+    --border: CanvasText;
+    --accent: Highlight;
+  }
+  button:disabled,
+  [aria-disabled='true'],
+  .disabled-rule,
+  .rule-node.is-disabled {
+    opacity: 1;
+    color: GrayText;
+  }
+  button[aria-selected='true'],
+  button[aria-pressed='true'],
+  .rule-list-item.selected,
+  .rule-node.is-selected {
+    border: 2px solid Highlight;
+  }
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  :where([tabindex], summary, pre):focus-visible {
+    outline-color: Highlight;
+  }
+  .rule-node,
+  dialog,
+  .menu-dropdown,
+  .add-node-menu {
+    border-color: CanvasText;
+  }
+  .react-flow__edge-path,
+  .edge-bundle path {
+    stroke: CanvasText !important;
+  }
+  .react-flow__edge.selected .react-flow__edge-path {
+    stroke: Highlight !important;
+    stroke-width: 3px;
+  }
+  .edge-junction {
+    fill: CanvasText !important;
+  }
+  .react-flow__handle {
+    background: Canvas !important;
+    border-color: CanvasText !important;
+  }
+  .port-type-dot {
+    background: CanvasText !important;
+  }
+  .react-flow__background {
+    opacity: 0.2;
+  }
+  .rule-node.has-errors,
+  [aria-invalid='true'] {
+    border: 2px dashed CanvasText;
+  }
+  dialog::backdrop {
+    background: Canvas;
+    opacity: 0.7;
+    backdrop-filter: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .capture-editor-body {
+    overflow: auto;
+  }
+  .capture-editor-controls {
+    overflow: visible;
+    border-right: 0;
+  }
+  .capture-editor-selection {
+    min-height: 260px;
+  }
+  .defaults-columns {
+    overflow: auto;
+  }
+  .defaults-navigation {
+    max-height: 180px;
+  }
+  .defaults-content {
+    min-height: 200px;
+  }
+  .rule-detail-scroll {
+    overflow: visible;
+  }
+}

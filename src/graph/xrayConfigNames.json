@@ -1,0 +1,1110 @@
+{
+  "version": 1,
+  "core": {
+    "version": "26.10.21",
+    "sourceCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+    "executableSha256": "32D071B52DA365542C9E0750779760835670E7C88995F43E677842CEB4AFDBFC"
+  },
+  "protocolSchemaSha256": "ef15b67f0fe7c628c17359f8a47816ab6f7e60eb94d409851a4ee531c4274022",
+  "sourceFiles": {
+    "infra/conf/api.go": "40878700df0bc24e4ff87bea2669e6f3d2f00f9e2864c841ea35d096134c6ced",
+    "infra/conf/blackhole.go": "11bab408fa98826bcb2dd0aef1b7e597616a3251b4b37407473b8f7695d23180",
+    "infra/conf/common.go": "74ac5deea7f399d9691895fbfd34673230a70e0962b741b56d4366d612aed78a",
+    "infra/conf/dns.go": "fdc0ba45b7c9a8885b7885ac44cbb7a6143f6de80e50abfdf461f06a48db7108",
+    "infra/conf/dns_proxy.go": "eda8a79ee16ae012770c6e17d0e4e126653790c7558dd037e975b8f9c4866a48",
+    "infra/conf/dokodemo.go": "dc615975e05922bd087d93135c4cb2e0da317a07d0e37b9de4447efbfdc2fd77",
+    "infra/conf/fakedns.go": "72697ac1f2a71bcc198c65e54ac52ea01975cf678f4529cbe8d13f694394194d",
+    "infra/conf/freedom.go": "a56aca8c577b8d6d6cb1fdd0c91dcf178599853d183e0acc3ff11603dff860d2",
+    "infra/conf/geodata.go": "6f4fdfeabc39518681e651907973d5f1384bf99c86028b97271da4ee27588530",
+    "infra/conf/http.go": "093c0aa48ebea396766f836a7be4036f429ff100eb4bf5f0bc70679fc7e59936",
+    "infra/conf/hysteria.go": "28627316ad7c5a68202aea51c489c1c7e33742b570113bde7a323cce45a7bc8b",
+    "infra/conf/log.go": "78f26719e7f19087ffa217e593a0cc9ecbaa998746c106672b2ee5cf26fa0781",
+    "infra/conf/loopback.go": "66c80d5c42efcbf6c83e2f9cb9319f7acaa7bc10bba1a83b7e89426150815cac",
+    "infra/conf/masque.go": "dc8750465a97611015c1c7cebff594c8bd8f88973045cfe918b6d90b0c3b4c69",
+    "infra/conf/metrics.go": "56a587aef8f493d9ced8833d51a5de8ef74bfac16988689be7aa1ad34a78cf7b",
+    "infra/conf/observatory.go": "995d61068bded0d9f3cc1352a5daae2ce85dc5bcef77e0102ae49293416e46e1",
+    "infra/conf/policy.go": "15149213dabbe9da4644327db349ae3af1b431604aea564793089c90b8716893",
+    "infra/conf/reverse.go": "2a1520c443ce0ccf6cb408e92530867d1ceef8115ad38f6358afeaa60f1b0682",
+    "infra/conf/router.go": "90382327e3c2e6d70768c11f836df12082727a37b84e56966f71798835b031a2",
+    "infra/conf/router_strategy.go": "e9354d6a2ad7d7d1d548009c8d50a286fdbdb462fd6979a673897ddcb632decc",
+    "infra/conf/shadowsocks.go": "8f14e3b3a925ca0f16d5ed8b83e38be526c30234803bd75ade6806daeab0bad6",
+    "infra/conf/socks.go": "487ef1e587b0cfbb2f9cde8ab71f28922acf5bfa95719e5d24b8c5d2be9063a5",
+    "infra/conf/transport_finalmask.go": "d1037d60d4a372b82eb7e053726c76ac49bf84726367517d49b0df93c7284455",
+    "infra/conf/transport_internet.go": "d07fb2fe1f3935f86396564afb26d79e0cfe865adc5dd52bd694f5cff8518d9c",
+    "infra/conf/transport_method.go": "5996fda44717d5ac2aed336ad74b009fa3e695a0127b842177b7b429fc70f427",
+    "infra/conf/transport_security.go": "dd7ea89e62d90bfd644bbd37ae44f0a1f8e66d10095fe12bd87a774571e4554e",
+    "infra/conf/transport_sockopt.go": "9fba6eab1f52d0dac18c26b12f828a04762dfe44f08c123218da53faf45b32e3",
+    "infra/conf/trojan.go": "9aa3c084b6e1eb8e0819c360c6ac316c5055fe31fde7b6879683aa277b5a4e50",
+    "infra/conf/tun.go": "da0c7ef10c90b39b643b03619bf6eb239373bb05190fcf4647e5a67af6603c5d",
+    "infra/conf/version.go": "a9729d582b503d8ece3bd56e55ce0205b0d30267f16325c6dc00fd618adaa5be",
+    "infra/conf/vless.go": "931e622cb00384016921fb825edd166f2753b9447113a0ed36c946e53e1b06d1",
+    "infra/conf/vmess.go": "64a95f1085c794407432f6e89e22b835f5ae5f747dcafa425f5b3aff7b3ee096",
+    "infra/conf/wireguard.go": "9e437212a7adf79ce5887f9c76fe9fd43093c42e62e73ed0e2caa5d245b884dd",
+    "infra/conf/xray.go": "01d1808afc8478373a201990c55d0ef2c037939f083a4cde96f29cf04135b7bb"
+  },
+  "protocols": {
+    "inbound": {
+      "tunnel": "DokodemoConfig",
+      "dokodemo-door": "DokodemoConfig",
+      "http": "HTTPServerConfig",
+      "shadowsocks": "ShadowsocksServerConfig",
+      "mixed": "SocksServerConfig",
+      "socks": "SocksServerConfig",
+      "vless": "VLessInboundConfig",
+      "vmess": "VMessInboundConfig",
+      "trojan": "TrojanServerConfig",
+      "wireguard": "WireGuardConfig",
+      "hysteria": "HysteriaServerConfig",
+      "masque": "MasqueServerConfig",
+      "tun": "TunConfig"
+    },
+    "outbound": {
+      "block": "BlackholeConfig",
+      "blackhole": "BlackholeConfig",
+      "loopback": "LoopbackConfig",
+      "direct": "FreedomConfig",
+      "freedom": "FreedomConfig",
+      "http": "HTTPClientConfig",
+      "shadowsocks": "ShadowsocksClientConfig",
+      "socks": "SocksClientConfig",
+      "vless": "VLessOutboundConfig",
+      "vmess": "VMessOutboundConfig",
+      "trojan": "TrojanClientConfig",
+      "hysteria": "HysteriaClientConfig",
+      "masque": "MasqueClientConfig",
+      "dns": "DNSOutboundConfig",
+      "wireguard": "WireGuardConfig"
+    }
+  },
+  "masks": {
+    "tcp": {
+      "filter": "Filter",
+      "header-custom": "HeaderCustomTCP",
+      "fragment": "FragmentMask",
+      "sudoku": "Sudoku",
+      "xmc": "XMC"
+    },
+    "udp": {
+      "filter": "Filter",
+      "header-custom": "HeaderCustomUDP",
+      "mkcp-legacy": "MkcpLegacy",
+      "noise": "NoiseMask",
+      "salamander": "Salamander",
+      "sudoku": "Sudoku",
+      "xdns": "XDNS",
+      "xicmp": "Xicmp",
+      "realm": "Realm",
+      "udphop": "UDPHop"
+    }
+  },
+  "structures": {
+    "APIConfig": {
+      "tag": "string",
+      "listen": "string",
+      "services": "[]string"
+    },
+    "AccountReverse": {
+      "tag": "string",
+      "sniffing": "json.RawMessage"
+    },
+    "Authenticator": {
+      "request": "AuthenticatorRequest",
+      "response": "AuthenticatorResponse"
+    },
+    "AuthenticatorRequest": {
+      "version": "string",
+      "method": "string",
+      "path": "StringList",
+      "headers": "map[string]*StringList"
+    },
+    "AuthenticatorResponse": {
+      "version": "string",
+      "status": "string",
+      "reason": "string",
+      "headers": "map[string]*StringList"
+    },
+    "BalancingRule": {
+      "tag": "string",
+      "selector": "StringList",
+      "strategy": "StrategyConfig",
+      "fallbackTag": "string"
+    },
+    "BlackholeConfig": {
+      "response": "*ResponseConfig"
+    },
+    "BridgeConfig": {
+      "tag": "string",
+      "domain": "string"
+    },
+    "BurstObservatoryConfig": {
+      "subjectSelector": "[]string",
+      "pingConfig": "*HealthCheckSettings"
+    },
+    "Config": {
+      "transport": "map[string]json.RawMessage",
+      "env": "EnvConfig",
+      "log": "*LogConfig",
+      "routing": "*RouterConfig",
+      "dns": "*DNSConfig",
+      "inbounds": "[]InboundDetourConfig",
+      "outbounds": "[]OutboundDetourConfig",
+      "policy": "*PolicyConfig",
+      "api": "*APIConfig",
+      "metrics": "*MetricsConfig",
+      "stats": "*StatsConfig",
+      "reverse": "*ReverseConfig",
+      "observatory": "*ObservatoryConfig",
+      "burstObservatory": "*BurstObservatoryConfig",
+      "version": "*VersionConfig",
+      "geodata": "*GeodataConfig",
+      "fakedns": "*FakeDNSConfig"
+    },
+    "CustomSockoptConfig": {
+      "system": "string",
+      "network": "string",
+      "level": "string",
+      "opt": "string",
+      "value": "string",
+      "type": "string"
+    },
+    "CustomTransform": {
+      "op": "string",
+      "args": "[]CustomTransformArg"
+    },
+    "CustomTransformArg": {
+      "type": "string",
+      "bytes": "json.RawMessage",
+      "u64": "*uint64",
+      "reuse": "string",
+      "metadata": "string",
+      "transform": "*CustomTransform"
+    },
+    "DNSConfig": {
+      "servers": "[]*NameServerConfig",
+      "script": "string",
+      "hosts": "*HostsWrapper",
+      "clientIp": "*Address",
+      "tag": "string",
+      "queryStrategy": "string",
+      "disableCache": "bool",
+      "serveStale": "bool",
+      "serveExpiredTTL": "uint32",
+      "disableFallback": "bool",
+      "disableFallbackIfMatch": "bool",
+      "enableParallelQuery": "bool",
+      "useSystemHosts": "bool"
+    },
+    "DNSOutboundConfig": {
+      "rewriteNetwork": "Network",
+      "rewriteAddress": "*Address",
+      "rewritePort": "uint16",
+      "network": "Network",
+      "address": "*Address",
+      "port": "uint16",
+      "userLevel": "uint32",
+      "rules": "[]*DNSOutboundRuleConfig",
+      "nonIPQuery": "*string",
+      "blockTypes": "*[]int32"
+    },
+    "DNSOutboundRuleConfig": {
+      "action": "string",
+      "qType": "*PortList",
+      "domain": "*StringList",
+      "rCode": "uint32"
+    },
+    "DokodemoConfig": {
+      "allowedNetwork": "*NetworkList",
+      "rewriteAddress": "*Address",
+      "rewritePort": "uint16",
+      "network": "*NetworkList",
+      "address": "*Address",
+      "port": "uint16",
+      "portMap": "map[string]string",
+      "followRedirect": "bool",
+      "userLevel": "uint32"
+    },
+    "FakeDNSPoolElementConfig": {
+      "ipPool": "string",
+      "poolSize": "int64"
+    },
+    "Filter": {
+      "blockedSourceIPs": "[]string",
+      "allowedSourceIPs": "[]string"
+    },
+    "FinalMask": {
+      "tcp": "[]Mask",
+      "udp": "[]Mask",
+      "quicParams": "*QuicParamsConfig"
+    },
+    "Fragment": {
+      "packets": "string",
+      "length": "*Int32Range",
+      "interval": "*Int32Range",
+      "maxSplit": "*Int32Range"
+    },
+    "FragmentMask": {
+      "packets": "string",
+      "length": "Int32Range",
+      "delay": "Int32Range",
+      "lengths": "[]Int32Range",
+      "delays": "[]Int32Range",
+      "maxSplit": "Int32Range"
+    },
+    "FreedomConfig": {
+      "targetStrategy": "string",
+      "domainStrategy": "string",
+      "redirect": "string",
+      "userLevel": "uint32",
+      "fragment": "*Fragment",
+      "noise": "*Noise",
+      "noises": "[]*Noise",
+      "proxyProtocol": "uint32",
+      "ipsBlocked": "*StringList",
+      "finalRules": "[]*FreedomFinalRuleConfig"
+    },
+    "FreedomFinalRuleConfig": {
+      "action": "string",
+      "network": "*NetworkList",
+      "port": "*PortList",
+      "ip": "*StringList",
+      "blockDelay": "*Int32Range"
+    },
+    "GRPCConfig": {
+      "authority": "string",
+      "serviceName": "string",
+      "multiMode": "bool",
+      "idle_timeout": "int32",
+      "health_check_timeout": "int32",
+      "permit_without_stream": "bool",
+      "initial_windows_size": "int32",
+      "user_agent": "string"
+    },
+    "GeodataAssetConfig": {
+      "url": "string",
+      "file": "string"
+    },
+    "GeodataConfig": {
+      "cron": "*string",
+      "outbound": "string",
+      "assets": "[]*GeodataAssetConfig"
+    },
+    "HTTPAccount": {
+      "user": "string",
+      "pass": "string"
+    },
+    "HTTPClientConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "uint32",
+      "email": "string",
+      "user": "string",
+      "pass": "string",
+      "servers": "[]*HTTPRemoteConfig",
+      "headers": "map[string]string"
+    },
+    "HTTPHeader": {
+      "type": "string",
+      "request": "AuthenticatorRequest",
+      "response": "AuthenticatorResponse"
+    },
+    "HTTPRemoteConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "users": "[]json.RawMessage"
+    },
+    "HTTPServerConfig": {
+      "users": "[]*HTTPAccount",
+      "accounts": "[]*HTTPAccount",
+      "allowTransparent": "bool",
+      "userLevel": "uint32"
+    },
+    "HTTPUserConfig": {
+      "user": "string",
+      "pass": "string",
+      "level": "uint32",
+      "email": "string"
+    },
+    "HappyEyeballsConfig": {
+      "prioritizeIPv6": "bool",
+      "tryDelayMs": "uint64",
+      "interleave": "uint32",
+      "maxConcurrentTry": "uint32"
+    },
+    "HeaderCustomTCP": {
+      "clients": "[][]TCPItem",
+      "servers": "[][]TCPItem",
+      "errors": "[][]TCPItem"
+    },
+    "HeaderCustomUDP": {
+      "mode": "string",
+      "client": "[]UDPItem",
+      "server": "[]UDPItem"
+    },
+    "HeaderType": {
+      "type": "string"
+    },
+    "HealthCheckSettings": {
+      "destination": "string",
+      "connectivity": "string",
+      "interval": "duration.Duration",
+      "sampling": "int",
+      "timeout": "duration.Duration",
+      "httpMethod": "string"
+    },
+    "HttpUpgradeConfig": {
+      "host": "string",
+      "path": "string",
+      "headers": "map[string]string",
+      "acceptProxyProtocol": "bool"
+    },
+    "HysteriaClientConfig": {
+      "version": "int32",
+      "address": "*Address",
+      "port": "uint16"
+    },
+    "HysteriaConfig": {
+      "version": "int32",
+      "auth": "string",
+      "udpIdleTimeout": "int64",
+      "masquerade": "Masquerade"
+    },
+    "HysteriaServerConfig": {
+      "version": "int32",
+      "users": "[]*HysteriaUserConfig",
+      "clients": "[]*HysteriaUserConfig"
+    },
+    "HysteriaUserConfig": {
+      "auth": "string",
+      "level": "uint32",
+      "email": "string"
+    },
+    "InboundDetourConfig": {
+      "protocol": "string",
+      "port": "*PortList",
+      "listen": "*Address",
+      "settings": "*json.RawMessage",
+      "tag": "string",
+      "streamSettings": "*StreamConfig",
+      "sniffing": "*SniffingConfig"
+    },
+    "KCPConfig": {
+      "mtu": "*uint32",
+      "tti": "*uint32",
+      "uplinkCapacity": "*uint32",
+      "downlinkCapacity": "*uint32",
+      "cwndMultiplier": "*uint32",
+      "maxSendingWindow": "*uint32",
+      "header": "json.RawMessage",
+      "seed": "*string"
+    },
+    "LogConfig": {
+      "access": "string",
+      "error": "string",
+      "loglevel": "string",
+      "dnsLog": "bool",
+      "maskAddress": "string"
+    },
+    "LoopbackConfig": {
+      "inboundTag": "string",
+      "sniffing": "*SniffingConfig"
+    },
+    "Mask": {
+      "type": "string",
+      "settings": "*json.RawMessage"
+    },
+    "MasqueClientConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "remoteDNS": "[]string"
+    },
+    "MasqueConfig": {
+      "host": "string",
+      "path": "string",
+      "user": "string",
+      "pass": "string",
+      "headers": "map[string]string",
+      "warp": "*MasqueWarpConfig",
+      "xmux": "XmuxConfig"
+    },
+    "MasqueServerConfig": {
+      "users": "[]*MasqueUserConfig",
+      "clients": "[]*MasqueUserConfig",
+      "address": "[]string",
+      "mtu": "uint32"
+    },
+    "MasqueUserConfig": {
+      "pass": "string",
+      "level": "uint32",
+      "email": "string"
+    },
+    "MasqueWarpConfig": {
+      "privateKey": "string",
+      "publicKey": "string",
+      "address": "[]string"
+    },
+    "Masquerade": {
+      "type": "string",
+      "dir": "string",
+      "url": "string",
+      "rewriteHost": "bool",
+      "xForwarded": "bool",
+      "insecure": "bool",
+      "content": "string",
+      "headers": "map[string]string",
+      "statusCode": "int32"
+    },
+    "MetricsConfig": {
+      "tag": "string",
+      "listen": "string"
+    },
+    "MkcpLegacy": {
+      "header": "string",
+      "value": "string"
+    },
+    "MuxConfig": {
+      "enabled": "bool",
+      "concurrency": "int16",
+      "xudpConcurrency": "int16",
+      "xudpProxyUDP443": "string"
+    },
+    "NameServerConfig": {
+      "id": "string",
+      "address": "*Address",
+      "clientIp": "*Address",
+      "port": "uint16",
+      "skipFallback": "bool",
+      "domains": "StringList",
+      "expectedIPs": "StringList",
+      "expectIPs": "StringList",
+      "queryStrategy": "string",
+      "tag": "string",
+      "timeoutMs": "uint64",
+      "disableCache": "*bool",
+      "serveStale": "*bool",
+      "serveExpiredTTL": "*uint32",
+      "finalQuery": "bool",
+      "unexpectedIPs": "StringList"
+    },
+    "Noise": {
+      "type": "string",
+      "packet": "string",
+      "delay": "*Int32Range",
+      "applyTo": "string"
+    },
+    "NoiseItem": {
+      "rand": "Int32Range",
+      "randRange": "*Int32Range",
+      "type": "string",
+      "packet": "json.RawMessage",
+      "delay": "Int32Range"
+    },
+    "NoiseMask": {
+      "reset": "Int32Range",
+      "noise": "[]NoiseItem",
+      "script": "string"
+    },
+    "ObservatoryConfig": {
+      "subjectSelector": "[]string",
+      "probeURL": "string",
+      "probeInterval": "duration.Duration",
+      "enableConcurrency": "bool"
+    },
+    "OutboundDetourConfig": {
+      "protocol": "string",
+      "sendThrough": "*string",
+      "tag": "string",
+      "settings": "*json.RawMessage",
+      "streamSettings": "*StreamConfig",
+      "proxySettings": "*json.RawMessage",
+      "mux": "*MuxConfig",
+      "targetStrategy": "string"
+    },
+    "Policy": {
+      "handshake": "*uint32",
+      "connIdle": "*uint32",
+      "uplinkOnly": "*uint32",
+      "downlinkOnly": "*uint32",
+      "statsUserUplink": "bool",
+      "statsUserDownlink": "bool",
+      "statsUserOnline": "bool",
+      "bufferSize": "*int32"
+    },
+    "PolicyConfig": {
+      "levels": "map[uint32]*Policy",
+      "system": "*SystemPolicy"
+    },
+    "PortalConfig": {
+      "tag": "string",
+      "domain": "string"
+    },
+    "QuicParamsConfig": {
+      "congestion": "string",
+      "debug": "bool",
+      "bbrProfile": "string",
+      "brutalUp": "Bandwidth",
+      "brutalDown": "Bandwidth",
+      "brutalDisableLossCompensation": "bool",
+      "initStreamReceiveWindow": "uint64",
+      "maxStreamReceiveWindow": "uint64",
+      "initConnectionReceiveWindow": "uint64",
+      "maxConnectionReceiveWindow": "uint64",
+      "maxIdleTimeout": "int64",
+      "keepAlivePeriod": "int64",
+      "disablePathMTUDiscovery": "bool",
+      "disableChromeParrot": "bool",
+      "disableGSO": "bool",
+      "maxIncomingStreams": "int64",
+      "disableStatelessReset": "bool"
+    },
+    "REALITYConfig": {
+      "masterKeyLog": "string",
+      "show": "bool",
+      "target": "json.RawMessage",
+      "dest": "json.RawMessage",
+      "type": "string",
+      "xver": "uint64",
+      "serverNames": "[]string",
+      "privateKey": "string",
+      "minClientVer": "string",
+      "maxClientVer": "string",
+      "maxTimeDiff": "uint64",
+      "shortIds": "[]string",
+      "mldsa65Seed": "string",
+      "limitFallbackUpload": "LimitFallback",
+      "limitFallbackDownload": "LimitFallback",
+      "fingerprint": "string",
+      "serverName": "string",
+      "password": "string",
+      "publicKey": "string",
+      "shortId": "string",
+      "mldsa65Verify": "string",
+      "spiderX": "string"
+    },
+    "RawFieldRule": {
+      "ruleTag": "string",
+      "outboundTag": "string",
+      "balancerTag": "string",
+      "domain": "*StringList",
+      "domains": "*StringList",
+      "ip": "*StringList",
+      "port": "*PortList",
+      "network": "*NetworkList",
+      "sourceIP": "*StringList",
+      "source": "*StringList",
+      "sourcePort": "*PortList",
+      "user": "*StringList",
+      "vlessRoute": "*PortList",
+      "inboundTag": "*StringList",
+      "protocol": "*StringList",
+      "attrs": "map[string]string",
+      "localIP": "*StringList",
+      "localPort": "*PortList",
+      "process": "*StringList",
+      "localOS": "*StringList",
+      "webhook": "*WebhookRuleConfig"
+    },
+    "Realm": {
+      "url": "string",
+      "stunServers": "[]string",
+      "tlsConfig": "*TLSConfig",
+      "ipMode": "string",
+      "portMapping": "*realm.PortMapping"
+    },
+    "ResponseConfig": {
+      "type": "string",
+      "customResponseData": "string"
+    },
+    "ReverseConfig": {
+      "bridges": "[]BridgeConfig",
+      "portals": "[]PortalConfig"
+    },
+    "RouterConfig": {
+      "rules": "[]json.RawMessage",
+      "domainStrategy": "*string",
+      "balancers": "[]*BalancingRule",
+      "script": "string"
+    },
+    "RouterRule": {
+      "ruleTag": "string",
+      "outboundTag": "string",
+      "balancerTag": "string"
+    },
+    "Salamander": {
+      "password": "string",
+      "packetSize": "Int32Range"
+    },
+    "ShadowsocksClientConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "byte",
+      "email": "string",
+      "method": "string",
+      "password": "string",
+      "servers": "[]*ShadowsocksServerTarget"
+    },
+    "ShadowsocksServerConfig": {
+      "method": "string",
+      "password": "string",
+      "level": "byte",
+      "email": "string",
+      "users": "[]*ShadowsocksUserConfig",
+      "clients": "[]*ShadowsocksUserConfig",
+      "network": "*NetworkList"
+    },
+    "ShadowsocksServerTarget": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "byte",
+      "email": "string",
+      "method": "string",
+      "password": "string"
+    },
+    "ShadowsocksUserConfig": {
+      "method": "string",
+      "password": "string",
+      "level": "byte",
+      "email": "string",
+      "address": "*Address",
+      "port": "uint16"
+    },
+    "SniffingConfig": {
+      "enabled": "bool",
+      "destOverride": "StringList",
+      "domainsExcluded": "StringList",
+      "ipsExcluded": "StringList",
+      "metadataOnly": "bool",
+      "routeOnly": "bool"
+    },
+    "SocketConfig": {
+      "mark": "int32",
+      "tcpFastOpen": "interface{}",
+      "tproxy": "string",
+      "acceptProxyProtocol": "bool",
+      "domainStrategy": "string",
+      "dialerProxy": "string",
+      "tcpKeepAliveInterval": "int32",
+      "tcpKeepAliveIdle": "int32",
+      "tcpCongestion": "string",
+      "tcpWindowClamp": "int32",
+      "tcpMaxSeg": "int32",
+      "penetrate": "bool",
+      "tcpUserTimeout": "int32",
+      "v6only": "bool",
+      "interface": "string",
+      "tcpMptcp": "bool",
+      "customSockopt": "[]*CustomSockoptConfig",
+      "addressPortStrategy": "string",
+      "happyEyeballs": "*HappyEyeballsConfig",
+      "trustedXForwardedFor": "[]string"
+    },
+    "SocksAccount": {
+      "user": "string",
+      "pass": "string"
+    },
+    "SocksClientConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "uint32",
+      "email": "string",
+      "user": "string",
+      "pass": "string",
+      "servers": "[]*SocksRemoteConfig"
+    },
+    "SocksRemoteConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "users": "[]json.RawMessage"
+    },
+    "SocksServerConfig": {
+      "auth": "string",
+      "users": "[]*SocksAccount",
+      "accounts": "[]*SocksAccount",
+      "udp": "bool",
+      "ip": "*Address",
+      "userLevel": "uint32"
+    },
+    "SocksUserConfig": {
+      "user": "string",
+      "pass": "string",
+      "level": "uint32",
+      "email": "string"
+    },
+    "SplitHTTPConfig": {
+      "host": "string",
+      "path": "string",
+      "mode": "string",
+      "headers": "map[string]string",
+      "xPaddingBytes": "Int32Range",
+      "xPaddingObfsMode": "bool",
+      "xPaddingKey": "string",
+      "xPaddingHeader": "string",
+      "xPaddingPlacement": "string",
+      "xPaddingMethod": "string",
+      "uplinkHTTPMethod": "string",
+      "sessionIDPlacement": "string",
+      "sessionIDKey": "string",
+      "sessionIDTable": "string",
+      "sessionIDLength": "Int32Range",
+      "seqPlacement": "string",
+      "seqKey": "string",
+      "uplinkDataPlacement": "string",
+      "uplinkDataKey": "string",
+      "uplinkChunkSize": "Int32Range",
+      "noGRPCHeader": "bool",
+      "noSSEHeader": "bool",
+      "scMaxEachPostBytes": "Int32Range",
+      "scMinPostsIntervalMs": "Int32Range",
+      "scMaxBufferedPosts": "int64",
+      "scStreamUpServerSecs": "Int32Range",
+      "serverMaxHeaderBytes": "int32",
+      "xmux": "XmuxConfig",
+      "downloadSettings": "*StreamConfig",
+      "extra": "json.RawMessage"
+    },
+    "StrategyConfig": {
+      "type": "string",
+      "settings": "*json.RawMessage"
+    },
+    "StreamConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "method": "*TransportProtocol",
+      "network": "*TransportProtocol",
+      "security": "string",
+      "finalmask": "*FinalMask",
+      "tlsSettings": "*TLSConfig",
+      "realitySettings": "*REALITYConfig",
+      "rawSettings": "*TCPConfig",
+      "tcpSettings": "*TCPConfig",
+      "xhttpSettings": "*SplitHTTPConfig",
+      "splithttpSettings": "*SplitHTTPConfig",
+      "kcpSettings": "*KCPConfig",
+      "grpcSettings": "*GRPCConfig",
+      "wsSettings": "*WebSocketConfig",
+      "httpupgradeSettings": "*HttpUpgradeConfig",
+      "hysteriaSettings": "*HysteriaConfig",
+      "masqueSettings": "*MasqueConfig",
+      "xdriveSettings": "*XDriveConfig",
+      "sockopt": "*SocketConfig"
+    },
+    "Sudoku": {
+      "password": "string",
+      "ascii": "string",
+      "customTable": "string",
+      "custom_table": "string",
+      "customTables": "[]string",
+      "custom_tables": "[]string",
+      "paddingMin": "uint32",
+      "padding_min": "uint32",
+      "paddingMax": "uint32",
+      "padding_max": "uint32"
+    },
+    "SystemPolicy": {
+      "statsInboundUplink": "bool",
+      "statsInboundDownlink": "bool",
+      "statsOutboundUplink": "bool",
+      "statsOutboundDownlink": "bool"
+    },
+    "TCPConfig": {
+      "header": "json.RawMessage",
+      "acceptProxyProtocol": "bool"
+    },
+    "TCPItem": {
+      "delay": "Int32Range",
+      "rand": "int32",
+      "randRange": "*Int32Range",
+      "capture": "string",
+      "type": "string",
+      "reuse": "string",
+      "transform": "*CustomTransform",
+      "packet": "json.RawMessage"
+    },
+    "TLSCertConfig": {
+      "certificateFile": "string",
+      "certificate": "[]string",
+      "keyFile": "string",
+      "key": "[]string",
+      "usage": "string",
+      "ocspStapling": "uint64",
+      "oneTimeLoading": "bool",
+      "buildChain": "bool"
+    },
+    "TLSConfig": {
+      "allowInsecure": "bool",
+      "certificates": "[]*TLSCertConfig",
+      "serverName": "string",
+      "alpn": "*StringList",
+      "enableSessionResumption": "bool",
+      "disableSystemRoot": "bool",
+      "minVersion": "string",
+      "maxVersion": "string",
+      "cipherSuites": "string",
+      "fingerprint": "string",
+      "rejectUnknownSni": "bool",
+      "curvePreferences": "*StringList",
+      "masterKeyLog": "string",
+      "pinnedPeerCertSha256": "string",
+      "verifyPeerCertByName": "string",
+      "echServerKeys": "string",
+      "echConfigList": "string",
+      "echSockopt": "*SocketConfig",
+      "useSystemCA": "bool"
+    },
+    "TrojanClientConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "byte",
+      "email": "string",
+      "password": "string",
+      "flow": "string",
+      "servers": "[]*TrojanServerTarget"
+    },
+    "TrojanInboundFallback": {
+      "name": "string",
+      "alpn": "string",
+      "path": "string",
+      "type": "string",
+      "dest": "json.RawMessage",
+      "xver": "uint64"
+    },
+    "TrojanServerConfig": {
+      "users": "[]*TrojanUserConfig",
+      "clients": "[]*TrojanUserConfig",
+      "fallbacks": "[]*TrojanInboundFallback"
+    },
+    "TrojanServerTarget": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "byte",
+      "email": "string",
+      "password": "string",
+      "flow": "string"
+    },
+    "TrojanUserConfig": {
+      "password": "string",
+      "level": "byte",
+      "email": "string",
+      "flow": "string"
+    },
+    "TunConfig": {
+      "name": "string",
+      "desc": "string",
+      "mtu": "uint32",
+      "gateway": "[]string",
+      "dns": "[]string",
+      "userLevel": "uint32",
+      "autoSystemRoutingTable": "[]string",
+      "autoOutboundsInterface": "*string",
+      "autoSystemDnsToGateway": "bool",
+      "autoSystemWfpBlockLeak": "[]string"
+    },
+    "UDPHop": {
+      "mode": "string",
+      "interval": "Int32Range",
+      "remoteIPs": "[]string",
+      "remotePorts": "PortList"
+    },
+    "UDPItem": {
+      "rand": "int32",
+      "randRange": "*Int32Range",
+      "capture": "string",
+      "type": "string",
+      "reuse": "string",
+      "transform": "*CustomTransform",
+      "packet": "json.RawMessage"
+    },
+    "User": {
+      "email": "string",
+      "level": "byte"
+    },
+    "VLessInboundConfig": {
+      "users": "[]json.RawMessage",
+      "clients": "[]json.RawMessage",
+      "decryption": "string",
+      "fallbacks": "[]*VLessInboundFallback",
+      "flow": "string",
+      "testseed": "[]uint32"
+    },
+    "VLessInboundFallback": {
+      "name": "string",
+      "alpn": "string",
+      "path": "string",
+      "type": "string",
+      "dest": "json.RawMessage",
+      "xver": "uint64"
+    },
+    "VLessOutboundConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "uint32",
+      "email": "string",
+      "id": "string",
+      "flow": "string",
+      "seed": "string",
+      "encryption": "string",
+      "reverse": "*VLessReverseConfig",
+      "testpre": "uint32",
+      "testseed": "[]uint32",
+      "vnext": "[]*VLessOutboundVnext"
+    },
+    "VLessOutboundUserConfig": {
+      "id": "string",
+      "flow": "string",
+      "encryption": "string",
+      "testpre": "uint32",
+      "testseed": "[]uint32",
+      "reverse": "json.RawMessage",
+      "level": "uint32",
+      "email": "string"
+    },
+    "VLessOutboundVnext": {
+      "address": "*Address",
+      "port": "uint16",
+      "users": "[]json.RawMessage"
+    },
+    "VLessReverseConfig": {
+      "tag": "string",
+      "sniffing": "*SniffingConfig"
+    },
+    "VLessUserConfig": {
+      "id": "string",
+      "flow": "string",
+      "testseed": "[]uint32",
+      "reverse": "json.RawMessage",
+      "level": "uint32",
+      "email": "string"
+    },
+    "VMessAccount": {
+      "id": "string",
+      "security": "string",
+      "experiments": "string"
+    },
+    "VMessDefaultConfig": {
+      "level": "byte"
+    },
+    "VMessInboundConfig": {
+      "users": "[]json.RawMessage",
+      "clients": "[]json.RawMessage",
+      "default": "*VMessDefaultConfig"
+    },
+    "VMessOutboundConfig": {
+      "address": "*Address",
+      "port": "uint16",
+      "level": "uint32",
+      "email": "string",
+      "id": "string",
+      "security": "string",
+      "experiments": "string",
+      "vnext": "[]*VMessOutboundTarget"
+    },
+    "VMessOutboundTarget": {
+      "address": "*Address",
+      "port": "uint16",
+      "users": "[]json.RawMessage"
+    },
+    "VMessUserConfig": {
+      "id": "string",
+      "security": "string",
+      "experiments": "string",
+      "level": "uint32",
+      "email": "string"
+    },
+    "VersionConfig": {
+      "min": "string",
+      "max": "string"
+    },
+    "WebSocketConfig": {
+      "host": "string",
+      "path": "string",
+      "headers": "map[string]string",
+      "acceptProxyProtocol": "bool",
+      "heartbeatPeriod": "uint32"
+    },
+    "WebhookRuleConfig": {
+      "url": "string",
+      "deduplication": "uint32",
+      "headers": "map[string]string"
+    },
+    "WireGuardConfig": {
+      "noKernelTun": "bool",
+      "secretKey": "string",
+      "address": "[]string",
+      "peers": "[]*WireGuardPeerConfig",
+      "mtu": "int32",
+      "reserved": "[]byte",
+      "remoteDNS": "[]string"
+    },
+    "WireGuardPeerConfig": {
+      "publicKey": "string",
+      "preSharedKey": "string",
+      "endpoint": "string",
+      "keepAlive": "uint32",
+      "allowedIPs": "[]string",
+      "level": "uint32",
+      "email": "string"
+    },
+    "XDNS": {
+      "domains": "[]XDNSDomain",
+      "resolvers": "[]XDNSResolver",
+      "extraPoll": "int32"
+    },
+    "XDNSDomain": {
+      "names": "[]string",
+      "lenLimit": "int32",
+      "labelLimit": "int32",
+      "types": "[]int32",
+      "edns0": "int32"
+    },
+    "XDNSResolver": {
+      "addrs": "[]string",
+      "worker": "int32",
+      "tlsConfig": "*TLSConfig",
+      "quicConfig": "*QuicParamsConfig"
+    },
+    "XDriveConfig": {
+      "remoteFolder": "string",
+      "service": "string",
+      "secrets": "[]string",
+      "segmentBytes": "uint32",
+      "flushIntervalMs": "uint32",
+      "pollIntervalMs": "uint32",
+      "maxPollIntervalMs": "uint32",
+      "sessionTtlSeconds": "uint32",
+      "concurrency": "uint32",
+      "eagerWindowMs": "uint32",
+      "holeTimeoutMs": "uint32",
+      "template": "json.RawMessage",
+      "xmux": "XmuxConfig"
+    },
+    "XMC": {
+      "hostname": "string",
+      "profiles": "[]XMCProfile",
+      "password": "string"
+    },
+    "XMCProfile": {
+      "username": "string",
+      "uuid": "string",
+      "texturesValue": "string",
+      "texturesSignature": "string"
+    },
+    "Xicmp": {
+      "dgram": "bool",
+      "ips": "[]string"
+    },
+    "XmuxConfig": {
+      "maxConcurrency": "Int32Range",
+      "maxConnections": "Int32Range",
+      "cMaxReuseTimes": "Int32Range",
+      "hMaxRequestTimes": "Int32Range",
+      "hMaxReusableSecs": "Int32Range",
+      "hKeepAlivePeriod": "int64"
+    },
+    "strategyLeastLoadConfig": {
+      "costs": "[]*router.StrategyWeight",
+      "baselines": "[]duration.Duration",
+      "expected": "int32",
+      "maxRTT": "duration.Duration",
+      "tolerance": "float64"
+    }
+  }
+}

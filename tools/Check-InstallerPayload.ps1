@@ -1,0 +1,26 @@
+param([string]$Package)
+$ErrorActionPreference='Stop'
+$taskProject=Split-Path $PSScriptRoot -Parent
+if(-not $Package){$Package=Join-Path $taskProject '.tools\installer-service'}
+$taskConfig=Get-Content (Join-Path $taskProject 'src-tauri\tauri.conf.json') -Raw -Encoding UTF8|ConvertFrom-Json
+$taskManifest=Get-Content (Join-Path $Package 'manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
+$taskMappings=@($taskConfig.bundle.resources.PSObject.Properties)
+foreach($taskEntry in $taskManifest.files){
+ $taskRelative=$taskEntry.path.Replace('\','/')
+ # The signed shared driver is intentionally bundled by the NSIS hook with
+ # SetOverwrite off, rather than Tauri's ordinary resource replacement.
+ if($taskRelative -eq 'windivert/WinDivert64.sys'){continue}
+ $taskInstalled='Service/'+$taskRelative
+ $taskCovered=@($taskMappings|Where-Object {
+  $taskDestination=[string]$_.Value
+  $taskSource=[string]$_.Name
+  $taskDestination=$taskDestination.Replace('\','/')
+  $taskExpected='../.tools/installer-service/'+$taskRelative
+  if($taskDestination.EndsWith('/')){
+   $taskInstalled.StartsWith($taskDestination,[StringComparison]::OrdinalIgnoreCase) -and
+    $taskExpected.StartsWith($taskSource,[StringComparison]::OrdinalIgnoreCase)
+  }else{$taskInstalled -ieq $taskDestination -and $taskExpected -ieq $taskSource}
+ })
+ if($taskCovered.Count -ne 1){throw ('Installer resource mapping is missing or ambiguous: '+$taskRelative)}
+}
+Write-Host ('Installer payload mappings verified: '+$taskManifest.files.Count+' files.')

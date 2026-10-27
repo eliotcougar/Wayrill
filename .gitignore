@@ -1,0 +1,49 @@
+# Dependencies, generated output and machine-local toolchains
+node_modules/
+.tools/
+.local/
+dist/
+target/
+**/target/
+.vite/
+src-tauri/gen/schemas/
+/service/subscription-engine/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+
+# Generated/downloaded resource data; pins and licenses remain source-controlled
+/service/resource-assets/*.dat
+/service/routing-assets/*.dat
+
+# Private configurations, credentials, diagnostics and editor state
+/server-config.json
+/*.wayrill.json
+.env
+.env.*
+!.env.example
+.codex/
+.codex-remote-attachments/
+.agents/
+.aws/
+*.dpapi
+*.pfx
+*.key
+*.log
+*.jsonl
+*.dmp
+.DS_Store
+Thumbs.db
+
+# Release packages, VM images and native build products
+*.exe
+*.dll
+*.sys
+*.msi
+*.pdb
+*.zip
+*.7z
+*.iso
+*.vhd
+*.vhdx
+*.qcow2

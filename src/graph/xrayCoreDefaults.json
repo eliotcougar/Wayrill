@@ -1,0 +1,4413 @@
+{
+  "version": 1,
+  "core": {
+    "version": "26.10.21",
+    "sourceCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+    "executableSha256": "32d071b52da365542c9e0750779760835670e7c88995f43e677842ceb4afdbfc",
+    "platform": "windows/amd64"
+  },
+  "auditSha256": "3d9a7594fdc71f84a564c09eeab7af2944035a05eea855611a1053e61917a758",
+  "schemaSha256": "ef15b67f0fe7c628c17359f8a47816ab6f7e60eb94d409851a4ee531c4274022",
+  "externalSources": {
+    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go": "e94680d15f3e9c0ab514f8490729da1e1edbc24b55884d3cf2e01f682cd78925",
+    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go": "6351a6070a38f4e0c8118bcdecec2a67dfb6ca7457ee2dbaa90d20a40eb5beeb",
+    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go": "b7c0961f569e7b9c9ee9504d04163cef1e5b0eb4bafd5b8a827810f31f62dacc"
+  },
+  "fields": {
+    "DokodemoConfig.allowedNetwork": {
+      "hint": "tcp",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ],
+      "value": "tcp"
+    },
+    "DokodemoConfig.rewriteAddress": {
+      "hint": "Original destination address",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.rewritePort": {
+      "value": 0,
+      "hint": "Original destination port",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.network": {
+      "hint": "allowedNetwork, otherwise TCP",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.address": {
+      "hint": "Original destination address",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.port": {
+      "value": 0,
+      "hint": "Original destination port",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.portMap": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.followRedirect": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "DokodemoConfig.userLevel": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/dokodemo.go"
+      ]
+    },
+    "HTTPServerConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPServerConfig.accounts": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPServerConfig.allowTransparent": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPServerConfig.userLevel": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPClientConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/http.go"
+      ],
+      "required": true
+    },
+    "HTTPClientConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/http.go"
+      ],
+      "required": true
+    },
+    "HTTPClientConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPClientConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPClientConfig.user": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPClientConfig.pass": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPClientConfig.servers": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPClientConfig.headers": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPRemoteConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/http.go"
+      ],
+      "required": true
+    },
+    "HTTPRemoteConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/http.go"
+      ],
+      "required": true
+    },
+    "HTTPRemoteConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPAccount.user": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPAccount.pass": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "ShadowsocksServerConfig.method": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksServerConfig.password": {
+      "value": "",
+      "hint": "Required for encrypted methods; unused for none/plain",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerConfig.clients": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerConfig.network": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksClientConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksClientConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksClientConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksClientConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksClientConfig.method": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksClientConfig.password": {
+      "value": "",
+      "hint": "Required for encrypted methods; unused for none/plain",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksClientConfig.servers": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksUserConfig.method": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksUserConfig.password": {
+      "value": "",
+      "hint": "Required for encrypted methods; unused for none/plain",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksUserConfig.address": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksUserConfig.port": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerTarget.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksServerTarget.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksServerTarget.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerTarget.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "ShadowsocksServerTarget.method": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ],
+      "required": true
+    },
+    "ShadowsocksServerTarget.password": {
+      "value": "",
+      "hint": "Required for encrypted methods; unused for none/plain",
+      "sources": [
+        "infra/conf/shadowsocks.go"
+      ]
+    },
+    "SocksServerConfig.auth": {
+      "value": "noauth",
+      "hint": "No authentication",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksServerConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksServerConfig.accounts": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksServerConfig.udp": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksServerConfig.ip": {
+      "hint": "Automatic UDP relay address",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksServerConfig.userLevel": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksClientConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/socks.go"
+      ],
+      "required": true
+    },
+    "SocksClientConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/socks.go"
+      ],
+      "required": true
+    },
+    "SocksClientConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksClientConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksClientConfig.user": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksClientConfig.pass": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksClientConfig.servers": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksRemoteConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/socks.go"
+      ],
+      "required": true
+    },
+    "SocksRemoteConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/socks.go"
+      ],
+      "required": true
+    },
+    "SocksRemoteConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksAccount.user": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksAccount.pass": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "VLessInboundConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundConfig.clients": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundConfig.decryption": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessInboundConfig.fallbacks": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundConfig.flow": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundConfig.testseed": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.id": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundConfig.flow": {
+      "value": "",
+      "hint": "None",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.seed": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.encryption": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundConfig.reverse": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.testpre": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.testseed": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundConfig.vnext": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundVnext.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundVnext.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundVnext.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundFallback.name": {
+      "value": "",
+      "hint": "Any server name",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundFallback.alpn": {
+      "value": "",
+      "hint": "Any ALPN",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundFallback.path": {
+      "value": "",
+      "hint": "Any path",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundFallback.type": {
+      "value": "",
+      "hint": "Derived from the destination",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessInboundFallback.dest": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessInboundFallback.xver": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessUserConfig.id": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessUserConfig.flow": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessUserConfig.testseed": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessUserConfig.reverse": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VMessInboundConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessInboundConfig.clients": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessInboundConfig.default": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessOutboundConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vmess.go"
+      ],
+      "required": true
+    },
+    "VMessOutboundConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vmess.go"
+      ],
+      "required": true
+    },
+    "VMessOutboundConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessOutboundConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessOutboundConfig.id": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vmess.go"
+      ],
+      "required": true
+    },
+    "VMessOutboundConfig.security": {
+      "value": "auto",
+      "hint": "Auto — selected for the CPU",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessOutboundConfig.experiments": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessOutboundConfig.vnext": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessOutboundTarget.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vmess.go"
+      ],
+      "required": true
+    },
+    "VMessOutboundTarget.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vmess.go"
+      ],
+      "required": true
+    },
+    "VMessOutboundTarget.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessUserConfig.id": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vmess.go"
+      ],
+      "required": true
+    },
+    "VMessUserConfig.security": {
+      "value": "auto",
+      "hint": "Auto — selected for the CPU",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessUserConfig.experiments": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "VMessDefaultConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vmess.go"
+      ]
+    },
+    "TrojanServerConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanServerConfig.clients": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanServerConfig.fallbacks": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanClientConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanClientConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanClientConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanClientConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanClientConfig.password": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanClientConfig.flow": {
+      "value": "",
+      "hint": "Removed — leave absent",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanClientConfig.servers": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanServerTarget.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanServerTarget.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanServerTarget.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanServerTarget.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanServerTarget.password": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanServerTarget.flow": {
+      "value": "",
+      "hint": "Removed — leave absent",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanUserConfig.password": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanUserConfig.flow": {
+      "value": "",
+      "hint": "Removed — leave absent",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanInboundFallback.name": {
+      "value": "",
+      "hint": "Any server name",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanInboundFallback.alpn": {
+      "value": "",
+      "hint": "Any ALPN",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanInboundFallback.path": {
+      "value": "",
+      "hint": "Any path",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanInboundFallback.type": {
+      "value": "",
+      "hint": "Derived from the destination",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "TrojanInboundFallback.dest": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/trojan.go"
+      ],
+      "required": true
+    },
+    "TrojanInboundFallback.xver": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/trojan.go"
+      ]
+    },
+    "WireGuardConfig.noKernelTun": {
+      "value": false,
+      "hint": "Userspace stack on Windows",
+      "sources": [
+        "infra/conf/wireguard.go",
+        "proxy/wireguard/client.go",
+        "proxy/wireguard/tun.go"
+      ]
+    },
+    "WireGuardConfig.secretKey": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/wireguard.go",
+        "proxy/wireguard/client.go",
+        "proxy/wireguard/tun.go"
+      ],
+      "required": true
+    },
+    "WireGuardConfig.address": {
+      "hint": "10.0.0.1, fd59:7153:2388:b5fd:0000:0000:0000:0001",
+      "sources": [
+        "infra/conf/wireguard.go",
+        "proxy/wireguard/client.go",
+        "proxy/wireguard/tun.go"
+      ],
+      "value": [
+        "10.0.0.1",
+        "fd59:7153:2388:b5fd:0000:0000:0000:0001"
+      ]
+    },
+    "WireGuardConfig.peers": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "WireGuardConfig.mtu": {
+      "value": 1420,
+      "hint": "1420",
+      "sources": [
+        "infra/conf/wireguard.go",
+        "proxy/wireguard/client.go",
+        "proxy/wireguard/tun.go"
+      ]
+    },
+    "WireGuardConfig.reserved": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "WireGuardConfig.remoteDNS": {
+      "hint": "1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001",
+      "sources": [
+        "infra/conf/wireguard.go",
+        "proxy/wireguard/client.go",
+        "proxy/wireguard/tun.go"
+      ],
+      "value": [
+        "1.1.1.1",
+        "1.0.0.1",
+        "2606:4700:4700::1111",
+        "2606:4700:4700::1001"
+      ]
+    },
+    "WireGuardPeerConfig.publicKey": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ],
+      "required": true
+    },
+    "WireGuardPeerConfig.preSharedKey": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "WireGuardPeerConfig.endpoint": {
+      "value": "",
+      "hint": "Required for a client peer; learned from inbound peer packets",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "WireGuardPeerConfig.keepAlive": {
+      "value": 0,
+      "hint": "0 — disabled",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "WireGuardPeerConfig.allowedIPs": {
+      "hint": "0.0.0.0/0, ::0/0",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ],
+      "value": [
+        "0.0.0.0/0",
+        "::0/0"
+      ]
+    },
+    "WireGuardPeerConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "WireGuardPeerConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/wireguard.go"
+      ]
+    },
+    "HysteriaClientConfig.version": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ],
+      "required": true
+    },
+    "HysteriaClientConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ],
+      "required": true
+    },
+    "HysteriaClientConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ],
+      "required": true
+    },
+    "HysteriaServerConfig.version": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ],
+      "required": true
+    },
+    "HysteriaServerConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ]
+    },
+    "HysteriaServerConfig.clients": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ]
+    },
+    "HysteriaUserConfig.auth": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ],
+      "required": true
+    },
+    "HysteriaUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ]
+    },
+    "HysteriaUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/hysteria.go"
+      ]
+    },
+    "MasqueClientConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/masque.go"
+      ],
+      "required": true
+    },
+    "MasqueClientConfig.port": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/masque.go"
+      ],
+      "required": true
+    },
+    "MasqueClientConfig.remoteDNS": {
+      "hint": "1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001",
+      "sources": [
+        "proxy/masque/client.go"
+      ],
+      "value": [
+        "1.1.1.1",
+        "1.0.0.1",
+        "2606:4700:4700::1111",
+        "2606:4700:4700::1001"
+      ]
+    },
+    "MasqueServerConfig.users": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/masque.go"
+      ]
+    },
+    "MasqueServerConfig.clients": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/masque.go"
+      ]
+    },
+    "MasqueServerConfig.address": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/masque.go",
+        "proxy/masque/server.go",
+        "transport/internet/masque/config.go"
+      ],
+      "required": true
+    },
+    "MasqueServerConfig.mtu": {
+      "value": 1280,
+      "hint": "1280",
+      "sources": [
+        "infra/conf/masque.go",
+        "proxy/masque/server.go",
+        "transport/internet/masque/config.go"
+      ]
+    },
+    "MasqueUserConfig.pass": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/masque.go"
+      ],
+      "required": true
+    },
+    "MasqueUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/masque.go"
+      ]
+    },
+    "MasqueUserConfig.email": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/masque.go"
+      ],
+      "required": true
+    },
+    "TunConfig.name": {
+      "value": "",
+      "hint": "First available Xray adapter name",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.desc": {
+      "value": "Wintun",
+      "hint": "Wintun",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.mtu": {
+      "value": 1500,
+      "hint": "1500",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.gateway": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.dns": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.userLevel": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.autoSystemRoutingTable": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.autoOutboundsInterface": {
+      "hint": "auto when system routes are configured; otherwise no override",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.autoSystemDnsToGateway": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "TunConfig.autoSystemWfpBlockLeak": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/tun.go"
+      ]
+    },
+    "LoopbackConfig.inboundTag": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/loopback.go"
+      ],
+      "required": true
+    },
+    "LoopbackConfig.sniffing": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/loopback.go"
+      ]
+    },
+    "DNSOutboundConfig.rewriteNetwork": {
+      "hint": "Retain the original network",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.rewriteAddress": {
+      "hint": "Retain the original DNS destination",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.rewritePort": {
+      "value": 0,
+      "hint": "Retain the original DNS port",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.network": {
+      "hint": "Retain the original network",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.address": {
+      "hint": "Retain the original DNS destination",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.port": {
+      "value": 0,
+      "hint": "Retain the original DNS port",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.userLevel": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.rules": {
+      "hint": "A/AAAA use the built-in resolver; other requests pass through",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.nonIPQuery": {
+      "hint": "No legacy policy; when legacy blockTypes is present: reject",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundConfig.blockTypes": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundRuleConfig.action": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ],
+      "required": true
+    },
+    "DNSOutboundRuleConfig.qType": {
+      "hint": "All request types",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundRuleConfig.domain": {
+      "hint": "All domains",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "DNSOutboundRuleConfig.rCode": {
+      "value": 0,
+      "hint": "0 — NOERROR",
+      "sources": [
+        "infra/conf/dns_proxy.go"
+      ]
+    },
+    "StreamConfig.address": {
+      "hint": "Protocol server address",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.port": {
+      "value": 0,
+      "hint": "Protocol server port",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.method": {
+      "hint": "Network setting, otherwise RAW / TCP",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.network": {
+      "hint": "RAW / TCP",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ],
+      "value": "raw"
+    },
+    "StreamConfig.security": {
+      "value": "none",
+      "hint": "None",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.finalmask": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.tlsSettings": {
+      "hint": "TLS defaults when TLS is selected",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.realitySettings": {
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ],
+      "required": true
+    },
+    "StreamConfig.rawSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.tcpSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.xhttpSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.splithttpSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.kcpSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.grpcSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.wsSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.httpupgradeSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.hysteriaSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.masqueSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.xdriveSettings": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "StreamConfig.sockopt": {
+      "hint": "Automatic socket settings",
+      "sources": [
+        "infra/conf/transport_internet.go"
+      ]
+    },
+    "SniffingConfig.enabled": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "SniffingConfig.destOverride": {
+      "hint": "None — no destination overrides",
+      "sources": [
+        "infra/conf/xray.go"
+      ],
+      "value": []
+    },
+    "SniffingConfig.domainsExcluded": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "SniffingConfig.ipsExcluded": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "SniffingConfig.metadataOnly": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "SniffingConfig.routeOnly": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "MuxConfig.enabled": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "MuxConfig.concurrency": {
+      "value": 8,
+      "hint": "8 (when mux is enabled)",
+      "sources": [
+        "infra/conf/xray.go",
+        "app/proxyman/outbound/handler.go"
+      ]
+    },
+    "MuxConfig.xudpConcurrency": {
+      "value": 0,
+      "hint": "0 — use the TCP mux for UDP",
+      "sources": [
+        "infra/conf/xray.go",
+        "app/proxyman/outbound/handler.go"
+      ]
+    },
+    "MuxConfig.xudpProxyUDP443": {
+      "value": "reject",
+      "hint": "reject",
+      "sources": [
+        "infra/conf/xray.go",
+        "app/proxyman/outbound/handler.go"
+      ]
+    },
+    "TCPConfig.header": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "TCPConfig.acceptProxyProtocol": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "SplitHTTPConfig.host": {
+      "value": "",
+      "hint": "TLS server name, otherwise server address",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.path": {
+      "value": "/",
+      "hint": "/",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.mode": {
+      "value": "auto",
+      "hint": "Auto — chosen for the transport security",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.headers": {
+      "hint": "Generated Chrome fetch headers",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.xPaddingBytes": {
+      "hint": "100-1000",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ],
+      "value": "100-1000"
+    },
+    "SplitHTTPConfig.xPaddingObfsMode": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "SplitHTTPConfig.xPaddingKey": {
+      "value": "x_padding",
+      "hint": "x_padding",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.xPaddingHeader": {
+      "value": "X-Padding",
+      "hint": "X-Padding",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.xPaddingPlacement": {
+      "value": "queryInHeader",
+      "hint": "queryInHeader",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.xPaddingMethod": {
+      "value": "repeat-x",
+      "hint": "repeat-x",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.uplinkHTTPMethod": {
+      "value": "POST",
+      "hint": "POST",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.sessionIDPlacement": {
+      "value": "path",
+      "hint": "path",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.sessionIDKey": {
+      "value": "",
+      "hint": "x_session for cookie/query; X-Session for header",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.sessionIDTable": {
+      "value": "",
+      "hint": "Random UUID when no custom alphabet is configured",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.sessionIDLength": {
+      "hint": "UUID length when no custom alphabet is configured",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.seqPlacement": {
+      "value": "path",
+      "hint": "path",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.seqKey": {
+      "value": "",
+      "hint": "x_seq for cookie/query; X-Seq for header",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.uplinkDataPlacement": {
+      "value": "",
+      "hint": "Auto — body for POST; header for GET",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.uplinkDataKey": {
+      "value": "",
+      "hint": "x_data for cookie/query; X-Data for header",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.uplinkChunkSize": {
+      "hint": "2–3 KiB for cookies; 3,000–4,000 bytes for headers; otherwise scMaxEachPostBytes",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.noGRPCHeader": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "SplitHTTPConfig.noSSEHeader": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "SplitHTTPConfig.scMaxEachPostBytes": {
+      "hint": "1000000",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ],
+      "value": 1000000
+    },
+    "SplitHTTPConfig.scMinPostsIntervalMs": {
+      "hint": "30",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ],
+      "value": 30
+    },
+    "SplitHTTPConfig.scMaxBufferedPosts": {
+      "value": 30,
+      "hint": "30",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.scStreamUpServerSecs": {
+      "hint": "20-80",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ],
+      "value": "20-80"
+    },
+    "SplitHTTPConfig.serverMaxHeaderBytes": {
+      "value": 8192,
+      "hint": "8192",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.xmux": {
+      "hint": "3 connections; 600–900 requests; reusable for 1800–3000 seconds",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.downloadSettings": {
+      "hint": "Same settings as upload",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/splithttp/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.extra": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "KCPConfig.mtu": {
+      "hint": "1350",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/kcp/config.go"
+      ],
+      "value": 1350
+    },
+    "KCPConfig.tti": {
+      "hint": "50",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/kcp/config.go"
+      ],
+      "value": 50
+    },
+    "KCPConfig.uplinkCapacity": {
+      "hint": "5",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/kcp/config.go"
+      ],
+      "value": 5
+    },
+    "KCPConfig.downlinkCapacity": {
+      "hint": "20",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/kcp/config.go"
+      ],
+      "value": 20
+    },
+    "KCPConfig.cwndMultiplier": {
+      "hint": "1",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/kcp/config.go"
+      ],
+      "value": 1
+    },
+    "KCPConfig.maxSendingWindow": {
+      "hint": "2097152",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/kcp/config.go"
+      ],
+      "value": 2097152
+    },
+    "KCPConfig.header": {
+      "hint": "No header mask",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "KCPConfig.seed": {
+      "hint": "No seed",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "GRPCConfig.authority": {
+      "value": "",
+      "hint": "TLS server name, otherwise destination hostname",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/grpc/dial.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "GRPCConfig.serviceName": {
+      "value": "",
+      "hint": "Empty service name",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/grpc/dial.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "GRPCConfig.multiMode": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "GRPCConfig.idle_timeout": {
+      "value": 0,
+      "hint": "No Xray keepalive override (gRPC library default)",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/grpc/dial.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "GRPCConfig.health_check_timeout": {
+      "value": 0,
+      "hint": "20 seconds when keepalive is configured; otherwise no override",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/grpc/dial.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "GRPCConfig.permit_without_stream": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "GRPCConfig.initial_windows_size": {
+      "value": 0,
+      "hint": "gRPC automatic window sizing",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/grpc/dial.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "GRPCConfig.user_agent": {
+      "value": "",
+      "hint": "Generated Chrome User-Agent (varies with date and CPU)",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/grpc/dial.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "WebSocketConfig.host": {
+      "value": "",
+      "hint": "TLS server name, otherwise destination address",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/websocket/config.go",
+        "transport/internet/websocket/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "WebSocketConfig.path": {
+      "value": "/",
+      "hint": "/",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/websocket/config.go",
+        "transport/internet/websocket/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "WebSocketConfig.headers": {
+      "hint": "Chrome-style WebSocket headers",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/websocket/config.go",
+        "transport/internet/websocket/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "WebSocketConfig.acceptProxyProtocol": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "WebSocketConfig.heartbeatPeriod": {
+      "value": 0,
+      "hint": "0 — heartbeat disabled",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/websocket/config.go",
+        "transport/internet/websocket/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "HttpUpgradeConfig.host": {
+      "value": "",
+      "hint": "TLS server name, otherwise destination address",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/httpupgrade/config.go",
+        "transport/internet/httpupgrade/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "HttpUpgradeConfig.path": {
+      "value": "/",
+      "hint": "/",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/httpupgrade/config.go",
+        "transport/internet/httpupgrade/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "HttpUpgradeConfig.headers": {
+      "hint": "Chrome-style WebSocket headers",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/httpupgrade/config.go",
+        "transport/internet/httpupgrade/dialer.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "HttpUpgradeConfig.acceptProxyProtocol": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "HysteriaConfig.version": {
+      "value": 0,
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ],
+      "required": true
+    },
+    "HysteriaConfig.auth": {
+      "value": "",
+      "hint": "Transport token (must match the server)",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/hysteria/config.go"
+      ]
+    },
+    "HysteriaConfig.udpIdleTimeout": {
+      "value": 60,
+      "hint": "60",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/hysteria/config.go"
+      ]
+    },
+    "HysteriaConfig.masquerade": {
+      "hint": "Default 404 HTTP response",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/hysteria/config.go"
+      ]
+    },
+    "MasqueConfig.host": {
+      "value": "",
+      "hint": "cloudflareaccess.com for WARP; otherwise TLS server name or server address",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/config.go",
+        "common/utils/browser.go",
+        "transport/internet/masque/warp.go"
+      ]
+    },
+    "MasqueConfig.path": {
+      "value": "",
+      "hint": "/ for WARP; otherwise /.well-known/masque/ip/*/*/",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/config.go",
+        "common/utils/browser.go",
+        "transport/internet/masque/warp.go"
+      ]
+    },
+    "MasqueConfig.user": {
+      "value": "",
+      "hint": "Required for client authentication; omitted with WARP",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "MasqueConfig.pass": {
+      "value": "",
+      "hint": "Required for client authentication; omitted with WARP",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "MasqueConfig.headers": {
+      "hint": "Chrome-style HTTP headers",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/config.go",
+        "common/utils/browser.go"
+      ]
+    },
+    "MasqueConfig.warp": {
+      "hint": "Disabled — no WARP configuration",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "MasqueConfig.xmux": {
+      "hint": "1 connection; reusable for 1800–3000 seconds",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "MasqueWarpConfig.privateKey": {
+      "value": "",
+      "hint": "Required when WARP is enabled",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/warp.go"
+      ],
+      "required": true
+    },
+    "MasqueWarpConfig.publicKey": {
+      "value": "",
+      "hint": "Required when WARP is enabled",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/warp.go"
+      ],
+      "required": true
+    },
+    "MasqueWarpConfig.address": {
+      "hint": "Required when WARP is enabled",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/masque/warp.go"
+      ],
+      "required": true
+    },
+    "XDriveConfig.remoteFolder": {
+      "value": "",
+      "hint": "Required by the selected service",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.service": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/xdrive/params.go"
+      ],
+      "required": true
+    },
+    "XDriveConfig.secrets": {
+      "hint": "Required by the selected service",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.segmentBytes": {
+      "value": 524288,
+      "hint": "524288",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.flushIntervalMs": {
+      "value": 20,
+      "hint": "20",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.pollIntervalMs": {
+      "value": 50,
+      "hint": "50",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.maxPollIntervalMs": {
+      "value": 500,
+      "hint": "500",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.sessionTtlSeconds": {
+      "value": 300,
+      "hint": "300",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.concurrency": {
+      "value": 8,
+      "hint": "8",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.eagerWindowMs": {
+      "value": 2000,
+      "hint": "2000",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.holeTimeoutMs": {
+      "value": 30000,
+      "hint": "30000",
+      "sources": [
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.template": {
+      "hint": "Required for the template service",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/xdrive/params.go"
+      ]
+    },
+    "XDriveConfig.xmux": {
+      "hint": "Automatic — 4 connections for Google Drive over HTTP/2, otherwise 1; reuse 1800–3000 seconds",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/xdrive/client.go"
+      ]
+    },
+    "TLSConfig.allowInsecure": {
+      "value": false,
+      "hint": "Removed — leave disabled",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.certificates": {
+      "hint": "Bundled CA trust roots; server mode needs a certificate",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.serverName": {
+      "value": "",
+      "hint": "Destination hostname / transport host",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.alpn": {
+      "hint": "h2, http/1.1; HTTP/1.1 for WebSocket/HTTP Upgrade",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ],
+      "value": [
+        "h2",
+        "http/1.1"
+      ]
+    },
+    "TLSConfig.enableSessionResumption": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.disableSystemRoot": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.minVersion": {
+      "value": "",
+      "hint": "TLS 1.2 with the Go TLS stack; fingerprint controls uTLS",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.maxVersion": {
+      "value": "",
+      "hint": "TLS 1.3 with the Go TLS stack; fingerprint controls uTLS",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.cipherSuites": {
+      "value": "",
+      "hint": "TLS stack / fingerprint cipher suites",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.fingerprint": {
+      "value": "chrome",
+      "hint": "chrome",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.rejectUnknownSni": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.curvePreferences": {
+      "hint": "TLS stack / fingerprint curves",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.masterKeyLog": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.pinnedPeerCertSha256": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.verifyPeerCertByName": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.echServerKeys": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.echConfigList": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSConfig.echSockopt": {
+      "hint": "Normal socket settings for ECH lookup",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/tls.go",
+        "transport/internet/websocket/dialer.go",
+        "transport/internet/httpupgrade/dialer.go"
+      ]
+    },
+    "TLSConfig.useSystemCA": {
+      "value": false,
+      "hint": "Disabled — bundled CA certificates",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/config.go",
+        "transport/internet/tls/config_windows.go"
+      ]
+    },
+    "TLSCertConfig.certificateFile": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.certificate": {
+      "hint": "certificateFile, otherwise required PEM",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.keyFile": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.key": {
+      "hint": "keyFile, otherwise required for encipherment",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.usage": {
+      "value": "encipherment",
+      "hint": "encipherment",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.ocspStapling": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.oneTimeLoading": {
+      "value": false,
+      "hint": "Enabled for inline certificates; disabled for certificate files",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "TLSCertConfig.buildChain": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.masterKeyLog": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.show": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.target": {
+      "hint": "Required in server mode",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.dest": {
+      "hint": "Alias for server target",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.type": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.xver": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.serverNames": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.privateKey": {
+      "value": "",
+      "hint": "Required in server mode",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.minClientVer": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.maxClientVer": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.maxTimeDiff": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.shortIds": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.mldsa65Seed": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.limitFallbackUpload": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.limitFallbackDownload": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.fingerprint": {
+      "value": "chrome",
+      "hint": "chrome",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.serverName": {
+      "value": "",
+      "hint": "Empty — must match a server-allowed name",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.password": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ],
+      "required": true
+    },
+    "REALITYConfig.publicKey": {
+      "value": "",
+      "hint": "Alias for password",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.shortId": {
+      "value": "",
+      "hint": "Empty short ID (must be allowed by the server)",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.mldsa65Verify": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "REALITYConfig.spiderX": {
+      "value": "/",
+      "hint": "/",
+      "sources": [
+        "infra/conf/transport_security.go"
+      ]
+    },
+    "SocketConfig.mark": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.tcpFastOpen": {
+      "hint": "Automatic — no explicit Fast Open override",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.tproxy": {
+      "value": "off",
+      "hint": "off",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.acceptProxyProtocol": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.domainStrategy": {
+      "value": "AsIs",
+      "hint": "AsIs",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.dialerProxy": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.tcpKeepAliveInterval": {
+      "value": 45,
+      "hint": "45 seconds for outbound TCP; system timing for listeners",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.tcpKeepAliveIdle": {
+      "value": 45,
+      "hint": "45 seconds for outbound TCP; system timing for listeners",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.tcpCongestion": {
+      "value": "",
+      "hint": "System default; not applied on Windows",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.tcpWindowClamp": {
+      "value": 0,
+      "hint": "System default; not applied on Windows",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.tcpMaxSeg": {
+      "value": 0,
+      "hint": "System default; not applied on Windows",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.penetrate": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.tcpUserTimeout": {
+      "value": 0,
+      "hint": "System default; not applied on Windows",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.v6only": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.interface": {
+      "value": "",
+      "hint": "Automatic interface selection",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.tcpMptcp": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.customSockopt": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "SocketConfig.addressPortStrategy": {
+      "value": "none",
+      "hint": "none",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.happyEyeballs": {
+      "hint": "Interleave 1, delay 0 ms, prefer IPv4, up to 4 attempts",
+      "sources": [
+        "infra/conf/transport_sockopt.go",
+        "transport/internet/system_dialer.go",
+        "transport/internet/sockopt_windows.go"
+      ]
+    },
+    "SocketConfig.trustedXForwardedFor": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "HappyEyeballsConfig.prioritizeIPv6": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "HappyEyeballsConfig.tryDelayMs": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "HappyEyeballsConfig.interleave": {
+      "value": 1,
+      "hint": "1",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "HappyEyeballsConfig.maxConcurrentTry": {
+      "value": 4,
+      "hint": "4",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "CustomSockoptConfig.system": {
+      "value": "",
+      "hint": "All operating systems",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "CustomSockoptConfig.network": {
+      "value": "",
+      "hint": "All socket networks",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "CustomSockoptConfig.level": {
+      "value": "6",
+      "hint": "6 — TCP",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "CustomSockoptConfig.opt": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ],
+      "required": true
+    },
+    "CustomSockoptConfig.value": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ]
+    },
+    "CustomSockoptConfig.type": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_sockopt.go"
+      ],
+      "required": true
+    },
+    "Masquerade.type": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.dir": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.url": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.rewriteHost": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.xForwarded": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.insecure": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.content": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.headers": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "Masquerade.statusCode": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ]
+    },
+    "FreedomConfig.targetStrategy": {
+      "value": "AsIs",
+      "hint": "AsIs",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "FreedomConfig.domainStrategy": {
+      "value": "",
+      "hint": "Alias for targetStrategy",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "FreedomConfig.redirect": {
+      "value": "",
+      "hint": "Original destination",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "FreedomConfig.userLevel": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/freedom.go"
+      ]
+    },
+    "FreedomConfig.fragment": {
+      "hint": "No fragmentation",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "FreedomConfig.noise": {
+      "hint": "No noise",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "FreedomConfig.noises": {
+      "hint": "No noise",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "FreedomConfig.proxyProtocol": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/freedom.go"
+      ]
+    },
+    "FreedomConfig.ipsBlocked": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/freedom.go"
+      ]
+    },
+    "FreedomConfig.finalRules": {
+      "hint": "Blocks private destinations for remote proxy inbounds; allows others",
+      "sources": [
+        "infra/conf/freedom.go",
+        "proxy/freedom/freedom.go"
+      ]
+    },
+    "BlackholeConfig.response": {
+      "hint": "None — close the connection",
+      "sources": [
+        "infra/conf/blackhole.go"
+      ],
+      "value": {
+        "type": "none"
+      }
+    },
+    "FinalMask.tcp": {
+      "hint": "No TCP masks",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "FinalMask.udp": {
+      "hint": "No UDP masks",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "FinalMask.quicParams": {
+      "hint": "QUIC transport defaults",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "Mask.type": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ],
+      "required": true
+    },
+    "Mask.settings": {
+      "hint": "Defaults of the selected mask type",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "QuicParamsConfig.congestion": {
+      "value": "",
+      "hint": "Transport default (BBR for Hysteria)",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go"
+      ]
+    },
+    "QuicParamsConfig.debug": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "QuicParamsConfig.bbrProfile": {
+      "value": "standard",
+      "hint": "standard",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go"
+      ]
+    },
+    "QuicParamsConfig.brutalUp": {
+      "hint": "No Brutal upload limit",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go"
+      ]
+    },
+    "QuicParamsConfig.brutalDown": {
+      "hint": "No Brutal download limit",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go"
+      ]
+    },
+    "QuicParamsConfig.brutalDisableLossCompensation": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "QuicParamsConfig.initStreamReceiveWindow": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "8388608 bytes",
+        "hysteria:input:plain": "8388608 bytes",
+        "hysteria:output": "6291456 bytes",
+        "hysteria:output:plain": "8388608 bytes",
+        "masque:input": "2097152 bytes",
+        "masque:input:plain": "2097152 bytes",
+        "masque:output": "2097152 bytes",
+        "masque:output:plain": "2097152 bytes",
+        "http3:input": "2097152 bytes",
+        "http3:input:plain": "2097152 bytes",
+        "http3:output": "6291456 bytes",
+        "http3:output:plain": "2097152 bytes"
+      }
+    },
+    "QuicParamsConfig.maxStreamReceiveWindow": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "8388608 bytes",
+        "hysteria:input:plain": "8388608 bytes",
+        "hysteria:output": "8388608 bytes",
+        "hysteria:output:plain": "8388608 bytes",
+        "masque:input": "6291456 bytes",
+        "masque:input:plain": "6291456 bytes",
+        "masque:output": "6291456 bytes",
+        "masque:output:plain": "6291456 bytes",
+        "http3:input": "6291456 bytes",
+        "http3:input:plain": "6291456 bytes",
+        "http3:output": "6291456 bytes",
+        "http3:output:plain": "6291456 bytes"
+      }
+    },
+    "QuicParamsConfig.initConnectionReceiveWindow": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "20971520 bytes",
+        "hysteria:input:plain": "20971520 bytes",
+        "hysteria:output": "15728640 bytes",
+        "hysteria:output:plain": "20971520 bytes",
+        "masque:input": "3145728 bytes",
+        "masque:input:plain": "3145728 bytes",
+        "masque:output": "3145728 bytes",
+        "masque:output:plain": "3145728 bytes",
+        "http3:input": "3145728 bytes",
+        "http3:input:plain": "3145728 bytes",
+        "http3:output": "15728640 bytes",
+        "http3:output:plain": "3145728 bytes"
+      }
+    },
+    "QuicParamsConfig.maxConnectionReceiveWindow": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "20971520 bytes",
+        "hysteria:input:plain": "20971520 bytes",
+        "hysteria:output": "20971520 bytes",
+        "hysteria:output:plain": "20971520 bytes",
+        "masque:input": "15728640 bytes",
+        "masque:input:plain": "15728640 bytes",
+        "masque:output": "15728640 bytes",
+        "masque:output:plain": "15728640 bytes",
+        "http3:input": "15728640 bytes",
+        "http3:input:plain": "15728640 bytes",
+        "http3:output": "15728640 bytes",
+        "http3:output:plain": "15728640 bytes"
+      }
+    },
+    "QuicParamsConfig.maxIdleTimeout": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "30 seconds",
+        "hysteria:input:plain": "30 seconds",
+        "hysteria:output": "30 seconds",
+        "hysteria:output:plain": "30 seconds",
+        "masque:input": "30 seconds",
+        "masque:input:plain": "30 seconds",
+        "masque:output": "30 seconds",
+        "masque:output:plain": "30 seconds",
+        "http3:input": "30 seconds",
+        "http3:input:plain": "30 seconds",
+        "http3:output": "30 seconds",
+        "http3:output:plain": "300 seconds"
+      }
+    },
+    "QuicParamsConfig.keepAlivePeriod": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "0 seconds",
+        "hysteria:input:plain": "0 seconds",
+        "hysteria:output": "0 seconds",
+        "hysteria:output:plain": "0 seconds",
+        "masque:input": "0 seconds",
+        "masque:input:plain": "0 seconds",
+        "masque:output": "10 seconds",
+        "masque:output:plain": "10 seconds",
+        "http3:input": "0 seconds",
+        "http3:input:plain": "0 seconds",
+        "http3:output": "10 seconds",
+        "http3:output:plain": "10 seconds"
+      }
+    },
+    "QuicParamsConfig.disablePathMTUDiscovery": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "QuicParamsConfig.disableChromeParrot": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "QuicParamsConfig.disableGSO": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "QuicParamsConfig.maxIncomingStreams": {
+      "value": 0,
+      "hint": "Depends on transport, direction and Chrome emulation",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/hysteria/dialer.go",
+        "transport/internet/hysteria/hub.go",
+        "transport/internet/splithttp/dialer.go",
+        "transport/internet/splithttp/hub.go",
+        "transport/internet/masque/dialer.go",
+        "transport/internet/masque/hub.go",
+        "common/net/net.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go",
+        "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go"
+      ],
+      "contexts": {
+        "hysteria:input": "1024",
+        "hysteria:input:plain": "1024",
+        "hysteria:output": "100",
+        "hysteria:output:plain": "100",
+        "masque:input": "100",
+        "masque:input:plain": "100",
+        "masque:output": "0 — peer streams rejected",
+        "masque:output:plain": "0 — peer streams rejected",
+        "http3:input": "100",
+        "http3:input:plain": "100",
+        "http3:output": "100",
+        "http3:output:plain": "0 — peer streams rejected"
+      }
+    },
+    "QuicParamsConfig.disableStatelessReset": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "VLessOutboundUserConfig.id": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundUserConfig.flow": {
+      "value": "",
+      "hint": "None",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundUserConfig.encryption": {
+      "value": "",
+      "hint": "Required — no default",
+      "sources": [
+        "infra/conf/vless.go"
+      ],
+      "required": true
+    },
+    "VLessOutboundUserConfig.testpre": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundUserConfig.testseed": {
+      "hint": "None — empty list",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundUserConfig.reverse": {
+      "hint": "Not configured",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "VLessOutboundUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/vless.go"
+      ]
+    },
+    "HTTPUserConfig.user": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPUserConfig.pass": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "HTTPUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/http.go"
+      ]
+    },
+    "SocksUserConfig.user": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksUserConfig.pass": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksUserConfig.level": {
+      "value": 0,
+      "hint": "0",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "SocksUserConfig.email": {
+      "value": "",
+      "hint": "Empty — no value",
+      "sources": [
+        "infra/conf/socks.go"
+      ]
+    },
+    "Inbound.listen": {
+      "hint": "0.0.0.0 — all IPv4 interfaces",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "Inbound.port": {
+      "hint": "Required except for TUN / Unix sockets",
+      "required": true,
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "Outbound.sendThrough": {
+      "hint": "Automatic source address",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "DNSConfig.queryStrategy": {
+      "value": "UseIP",
+      "hint": "UseIP — IPv4 and IPv6",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.tag": {
+      "hint": "Automatically generated DNS tag",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.clientIp": {
+      "hint": "No EDNS client IP",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.hosts": {
+      "hint": "No static hosts",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.address": {
+      "hint": "Required — no default",
+      "required": true,
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.port": {
+      "hint": "53 for UDP/TCP; URL port for HTTPS; unused for localhost",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.queryStrategy": {
+      "hint": "DNS handler address family",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.clientIp": {
+      "hint": "DNS handler EDNS client IP",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.tag": {
+      "hint": "DNS handler tag",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.timeoutMs": {
+      "value": 4000,
+      "hint": "4000",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "Policy.handshake": {
+      "value": 60,
+      "hint": "60",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "Policy.connIdle": {
+      "value": 300,
+      "hint": "300",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "Policy.uplinkOnly": {
+      "value": 1,
+      "hint": "1",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "Policy.downlinkOnly": {
+      "value": 1,
+      "hint": "1",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "Policy.bufferSize": {
+      "hint": "512 KiB on Windows x64 (XRAY_BUFFER_SIZE may override)",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "LogConfig.loglevel": {
+      "value": "warning",
+      "hint": "warning",
+      "sources": [
+        "infra/conf/log.go"
+      ]
+    },
+    "LogConfig.maskAddress": {
+      "value": "",
+      "hint": "None — addresses are not masked",
+      "sources": [
+        "infra/conf/log.go"
+      ]
+    },
+    "RouterConfig.domainStrategy": {
+      "value": "AsIs",
+      "hint": "AsIs",
+      "sources": [
+        "infra/conf/router.go"
+      ]
+    },
+    "RouterConfig.domainMatcher": {
+      "value": "hybrid",
+      "hint": "hybrid",
+      "sources": [
+        "infra/conf/router.go"
+      ]
+    },
+    "MetricsConfig.tag": {
+      "hint": "Empty — no metrics outbound tag",
+      "sources": [
+        "infra/conf/metrics.go"
+      ]
+    },
+    "MetricsConfig.listen": {
+      "hint": "Empty — no HTTP listener",
+      "sources": [
+        "infra/conf/metrics.go"
+      ]
+    },
+    "FragmentMask.packets": {
+      "value": "",
+      "hint": "All TCP packets",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "FragmentMask.lengths": {
+      "hint": "Required — no default",
+      "required": true,
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "FragmentMask.delays": {
+      "value": "0",
+      "hint": "0 — no delay",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "FragmentMask.maxSplit": {
+      "value": "0",
+      "hint": "0 — unlimited",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "UDPHop.interval": {
+      "value": "30",
+      "hint": "30",
+      "sources": [
+        "infra/conf/transport_finalmask.go"
+      ]
+    },
+    "App.fragmentEnabled": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.finalFragmentEnabled": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.happyEyeballsEnabled": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.statistics": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.metricsEnabled": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.policy": {
+      "value": "",
+      "hint": "Native policy: handshake 60s, idle 300s, uplink/downlink 1s",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.userAgent": {
+      "value": "",
+      "hint": "Generated Chrome User-Agent for HTTP/gRPC transports",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.extra": {
+      "value": "",
+      "hint": "No additional options",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.inboundStreamSettings": {
+      "value": "",
+      "hint": "RAW / TCP, no transport security",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.sniffProtocol": {
+      "value": false,
+      "hint": "None — no destination override",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "App.hysteriaBandwidth": {
+      "value": 0,
+      "hint": "0 — BBR; no Brutal bandwidth limit",
+      "sources": [
+        "infra/conf/xray.go"
+      ]
+    },
+    "DNSConfig.disableCache": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.serveStale": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.disableFallback": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.disableFallbackIfMatch": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.enableParallelQuery": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.useSystemHosts": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "DNSConfig.serveExpiredTTL": {
+      "value": 0,
+      "hint": "0 seconds",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.skipFallback": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.finalQuery": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.domains": {
+      "hint": "None — no domains constraint",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.expectedIPs": {
+      "hint": "None — no expectedIPs constraint",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.unexpectedIPs": {
+      "hint": "None — no unexpectedIPs constraint",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.disableCache": {
+      "hint": "DNS handler disableCache",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.serveStale": {
+      "hint": "DNS handler serveStale",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "NameServerConfig.serveExpiredTTL": {
+      "hint": "DNS handler serveExpiredTTL",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "Policy.statsUserUplink": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "Policy.statsUserDownlink": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "Policy.statsUserOnline": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "SystemPolicy.statsInboundUplink": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "SystemPolicy.statsInboundDownlink": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "SystemPolicy.statsOutboundUplink": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "SystemPolicy.statsOutboundDownlink": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/policy.go"
+      ]
+    },
+    "LogConfig.dnsLog": {
+      "value": false,
+      "hint": "Disabled",
+      "sources": [
+        "infra/conf/log.go"
+      ]
+    },
+    "HealthCheck.connectivity": {
+      "hint": "Disabled — no direct connectivity check",
+      "sources": [
+        "app/observatory/burst/healthping.go"
+      ]
+    },
+    "LeastLoad.baselines": {
+      "hint": "None — no RTT baselines",
+      "sources": [
+        "app/router/strategy_leastload.go"
+      ]
+    },
+    "LeastLoad.costs": {
+      "hint": "None — no configured destination weights",
+      "sources": [
+        "app/router/strategy_leastload.go"
+      ]
+    },
+    "FakeDNS.autoIPv4Pool": {
+      "value": "198.18.0.0/15",
+      "hint": "198.18.0.0/15",
+      "sources": [
+        "features/dns/fakedns.go"
+      ]
+    },
+    "FakeDNS.autoIPv6Pool": {
+      "value": "2001:2::/48",
+      "hint": "2001:2::/48",
+      "sources": [
+        "features/dns/fakedns.go"
+      ]
+    },
+    "FakeDNS.autoDualCapacity": {
+      "value": 32768,
+      "hint": "32768",
+      "sources": [
+        "infra/conf/fakedns.go"
+      ]
+    },
+    "FakeDNS.autoSingleCapacity": {
+      "value": 65535,
+      "hint": "65535",
+      "sources": [
+        "infra/conf/fakedns.go"
+      ]
+    },
+    "FakeDNSPoolElementConfig.ipPool": {
+      "required": true,
+      "hint": "Required — no custom-pool default",
+      "sources": [
+        "infra/conf/fakedns.go",
+        "app/dns/fakedns/fake.go"
+      ]
+    },
+    "FakeDNSPoolElementConfig.poolSize": {
+      "required": true,
+      "hint": "Required — no custom-pool default",
+      "sources": [
+        "infra/conf/fakedns.go",
+        "app/dns/fakedns/fake.go"
+      ]
+    },
+    "DNSConfig.script": {
+      "value": "",
+      "hint": "Disabled — normal DNS server selection",
+      "sources": [
+        "infra/conf/dns.go",
+        "app/dns/script.go"
+      ]
+    },
+    "RouterConfig.script": {
+      "value": "",
+      "hint": "Disabled — normal routing rules",
+      "sources": [
+        "infra/conf/router.go",
+        "app/router/script.go"
+      ]
+    },
+    "NameServerConfig.id": {
+      "value": "",
+      "hint": "Empty — no script identifier",
+      "sources": [
+        "infra/conf/dns.go"
+      ]
+    },
+    "App.udpListenerReceiveKiB": {
+      "value": 0,
+      "hint": "0 — Windows receive buffer default",
+      "sources": [
+        "main/wayrill_init_udp_windows.go"
+      ]
+    },
+    "App.udpListenerSendKiB": {
+      "value": 0,
+      "hint": "0 — Windows send buffer default",
+      "sources": [
+        "main/wayrill_init_udp_windows.go"
+      ]
+    }
+  },
+  "globals": {
+    "sniffing": {
+      "field": "SniffingConfig.enabled",
+      "encoded": false
+    },
+    "routeOnly": {
+      "field": "SniffingConfig.routeOnly",
+      "encoded": false
+    },
+    "metadataOnly": {
+      "field": "SniffingConfig.metadataOnly",
+      "encoded": false
+    },
+    "domainsExcluded": {
+      "field": "SniffingConfig.domainsExcluded",
+      "encoded": ""
+    },
+    "ipsExcluded": {
+      "field": "SniffingConfig.ipsExcluded",
+      "encoded": ""
+    },
+    "sniffHttp": {
+      "field": "App.sniffProtocol",
+      "encoded": false
+    },
+    "sniffTls": {
+      "field": "App.sniffProtocol",
+      "encoded": false
+    },
+    "sniffQuic": {
+      "field": "App.sniffProtocol",
+      "encoded": false
+    },
+    "udp": {
+      "field": "SocksServerConfig.udp"
+    },
+    "inboundUserLevel": {
+      "field": "SocksServerConfig.userLevel",
+      "encoded": 0
+    },
+    "outboundUserLevel": {
+      "field": "SocksServerConfig.userLevel",
+      "encoded": 0
+    },
+    "inboundStreamSettings": {
+      "field": "App.inboundStreamSettings",
+      "encoded": ""
+    },
+    "fingerprint": {
+      "field": "TLSConfig.fingerprint",
+      "encoded": ""
+    },
+    "alpn": {
+      "field": "TLSConfig.alpn",
+      "encoded": ""
+    },
+    "tlsMinVersion": {
+      "field": "TLSConfig.minVersion",
+      "encoded": ""
+    },
+    "tlsMaxVersion": {
+      "field": "TLSConfig.maxVersion",
+      "encoded": ""
+    },
+    "sessionResumption": {
+      "field": "TLSConfig.enableSessionResumption",
+      "encoded": false
+    },
+    "cipherSuites": {
+      "field": "TLSConfig.cipherSuites",
+      "encoded": ""
+    },
+    "curvePreferences": {
+      "field": "TLSConfig.curvePreferences",
+      "encoded": ""
+    },
+    "disableSystemRoot": {
+      "field": "TLSConfig.disableSystemRoot",
+      "encoded": false
+    },
+    "certificates": {
+      "field": "TLSConfig.certificates",
+      "encoded": ""
+    },
+    "echSockopt": {
+      "field": "TLSConfig.echSockopt",
+      "encoded": ""
+    },
+    "userAgent": {
+      "field": "App.userAgent",
+      "encoded": ""
+    },
+    "muxEnabled": {
+      "field": "MuxConfig.enabled",
+      "encoded": false
+    },
+    "muxConcurrency": {
+      "field": "MuxConfig.concurrency",
+      "encoded": 8
+    },
+    "xudpConcurrency": {
+      "field": "MuxConfig.xudpConcurrency",
+      "encoded": 0
+    },
+    "xudpProxyUDP443": {
+      "field": "MuxConfig.xudpProxyUDP443",
+      "encoded": "reject"
+    },
+    "fragmentEnabled": {
+      "field": "App.fragmentEnabled",
+      "encoded": false
+    },
+    "finalFragmentEnabled": {
+      "field": "App.finalFragmentEnabled",
+      "encoded": false
+    },
+    "fragmentPackets": {
+      "field": "FragmentMask.packets",
+      "encoded": ""
+    },
+    "fragmentLengths": {
+      "field": "FragmentMask.lengths",
+      "encoded": ""
+    },
+    "fragmentDelays": {
+      "field": "FragmentMask.delays",
+      "encoded": "0"
+    },
+    "fragmentMaxSplit": {
+      "field": "FragmentMask.maxSplit",
+      "encoded": "0"
+    },
+    "sendThrough": {
+      "field": "Outbound.sendThrough",
+      "encoded": ""
+    },
+    "interface": {
+      "field": "SocketConfig.interface",
+      "encoded": ""
+    },
+    "tcpFastOpen": {
+      "field": "SocketConfig.tcpFastOpen",
+      "encoded": "default"
+    },
+    "tcpKeepAliveIdle": {
+      "field": "SocketConfig.tcpKeepAliveIdle",
+      "encoded": 0
+    },
+    "tcpKeepAliveInterval": {
+      "field": "SocketConfig.tcpKeepAliveInterval",
+      "encoded": 0
+    },
+    "tcpUserTimeout": {
+      "field": "SocketConfig.tcpUserTimeout",
+      "encoded": 0
+    },
+    "happyEyeballsEnabled": {
+      "field": "App.happyEyeballsEnabled",
+      "encoded": false
+    },
+    "happyEyeballsDelay": {
+      "field": "HappyEyeballsConfig.tryDelayMs",
+      "encoded": 0
+    },
+    "happyEyeballsIPv6": {
+      "field": "HappyEyeballsConfig.prioritizeIPv6",
+      "encoded": false
+    },
+    "happyEyeballsInterleave": {
+      "field": "HappyEyeballsConfig.interleave",
+      "encoded": 1
+    },
+    "happyEyeballsMax": {
+      "field": "HappyEyeballsConfig.maxConcurrentTry",
+      "encoded": 4
+    },
+    "proxyDomainStrategy": {
+      "field": "SocketConfig.domainStrategy",
+      "encoded": "AsIs"
+    },
+    "directDomainStrategy": {
+      "field": "SocketConfig.domainStrategy",
+      "encoded": "AsIs"
+    },
+    "targetStrategy": {
+      "field": "SocketConfig.domainStrategy",
+      "encoded": "AsIs"
+    },
+    "wsHeartbeat": {
+      "field": "WebSocketConfig.heartbeatPeriod",
+      "encoded": 0
+    },
+    "xhttpMode": {
+      "field": "SplitHTTPConfig.mode",
+      "encoded": "auto"
+    },
+    "grpcIdleTimeout": {
+      "field": "GRPCConfig.idle_timeout",
+      "encoded": 0
+    },
+    "grpcHealthTimeout": {
+      "field": "GRPCConfig.health_check_timeout",
+      "encoded": 0
+    },
+    "grpcPermitWithoutStream": {
+      "field": "GRPCConfig.permit_without_stream",
+      "encoded": false
+    },
+    "grpcInitialWindow": {
+      "field": "GRPCConfig.initial_windows_size",
+      "encoded": 0
+    },
+    "kcpMtu": {
+      "field": "KCPConfig.mtu",
+      "encoded": 1350
+    },
+    "kcpTti": {
+      "field": "KCPConfig.tti",
+      "encoded": 50
+    },
+    "kcpUp": {
+      "field": "KCPConfig.uplinkCapacity",
+      "encoded": 5
+    },
+    "kcpDown": {
+      "field": "KCPConfig.downlinkCapacity",
+      "encoded": 20
+    },
+    "kcpCwnd": {
+      "field": "KCPConfig.cwndMultiplier",
+      "encoded": 1
+    },
+    "kcpWindow": {
+      "field": "KCPConfig.maxSendingWindow",
+      "encoded": 2097152
+    },
+    "hysteriaUdpTimeout": {
+      "field": "HysteriaConfig.udpIdleTimeout",
+      "encoded": 60
+    },
+    "hysteriaUp": {
+      "field": "App.hysteriaBandwidth",
+      "encoded": 0
+    },
+    "hysteriaDown": {
+      "field": "App.hysteriaBandwidth",
+      "encoded": 0
+    },
+    "hysteriaHopInterval": {
+      "field": "UDPHop.interval",
+      "encoded": "30"
+    },
+    "realityShow": {
+      "field": "REALITYConfig.show",
+      "encoded": false
+    },
+    "tlsExtra": {
+      "field": "App.extra",
+      "encoded": ""
+    },
+    "realityExtra": {
+      "field": "App.extra",
+      "encoded": ""
+    },
+    "sockoptExtra": {
+      "field": "App.extra",
+      "encoded": ""
+    },
+    "xhttpExtra": {
+      "field": "App.extra",
+      "encoded": ""
+    },
+    "finalmask": {
+      "field": "App.extra",
+      "encoded": ""
+    },
+    "logLevel": {
+      "field": "LogConfig.loglevel",
+      "encoded": "warning"
+    },
+    "dnsLog": {
+      "field": "LogConfig.dnsLog",
+      "encoded": false
+    },
+    "maskAddress": {
+      "field": "LogConfig.maskAddress",
+      "encoded": ""
+    },
+    "routingDomainStrategy": {
+      "field": "RouterConfig.domainStrategy",
+      "encoded": "AsIs"
+    },
+    "statistics": {
+      "field": "App.statistics",
+      "encoded": false
+    },
+    "metricsEnabled": {
+      "field": "App.metricsEnabled",
+      "encoded": false
+    },
+    "policy": {
+      "field": "App.policy",
+      "encoded": ""
+    },
+    "metricsTag": {
+      "field": "MetricsConfig.tag",
+      "encoded": ""
+    },
+    "metricsListen": {
+      "field": "MetricsConfig.listen",
+      "encoded": ""
+    },
+    "udpListenerReceiveKiB": {
+      "field": "App.udpListenerReceiveKiB",
+      "encoded": 0
+    },
+    "udpListenerSendKiB": {
+      "field": "App.udpListenerSendKiB",
+      "encoded": 0
+    }
+  }
+}

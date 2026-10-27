@@ -1,0 +1,1374 @@
+{
+  "upstream": "https://github.com/XTLS/Xray-core",
+  "revision": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+  "version": "v26.10.21",
+  "services": [
+    {
+      "name": "xray.app.log.command.LoggerService",
+      "kind": "administration",
+      "file": "app/log/command/config.proto",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/log/command/config.proto#L15",
+      "rpcs": [
+        {
+          "name": "RestartLogger",
+          "request": "RestartLoggerRequest",
+          "response": "RestartLoggerResponse",
+          "file": "app/log/command/config.proto",
+          "line": 16,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/log/command/config.proto#L16"
+        }
+      ]
+    },
+    {
+      "name": "xray.core.app.observatory.command.ObservatoryService",
+      "kind": "administration",
+      "file": "app/observatory/command/command.proto",
+      "line": 18,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/observatory/command/command.proto#L18",
+      "rpcs": [
+        {
+          "name": "GetOutboundStatus",
+          "request": "GetOutboundStatusRequest",
+          "response": "GetOutboundStatusResponse",
+          "file": "app/observatory/command/command.proto",
+          "line": 19,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/observatory/command/command.proto#L19"
+        }
+      ]
+    },
+    {
+      "name": "xray.app.proxyman.command.HandlerService",
+      "kind": "administration",
+      "file": "app/proxyman/command/command.proto",
+      "line": 86,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L86",
+      "rpcs": [
+        {
+          "name": "AddInbound",
+          "request": "AddInboundRequest",
+          "response": "AddInboundResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 87,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L87"
+        },
+        {
+          "name": "RemoveInbound",
+          "request": "RemoveInboundRequest",
+          "response": "RemoveInboundResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 89,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L89"
+        },
+        {
+          "name": "AlterInbound",
+          "request": "AlterInboundRequest",
+          "response": "AlterInboundResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 91,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L91"
+        },
+        {
+          "name": "ListInbounds",
+          "request": "ListInboundsRequest",
+          "response": "ListInboundsResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 93,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L93"
+        },
+        {
+          "name": "GetInboundUsers",
+          "request": "GetInboundUserRequest",
+          "response": "GetInboundUserResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 95,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L95"
+        },
+        {
+          "name": "GetInboundUsersCount",
+          "request": "GetInboundUserRequest",
+          "response": "GetInboundUsersCountResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 97,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L97"
+        },
+        {
+          "name": "AddOutbound",
+          "request": "AddOutboundRequest",
+          "response": "AddOutboundResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 99,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L99"
+        },
+        {
+          "name": "RemoveOutbound",
+          "request": "RemoveOutboundRequest",
+          "response": "RemoveOutboundResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 101,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L101"
+        },
+        {
+          "name": "AlterOutbound",
+          "request": "AlterOutboundRequest",
+          "response": "AlterOutboundResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 103,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L103"
+        },
+        {
+          "name": "ListOutbounds",
+          "request": "ListOutboundsRequest",
+          "response": "ListOutboundsResponse",
+          "file": "app/proxyman/command/command.proto",
+          "line": 105,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/proxyman/command/command.proto#L105"
+        }
+      ]
+    },
+    {
+      "name": "xray.app.router.command.RoutingService",
+      "kind": "administration",
+      "file": "app/router/command/command.proto",
+      "line": 118,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L118",
+      "rpcs": [
+        {
+          "name": "SubscribeRoutingStats",
+          "request": "SubscribeRoutingStatsRequest",
+          "response": "stream RoutingContext",
+          "file": "app/router/command/command.proto",
+          "line": 119,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L119"
+        },
+        {
+          "name": "TestRoute",
+          "request": "TestRouteRequest",
+          "response": "RoutingContext",
+          "file": "app/router/command/command.proto",
+          "line": 121,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L121"
+        },
+        {
+          "name": "GetBalancerInfo",
+          "request": "GetBalancerInfoRequest",
+          "response": "GetBalancerInfoResponse",
+          "file": "app/router/command/command.proto",
+          "line": 123,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L123"
+        },
+        {
+          "name": "OverrideBalancerTarget",
+          "request": "OverrideBalancerTargetRequest",
+          "response": "OverrideBalancerTargetResponse",
+          "file": "app/router/command/command.proto",
+          "line": 124,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L124"
+        },
+        {
+          "name": "AddRule",
+          "request": "AddRuleRequest",
+          "response": "AddRuleResponse",
+          "file": "app/router/command/command.proto",
+          "line": 126,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L126"
+        },
+        {
+          "name": "RemoveRule",
+          "request": "RemoveRuleRequest",
+          "response": "RemoveRuleResponse",
+          "file": "app/router/command/command.proto",
+          "line": 127,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L127"
+        },
+        {
+          "name": "ListRule",
+          "request": "ListRuleRequest",
+          "response": "ListRuleResponse",
+          "file": "app/router/command/command.proto",
+          "line": 129,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/command/command.proto#L129"
+        }
+      ]
+    },
+    {
+      "name": "xray.app.stats.command.StatsService",
+      "kind": "administration",
+      "file": "app/stats/command/command.proto",
+      "line": 85,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L85",
+      "rpcs": [
+        {
+          "name": "GetStats",
+          "request": "GetStatsRequest",
+          "response": "GetStatsResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 86,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L86"
+        },
+        {
+          "name": "GetStatsOnline",
+          "request": "GetStatsRequest",
+          "response": "GetStatsResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 87,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L87"
+        },
+        {
+          "name": "QueryStats",
+          "request": "QueryStatsRequest",
+          "response": "QueryStatsResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 88,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L88"
+        },
+        {
+          "name": "GetSysStats",
+          "request": "SysStatsRequest",
+          "response": "SysStatsResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 89,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L89"
+        },
+        {
+          "name": "GetStatsOnlineIpList",
+          "request": "GetStatsRequest",
+          "response": "GetStatsOnlineIpListResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 90,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L90"
+        },
+        {
+          "name": "GetAllOnlineUsers",
+          "request": "GetAllOnlineUsersRequest",
+          "response": "GetAllOnlineUsersResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 91,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L91"
+        },
+        {
+          "name": "GetUsersStats",
+          "request": "GetUsersStatsRequest",
+          "response": "GetUsersStatsResponse",
+          "file": "app/stats/command/command.proto",
+          "line": 92,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/stats/command/command.proto#L92"
+        }
+      ]
+    },
+    {
+      "name": "xray.transport.internet.grpc.encoding.GRPCService",
+      "kind": "data transport",
+      "file": "transport/internet/grpc/encoding/stream.proto",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/grpc/encoding/stream.proto#L14",
+      "rpcs": [
+        {
+          "name": "Tun",
+          "request": "stream Hunk",
+          "response": "stream Hunk",
+          "file": "transport/internet/grpc/encoding/stream.proto",
+          "line": 15,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/grpc/encoding/stream.proto#L15"
+        },
+        {
+          "name": "TunMulti",
+          "request": "stream MultiHunk",
+          "response": "stream MultiHunk",
+          "file": "transport/internet/grpc/encoding/stream.proto",
+          "line": 16,
+          "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/grpc/encoding/stream.proto#L16"
+        }
+      ]
+    }
+  ],
+  "cli_declarations": [
+    {
+      "usage": "{{.Exec}} api",
+      "file": "main/commands/all/api/api.go",
+      "line": 9,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/api.go#L9"
+    },
+    {
+      "usage": "{{.Exec}} api bi [--server=127.0.0.1:8080] [balancer]...",
+      "file": "main/commands/all/api/balancer_info.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/balancer_info.go#L15"
+    },
+    {
+      "usage": "{{.Exec}} api bo [--server=127.0.0.1:8080] <-b balancer> outboundTag <-r>",
+      "file": "main/commands/all/api/balancer_override.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/balancer_override.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api inbounduser [--server=127.0.0.1:8080] -tag=tag [-email=email]",
+      "file": "main/commands/all/api/inbound_user.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbound_user.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api adu [--server=127.0.0.1:8080] <c1.json> [c2.json]...",
+      "file": "main/commands/all/api/inbound_user_add.go",
+      "line": 28,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbound_user_add.go#L28"
+    },
+    {
+      "usage": "{{.Exec}} api inboundusercount [--server=127.0.0.1:8080] -tag=tag",
+      "file": "main/commands/all/api/inbound_user_count.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbound_user_count.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api rmu [--server=127.0.0.1:8080] -tag=tag <email1> [email2]...",
+      "file": "main/commands/all/api/inbound_user_remove.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbound_user_remove.go#L14"
+    },
+    {
+      "usage": "{{.Exec}} api adi [--server=127.0.0.1:8080] <c1.json> [c2.json]...",
+      "file": "main/commands/all/api/inbounds_add.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbounds_add.go#L14"
+    },
+    {
+      "usage": "{{.Exec}} api lsi [--server=127.0.0.1:8080] [--isOnlyTags=true]",
+      "file": "main/commands/all/api/inbounds_list.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbounds_list.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api rmi [--server=127.0.0.1:8080] <json_file|tag> [json_file] [tag]...",
+      "file": "main/commands/all/api/inbounds_remove.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/inbounds_remove.go#L13"
+    },
+    {
+      "usage": "{{.Exec}} api restartlogger [--server=127.0.0.1:8080]",
+      "file": "main/commands/all/api/logger_restart.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/logger_restart.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api ado [--server=127.0.0.1:8080] <c1.json> [c2.json]...",
+      "file": "main/commands/all/api/outbounds_add.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/outbounds_add.go#L14"
+    },
+    {
+      "usage": "{{.Exec}} api lso [--server=127.0.0.1:8080]",
+      "file": "main/commands/all/api/outbounds_list.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/outbounds_list.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api rmo [--server=127.0.0.1:8080] <json_file|tag> [json_file] [tag]...",
+      "file": "main/commands/all/api/outbounds_remove.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/outbounds_remove.go#L13"
+    },
+    {
+      "usage": "{{.Exec}} api adrules [--server=127.0.0.1:8080] <c1.json> [c2.json]...",
+      "file": "main/commands/all/api/rules_add.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/rules_add.go#L15"
+    },
+    {
+      "usage": "{{.Exec}} api lsrules [--server=127.0.0.1:8080]",
+      "file": "main/commands/all/api/rules_list.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/rules_list.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api rmrules [--server=127.0.0.1:8080] [ruleTag]...",
+      "file": "main/commands/all/api/rules_remove.go",
+      "line": 12,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/rules_remove.go#L12"
+    },
+    {
+      "usage": "{{.Exec}} api sib [--server=127.0.0.1:8080] -outbound=blocked -inbound=socks 1.2.3.4",
+      "file": "main/commands/all/api/source_ip_block.go",
+      "line": 16,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/source_ip_block.go#L16"
+    },
+    {
+      "usage": "{{.Exec}} api stats [--server=127.0.0.1:8080] [-name '']",
+      "file": "main/commands/all/api/stats_get.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/stats_get.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api statsgetallonlineusers [--server=127.0.0.1:8080]",
+      "file": "main/commands/all/api/stats_get_all_online_users.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/stats_get_all_online_users.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api statsonline [--server=127.0.0.1:8080] [-email '']",
+      "file": "main/commands/all/api/stats_online.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/stats_online.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api statsonlineiplist [--server=127.0.0.1:8080] [-email '' | -all [-include-traffic] [-reset]]",
+      "file": "main/commands/all/api/stats_online_ip_list.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/stats_online_ip_list.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api statsquery [--server=127.0.0.1:8080] [-pattern '']",
+      "file": "main/commands/all/api/stats_query.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/stats_query.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} api statssys [--server=127.0.0.1:8080]",
+      "file": "main/commands/all/api/stats_sys.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/api/stats_sys.go#L10"
+    },
+    {
+      "usage": "{{.Exec}} base64",
+      "file": "main/commands/all/base64/base64.go",
+      "line": 7,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/base64/base64.go#L7"
+    },
+    {
+      "usage": "{{.Exec}} base64 decode [-gzip] <value | - | stdin:> [output-file]",
+      "file": "main/commands/all/base64/decode.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/base64/decode.go#L14"
+    },
+    {
+      "usage": "{{.Exec}} base64 encode [-gzip] <input-file | - | stdin:>",
+      "file": "main/commands/all/base64/encode.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/base64/encode.go#L13"
+    },
+    {
+      "usage": "{{.Exec}} convert",
+      "file": "main/commands/all/convert/convert.go",
+      "line": 9,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/convert/convert.go#L9"
+    },
+    {
+      "usage": "{{.Exec}} convert json [-type] [stdin:] [typedMessage file] ",
+      "file": "main/commands/all/convert/json.go",
+      "line": 16,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/convert/json.go#L16"
+    },
+    {
+      "usage": "{{.Exec}} convert pb [-outpbfile file] [-debug] [-type] [json file] [json file] ...",
+      "file": "main/commands/all/convert/protobuf.go",
+      "line": 17,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/convert/protobuf.go#L17"
+    },
+    {
+      "usage": "{{.Exec}} ed25519 [-i \"private key seed (Base64URL)\"]",
+      "file": "main/commands/all/ed25519.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/ed25519.go#L13"
+    },
+    {
+      "usage": "{{.Exec}} lua",
+      "file": "main/commands/all/lua/lua.go",
+      "line": 7,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/lua/lua.go#L7"
+    },
+    {
+      "usage": "{{.Exec}} lua sign [-key seed] [-o output-file] <input-file>",
+      "file": "main/commands/all/lua/sign.go",
+      "line": 12,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/lua/sign.go#L12"
+    },
+    {
+      "usage": "{{.Exec}} mldsa65 [-i \"seed (base64.RawURLEncoding)\"]",
+      "file": "main/commands/all/mldsa65.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/mldsa65.go#L13"
+    },
+    {
+      "usage": "{{.Exec}} mlkem768 [-i \"seed (base64.RawURLEncoding)\"]",
+      "file": "main/commands/all/mlkem768.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/mlkem768.go#L14"
+    },
+    {
+      "usage": "{{.Exec}} tls cert [--ca] [--domain=example.com] [--expire=240h]",
+      "file": "main/commands/all/tls/cert.go",
+      "line": 19,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/tls/cert.go#L19"
+    },
+    {
+      "usage": "{{.Exec}} tls ech [--serverName (string)] [--pem] [-i \"ECHServerKeys (base64.StdEncoding)\"]",
+      "file": "main/commands/all/tls/ech.go",
+      "line": 19,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/tls/ech.go#L19"
+    },
+    {
+      "usage": "{{.Exec}} tls hash",
+      "file": "main/commands/all/tls/hash.go",
+      "line": 17,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/tls/hash.go#L17"
+    },
+    {
+      "usage": "{{.Exec}} tls ping [-ip <ip>] <domain>",
+      "file": "main/commands/all/tls/ping.go",
+      "line": 22,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/tls/ping.go#L22"
+    },
+    {
+      "usage": "{{.Exec}} tls",
+      "file": "main/commands/all/tls/tls.go",
+      "line": 9,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/tls/tls.go#L9"
+    },
+    {
+      "usage": "{{.Exec}} uuid [-i \"example\"]",
+      "file": "main/commands/all/uuid.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/uuid.go#L11"
+    },
+    {
+      "usage": "{{.Exec}} vlessenc",
+      "file": "main/commands/all/vlessenc.go",
+      "line": 12,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/vlessenc.go#L12"
+    },
+    {
+      "usage": "{{.Exec}} wg [-i \"private key (base64.StdEncoding)\"]",
+      "file": "main/commands/all/wg.go",
+      "line": 8,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/wg.go#L8"
+    },
+    {
+      "usage": "{{.Exec}} x25519 [-i \"private key (base64.RawURLEncoding)\"] [--std-encoding]",
+      "file": "main/commands/all/x25519.go",
+      "line": 8,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/all/x25519.go#L8"
+    },
+    {
+      "usage": "{{.Exec}} run [-c config.json] [-confdir dir]",
+      "file": "main/run.go",
+      "line": 26,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/run.go#L26"
+    },
+    {
+      "usage": "{{.Exec}} version",
+      "file": "main/version.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/version.go#L11"
+    }
+  ],
+  "annotated_go_apis": [
+    {
+      "status": "stable",
+      "declaration": "func GetPool(size int32) *sync.Pool {",
+      "file": "common/bytespool/pool.go",
+      "line": 39,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/bytespool/pool.go#L39"
+    },
+    {
+      "status": "stable",
+      "declaration": "func Alloc(size int32) []byte {",
+      "file": "common/bytespool/pool.go",
+      "line": 51,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/bytespool/pool.go#L51"
+    },
+    {
+      "status": "stable",
+      "declaration": "func Free(b []byte) {",
+      "file": "common/bytespool/pool.go",
+      "line": 62,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/bytespool/pool.go#L62"
+    },
+    {
+      "status": "beta",
+      "declaration": "type Closable interface {",
+      "file": "common/interfaces.go",
+      "line": 7,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/interfaces.go#L7"
+    },
+    {
+      "status": "beta",
+      "declaration": "type Interruptible interface {",
+      "file": "common/interfaces.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/interfaces.go#L15"
+    },
+    {
+      "status": "beta",
+      "declaration": "func Close(obj interface{}) error {",
+      "file": "common/interfaces.go",
+      "line": 22,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/interfaces.go#L22"
+    },
+    {
+      "status": "beta",
+      "declaration": "func Interrupt(obj interface{}) error {",
+      "file": "common/interfaces.go",
+      "line": 32,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/interfaces.go#L32"
+    },
+    {
+      "status": "stable",
+      "declaration": "func StartInstance(configFormat string, configBytes []byte) (*Instance, error) {",
+      "file": "core/functions.go",
+      "line": 27,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/functions.go#L27"
+    },
+    {
+      "status": "stable",
+      "declaration": "func Dial(ctx context.Context, v *Instance, dest net.Destination) (net.Conn, error) {",
+      "file": "core/functions.go",
+      "line": 48,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/functions.go#L48"
+    },
+    {
+      "status": "beta",
+      "declaration": "func DialUDP(ctx context.Context, v *Instance) (net.PacketConn, error) {",
+      "file": "core/functions.go",
+      "line": 75,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/functions.go#L75"
+    },
+    {
+      "status": "stable",
+      "declaration": "func (s *Instance) Start() error {",
+      "file": "core/xray.go",
+      "line": 388,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L388"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Client interface {",
+      "file": "features/dns/client.go",
+      "line": 19,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/dns/client.go#L19"
+    },
+    {
+      "status": "beta",
+      "declaration": "func ClientType() interface{} {",
+      "file": "features/dns/client.go",
+      "line": 29,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/dns/client.go#L29"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Handler interface {",
+      "file": "features/inbound/inbound.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/inbound/inbound.go#L13"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Manager interface {",
+      "file": "features/inbound/inbound.go",
+      "line": 26,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/inbound/inbound.go#L26"
+    },
+    {
+      "status": "stable",
+      "declaration": "func ManagerType() interface{} {",
+      "file": "features/inbound/inbound.go",
+      "line": 43,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/inbound/inbound.go#L43"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Handler interface {",
+      "file": "features/outbound/outbound.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/outbound/outbound.go#L14"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Manager interface {",
+      "file": "features/outbound/outbound.go",
+      "line": 29,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/outbound/outbound.go#L29"
+    },
+    {
+      "status": "stable",
+      "declaration": "func ManagerType() interface{} {",
+      "file": "features/outbound/outbound.go",
+      "line": 48,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/outbound/outbound.go#L48"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Manager interface {",
+      "file": "features/policy/policy.go",
+      "line": 68,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/policy/policy.go#L68"
+    },
+    {
+      "status": "stable",
+      "declaration": "func ManagerType() interface{} {",
+      "file": "features/policy/policy.go",
+      "line": 81,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/policy/policy.go#L81"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Context interface {",
+      "file": "features/routing/context.go",
+      "line": 9,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/routing/context.go#L9"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Dispatcher interface {",
+      "file": "features/routing/dispatcher.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/routing/dispatcher.go#L14"
+    },
+    {
+      "status": "stable",
+      "declaration": "func DispatcherType() interface{} {",
+      "file": "features/routing/dispatcher.go",
+      "line": 25,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/routing/dispatcher.go#L25"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Router interface {",
+      "file": "features/routing/router.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/routing/router.go#L11"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Route interface {",
+      "file": "features/routing/router.go",
+      "line": 24,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/routing/router.go#L24"
+    },
+    {
+      "status": "stable",
+      "declaration": "func RouterType() interface{} {",
+      "file": "features/routing/router.go",
+      "line": 41,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/routing/router.go#L41"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Counter interface {",
+      "file": "features/stats/stats.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/stats/stats.go#L13"
+    },
+    {
+      "status": "stable",
+      "declaration": "type OnlineMap interface {",
+      "file": "features/stats/stats.go",
+      "line": 25,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/stats/stats.go#L25"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Channel interface {",
+      "file": "features/stats/stats.go",
+      "line": 41,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/stats/stats.go#L41"
+    },
+    {
+      "status": "stable",
+      "declaration": "type Manager interface {",
+      "file": "features/stats/stats.go",
+      "line": 78,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/stats/stats.go#L78"
+    },
+    {
+      "status": "stable",
+      "declaration": "func ManagerType() interface{} {",
+      "file": "features/stats/stats.go",
+      "line": 121,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/stats/stats.go#L121"
+    },
+    {
+      "status": "stable",
+      "declaration": "func UseAlternativeSystemDialer(dialer SystemDialer) {",
+      "file": "transport/internet/system_dialer.go",
+      "line": 191,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_dialer.go#L191"
+    },
+    {
+      "status": "beta",
+      "declaration": "func RegisterDialerController(ctl func(network, address string, c syscall.RawConn) error) error {",
+      "file": "transport/internet/system_dialer.go",
+      "line": 204,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_dialer.go#L204"
+    },
+    {
+      "status": "beta",
+      "declaration": "func RegisterListenerController(controller func(network, address string, c syscall.RawConn) error) error {",
+      "file": "transport/internet/system_listener.go",
+      "line": 187,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_listener.go#L187"
+    },
+    {
+      "status": "beta",
+      "declaration": "func ListenSystem(ctx context.Context, addr net.Addr, sockopt *SocketConfig) (net.Listener, error) {",
+      "file": "transport/internet/tcp_hub.go",
+      "line": 86,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/tcp_hub.go#L86"
+    },
+    {
+      "status": "beta",
+      "declaration": "func ListenSystemPacket(ctx context.Context, addr net.Addr, sockopt *SocketConfig) (net.PacketConn, error) {",
+      "file": "transport/internet/tcp_hub.go",
+      "line": 93,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/tcp_hub.go#L93"
+    }
+  ],
+  "registration_functions": [
+    {
+      "name": "RegisterLua",
+      "file": "app/dns/lua.go",
+      "line": 23,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/dns/lua.go#L23"
+    },
+    {
+      "name": "RegisterHandlerCreator",
+      "file": "app/log/log_creator.go",
+      "line": 21,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/log/log_creator.go#L21"
+    },
+    {
+      "name": "RegisterLua",
+      "file": "common/geodata/lua.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/geodata/lua.go#L10"
+    },
+    {
+      "name": "RegisterHandler",
+      "file": "common/log/log.go",
+      "line": 55,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/log/log.go#L55"
+    },
+    {
+      "name": "RegisterLua",
+      "file": "common/log/lua.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/log/lua.go#L11"
+    },
+    {
+      "name": "RegisterAndroidProcessFinder",
+      "file": "common/net/find_process_android.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/net/find_process_android.go#L11"
+    },
+    {
+      "name": "RegisterEnvReload",
+      "file": "common/platform/env_reload.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/platform/env_reload.go#L15"
+    },
+    {
+      "name": "RegisterConfig",
+      "file": "common/type.go",
+      "line": 16,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/type.go#L16"
+    },
+    {
+      "name": "RegisterConfigLoader",
+      "file": "core/config.go",
+      "line": 45,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/config.go#L45"
+    },
+    {
+      "name": "RegisterConfigureFilePostProcessingStage",
+      "file": "infra/conf/lint.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/conf/lint.go#L11"
+    },
+    {
+      "name": "RegisterCommand",
+      "file": "main/commands/base/root.go",
+      "line": 14,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/commands/base/root.go#L14"
+    },
+    {
+      "name": "RegisterProtocolConfigCreator",
+      "file": "transport/internet/config.go",
+      "line": 28,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/config.go#L28"
+    },
+    {
+      "name": "RegisterTransportDialer",
+      "file": "transport/internet/dialer.go",
+      "line": 39,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/dialer.go#L39"
+    },
+    {
+      "name": "RegisterLua",
+      "file": "transport/internet/finalmask/noise/lua.go",
+      "line": 26,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/finalmask/noise/lua.go#L26"
+    },
+    {
+      "name": "RegisterGRPCServiceServerX",
+      "file": "transport/internet/grpc/encoding/customSeviceName.go",
+      "line": 57,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/grpc/encoding/customSeviceName.go#L57"
+    },
+    {
+      "name": "UseAlternativeSystemDialer",
+      "file": "transport/internet/system_dialer.go",
+      "line": 192,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_dialer.go#L192"
+    },
+    {
+      "name": "RegisterDialerController",
+      "file": "transport/internet/system_dialer.go",
+      "line": 205,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_dialer.go#L205"
+    },
+    {
+      "name": "RegisterListenerController",
+      "file": "transport/internet/system_listener.go",
+      "line": 188,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_listener.go#L188"
+    },
+    {
+      "name": "RegisterTransportListener",
+      "file": "transport/internet/tcp_hub.go",
+      "line": 13,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/tcp_hub.go#L13"
+    }
+  ],
+  "http_routes": [
+    {
+      "value": "/debug/vars",
+      "file": "app/metrics/metrics.go",
+      "line": 137,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/metrics/metrics.go#L137"
+    },
+    {
+      "value": "/debug/pprof/",
+      "file": "app/metrics/metrics.go",
+      "line": 138,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/metrics/metrics.go#L138"
+    },
+    {
+      "value": "/debug/pprof/cmdline",
+      "file": "app/metrics/metrics.go",
+      "line": 139,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/metrics/metrics.go#L139"
+    },
+    {
+      "value": "/debug/pprof/profile",
+      "file": "app/metrics/metrics.go",
+      "line": 140,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/metrics/metrics.go#L140"
+    },
+    {
+      "value": "/debug/pprof/symbol",
+      "file": "app/metrics/metrics.go",
+      "line": 141,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/metrics/metrics.go#L141"
+    },
+    {
+      "value": "/debug/pprof/trace",
+      "file": "app/metrics/metrics.go",
+      "line": 142,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/metrics/metrics.go#L142"
+    }
+  ],
+  "lua_modules": [
+    {
+      "value": "xray.dns",
+      "file": "app/dns/lua.go",
+      "line": 54,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/dns/lua.go#L54"
+    },
+    {
+      "value": "xray.router",
+      "file": "app/router/lua.go",
+      "line": 23,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/app/router/lua.go#L23"
+    },
+    {
+      "value": "xray.geodata",
+      "file": "common/geodata/lua.go",
+      "line": 11,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/geodata/lua.go#L11"
+    },
+    {
+      "value": "xray.log",
+      "file": "common/log/lua.go",
+      "line": 12,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/log/lua.go#L12"
+    },
+    {
+      "value": "xray.finalmask.noise",
+      "file": "transport/internet/finalmask/noise/lua.go",
+      "line": 27,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/finalmask/noise/lua.go#L27"
+    }
+  ],
+  "environment_reads": [
+    {
+      "value": "platform.UseReadV",
+      "file": "common/buf/readv_reader.go",
+      "line": 155,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/buf/readv_reader.go#L155"
+    },
+    {
+      "value": "\"GOENV\"",
+      "file": "common/common.go",
+      "line": 42,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/common.go#L42"
+    },
+    {
+      "value": "\"GOBIN\"",
+      "file": "common/common.go",
+      "line": 88,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/common.go#L88"
+    },
+    {
+      "value": "\"GOPATH\"",
+      "file": "common/common.go",
+      "line": 108,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/common.go#L108"
+    },
+    {
+      "value": "f.Name",
+      "file": "common/platform/platform.go",
+      "line": 45,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/platform/platform.go#L45"
+    },
+    {
+      "value": "f.AltName",
+      "file": "common/platform/platform.go",
+      "line": 49,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/platform/platform.go#L49"
+    },
+    {
+      "value": "\"XDG_SESSION_TYPE\"",
+      "file": "common/utils/probe_routes.go",
+      "line": 65,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/utils/probe_routes.go#L65"
+    },
+    {
+      "value": "\"DISPLAY\"",
+      "file": "common/utils/probe_routes.go",
+      "line": 68,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/utils/probe_routes.go#L68"
+    },
+    {
+      "value": "\"WAYLAND_DISPLAY\"",
+      "file": "common/utils/probe_routes.go",
+      "line": 68,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/utils/probe_routes.go#L68"
+    },
+    {
+      "value": "platform.XUDPLog",
+      "file": "common/xudp/xudp.go",
+      "line": 35,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/xudp/xudp.go#L35"
+    },
+    {
+      "value": "platform.XUDPBaseKey",
+      "file": "common/xudp/xudp.go",
+      "line": 36,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/xudp/xudp.go#L36"
+    },
+    {
+      "value": "platform.UseCone",
+      "file": "core/xray.go",
+      "line": 196,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L196"
+    },
+    {
+      "value": "platform.BufferSize",
+      "file": "features/policy/policy.go",
+      "line": 95,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/policy/policy.go#L95"
+    },
+    {
+      "value": "rawStr[4:]",
+      "file": "infra/conf/common.go",
+      "line": 60,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/conf/common.go#L60"
+    },
+    {
+      "value": "s[4:]",
+      "file": "infra/conf/common.go",
+      "line": 136,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/conf/common.go#L136"
+    },
+    {
+      "value": "\"SystemRoot\"",
+      "file": "infra/conf/dns.go",
+      "line": 417,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/conf/dns.go#L417"
+    },
+    {
+      "value": "platform.UseStrictJSON",
+      "file": "infra/conf/serial/builder.go",
+      "line": 22,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/conf/serial/builder.go#L22"
+    },
+    {
+      "value": "\"GOENV\"",
+      "file": "infra/vprotogen/main.go",
+      "line": 24,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/vprotogen/main.go#L24"
+    },
+    {
+      "value": "\"GOBIN\"",
+      "file": "infra/vprotogen/main.go",
+      "line": 70,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/vprotogen/main.go#L70"
+    },
+    {
+      "value": "\"PATH\"",
+      "file": "infra/vprotogen/main.go",
+      "line": 167,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/infra/vprotogen/main.go#L167"
+    },
+    {
+      "value": "platform.UseFreedomSplice",
+      "file": "proxy/freedom/freedom.go",
+      "line": 43,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/proxy/freedom/freedom.go#L43"
+    },
+    {
+      "value": "platform.TunFdKey",
+      "file": "proxy/tun/tun_android.go",
+      "line": 25,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/proxy/tun/tun_android.go#L25"
+    },
+    {
+      "value": "platform.TunFdKey",
+      "file": "proxy/tun/tun_darwin.go",
+      "line": 149,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/proxy/tun/tun_darwin.go#L149"
+    },
+    {
+      "value": "platform.TunFdKey",
+      "file": "proxy/tun/tun_linux.go",
+      "line": 248,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/proxy/tun/tun_linux.go#L248"
+    },
+    {
+      "value": "platform.UseVmessPadding",
+      "file": "proxy/vmess/outbound/outbound.go",
+      "line": 230,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/proxy/vmess/outbound/outbound.go#L230"
+    },
+    {
+      "value": "\"XRAY_COV\"",
+      "file": "testing/scenarios/common_coverage.go",
+      "line": 27,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/testing/scenarios/common_coverage.go#L27"
+    },
+    {
+      "value": "platform.BrowserDialerAddress",
+      "file": "transport/internet/browser_dialer/dialer.go",
+      "line": 47,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/browser_dialer/dialer.go#L47"
+    },
+    {
+      "value": "debugEnv",
+      "file": "transport/internet/hysteria/congestion/bbr/bbr_sender.go",
+      "line": 342,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/hysteria/congestion/bbr/bbr_sender.go#L342"
+    },
+    {
+      "value": "debugEnv",
+      "file": "transport/internet/hysteria/congestion/brutal/brutal.go",
+      "line": 49,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/hysteria/congestion/brutal/brutal.go#L49"
+    }
+  ],
+  "signal_registrations": [
+    {
+      "value": "osSignals, os.Interrupt, syscall.SIGTERM)",
+      "file": "main/run.go",
+      "line": 107,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/run.go#L107"
+    }
+  ],
+  "note": "Declarations are not proof of registration, reachability, stability or Windows support. The reference documents those distinctions.",
+  "additional_go_seams": [
+    {
+      "name": "New",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/xray.go",
+      "line": 169,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L169"
+    },
+    {
+      "name": "NewWithContext",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/xray.go",
+      "line": 180,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L180"
+    },
+    {
+      "name": "AddFeature",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/xray.go",
+      "line": 324,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L324"
+    },
+    {
+      "name": "GetFeature",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/xray.go",
+      "line": 381,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L381"
+    },
+    {
+      "name": "RequireFeatures",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/xray.go",
+      "line": 154,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L154"
+    },
+    {
+      "name": "Close",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/xray.go",
+      "line": 263,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/xray.go#L263"
+    },
+    {
+      "name": "ReloadEnvSettings",
+      "status": "unannotated; source-pinned integration",
+      "file": "common/platform/env_reload.go",
+      "line": 28,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/platform/env_reload.go#L28"
+    },
+    {
+      "name": "NewFileReader",
+      "status": "unannotated; source-pinned integration",
+      "file": "common/platform/filesystem/file.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/platform/filesystem/file.go#L15"
+    },
+    {
+      "name": "ConfigBuilderForFiles",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/config.go",
+      "line": 40,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/config.go#L40"
+    },
+    {
+      "name": "ConfigMergedFormFiles",
+      "status": "unannotated; source-pinned integration",
+      "file": "core/config.go",
+      "line": 41,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/core/config.go#L41"
+    },
+    {
+      "name": "EffectiveConfigFileLoader",
+      "status": "unannotated; source-pinned integration",
+      "file": "main/confloader/confloader.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/main/confloader/confloader.go#L15"
+    },
+    {
+      "name": "WithAdapter",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/system_dialer.go",
+      "line": 174,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/system_dialer.go#L174"
+    },
+    {
+      "name": "SkipDNSServers",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/dns_skip.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/dns_skip.go#L15"
+    },
+    {
+      "name": "Reload",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/browser_dialer/dialer.go",
+      "line": 46,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/browser_dialer/dialer.go#L46"
+    },
+    {
+      "name": "DialWS",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/browser_dialer/dialer.go",
+      "line": 104,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/browser_dialer/dialer.go#L104"
+    },
+    {
+      "name": "DialGet",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/browser_dialer/dialer.go",
+      "line": 152,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/browser_dialer/dialer.go#L152"
+    },
+    {
+      "name": "DialPacket",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/browser_dialer/dialer.go",
+      "line": 163,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/browser_dialer/dialer.go#L163"
+    },
+    {
+      "name": "DialTaggedOutbound",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/tagged/taggedimpl/impl.go",
+      "line": 15,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/tagged/taggedimpl/impl.go#L15"
+    },
+    {
+      "name": "Reload",
+      "status": "unannotated; source-pinned integration",
+      "file": "common/geodata/ip_registry.go",
+      "line": 34,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/geodata/ip_registry.go#L34"
+    },
+    {
+      "name": "Reload",
+      "status": "unannotated; source-pinned integration",
+      "file": "common/geodata/domain_registry.go",
+      "line": 33,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/common/geodata/domain_registry.go#L33"
+    },
+    {
+      "name": "QueryRecord",
+      "status": "unannotated; source-pinned integration",
+      "file": "transport/internet/tls/ech.go",
+      "line": 142,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/transport/internet/tls/ech.go#L142"
+    },
+    {
+      "name": "Observatory",
+      "status": "unannotated; source-pinned integration",
+      "file": "features/extension/observatory.go",
+      "line": 10,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/extension/observatory.go#L10"
+    },
+    {
+      "name": "BurstObservatory",
+      "status": "unannotated; source-pinned integration",
+      "file": "features/extension/observatory.go",
+      "line": 16,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/extension/observatory.go#L16"
+    },
+    {
+      "name": "FakeDNSEngine",
+      "status": "unannotated; source-pinned integration",
+      "file": "features/dns/fakedns.go",
+      "line": 8,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/dns/fakedns.go#L8"
+    },
+    {
+      "name": "FakeDNSEngineRev0",
+      "status": "unannotated; source-pinned integration",
+      "file": "features/dns/fakedns.go",
+      "line": 19,
+      "url": "https://github.com/XTLS/Xray-core/blob/1b1647cd9ddf0abc34b981d4611fc03bcac1ca74/features/dns/fakedns.go#L19"
+    }
+  ],
+  "source_files": 1181,
+  "archive_sha256": "57a862fdd1e978fc0c74c624d94555257cecf4e97e0a7df646168e1272aaff50"
+}

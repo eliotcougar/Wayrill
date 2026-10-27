@@ -1,0 +1,9 @@
+[package]
+name = "wayrill-diagnostics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+regex = "1"

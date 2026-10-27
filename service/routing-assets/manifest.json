@@ -1,0 +1,65 @@
+{
+  "snapshot": "2026-10-26",
+  "files": [
+    {
+      "path": "ru-geoip.dat",
+      "bytes": 18021203,
+      "sha256": "B0E63487C2AD267AD9211D0DF7E473867220B020A89BC8B8F251C3F69B1320C5",
+      "sourceSha256": "B0E63487C2AD267AD9211D0DF7E473867220B020A89BC8B8F251C3F69B1320C5",
+      "sourceUrl": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610260916/geoip.dat",
+      "release": "202610260916",
+      "license": "GPL-3.0-only",
+      "sourceRepository": "https://github.com/runetfreedom/russia-v2ray-rules-dat"
+    },
+    {
+      "path": "ru-geosite.dat",
+      "bytes": 73703302,
+      "sha256": "76FDBE01687A6CC7683B50C38CEEA84941458E8371D215918DAF555665A537CD",
+      "sourceSha256": "76FDBE01687A6CC7683B50C38CEEA84941458E8371D215918DAF555665A537CD",
+      "sourceUrl": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610260916/geosite.dat",
+      "release": "202610260916",
+      "license": "GPL-3.0-only",
+      "sourceRepository": "https://github.com/runetfreedom/russia-v2ray-rules-dat"
+    },
+    {
+      "path": "ir-geoip.dat",
+      "bytes": 16506288,
+      "sha256": "CFF2AB137BB5F84D65A502A7548D0F9FD97F0572E006691C6C7FE5A0D410C834",
+      "sourceSha256": "CFF2AB137BB5F84D65A502A7548D0F9FD97F0572E006691C6C7FE5A0D410C834",
+      "sourceUrl": "https://github.com/Chocolate4U/Iran-v2ray-rules/releases/download/202610261027/geoip.dat",
+      "release": "202610261027",
+      "license": "GPL-3.0-only",
+      "sourceRepository": "https://github.com/Chocolate4U/Iran-v2ray-rules"
+    },
+    {
+      "path": "ir-geosite.dat",
+      "bytes": 8217035,
+      "sha256": "69D3E3C78EA5567369B3AA697A6AB76E82E28F2BAFDCABE4A887518E50E9AF5F",
+      "sourceSha256": "69D3E3C78EA5567369B3AA697A6AB76E82E28F2BAFDCABE4A887518E50E9AF5F",
+      "sourceUrl": "https://github.com/Chocolate4U/Iran-v2ray-rules/releases/download/202610261027/geosite.dat",
+      "release": "202610261027",
+      "license": "GPL-3.0-only",
+      "sourceRepository": "https://github.com/Chocolate4U/Iran-v2ray-rules"
+    },
+    {
+      "path": "cn-geoip.dat",
+      "bytes": 16570425,
+      "sha256": "A6271D3C96361D96156E6D3F7CF1550EF21B00D2F951DEB772F464DB91E89AC5",
+      "sourceSha256": "A6271D3C96361D96156E6D3F7CF1550EF21B00D2F951DEB772F464DB91E89AC5",
+      "sourceUrl": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610242205/geoip.dat",
+      "release": "202610242205",
+      "license": "GPL-3.0-only",
+      "sourceRepository": "https://github.com/Loyalsoldier/v2ray-rules-dat"
+    },
+    {
+      "path": "cn-geosite.dat",
+      "bytes": 11391470,
+      "sha256": "E16EE9AF893247F9C8B15C5259E5C0A6AE491B85EE351C22F1954E696EBB8997",
+      "sourceSha256": "E16EE9AF893247F9C8B15C5259E5C0A6AE491B85EE351C22F1954E696EBB8997",
+      "sourceUrl": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610242205/geosite.dat",
+      "release": "202610242205",
+      "license": "GPL-3.0-only",
+      "sourceRepository": "https://github.com/Loyalsoldier/v2ray-rules-dat"
+    }
+  ]
+}
