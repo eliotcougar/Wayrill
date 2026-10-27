@@ -15,9 +15,9 @@ connection with several exit paths.
 changes Windows networking settings. Keep a working backup and an alternative
 way to reach a remotely managed PC. No proxy service or subscription is included.
 
-![Wayrill DNS routing example](docs/images/dns-routing.png)
+![Wayrill graph editor](docs/images/wayrill.png)
 
-*Editor preview with sample data: selected domains use Quad9; other requests use Cloudflare.*
+*Traffic and DNS routing on the same canvas.*
 
 ## What makes Wayrill different
 
