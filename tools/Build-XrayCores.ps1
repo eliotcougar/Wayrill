@@ -46,10 +46,18 @@ try {
     $taskGit=(Get-Command git -ErrorAction Stop).Source
     $taskFakePatch=Join-Path $taskProject $taskPin.build.fakeDnsPatch
     if((Get-FileHash -LiteralPath $taskFakePatch).Hash -ne $taskPin.build.fakeDnsPatchSha256){throw 'Shared FakeDNS source integrity failure.'}
-    & $taskGit -C $taskSource apply --check --whitespace=error-all $taskFakePatch
-    if($LASTEXITCODE -ne 0){throw 'Shared FakeDNS extension no longer applies to the pinned source.'}
-    & $taskGit -C $taskSource apply --whitespace=error-all $taskFakePatch
-    if($LASTEXITCODE -ne 0){throw 'Cannot apply the shared FakeDNS extension.'}
+    # This extracted source is not part of the enclosing Wayrill Git worktree.
+    # Otherwise git apply can silently skip every path when invoked below .tools/.
+    $taskOldGitCeiling=$env:GIT_CEILING_DIRECTORIES
+    try {
+        $env:GIT_CEILING_DIRECTORIES=$taskSourceParent
+        & $taskGit -C $taskSource apply --check --whitespace=error-all $taskFakePatch
+        if($LASTEXITCODE -ne 0){throw 'Shared FakeDNS extension no longer applies to the pinned source.'}
+        & $taskGit -C $taskSource apply --whitespace=error-all $taskFakePatch
+        if($LASTEXITCODE -ne 0){throw 'Cannot apply the shared FakeDNS extension.'}
+    } finally {
+        $env:GIT_CEILING_DIRECTORIES=$taskOldGitCeiling
+    }
     # App-owned executable initialization uses Xray's public listener hook.
     # Copy before both builds; never change the upstream SOCKS package for buffers.
     $taskInitializers=@(Get-ChildItem (Join-Path $taskProject 'service\core-init') -Filter '*.go' -File)
