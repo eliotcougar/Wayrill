@@ -2,116 +2,165 @@
 
 # Wayrill
 
-**Build your routing as a graph. See where traffic goes, and why.**
+**Visual traffic and DNS routing for Windows, powered by Xray-core.**
 
-[![Checks](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml/badge.svg)](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml)
+Wayrill is an open-source application for deciding how traffic leaves your
+computer. Keep local destinations on your normal connection, send selected apps
+through a proxy, choose different exits for different sites, and give DNS its own
+rules. The node editor brings these decisions together in a graph you can inspect
+and change.
 
-Wayrill is a Windows application built around Xray-core. Connect local capture
-sources and proxy inbounds to traffic filters, DNS handlers and outbounds on a
-visual canvas. Use it for a local proxy, application-specific routing or a shared
-connection with several exit paths.
+[**Download the Windows beta**](https://github.com/eliotcougar/Wayrill/releases) ·
+[Getting started](docs/guide/getting-started.md) ·
+[Documentation](docs/README.md) ·
+[Report a problem](https://github.com/eliotcougar/Wayrill/issues)
 
-**Beta · Windows 10/11 · x64.** This is early software that
-changes Windows networking settings. Keep a working backup and an alternative
-way to reach a remotely managed PC. No proxy service or subscription is included.
+Windows 10/11 · x64 · First public beta
 
-![Wayrill graph editor](docs/images/wayrill.png)
+[![Checks](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml)
 
-*Traffic and DNS routing on the same canvas.*
+![Wayrill showing connected traffic filters, DNS resolvers, policy groups and outbounds](docs/images/wayrill.png)
 
-## What makes Wayrill different
+## Why a graph?
 
-- **The graph is the configuration.** Data, DNS requests, resolver selection and
-  observation have distinct connections. Follow a path through ordered rules to
-  its destination. Chained filters flatten into Xray rules; the live Traffic log
-  shows which rule and output each connection used.
-- **Outbounds are interchangeable.** Use a server, policy group or proxy chain
-  in the same place. Keep reusable definitions in Stash, star favorites and
-  replace the Main outbound from the graph or tray. Replacement applies the
-  new route without applying unrelated graph edits.
-- **Host and shared traffic have separate paths.** TUN captures the host; ICS
-  TUN independently routes Windows' shared connection. WinDivert remains
-  available. Host rules can include executable paths, child processes, Windows
-  services and packaged apps.
-- **DNS is visible too.** Connect domain preferences, multiple resolver groups,
-  real fallback and FakeDNS. Browse GeoSite/GeoIP groups and preview expressions
-  instead of guessing dataset names.
-- **The Windows service owns networking.** Routing, subscription/resource
-  maintenance and recovery continue with the editor closed. Optional startup
-  before sign-in, retained adapters and guarded changes support unattended use.
-  The editor remains unprivileged.
-- **Maintenance protects deliberate choices.** Refresh large subscriptions,
-  optionally remove unreachable servers, retain locks/referenced profiles, and
-  update groups/chains. URL/file-backed traffic filters preserve local additions
-  and overrides through manual updates.
+A routing setup becomes harder to reason about as exceptions accumulate. A
+per-app rule can depend on a server group; that group's servers need DNS; the DNS
+requests need a working route of their own.
 
-For example, keep local destinations Direct, send selected apps through a
-low-latency group, route TV domains through another exit and inspect the rules
-actually used.
+The connections between Wayrill nodes express those relationships. A filter
+can have named outputs such as **Local**, **Work** and **Everything else**. Each
+output leads to a direct connection, a server, a policy group or a proxy chain.
+DNS follows a separate, visible path through its own rules and resolvers.
+Wayrill generates the Xray configuration from the graph.
 
-## Start here
+For example, one setup can keep LAN traffic direct, route a messaging app and its
+child processes through a monitored server group, send selected websites through
+another exit, and use a local DNS resolver only for particular domains. A separate
+sharing path can route streaming destinations for a connected TV while leaving
+other shared traffic direct.
 
-1. Download the complete x64 installer from [Releases](https://github.com/eliotcougar/Wayrill/releases).
-   It includes the matching networking service.
-2. New workspaces open **Local proxy → Direct**: a local-proxy starter, not a
-   configured remote service.
-3. Import your profiles/subscription into **Stash**, then replace Direct with
-   the desired outbound, group or chain. Or choose **File → Load Example**.
-4. Use **Check**, then **Validate** in its results. **Start / Apply** activates
-   routing. Editing or saving alone changes no traffic.
-5. Point apps at a proxy input through **System traffic capture**, or use a
-   TUN/WinDivert local capture source.
+## What you can do
 
-[Getting started](docs/guide/getting-started.md) · [Examples](docs/guide/examples.md) ·
-[Documentation](docs/README.md) · [Troubleshooting](docs/guide/troubleshooting.md)
+### Build rules, then see why a connection took its route
 
-## Included tools
+Traffic filters contain ordered rules: the first match wins, followed by an
+explicit **Unmatched traffic** route. Match domains, IP ranges, GeoSite/GeoIP
+groups, ports and protocols. Host TUN and WinDivert also support executable names,
+paths and folders, child processes, Windows services and packaged apps.
+Chain filters when it makes a large ruleset easier to organize.
 
-- Protocol editors, native fields, Xray JSON import/export and validation.
-- Observatory monitoring, policy groups, ordered chains and tray switching.
-- Delay, optional UDP, exit-IP and speed tests; live rates, totals, graphs and
-  per-source/outbound counters.
-- Windows proxy, proxy environment variables, WinHTTP, adapter selection,
-  loopback permissions and selected-app protection during routing transitions.
-- Portable full/Graph/Stash/filter backups with optional password encryption;
-  light, dark and system themes.
+Each traffic filter has a live log showing the destination, matched rule and
+chosen output. Search for a failing site or show only unmatched traffic to find
+what your rules missed. DNS filters separately select resolver groups and
+fallback behavior; FakeDNS can preserve domain names for routing captured traffic.
 
-## Beta boundaries
+### Switch routes without rebuilding the graph
 
-Windows x64 is the current target. Linux, macOS, mobile and ARM64 builds are not
-provided. ICS TUN uses Windows ICS; per-client IP/MAC routing is not implemented.
-Shared IPv6 needs host TUN and the documented private-network prerequisites.
-App protection covers transitions, not unconditional always-on containment.
-Import cannot recover an original canvas; unsupported combinations are reported.
+**Stash** keeps large subscriptions and reusable routes off the canvas. A policy
+group selects servers from a filtered subscription, manual members, or both,
+using strategies such as lowest latency or round-robin. An **Observatory** supplies
+availability and delay data. A proxy chain sends traffic through an ordered
+sequence of proxies.
 
-Wayrill builds **custom Xray executables** for Windows integration and shared
-FakeDNS. They are not the stock release. The [customization inventory](docs/development/xray-customizations.md),
-patches and pinned inputs are included. Read the [beta notes](docs/BETA.md).
+Servers, groups and chains can occupy the same outbound position. Star frequently
+used entries and mark an outbound as **Main** to switch it from the tray.
+**Replace** applies that route immediately, preserving its connections and leaving
+unrelated graph edits unapplied.
 
-## Build and contribute
+Subscriptions have individual refresh schedules and can remove unreachable
+servers after testing. Locked entries and explicitly used profiles are protected
+from deletion during updates.
 
-React/TypeScript and Tauri provide the desktop; Rust provides the Windows
-service and separate capture/attribution worker. Go supplies Xray integrations.
+### Choose how traffic enters
 
-```sh
-npm ci
-npm run check
-npm test
-npm run build
-```
+| Entry point | Use it for |
+| --- | --- |
+| **Proxy inbound** | Apps or clients configured to use SOCKS, HTTP or Mixed mode. |
+| **TUN** | Capturing host traffic, including apps that ignore system proxy settings. Wayrill manages its adapter and routes. |
+| **ICS TUN** | Routing a Windows Internet Connection Sharing connection separately from host traffic. |
+| **WinDivert** | Packet capture on selected network adapters as an alternative to TUN. |
 
-These check/build the frontend. A functional installer also needs the native
-service and core payloads: follow [Windows builds](docs/development/building.md).
-See [Contributing](CONTRIBUTING.md) and [Security](SECURITY.md). Remove private
-credentials and subscription tokens from public reports.
+The **System traffic capture** window also manages Windows proxy settings, proxy
+environment variables, WinHTTP and AppContainer loopback permissions. The
+[protocol reference](docs/reference/protocols.md) covers the other Xray inbound
+and outbound editors.
 
-## License and credits
+### Maintain and diagnose a working setup
 
-Application/coordinator code is MIT-licensed. The contained capture/attribution
-worker is GPL-3.0-only; Xray-derived code is MPL-2.0. Other components retain
-their licenses. See [LICENSE](LICENSE), the worker's [license](service/capture/LICENSE)
-and [third-party notices](THIRD_PARTY_NOTICES.md).
+- **Test the actual route.** Check delay, exit IP, optional UDP connectivity and
+  download speed for servers, groups and chains. Follow live rates, totals and
+  traffic history by source and outbound.
+- **Keep rules current without losing local edits.** Import traffic rules from a
+  file or URL, add your own entries, and preserve those additions across manual
+  refreshes. Browse GeoSite/GeoIP contents and update resource files from the app.
+- **Carry your configuration with you.** Back up the full setup, a graph, Stash
+  or an individual filter, with optional password encryption. Import and export
+  supported Xray JSON configurations and compatible v2rayN traffic rules.
 
-Thanks to [Xray-core](https://github.com/XTLS/Xray-core), [v2rayN](https://github.com/2dust/v2rayN),
-[Tauri](https://tauri.app), [React Flow](https://reactflow.dev),
-[libavoid-js](https://github.com/Aksem/libavoid-js) and the resource-list maintainers.
+A Windows service owns routing, system changes, scheduled maintenance and
+recovery. These continue with the editor closed. Optional startup before sign-in
+and automatic recovery after transient failures support unattended use. Closing
+the window hides it in the tray; **Stop** explicitly ends routing.
+
+## Get started
+
+1. Install the `.exe` from [Releases](https://github.com/eliotcougar/Wayrill/releases).
+   It includes the matching networking service and core components. Setup needs
+   administrator approval; the editor runs as your normal account.
+2. Start with the default **Local proxy → Direct** graph, or choose a starter
+   under **File → Load Example**. **TUN → Direct** is the starting point for host
+   capture. Direct uses your existing connection; Wayrill does not supply servers
+   or a subscription.
+3. Import your profiles or subscription into **Stash**, then right-click an
+   outbound and choose **Replace**. Add traffic and DNS rules as needed.
+4. Run **Check**, use **Validate** in the results window, then **Start**. For a
+   Proxy inbound, point your app at it or select it in **System traffic capture**.
+5. Test your outbounds. As you add traffic filters, use their **Traffic log** to
+   verify rule matches. Ordinary graph edits take effect when you **Apply**;
+   outbound replacement is an explicit immediate switch.
+
+The [examples guide](docs/guide/examples.md) explains each starter, including DNS
+routing, FakeDNS, policy groups and chains. Examples with remote servers contain
+placeholders that must be replaced with your own working profiles.
+
+## Beta status
+
+Expect rough edges in this beta, particularly around unfamiliar adapter, VPN and
+sharing combinations. Back up a working setup before experimenting; keep another
+way to reach a PC you manage remotely. The current installer is unsigned.
+
+Sharing uses Windows ICS and supports destination-based rules; selecting individual
+shared clients by IP or MAC is not available. Selected-app protection blocks
+traffic during routing transitions, rather than providing a permanent kill
+switch. See [beta limitations](docs/BETA.md) and the
+[sharing guide](docs/guide/sharing.md) before relying on those features.
+
+Wayrill ships custom Xray builds for its Windows integration and shared FakeDNS.
+Every modification is documented in the
+[core customization inventory](docs/development/xray-customizations.md), with
+source and build inputs available for review.
+
+## Development and feedback
+
+The desktop uses React, TypeScript and Tauri; the service and workers use Rust,
+with Go integrations for Xray. See the [Windows build guide](docs/development/building.md),
+[architecture](docs/development/architecture.md) and [contribution guide](CONTRIBUTING.md).
+
+Bug reports are most useful when they include the intended route, what happened
+instead, and steps to reproduce it. See [troubleshooting](docs/guide/troubleshooting.md)
+for diagnostics, and remove credentials and subscription tokens before posting.
+Report security issues through the [private reporting process](SECURITY.md).
+
+## License and acknowledgements
+
+The application and coordinator are MIT-licensed. The separate capture/attribution
+worker is GPL-3.0-only; Xray-derived code is MPL-2.0. See [LICENSE](LICENSE), the
+[worker license](service/capture/LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md)
+for the full component breakdown.
+
+Wayrill builds on [Xray-core](https://github.com/XTLS/Xray-core), with inspiration
+from [v2rayN](https://github.com/2dust/v2rayN) and
+[v2rayNG](https://github.com/2dust/v2rayNG). Its interface uses
+[Tauri](https://tauri.app), [React Flow](https://reactflow.dev) and
+[libavoid-js](https://github.com/Aksem/libavoid-js). The GeoSite/GeoIP maintainers
+provide the resource lists used by its routing presets.
