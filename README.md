@@ -3,6 +3,8 @@
 # Wayrill
 
 **Visual traffic and DNS routing for Windows, powered by Xray-core.**
+The entire application, apart from Xray-core and third-party dependencies, was
+vibe-coded using **OpenAI Codex GPT-6.1 Sol and GPT-6 Astra**.
 
 Wayrill is an open-source application for deciding how traffic leaves your
 computer. Keep local destinations on your normal connection, send selected apps
