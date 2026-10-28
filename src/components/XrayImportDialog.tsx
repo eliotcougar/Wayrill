@@ -119,7 +119,7 @@ export default function XrayImportDialog({
   return (
     <dialog
       ref={dialog}
-      className="rule-editor-window runtime-window"
+      className="rule-editor-window runtime-window xray-import-window"
       aria-labelledby="xray-import-title"
       onCancel={onClose}
       onClose={onClose}
@@ -167,19 +167,21 @@ export default function XrayImportDialog({
             }}
           />
         </label>
-        <label className="runtime-config-label" htmlFor="xray-import-json">
-          Xray configuration JSON
-        </label>
-        <textarea
-          id="xray-import-json"
-          className="runtime-config"
-          style={{ minHeight: 180 }}
-          spellCheck={false}
-          value={text}
-          onChange={(e) => reset(e.target.value)}
-          placeholder="Paste complete Xray JSON here, or open a file."
-        />
-        <p className="runtime-scope">JSON comments are accepted. Exports include credentials.</p>
+        <div className="editor-field">
+          <label htmlFor="xray-import-json">Xray configuration JSON</label>
+          <textarea
+            id="xray-import-json"
+            aria-describedby="xray-import-help"
+            rows={10}
+            spellCheck={false}
+            value={text}
+            onChange={(e) => reset(e.target.value)}
+            placeholder="Paste complete Xray JSON here, or open a file."
+          />
+          <small id="xray-import-help">
+            JSON comments are accepted. Exports include credentials.
+          </small>
+        </div>
         <button
           className="secondary-button"
           disabled={!text.trim() || !name.trim()}

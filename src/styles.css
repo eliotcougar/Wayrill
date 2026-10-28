@@ -1642,7 +1642,8 @@ button.diagnostic:focus-visible {
 }
 .editor-field input,
 .editor-field select,
-.editor-field textarea {
+.editor-field textarea,
+.protocol-collection-tools select {
   background: var(--surface-sunken);
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -1656,6 +1657,25 @@ button.diagnostic:focus-visible {
   resize: vertical;
   min-height: 55px;
   font-family: 'Cascadia Code', Consolas, monospace;
+}
+.editor-field input[type='file'] {
+  padding: 0;
+  overflow: hidden;
+}
+.editor-field input[type='file']::file-selector-button {
+  min-height: 33px;
+  padding: 0 12px;
+  margin-inline-end: 10px;
+  border: 0;
+  border-inline-end: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.editor-field input[type='file']:not(:disabled)::file-selector-button:hover {
+  background: var(--surface-hover);
 }
 .editor-field small {
   color: var(--text-muted);
@@ -1698,6 +1718,24 @@ button.diagnostic:focus-visible {
   color: var(--text-muted);
   font-size: 10px;
   margin-top: 8px;
+}
+.fakedns-pool .editor-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 0;
+  padding: 0 0 12px;
+  border-top: 0;
+}
+.fakedns-pool h3 {
+  margin: 0;
+  font-size: 13px;
+}
+.fakedns-pool + .fakedns-pool {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 .editor-advanced {
   border-top: 1px solid var(--border);
@@ -1874,6 +1912,9 @@ button.diagnostic:focus-visible {
   padding: 20px 24px;
   overflow: auto;
 }
+.xray-import-window .runtime-actions {
+  margin-bottom: 15px;
+}
 .runtime-connection {
   margin-left: auto;
   padding: 12px;
@@ -2034,6 +2075,8 @@ button.diagnostic:focus-visible {
 }
 .protocol-collection-tools select {
   min-width: 170px;
+  min-height: 33px;
+  padding: 6px 10px;
   flex: 1;
 }
 .protocol-editor-window .rule-editor-titlebar p {
