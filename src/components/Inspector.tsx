@@ -364,7 +364,7 @@ export default function Inspector({
                   {node.data.overrides?.length === 1 ? 'setting' : 'settings'}
                 </span>
                 <button
-                  className="small-action"
+                  className="secondary-button button--small"
                   onClick={() => onUpdate(node.id, resetNodeDefaults(node.data, graph.defaults!))}
                 >
                   Use all global defaults
@@ -571,7 +571,10 @@ export default function Inspector({
                   </button>
                 );
               })}
-              <button className="delete-node-button" onClick={onDelete}>
+              <button
+                className="secondary-button compact-controls button--danger delete-node-button"
+                onClick={onDelete}
+              >
                 <Trash2 size={14} /> Delete node
               </button>
             </>
@@ -632,7 +635,7 @@ export default function Inspector({
             </p>
           )}
           <button
-            className="delete-node-button"
+            className="secondary-button compact-controls button--danger delete-node-button"
             disabled={!connectionIsEditable(graph, edge)}
             onClick={onDelete}
           >

@@ -349,7 +349,7 @@ export function SettingField({
       {field.key === 'id' && (
         <>
           <button
-            className="small-action"
+            className="secondary-button button--small"
             type="button"
             onClick={() => onChange(crypto.randomUUID())}
           >

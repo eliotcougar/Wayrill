@@ -178,7 +178,7 @@ export default function ApplicationSelectors({
           </label>
         )}
         <button
-          className="small-action"
+          className="secondary-button"
           disabled={loading || !desktopServiceAvailable()}
           onClick={refresh}
         >
@@ -191,7 +191,7 @@ export default function ApplicationSelectors({
       {kind === 'package' && (
         <div className="form-row capture-picker-header">
           <button
-            className="small-action"
+            className="secondary-button"
             disabled={loopbackBusy || !desktopServiceAvailable()}
             onClick={() => void addExemptPackages()}
           >
@@ -218,7 +218,7 @@ export default function ApplicationSelectors({
         />
         {kind === 'process' && (
           <button
-            className="small-action"
+            className="secondary-button"
             disabled={picking || !desktopServiceAvailable()}
             onClick={() => void browse()}
             title={
@@ -231,7 +231,7 @@ export default function ApplicationSelectors({
           </button>
         )}
         <button
-          className="small-action"
+          className="secondary-button"
           disabled={!value.trim() || rows.length >= 4096}
           onClick={() => add([value])}
         >
@@ -253,7 +253,7 @@ export default function ApplicationSelectors({
         />
         <div className="form-row capture-picker-header">
           <button
-            className="small-action"
+            className="secondary-button"
             disabled={!filtered.length && !rows.some((r) => r.kind === kind && !r.enabled)}
             onClick={() => {
               const values = [...new Set(filtered.map((p) => p.value))];
@@ -281,7 +281,7 @@ export default function ApplicationSelectors({
             Select all
           </button>
           <button
-            className="small-action"
+            className="secondary-button"
             disabled={!rows.some((r) => r.kind === kind && r.enabled)}
             onClick={() =>
               onChange(rows.map((r) => (r.kind === kind ? { ...r, enabled: false } : r)))

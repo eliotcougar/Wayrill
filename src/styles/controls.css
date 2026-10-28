@@ -59,6 +59,23 @@
   background: var(--surface-hover);
   border-color: var(--border-strong);
 }
+.button--small {
+  --control-size: var(--space-6);
+  --control-text-size: 10px;
+  --control-line-height: 14px;
+  --control-padding-block: var(--space-1);
+
+  padding-inline: var(--space-2);
+  gap: var(--space-1);
+}
+.secondary-button.button--danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+.secondary-button.button--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
 .primary-button.icon-button,
 .secondary-button.icon-button {
   min-height: var(--control-size-compact);
@@ -217,14 +234,8 @@ select.text-control {
 .secret-setting input:focus-visible {
   outline: none;
 }
-.small-action {
-  color: var(--success);
-  border: 1px solid var(--success-border);
-  background: var(--success-soft);
-  border-radius: 4px;
-  padding: 5px 8px;
-  font-size: 10px;
-  margin-top: 7px;
+.field > .button--small {
+  margin-top: var(--space-2);
 }
 .editor-field {
   --field-control-size: var(--control-size);

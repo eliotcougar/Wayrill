@@ -43,10 +43,6 @@
 .form-row > .check-control {
   min-height: var(--control-size);
 }
-.form-row > .small-action {
-  min-height: var(--control-size);
-  margin: 0;
-}
 .form-row > .icon-button {
   width: var(--control-size);
   height: var(--control-size);

@@ -194,7 +194,7 @@ export default function TunAdapterSettings({
                 Cancel
               </button>
               <button
-                className="secondary-button tun-adapter-remove"
+                className="secondary-button button--danger"
                 disabled={!canManage || !removing.canRemove}
                 onClick={() => void remove()}
               >

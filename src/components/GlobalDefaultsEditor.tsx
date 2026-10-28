@@ -168,7 +168,7 @@ export default function GlobalDefaultsEditor({
             </span>
             <button
               type="button"
-              className="small-action"
+              className="secondary-button button--small"
               disabled={!Object.hasOwn(draft.settings, f.key)}
               aria-label={'Use Xray default for ' + f.label}
               onClick={() => {
@@ -180,7 +180,7 @@ export default function GlobalDefaultsEditor({
             </button>
             <button
               type="button"
-              className="small-action"
+              className="secondary-button button--small"
               title={'Restore factory value for ' + f.label}
               aria-label={'Restore factory ' + f.label}
               disabled={draft.settings[f.key] === f.defaultValue}

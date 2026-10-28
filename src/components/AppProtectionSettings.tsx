@@ -187,7 +187,7 @@ export default function AppProtectionSettings({
           />
           {kind === 'executable' && (
             <button
-              className="small-action"
+              className="secondary-button icon-button"
               title="Choose executable"
               aria-label="Choose protected executable"
               disabled={listLocked}
@@ -204,7 +204,7 @@ export default function AppProtectionSettings({
             </button>
           )}
           <button
-            className="small-action"
+            className="secondary-button icon-button"
             title="Add application"
             aria-label="Add protected application"
             disabled={listLocked || !value.trim() || draft.applications.length >= 256}
@@ -233,7 +233,7 @@ export default function AppProtectionSettings({
               ))}
           </select>
           <button
-            className="small-action"
+            className="secondary-button icon-button"
             aria-label="Refresh protected application choices"
             disabled={loading}
             onClick={refreshCatalog}

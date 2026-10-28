@@ -102,17 +102,6 @@
   flex-wrap: wrap;
   gap: 4px;
 }
-.default-scope .small-action {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 9px;
-}
-.default-scope button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
 .defaults-impact-warning {
   margin-top: var(--space-5);
 }
@@ -143,10 +132,6 @@
 .protocol-defaults-group .field {
   margin-bottom: 0;
 }
-.setting-inheritance .small-action {
-  font-size: 9px;
-  margin: 0;
-}
 .node-defaults-summary {
   margin: 10px 0 18px;
 }
@@ -155,9 +140,8 @@
   font-size: 10px;
   display: block;
 }
-.node-defaults-summary .small-action {
-  margin: 7px 0;
-  font-size: 10px;
+.node-defaults-summary > .button--small {
+  margin: var(--space-2) 0;
 }
 @media (max-width: 800px) {
   .defaults-columns {

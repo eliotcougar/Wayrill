@@ -38,7 +38,7 @@ export default function InheritableSetting({
             {state.independent ? (
               <button
                 type="button"
-                className="small-action"
+                className="secondary-button button--small"
                 aria-label={'Use default for ' + props.field.label}
                 title={target ? `Use ${target}` : 'Follow the defaults for this graph'}
                 onClick={onReset}
@@ -48,7 +48,7 @@ export default function InheritableSetting({
             ) : (
               <button
                 type="button"
-                className="small-action"
+                className="secondary-button button--small"
                 disabled={!onOverride}
                 aria-label={'Override ' + props.field.label}
                 title="Keep the current value in this node, even if app defaults change"

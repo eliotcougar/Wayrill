@@ -24,6 +24,12 @@ Add feature sheets there rather than importing CSS from components.
   `popover-surface` shares the border, background, typography and shadow of
   menus, editable preset lists and checkbox filters; each component retains its
   placement, scrolling limits, semantics and keyboard behavior.
+  Inline utilities use `secondary-button button--small` (24px, 10px text),
+  inheriting normal button alignment, disabled, hover and focus behavior. Actions
+  beside form fields use ordinary secondary buttons at the field's density.
+  Use `button--danger` on a secondary button for an explicit destructive action;
+  features retain only its placement. Menu actions keep their menu-specific hit
+  area and destructive state styling.
 - `styles/layout.css` owns wrapping action and form rows. Use `action-row` for
   buttons/status controls and `form-row` for labeled controls with adjacent
   actions. `action-row--spread` separates the leading and trailing content.
