@@ -22,7 +22,7 @@ export default function ResourceWarnings({
       {!compact && (
         <>
           <p>Rules with no remaining matches are disabled. Saved entries are preserved.</p>
-          <details>
+          <details className="disclosure">
             <summary>Missing groups</summary>
             <ul>
               {report?.skippedSelectors?.map((item, i) => (

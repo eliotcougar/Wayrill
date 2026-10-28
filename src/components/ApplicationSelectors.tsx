@@ -238,7 +238,7 @@ export default function ApplicationSelectors({
           <Plus size={13} /> Add
         </button>
       </div>
-      <details>
+      <details className="disclosure">
         <summary>Choose from this PC</summary>
         <input
           className="text-control"

@@ -185,7 +185,7 @@ export default function RoutingPresetPicker({
       {kind === 'dns' &&
         Object.keys((preset as DnsPreset).hosts).filter((h) => h !== 'proxy.example.com').length >
           0 && (
-          <details className="preset-hosts">
+          <details className="disclosure preset-hosts">
             <summary>Suggested DNS handler hosts</summary>
             <pre className="code-block" tabIndex={0}>
               {JSON.stringify(

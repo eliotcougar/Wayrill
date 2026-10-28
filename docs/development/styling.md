@@ -121,10 +121,14 @@ The element font reset must also have zero specificity; a type selector with
 `font: inherit` would defeat the field's font size and line height.
 Preserve visible focus on every keyboard-operable control.
 
-`AdvancedSettings` uses a native `details` element and the shared `editor-advanced`
-appearance. Collapsing keeps its children mounted, preserving drafts and validity.
-The summary owns its chevron, minimum hit area and open-state spacing; do not
-reintroduce closed-summary margins or add separate sizing rules in each editor.
+Use `disclosure` for native `details` that expand ordinary content, such as
+process choices, help, diagnostics or nested protocol fields. `editor-advanced`
+shares the same summary treatment and adds its settings separator. Both use one
+chevron, minimum hit area, typography and open-state gap. Keep framed inspector
+sections and popover triggers distinct; their structure and placement differ.
+`AdvancedSettings` keeps its children mounted when collapsed, preserving drafts
+and validity. Do not reintroduce closed-summary margins or separate trigger
+sizing in feature sheets. Features own spacing between expanded content rows.
 
 ## Feature ownership
 

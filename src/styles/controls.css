@@ -334,6 +334,7 @@ select.text-control {
   padding-top: var(--space-1);
   margin: var(--space-2) 0 0;
 }
+.disclosure > summary,
 .editor-advanced > summary {
   display: flex;
   align-items: center;
@@ -343,21 +344,30 @@ select.text-control {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--control-text-size);
+  font-weight: 500;
   line-height: 1.5;
   cursor: pointer;
   list-style: none;
   overflow-wrap: anywhere;
 }
+.disclosure > summary::-webkit-details-marker,
+.editor-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure > summary::before,
 .editor-advanced > summary::before {
   content: '▸';
   flex-shrink: 0;
 }
+.disclosure[open] > summary,
 .editor-advanced[open] > summary {
   margin-bottom: var(--space-3);
 }
+.disclosure[open] > summary::before,
 .editor-advanced[open] > summary::before {
   content: '▾';
 }
+.disclosure > summary small,
 .editor-advanced > summary small {
   color: var(--text-muted);
   margin-left: auto;

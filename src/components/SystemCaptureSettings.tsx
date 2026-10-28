@@ -322,7 +322,7 @@ function ProxySection({
         )}
       </div>
       {environment && (
-        <details className="capture-help">
+        <details className="disclosure capture-help">
           <summary>Apply environment changes</summary>
           <p>
             Restart the app and its parent terminal. Launch a new terminal from Start; new tabs in
@@ -647,7 +647,7 @@ export default function SystemCaptureSettings({
               <p className="field-help">
                 Uses the applied graph. Adapter changes below edit the draft; Apply activates them.
               </p>
-              <details className="capture-help">
+              <details className="disclosure capture-help">
                 <summary>Monitored adapters</summary>
                 <WindowsCaptureSettings
                   graph={graph}

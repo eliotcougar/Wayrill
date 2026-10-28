@@ -12,11 +12,6 @@
 .protocol-object {
   margin: var(--space-3) 0;
 }
-.protocol-object > summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: 4px 0 10px;
-}
 .protocol-collection-tools {
   display: flex;
   align-items: center;

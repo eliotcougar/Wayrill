@@ -41,12 +41,7 @@
   margin-top: 16px;
 }
 .capture-help {
-  margin-top: 18px;
-}
-.capture-help summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 12px;
+  margin-top: var(--space-4);
 }
 .capture-help p {
   font-size: 12px;

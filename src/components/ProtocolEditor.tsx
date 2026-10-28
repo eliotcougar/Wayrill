@@ -129,7 +129,7 @@ function SourceFields({
         />
         {nested.map((field) => (
           <details
-            className="editor-panel protocol-object"
+            className="editor-panel disclosure protocol-object"
             key={field.key}
             open={!!nativeValue(object, field.key)}
           >

@@ -41,8 +41,8 @@
 .application-selectors > .field-help {
   margin: 0;
 }
-.application-selectors details > :not(summary) {
-  margin-top: 8px;
+.application-selectors details > :not(summary) + :not(summary) {
+  margin-top: var(--space-2);
 }
 .application-selectors details > input {
   width: 100%;

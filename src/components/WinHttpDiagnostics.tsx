@@ -59,7 +59,7 @@ export default function WinHttpDiagnostics({
         </p>
       )}
       {!!report && (
-        <details open>
+        <details className="disclosure" open>
           <summary>WinHTTP diagnostics</summary>
           <p className="field-help">
             Includes proxy addresses and PAC URLs. Review before sharing.
