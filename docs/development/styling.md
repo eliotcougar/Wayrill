@@ -40,6 +40,8 @@ Add feature sheets there rather than importing CSS from components.
   as statistics and policy editors. Tab appearance targets `role="tab"` inside
   `editor-tab-list`; trailing actions keep normal button styles. Keep scrolling,
   focus and selected/disabled states here rather than in individual windows.
+  The dialog body owns its outer gutter; its final child's trailing margin is
+  removed so notices and option groups do not add a second bottom gap.
 - `styles/code.css` owns `code-block` previews and the `code-control` monospace
   field modifier. Combine `text-control code-control` for standalone structured
   textareas. Use `code-block--compact` in the inspector; features retain their
@@ -50,6 +52,9 @@ Add feature sheets there rather than importing CSS from components.
   catalogs. `choice-row-content` lays out a name and details, with an inline
   variant for compact lists. Native checked/disabled state drives row appearance.
   Features retain scrolling limits, truncation and multi-action row layouts.
+  Use `choice-group` for a fieldset of options and `check-control choice-card`
+  for separately framed options, such as themes and WinHTTP scopes. Cards share
+  selected, hover, focus and disabled styling; features own the column layout.
 - `styles/tables.css` owns native `data-table` cell spacing, dividers and headers.
   Use `data-table--compact` for dense lists and `data-table--sticky` when a table
   scrolls inside a constrained viewport. Features own column widths, numeric

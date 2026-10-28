@@ -555,7 +555,7 @@ export default function SystemCaptureSettings({
             </>
           ) : key === 'winhttp' ? (
             <>
-              <fieldset className="capture-http-scopes" disabled={busy}>
+              <fieldset className="choice-group capture-http-scopes" disabled={busy}>
                 <legend>Scope</legend>
                 {(
                   [
@@ -573,7 +573,7 @@ export default function SystemCaptureSettings({
                         ? 'On'
                         : 'Off';
                   return (
-                    <label key={channel} className={httpScope === channel ? 'active' : undefined}>
+                    <label key={channel} className="check-control choice-card">
                       <input
                         type="radio"
                         name="winhttp-scope"
@@ -581,8 +581,10 @@ export default function SystemCaptureSettings({
                         checked={httpScope === channel}
                         onChange={() => setHttpScope(channel)}
                       />
-                      <strong>{label}</strong>
-                      <span>{state}</span>
+                      <span className="choice-row-content">
+                        <strong>{label}</strong>
+                        <small>{state}</small>
+                      </span>
                     </label>
                   );
                 })}

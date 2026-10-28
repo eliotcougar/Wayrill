@@ -70,6 +70,9 @@
   overflow: auto;
   padding: var(--space-5) 22px;
 }
+.dialog-body > :last-child {
+  margin-block-end: 0;
+}
 .dialog-footer,
 .rule-editor-footer {
   flex-shrink: 0;

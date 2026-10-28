@@ -1,4 +1,49 @@
 /* Rich native checkbox/radio rows extend check-control without changing selection. */
+.choice-group {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  border: 0;
+}
+.choice-group > legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  font-size: var(--control-text-size);
+  font-weight: 600;
+}
+.choice-card {
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-raised);
+}
+.choice-card > svg {
+  flex-shrink: 0;
+}
+.choice-card:hover:not(:has(> input:disabled)),
+.choice-card:has(> input:checked) {
+  border-color: var(--accent);
+}
+.choice-card:has(> input:checked) {
+  background: var(--accent-soft);
+}
+.choice-card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The complete card supplies the visible focus indicator. */
+.choice-card > input:focus-visible {
+  outline: none;
+}
+@media (forced-colors: active) {
+  .choice-card:has(> input:checked) {
+    border-width: 2px;
+    padding: calc(var(--space-3) - 1px);
+  }
+}
 .choice-list {
   min-height: 0;
   overflow: auto;
@@ -23,7 +68,8 @@
 .choice-row:has(> input[type='radio']:checked) {
   background: var(--accent-soft);
 }
-.choice-row:has(> input:disabled) {
+.choice-row:has(> input:disabled),
+.choice-card:has(> input:disabled) {
   color: var(--text-muted);
 }
 .choice-row-content {

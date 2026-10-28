@@ -19,10 +19,10 @@ export default function AppearanceSettings({
 }) {
   return (
     <Dialog title="Appearance" onClose={onClose}>
-      <fieldset className="theme-choices">
+      <fieldset className="choice-group">
         <legend>Theme</legend>
         {choices.map(({ value, label, icon: Icon }) => (
-          <label className="theme-choice" key={value}>
+          <label className="check-control choice-card" key={value}>
             <input
               type="radio"
               name="app-theme"
@@ -31,14 +31,14 @@ export default function AppearanceSettings({
               onChange={() => theme.setPreference(value)}
             />
             <Icon size={21} aria-hidden="true" />
-            <span>
+            <span className="choice-row-content">
               <strong>{label}</strong>
             </span>
           </label>
         ))}
       </fieldset>
       {(theme.persistenceError || theme.windowError) && (
-        <p className="theme-error" role="status">
+        <p className="notice notice--error" role="status">
           {theme.persistenceError || theme.windowError}
         </p>
       )}
