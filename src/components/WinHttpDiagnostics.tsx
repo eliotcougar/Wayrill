@@ -39,7 +39,7 @@ export default function WinHttpDiagnostics({
   };
   return (
     <div className="capture-diagnostics">
-      <div className="runtime-actions">
+      <div className="action-row runtime-actions">
         <button
           className="secondary-button"
           disabled={disabled || busy}

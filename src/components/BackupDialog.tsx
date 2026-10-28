@@ -186,7 +186,7 @@ export default function BackupDialog({
       title={creating ? 'Back up configuration' : 'Restore configuration'}
       onClose={close}
       footer={
-        <div className="backup-actions">
+        <div className="action-row">
           <button className="secondary-button" onClick={close}>
             {busy ? 'Cancel' : 'Close'}
           </button>

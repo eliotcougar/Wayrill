@@ -69,7 +69,7 @@ export default function PolicyOutboundPicker({
     : '';
   return (
     <div className="policy-picker">
-      <div className="policy-picker-actions">
+      <div className="form-row policy-picker-actions">
         <label className="editor-field">
           <span>{label} from graph</span>
           <select
@@ -151,6 +151,7 @@ export default function PolicyOutboundPicker({
             </p>
           )}
           <ResultPager
+            compact
             label={`${label}: imported pool`}
             count={poolMatches.length}
             size={30}
@@ -230,6 +231,7 @@ export default function PolicyOutboundPicker({
             </p>
           )}
           <ResultPager
+            compact
             label={`${label}: stash`}
             count={matches.length}
             size={30}

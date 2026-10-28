@@ -1,4 +1,10 @@
 /* Shared controls and form primitives. Feature layouts belong in their own sheets. */
+.compact-controls {
+  --control-size: var(--control-size-compact);
+  --control-text-size: 11px;
+  --control-padding-block: 6px;
+}
+
 .icon-button {
   border: 0;
   background: transparent;
@@ -26,7 +32,7 @@
 .secondary-button {
   border-radius: var(--control-radius);
   min-height: var(--control-size);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--control-padding-block) var(--space-3);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -57,6 +63,7 @@
   --field-control-size: var(--control-size-compact);
   --field-control-text-size: 11px;
   --field-control-padding: 8px;
+  --field-control-padding-block: 6px;
   margin-bottom: var(--space-4);
 }
 .field > label {
@@ -81,7 +88,8 @@
   min-height: var(--field-control-size, var(--control-size));
   border: 1px solid var(--border-strong);
   border-radius: var(--control-radius);
-  padding: var(--space-2) var(--field-control-padding, 10px);
+  padding: var(--field-control-padding-block, var(--control-padding-block))
+    var(--field-control-padding, 10px);
   background: var(--surface-sunken);
   color: var(--text);
   font-size: var(--field-control-text-size, var(--control-text-size));
@@ -195,7 +203,8 @@ textarea.text-control {
   width: 100%;
   min-width: 0;
   min-height: calc(var(--field-control-size, var(--control-size)) - 2px);
-  padding: var(--space-2) var(--field-control-padding, 10px);
+  padding: var(--field-control-padding-block, var(--control-padding-block))
+    var(--field-control-padding, 10px);
   color: var(--text);
   background: transparent;
   border: 0;
@@ -225,6 +234,7 @@ textarea.text-control {
   --field-control-size: var(--control-size);
   --field-control-text-size: var(--control-text-size);
   --field-control-padding: 10px;
+  --field-control-padding-block: var(--control-padding-block);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -274,7 +284,7 @@ textarea.text-control {
   align-self: end;
   min-height: var(--control-size);
   padding: 0;
-  margin-bottom: 15px;
+  margin-bottom: var(--space-4);
 }
 .editor-checkbox {
   display: flex;
@@ -342,10 +352,6 @@ textarea.text-control {
 }
 
 .field-action-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 12px;
 }
 .field-action-row > p {
@@ -354,15 +360,8 @@ textarea.text-control {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.field-action-row:has(> .editor-field) {
-  align-items: flex-end;
-}
 .field-action-row > .editor-field {
   flex: 1 1 240px;
-  margin: 0;
-}
-.field-action-row > button {
-  flex-shrink: 0;
 }
 
 .editable-select {

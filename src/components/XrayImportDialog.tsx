@@ -133,7 +133,7 @@ export default function XrayImportDialog({
         </button>
       </div>
       <div className="runtime-body">
-        <div className="runtime-actions">
+        <div className="action-row runtime-actions">
           <button className="secondary-button" onClick={() => file.current?.click()}>
             <Upload size={14} /> Open Xray JSON…
           </button>

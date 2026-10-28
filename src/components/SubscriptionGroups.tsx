@@ -79,7 +79,7 @@ export default function SubscriptionGroups({
     value ? new Date(value).toLocaleString() : 'Never refreshed';
   return (
     <section aria-label="Subscription groups" className="subscription-groups">
-      <div className="subscription-group-tools">
+      <div className="form-row subscription-group-tools">
         <label>
           Find group
           <input
@@ -148,7 +148,7 @@ export default function SubscriptionGroups({
                 )}
                 {running && <span role="status">{status.message}</span>}
               </div>
-              <div className="subscription-group-actions">
+              <div className="action-row">
                 <button
                   className="secondary-button"
                   disabled={busy}

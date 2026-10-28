@@ -383,7 +383,7 @@ function RuntimePanelView({
                     </p>
                   </section>
                 )}
-                <div className="runtime-actions">
+                <div className="action-row runtime-actions">
                   <button className="secondary-button" onClick={() => setCheckOpen(true)}>
                     Check
                   </button>
@@ -425,7 +425,7 @@ function RuntimePanelView({
                   </section>
                 )}
                 {onSystemCapture && (
-                  <div className="runtime-actions">
+                  <div className="action-row runtime-actions">
                     <button className="secondary-button" onClick={onSystemCapture} disabled={busy}>
                       <ShieldCheck size={16} /> System traffic capture…
                     </button>
@@ -438,7 +438,7 @@ function RuntimePanelView({
               </>
             ) : (
               <>
-                <div className="runtime-actions">
+                <div className="action-row runtime-actions">
                   <p className="runtime-scope">Core diagnostics may contain endpoint details.</p>
                   <button className="secondary-button" onClick={runtime.clearEvents}>
                     Clear view

@@ -183,7 +183,7 @@ export default function TunAdapterSettings({
           <div className="runtime-warning" role="group" aria-label="Confirm adapter removal">
             <p>Remove {removing.name} from Windows?</p>
             <p className="field-help">Starting TUN again creates an adapter.</p>
-            <div className="tun-adapter-actions">
+            <div className="action-row">
               <button
                 className="secondary-button"
                 disabled={blocked}

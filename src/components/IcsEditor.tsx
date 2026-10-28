@@ -61,7 +61,7 @@ export function SharingRecovery({
           {sharing.lastError?.message || 'Sharing recovery needs attention.'}
         </p>
       )}
-      <div className="field-action-row">
+      <div className="action-row field-action-row">
         {(sharing.recoveryPending || sharing.source === 'remembered') && (
           <button
             className="secondary-button"
@@ -219,7 +219,7 @@ export default function IcsEditor({
           }
         />
       </label>
-      <div className="field-action-row">
+      <div className="action-row field-action-row">
         <p>
           {sharing.busy
             ? 'Inspecting Windows sharing…'

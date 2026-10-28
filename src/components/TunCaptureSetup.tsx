@@ -42,7 +42,7 @@ export default function TunCaptureSetup({
     typeof settings.autoOutboundsInterface === 'string' ? settings.autoOutboundsInterface : 'auto';
   return (
     <section className="tun-capture-setup" aria-label="Windows TUN setup">
-      <div className="field-action-row">
+      <div className="action-row field-action-row">
         <button
           type="button"
           className="secondary-button"
@@ -63,7 +63,7 @@ export default function TunCaptureSetup({
         a DNS handler for split DNS. Without that connection, DNS follows Traffic.
       </p>
       {!ipv6 && <p className="field-message warning">IPv6 is outside this capture scope.</p>}
-      <div className="field-action-row">
+      <div className="form-row field-action-row">
         <label className="editor-field">
           <span>Uplink</span>
           <select

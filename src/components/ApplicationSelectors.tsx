@@ -137,7 +137,7 @@ export default function ApplicationSelectors({
         Local inputs match process names and paths. TUN and WinDivert also match child processes,
         Windows apps and services.
       </p>
-      <div className="capture-picker-header">
+      <div className="form-row capture-picker-header">
         <select
           className="text-control"
           aria-label="Application type"
@@ -189,7 +189,7 @@ export default function ApplicationSelectors({
         <p role="alert">{bulkError || pickerError || error}</p>
       )}
       {kind === 'package' && (
-        <div className="capture-picker-header">
+        <div className="form-row capture-picker-header">
           <button
             className="small-action"
             disabled={loopbackBusy || !desktopServiceAvailable()}
@@ -199,7 +199,7 @@ export default function ApplicationSelectors({
           </button>
         </div>
       )}
-      <div className="capture-picker-header">
+      <div className="form-row capture-picker-header">
         <input
           className="text-control"
           autoComplete="off"
@@ -251,7 +251,7 @@ export default function ApplicationSelectors({
           }}
           placeholder="Search"
         />
-        <div className="capture-picker-header">
+        <div className="form-row capture-picker-header">
           <button
             className="small-action"
             disabled={!filtered.length && !rows.some((r) => r.kind === kind && !r.enabled)}
@@ -310,7 +310,7 @@ export default function ApplicationSelectors({
             </label>
           ))}
         </div>
-        <div className="capture-picker-header">
+        <div className="form-row capture-picker-header">
           <button
             className="secondary-button"
             disabled={!currentPage}
@@ -330,7 +330,7 @@ export default function ApplicationSelectors({
       </details>
       <div className="capture-selector-list">
         {rows.map((r, i) => (
-          <div key={i} className="capture-picker-header">
+          <div key={i} className="form-row capture-picker-header">
             <input
               autoComplete="off"
               type="checkbox"

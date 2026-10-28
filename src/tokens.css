@@ -11,6 +11,7 @@
   --control-radius: 5px;
   --control-text-size: 12px;
   --control-line-height: 16px;
+  --control-padding-block: 8px;
   --font-mono: 'Cascadia Code', Consolas, monospace;
   --main-outbound: #e2bc67;
   color-scheme: dark;

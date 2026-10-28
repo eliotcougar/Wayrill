@@ -1,0 +1,35 @@
+/* Reusable rows for actions and labeled controls. Feature sheets own placement. */
+.action-row,
+.form-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.action-row--spread {
+  justify-content: space-between;
+}
+.form-row {
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+:where(.action-row, .form-row) > button {
+  flex-shrink: 0;
+}
+.form-row > .editor-field {
+  margin: 0;
+}
+.form-row > .editor-checkbox {
+  min-height: var(--control-size);
+  padding: 0;
+  margin: 0;
+}
+.form-row > .small-action {
+  min-height: var(--control-size);
+  margin: 0;
+}
+.form-row > .icon-button {
+  width: var(--control-size);
+  height: var(--control-size);
+}

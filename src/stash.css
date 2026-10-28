@@ -22,14 +22,6 @@
   margin: 0;
   min-height: var(--control-size);
 }
-.subscription-settings-actions,
-.subscription-maintenance-status,
-.stash-import-modes {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
 .subscription-maintenance-status {
   margin-top: 10px;
 }
@@ -72,10 +64,6 @@
 .stash-search,
 .stash-group-controls,
 .stash-pagination {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -83,13 +71,6 @@
   margin-left: auto;
   color: var(--text-secondary);
   font-size: 12px;
-}
-.stash-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 12px;
 }
 .stash-notice > span {
   flex: 1;
@@ -110,7 +91,6 @@
 .stash-search,
 .stash-group-controls {
   padding: 14px 0;
-  align-items: flex-end;
 }
 .stash-search label,
 .stash-group-controls label {
@@ -408,13 +388,6 @@
 .subscription-groups {
   padding-top: 14px;
 }
-.subscription-group-tools,
-.subscription-group-actions {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .subscription-group-tools > label {
   display: grid;
   gap: 5px;
@@ -459,9 +432,6 @@
 }
 .subscription-group-link {
   text-decoration: underline;
-}
-.subscription-group-actions {
-  align-items: flex-start;
 }
 .stash-remove-confirmation {
   flex-shrink: 0;

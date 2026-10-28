@@ -145,18 +145,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-.runtime-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 9px;
-}
-.runtime-actions:has(> .editor-field) {
-  align-items: flex-end;
-}
-.runtime-actions > .editor-field {
-  margin-bottom: 0;
-}
 .runtime-section {
   margin-top: 22px;
   border-top: 1px solid var(--border);

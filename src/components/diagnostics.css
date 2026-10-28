@@ -10,12 +10,6 @@
   flex: 1;
   min-height: 0;
 }
-.diagnostics-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .diagnostics-toolbar .routing-log-choice-filter fieldset {
   left: 0;
   right: auto;
@@ -38,11 +32,6 @@
   overflow: auto;
 }
 .diagnostics-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
   color: var(--text-muted);
   font-size: 12px;
 }

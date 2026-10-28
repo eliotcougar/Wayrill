@@ -486,7 +486,7 @@ export default function ConfigurationStash({
         </button>
       </div>
       <EditorTabs tabs={tabs} label="Stash sections" disabled={busy} />
-      <div className="stash-toolbar">
+      <div className="action-row stash-toolbar">
         <button
           ref={importTrigger}
           aria-expanded={!!editor && !editor.group}
@@ -598,7 +598,7 @@ export default function ConfigurationStash({
                 </div>
               )}
             {panel === tab && notice && (
-              <div className="runtime-notice stash-notice">
+              <div className="action-row action-row--spread runtime-notice stash-notice">
                 <span role="status">{notice}</span>
                 <button
                   className="icon-button"
@@ -621,7 +621,7 @@ export default function ConfigurationStash({
                     .slice(0, 5)
                     .map(([id, value]) => (
                       <div
-                        className="subscription-maintenance-status"
+                        className="action-row subscription-maintenance-status"
                         key={id}
                         role={value.state === 'error' ? 'alert' : 'status'}
                       >
@@ -638,7 +638,7 @@ export default function ConfigurationStash({
                         )}
                       </div>
                     ))}
-                <div className="stash-group-controls">
+                <div className="form-row stash-group-controls">
                   <label>
                     Group
                     <select
@@ -725,7 +725,7 @@ export default function ConfigurationStash({
                     <Trash2 size={15} />
                   </button>
                 </div>
-                <div className="stash-search">
+                <div className="form-row stash-search">
                   <label>
                     Search
                     <input

@@ -206,7 +206,7 @@ export default function TrafficRuleImport({
           <span className="field-help">
             Updated {new Date(table.source.updatedAt).toLocaleString()}
           </span>
-          <div className="runtime-actions">
+          <div className="action-row runtime-actions">
             <button
               className="primary-button"
               disabled={busy}
@@ -238,7 +238,7 @@ export default function TrafficRuleImport({
           )}
         </section>
       )}
-      <div className="runtime-actions">
+      <div className="action-row runtime-actions">
         <button
           className="secondary-button"
           disabled={busy}
@@ -259,7 +259,7 @@ export default function TrafficRuleImport({
           onChange={(e) => void loadFile(e)}
         />
       </div>
-      <div className="routing-url-row">
+      <div className="form-row routing-url-row">
         <label className="editor-field">
           <span>Routing URL</span>
           <input
@@ -282,7 +282,7 @@ export default function TrafficRuleImport({
           <Download size={14} /> Load URL
         </button>
       </div>
-      <div className="routing-import-options">
+      <div className="form-row routing-import-options">
         <label className="editor-checkbox">
           <input
             type="checkbox"

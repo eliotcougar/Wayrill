@@ -306,26 +306,15 @@
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
 }
-.app-protection-add,
-.app-protection-catalog {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
 .app-protection-add input,
 .app-protection-catalog select {
   flex: 1;
   min-width: 0;
 }
 .app-protection-add > select {
+  width: auto;
   min-width: 0;
   max-width: 45%;
-}
-.app-protection-add > button,
-.app-protection-catalog > button {
-  flex-shrink: 0;
-  margin-top: 0;
 }
 .app-protection-switch {
   display: flex;
@@ -350,21 +339,6 @@
 }
 .app-protection-list li + li {
   border-top: 1px solid var(--border);
-}
-.app-protection-settings input:not([type='checkbox']),
-.app-protection-settings select {
-  height: 34px;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-sunken);
-  color: var(--text);
-  font: inherit;
-}
-.app-protection-settings .capture-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 .app-protection-settings .capture-actions > button {
   min-width: 88px;

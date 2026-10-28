@@ -85,15 +85,8 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.policy-picker-actions {
-  display: flex;
-  gap: 12px;
-  align-items: end;
-  flex-wrap: wrap;
-}
 .policy-picker-actions > label {
   flex: 1;
-  margin: 0;
   min-width: 240px;
 }
 .policy-stash-picker {
@@ -237,10 +230,6 @@
 .policy-fallback > .field {
   max-width: 100%;
   margin-bottom: 12px;
-}
-.policy-fallback .policy-picker-actions {
-  gap: 8px;
-  align-items: flex-end;
 }
 
 .policy-name-field {

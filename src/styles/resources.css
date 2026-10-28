@@ -120,20 +120,8 @@
 .resource-file-dialog {
   width: min(640px, 94vw);
 }
-.resource-update-controls {
-  display: flex;
-  align-items: flex-end;
-  gap: 20px;
-  flex-wrap: wrap;
-}
 .resource-update-controls .editor-field {
   width: 130px;
-  margin: 0;
-}
-.resource-update-controls .editor-checkbox {
-  padding: 0;
-  margin: 0;
-  min-height: var(--control-size);
 }
 .resource-file-upload {
   position: relative;

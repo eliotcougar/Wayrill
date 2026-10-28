@@ -277,7 +277,7 @@ function ProxySection({
         )}
       </fieldset>
       {desktop && row?.supported && issue && <p className="field-help">{issue}</p>}
-      <div className="runtime-actions">
+      <div className="action-row runtime-actions">
         <button
           className="primary-button"
           disabled={!canChange || !!issue || row?.conflict}
@@ -619,7 +619,7 @@ export default function SystemCaptureSettings({
                   ))}
                 </select>
               </label>
-              <div className="runtime-actions">
+              <div className="action-row runtime-actions">
                 <button
                   className="primary-button"
                   disabled={
@@ -671,7 +671,7 @@ export default function SystemCaptureSettings({
                       ? `${snapshot.driver.state}${snapshot.driver.owned ? ' · this installation' : ' · external registration'}`
                       : 'Not registered'}
                 </p>
-                <div className="runtime-actions">
+                <div className="action-row runtime-actions">
                   <button
                     className="secondary-button"
                     disabled={

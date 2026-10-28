@@ -451,7 +451,7 @@ function ResourceFileEditor({
           onChange={(url) => setDraft({ ...draft, url, autoUpdate: !!url && draft.autoUpdate })}
         />
       </div>
-      <div className="resource-update-controls">
+      <div className="form-row resource-update-controls">
         <label className="editor-checkbox">
           <input
             type="checkbox"

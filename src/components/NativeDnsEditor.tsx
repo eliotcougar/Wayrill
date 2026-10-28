@@ -140,7 +140,7 @@ export default function NativeDnsEditor({
               Output order becomes the core’s server-list order. Domain preferences and fallback run
               according to Xray’s DNS selection rules.
             </p>
-            <div className="runtime-actions">
+            <div className="action-row runtime-actions">
               <button
                 className="secondary-button"
                 disabled={outputs.length >= 128}
@@ -155,7 +155,7 @@ export default function NativeDnsEditor({
               </button>
             </div>
             {outputs.map((output, i) => (
-              <div className="runtime-actions" key={output.id}>
+              <div className="form-row runtime-actions" key={output.id}>
                 <label className="editor-field">
                   <span>Resolver output {i + 1}</span>
                   <input
@@ -209,7 +209,7 @@ export default function NativeDnsEditor({
           </>
         ) : (
           <>
-            <div className="runtime-actions">
+            <div className="form-row runtime-actions">
               <label className="editor-field">
                 <span>Server entry</span>
                 <select

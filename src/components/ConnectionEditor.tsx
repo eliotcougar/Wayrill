@@ -258,7 +258,7 @@ export default function ConnectionEditor({
               placeholder="Name, node type or tag"
               onChange={(event) => setSearch(event.target.value)}
             />
-            <div className="connection-list-tools">
+            <div className="action-row action-row--spread connection-list-tools">
               <label className="connection-unavailable">
                 <input
                   autoComplete="off"

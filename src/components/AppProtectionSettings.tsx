@@ -163,8 +163,9 @@ export default function AppProtectionSettings({
           />{' '}
           Block direct access during restarts and updates
         </label>
-        <div className="app-protection-add">
+        <div className="form-row app-protection-add">
           <select
+            className="text-control"
             aria-label="Protected application type"
             disabled={listLocked}
             value={kind}
@@ -177,6 +178,7 @@ export default function AppProtectionSettings({
             <option value="package">AppContainer package</option>
           </select>
           <input
+            className="text-control"
             aria-label="Protected application"
             disabled={listLocked}
             value={value}
@@ -211,8 +213,9 @@ export default function AppProtectionSettings({
             <Plus size={15} />
           </button>
         </div>
-        <div className="app-protection-catalog">
+        <div className="form-row app-protection-catalog">
           <select
+            className="text-control"
             aria-label="Choose protected application from this PC"
             disabled={listLocked || draft.applications.length >= 256}
             value=""
@@ -274,7 +277,7 @@ export default function AppProtectionSettings({
         {snapshot && snapshot.version !== version && (
           <p role="alert">Settings changed elsewhere. Refresh before saving.</p>
         )}
-        <div className="capture-actions">
+        <div className="action-row capture-actions">
           <button
             className="primary-button"
             disabled={

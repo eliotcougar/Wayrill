@@ -112,7 +112,7 @@ export default function PreparedOutboundLibrary({
       className="prepared-library"
       aria-label={kind === 'policy-group' ? 'Prepared policy groups' : 'Prepared proxy chains'}
     >
-      <div className="stash-toolbar">
+      <div className="action-row stash-toolbar">
         <button className="primary-button" disabled={!ready} onClick={() => begin()}>
           <Plus size={14} />
           {kind === 'policy-group' ? 'New policy group' : 'New proxy chain'}

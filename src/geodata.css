@@ -5,10 +5,6 @@
 .geo-source {
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 .geo-source label {
   display: flex;
@@ -21,16 +17,6 @@
 .geo-source select {
   flex: 1;
   max-width: 480px;
-}
-.geo-browser input,
-.geo-browser select {
-  border: 1px solid var(--border-strong);
-  background: var(--surface-sunken);
-  color: var(--text);
-  border-radius: 5px;
-  padding: 7px 9px;
-  font: inherit;
-  min-width: 0;
 }
 .geo-columns {
   display: grid;
@@ -146,10 +132,6 @@
   overflow-wrap: anywhere;
 }
 .geo-pages {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   font-variant-numeric: tabular-nums;
 }
 .geo-empty {

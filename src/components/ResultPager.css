@@ -19,17 +19,9 @@
 }
 .result-pager input {
   width: 65px;
-  min-width: 0;
-  padding: 6px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 5px;
 }
 .result-pager button {
-  font-size: 11px;
-  padding: 6px 8px;
-  min-height: 28px;
+  padding-inline: var(--space-2);
 }
 
 .result-pager-compact {
@@ -45,10 +37,6 @@
   gap: 3px;
 }
 .result-pager-compact button {
-  padding: 4px;
-  width: 28px;
-}
-.result-pager-compact input {
-  width: 46px;
-  padding: 5px;
+  padding: 0;
+  width: var(--control-size-compact);
 }

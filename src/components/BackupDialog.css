@@ -21,10 +21,6 @@
   margin: 0;
   flex: none;
 }
-.backup-actions {
-  display: flex;
-  gap: 10px;
-}
 .backup-content p {
   margin: 0;
 }

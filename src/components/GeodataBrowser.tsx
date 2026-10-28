@@ -82,7 +82,7 @@ function Pages({
   change: (v: number) => void;
 }) {
   return (
-    <div className="geo-pages">
+    <div className="action-row action-row--spread geo-pages">
       <button
         type="button"
         className="icon-button"
@@ -253,10 +253,11 @@ export default function GeodataBrowser({
           <X size={18} />
         </button>
       </div>
-      <div className="geo-source">
+      <div className="action-row action-row--spread geo-source">
         <label>
           Resource file
           <select
+            className="text-control"
             aria-label="Resource file"
             value={file}
             onChange={(e) => {
@@ -295,6 +296,7 @@ export default function GeodataBrowser({
       <div className="geo-columns">
         <section className="geo-groups" aria-label="Resource groups">
           <input
+            className="text-control"
             ref={search}
             maxLength={256}
             aria-label="Search groups"
@@ -348,6 +350,7 @@ export default function GeodataBrowser({
           <label className="geo-expression">
             Expression
             <input
+              className="text-control"
               aria-label={`${kind === 'geosite' ? 'GeoSite' : 'GeoIP'} expression`}
               value={expression}
               maxLength={4096}
@@ -420,6 +423,7 @@ export default function GeodataBrowser({
                 </label>
               )}
               <input
+                className="text-control"
                 maxLength={256}
                 aria-label="Search preview"
                 placeholder={

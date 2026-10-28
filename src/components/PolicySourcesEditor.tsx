@@ -341,6 +341,7 @@ export default function PolicySourcesEditor({
               </label>
             )}
             <ResultPager
+              compact
               label="Manual set"
               count={manualMatches.length}
               size={30}

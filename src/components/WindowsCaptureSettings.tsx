@@ -234,7 +234,7 @@ export default function WindowsCaptureSettings({
                 {catalogError}
               </p>
             )}
-            <div className="capture-picker-header">
+            <div className="form-row capture-picker-header">
               <button
                 className="secondary-button"
                 disabled={loading || !desktopServiceAvailable()}
@@ -352,7 +352,7 @@ export default function WindowsCaptureSettings({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <div className="capture-picker-header">
+            <div className="form-row capture-picker-header">
               <button
                 className="secondary-button"
                 disabled={busy || !desktopServiceAvailable()}

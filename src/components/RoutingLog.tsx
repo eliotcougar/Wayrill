@@ -193,7 +193,7 @@ function FilterRoutingLog({
             : 'Collecting';
   return (
     <section className="routing-log" aria-label="Traffic log">
-      <div className="routing-log-controls">
+      <div className="action-row action-row--spread routing-log-controls">
         <span role="status">{status}</span>
         <button
           className="icon-button"
@@ -231,7 +231,7 @@ function FilterRoutingLog({
           {paused ? 'Resume updates' : 'Pause updates'}
         </button>
       </div>
-      <div className="routing-log-filters">
+      <div className="action-row routing-log-filters">
         <label className="palette-search routing-log-search">
           <Search size={15} aria-hidden="true" />
           <input
@@ -350,7 +350,7 @@ function FilterRoutingLog({
           </div>
         </div>
       </div>
-      <div className="routing-log-footer">
+      <div className="action-row action-row--spread routing-log-footer">
         <span>
           {paused
             ? 'Display paused · collection continues'

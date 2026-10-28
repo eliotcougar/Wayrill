@@ -13,16 +13,25 @@ Add feature sheets there rather than importing CSS from components.
 - `styles/controls.css` owns buttons, fields, toggles, editable selects and
   disclosure controls. Use `text-control` for standalone inputs, selects and
   textareas; controls within `field` or `editor-field` inherit this appearance.
+- `styles/layout.css` owns wrapping action and form rows. Use `action-row` for
+  buttons/status controls and `form-row` for labeled controls with adjacent
+  actions. `action-row--spread` separates the leading and trailing content.
+  Feature sheets retain placement, widths and margins rather than repeating the
+  flex layout, alignment and gap.
 - `styles/dialogs.css` owns dialog/editor shells, title bars, tabs and footers.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`
 selects the compact density; an `editor-field` selects the normal density.
+Use `compact-controls` for a group of compact inputs and action buttons, as in
+pagination. Its padding and font size change together with the minimum height.
 Keep checkbox, radio and file inputs distinct from text controls. Composite
 secret fields and editable selects own one outer border and one focus treatment.
 
 Field appearance uses low-specificity selectors so validation, inherited-value
 hints and composite controls can specialize it without escalating specificity.
+The element font reset must also have zero specificity; a type selector with
+`font: inherit` would defeat the field's font size and line height.
 Preserve visible focus on every keyboard-operable control.
 
 ## Feature ownership
@@ -53,4 +62,5 @@ Run the frontend checks, tests and build described in [building](building.md).
 Also inspect affected views in light and dark themes, including keyboard focus,
 validation/default hints, open popovers and overflow at a laptop viewport. Assess
 the rendered result after each styling round; compilation alone cannot establish
-layout correctness.
+layout correctness. Measure actual control dimensions when changing density;
+padding or native form metrics can exceed a declared minimum height.

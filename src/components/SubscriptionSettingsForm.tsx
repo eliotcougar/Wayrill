@@ -203,7 +203,7 @@ export default function SubscriptionSettingsForm({
         )}
         <fieldset className="stash-settings-fields" disabled={busy}>
           {!group && (
-            <div className="stash-import-modes" role="group" aria-label="Import source">
+            <div className="action-row" role="group" aria-label="Import source">
               <button
                 type="button"
                 className="secondary-button"
@@ -402,7 +402,7 @@ export default function SubscriptionSettingsForm({
             </>
           )}
         </fieldset>
-        <div className="subscription-settings-actions">
+        <div className="action-row subscription-settings-actions">
           <button
             type="submit"
             className="primary-button"

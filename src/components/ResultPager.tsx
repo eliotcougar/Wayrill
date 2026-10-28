@@ -31,7 +31,7 @@ export default function ResultPager({
     );
   return (
     <nav
-      className={`result-pager${compact ? ' result-pager-compact' : ''}`}
+      className={`compact-controls result-pager${compact ? ' result-pager-compact' : ''}`}
       aria-label={`${label} pages`}
     >
       <span role="status" title={`Page ${current + 1} of ${pages.toLocaleString()}`}>
@@ -87,6 +87,7 @@ export default function ResultPager({
         <label>
           <span className={compact ? 'sr-only' : undefined}>Go to page</span>{' '}
           <input
+            className="text-control"
             aria-label={`${label}: go to page`}
             type="number"
             min={1}

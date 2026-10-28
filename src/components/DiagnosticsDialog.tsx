@@ -185,7 +185,7 @@ export default function DiagnosticsDialog({
         </button>
       </div>
       <div className="diagnostics-body">
-        <div className="diagnostics-toolbar">
+        <div className="action-row diagnostics-toolbar">
           <RoutingLogFilter
             label="Sources"
             choices={sourceChoices}
@@ -257,7 +257,7 @@ export default function DiagnosticsDialog({
           }
           spellCheck={false}
         />
-        <div className="diagnostics-status">
+        <div className="action-row action-row--spread diagnostics-status">
           <span role="status">
             {desktop && display && (
               <>

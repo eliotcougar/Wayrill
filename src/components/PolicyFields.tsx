@@ -45,7 +45,7 @@ export default function PolicyFields({
         Blank values use Xray’s native policy defaults. Inbound and outbound account settings select
         a level. Enable core statistics to collect the selected counters.
       </p>
-      <div className="runtime-actions">
+      <div className="form-row runtime-actions">
         <label className="editor-field">
           <span>Policy level</span>
           <select

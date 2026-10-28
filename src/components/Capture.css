@@ -78,10 +78,6 @@
   white-space: nowrap;
 }
 .capture-picker-header {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
   flex-shrink: 0;
 }
 .capture-picker-header h3 {
@@ -201,10 +197,6 @@
 }
 .application-selectors > .field-help {
   margin: 0;
-}
-.application-selectors .capture-picker-header > .small-action {
-  margin: 0;
-  min-height: var(--control-size);
 }
 .application-selectors details > :not(summary) {
   margin-top: 8px;

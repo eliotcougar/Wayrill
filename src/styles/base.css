@@ -19,10 +19,7 @@ body {
   color: var(--text);
   font-size: 13px;
 }
-button,
-input,
-textarea,
-select {
+:where(button, input, textarea, select) {
   font: inherit;
   -webkit-tap-highlight-color: transparent;
 }

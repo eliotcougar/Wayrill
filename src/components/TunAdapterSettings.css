@@ -22,10 +22,6 @@
   display: block;
   margin-top: 4px;
 }
-.tun-adapter-actions {
-  display: flex;
-  gap: 8px;
-}
 .tun-adapter-remove {
   color: var(--danger);
   border-color: var(--danger-border);
