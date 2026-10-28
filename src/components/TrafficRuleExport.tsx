@@ -75,7 +75,7 @@ export default function TrafficRuleExport({
         </select>
       </label>
       {table.source && (
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={format === 'v2rayn' || embedOverrides}

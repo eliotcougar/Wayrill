@@ -60,7 +60,7 @@ export default function RoutingLogFilter<K extends string | null>({
       </summary>
       <fieldset>
         <legend>Visible {label.toLowerCase()}</legend>
-        <label className="routing-log-all">
+        <label className="check-control check-control--compact routing-log-all">
           <input
             ref={all}
             type="checkbox"
@@ -71,7 +71,7 @@ export default function RoutingLogFilter<K extends string | null>({
           <span>All</span>
         </label>
         {choices.map((choice) => (
-          <label key={JSON.stringify(choice.id)}>
+          <label key={JSON.stringify(choice.id)} className="check-control check-control--compact">
             <input
               type="checkbox"
               checked={logItemVisible(visibility, choice.id)}

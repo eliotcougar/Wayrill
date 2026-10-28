@@ -335,7 +335,7 @@ export default function ResourceFields({
           </section>
         );
       })}
-      <label className="editor-checkbox">
+      <label className="check-control">
         <input
           type="checkbox"
           checked={value.reloadAfterAutoUpdates}
@@ -452,7 +452,7 @@ function ResourceFileEditor({
         />
       </div>
       <div className="form-row resource-update-controls">
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={draft.autoUpdate}
@@ -473,7 +473,7 @@ function ResourceFileEditor({
           />
         </label>
       </div>
-      <label className="editor-checkbox">
+      <label className="check-control">
         <input
           type="checkbox"
           checked={draft.throughWayrill}

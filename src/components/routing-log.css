@@ -34,14 +34,11 @@
 .routing-log-choice-filter {
   position: relative;
 }
-.routing-log-choice-filter summary,
-.routing-log-choice-filter label {
+.routing-log-choice-filter summary {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 12px;
-}
-.routing-log-choice-filter summary {
   cursor: pointer;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -76,16 +73,9 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
-.routing-log-choice-filter label {
-  min-height: 28px;
-}
 .routing-log-choice-filter label span {
   overflow-wrap: anywhere;
   min-width: 0;
-}
-.routing-log-filters input[type='checkbox'] {
-  flex-shrink: 0;
-  margin: 0;
 }
 .routing-log > .notice {
   margin: 0;

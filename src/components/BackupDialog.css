@@ -10,17 +10,6 @@
 .backup-content .editor-field {
   margin-bottom: 0;
 }
-.backup-content .editor-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.backup-content .editor-check input[type='checkbox'] {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  flex: none;
-}
 .backup-content p {
   margin: 0;
 }
@@ -43,12 +32,8 @@
   border-radius: 8px;
 }
 .backup-filter-list > label {
-  display: flex;
-  align-items: center;
-  margin: 0;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
-  cursor: pointer;
 }
 .backup-filter-list > label:last-child {
   border-bottom: 0;

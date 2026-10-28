@@ -248,7 +248,7 @@ export default function BackupDialog({
             {scope === 'graph' && <p className="field-help">Includes linked Stash dependencies.</p>}
             {scope === 'filters' && (
               <div className="backup-filter-list" aria-label="Filters to back up">
-                <label className="editor-check">
+                <label className="check-control">
                   <input
                     type="checkbox"
                     disabled={busy || !filters.length}
@@ -258,7 +258,7 @@ export default function BackupDialog({
                   All
                 </label>
                 {filters.map((n) => (
-                  <label className="editor-check" key={n.id}>
+                  <label className="check-control" key={n.id}>
                     <input
                       type="checkbox"
                       disabled={busy}
@@ -280,7 +280,7 @@ export default function BackupDialog({
                 {!filters.length && <p>No Traffic or DNS routing filters on this graph.</p>}
               </div>
             )}
-            <label className="editor-check">
+            <label className="check-control">
               <input
                 type="checkbox"
                 checked={encrypt}
@@ -380,7 +380,7 @@ export default function BackupDialog({
                 <fieldset className="backup-components">
                   <legend>Restore</legend>
                   {content.graph && (
-                    <label className="editor-check">
+                    <label className="check-control">
                       <input
                         type="checkbox"
                         disabled={busy}
@@ -391,7 +391,7 @@ export default function BackupDialog({
                     </label>
                   )}
                   {content.stash !== undefined && (
-                    <label className="editor-check">
+                    <label className="check-control">
                       <input
                         type="checkbox"
                         disabled={busy}
@@ -402,7 +402,7 @@ export default function BackupDialog({
                     </label>
                   )}
                   {content.preferences && (
-                    <label className="editor-check">
+                    <label className="check-control">
                       <input
                         type="checkbox"
                         disabled={busy}
@@ -415,7 +415,7 @@ export default function BackupDialog({
                     </label>
                   )}
                   {content.filters && (
-                    <label className="editor-check">
+                    <label className="check-control">
                       <input
                         type="checkbox"
                         disabled={busy}

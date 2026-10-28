@@ -18,9 +18,8 @@
   align-items: end;
   gap: 12px 18px;
 }
-.stash-import .stash-checkbox {
+.stash-settings-fields :where(.editor-field, .editor-advanced) {
   margin: 0;
-  min-height: var(--control-size);
 }
 .subscription-maintenance-status {
   margin-top: 10px;
@@ -36,18 +35,6 @@
   border: 0;
   margin: 0;
   min-width: 0;
-}
-.subscription-request-settings {
-  border-block: 1px solid var(--border);
-  padding: 10px 0;
-}
-.subscription-request-settings > summary {
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.subscription-request-settings[open] > summary {
-  margin-bottom: 12px;
 }
 .subscription-request-settings > label + label {
   margin-top: 12px;
@@ -91,23 +78,8 @@
 .stash-group-controls {
   padding: 14px 0;
 }
-.stash-search label,
-.stash-group-controls label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  min-width: 0;
-  max-width: 100%;
-}
 .stash-group-controls > label {
   flex: 1 1 250px;
-}
-.stash-group-controls select,
-.stash-search select {
-  width: 100%;
-  max-width: 100%;
 }
 .stash-search > label:first-child {
   flex: 1 1 240px;
@@ -131,13 +103,6 @@
   display: grid;
   gap: 14px;
 }
-.stash-import label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
 .stash-import textarea {
   min-height: 100px;
   resize: vertical;
@@ -153,15 +118,6 @@
 }
 .subscription-request-settings textarea {
   min-height: 62px;
-}
-.stash-checkbox {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 12px 0;
 }
 .stash-table {
   display: grid;
@@ -199,8 +155,9 @@
   z-index: 1;
   color: var(--text-secondary);
 }
-.stash-problem {
-  color: var(--warning) !important;
+.stash-row .stash-problem,
+.subscription-group-summary > .stash-problem {
+  color: var(--warning);
 }
 .stash-entry-actions {
   display: flex;

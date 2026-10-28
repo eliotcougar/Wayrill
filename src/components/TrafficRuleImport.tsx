@@ -283,7 +283,7 @@ export default function TrafficRuleImport({
         </button>
       </div>
       <div className="form-row routing-import-options">
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={allowHttp}
@@ -295,7 +295,7 @@ export default function TrafficRuleImport({
           Allow HTTP
         </label>
         {isTauri() && (
-          <label className="editor-checkbox">
+          <label className="check-control">
             <input
               type="checkbox"
               checked={viaWayrill}
@@ -340,7 +340,7 @@ export default function TrafficRuleImport({
             </label>
           )}
           {!refresh && (
-            <label className="editor-checkbox">
+            <label className="check-control">
               <input
                 type="checkbox"
                 checked={keepSource && !(source.source && mode === 'append')}
@@ -405,7 +405,7 @@ export default function TrafficRuleImport({
             ))}
           </div>
           {source.domainStrategy && !refresh && mode === 'replace' && (
-            <label className="editor-checkbox">
+            <label className="check-control">
               <input
                 type="checkbox"
                 checked={setStrategy}

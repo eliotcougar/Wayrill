@@ -576,7 +576,7 @@ export default function ProtocolEditor({
               settings={object('settings')}
               onChange={(o) => section('settings', o)}
             />
-            <label className="editor-checkbox">
+            <label className="check-control">
               <input
                 type="checkbox"
                 disabled={automaticFakeDnsRecovery}
@@ -609,7 +609,7 @@ export default function ProtocolEditor({
           </>
         )}
         {data.kind === 'tun-inbound' && (
-          <label className="editor-checkbox">
+          <label className="check-control">
             <input
               type="checkbox"
               checked={data.settings.separateNatTraffic === true}

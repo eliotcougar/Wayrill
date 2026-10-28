@@ -120,7 +120,7 @@ export default function FakeDnsEditor({
       </div>
       <EditorTabs tabs={tabs} label="FakeDNS sections" />
       <EditorTabPanel tabs={tabs} tab="pools" className="runtime-body">
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={automatic}

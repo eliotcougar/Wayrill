@@ -274,7 +274,7 @@ export default function IcsEditor({
           original setting.
         </p>
       )}
-      <label className="editor-checkbox">
+      <label className="check-control">
         <input
           type="checkbox"
           checked={draft.settings.shareIpv6 === true}
@@ -317,7 +317,7 @@ export default function IcsEditor({
           )?.data.label || 'Missing destination'}
         </p>
       ) : (
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={filtered}

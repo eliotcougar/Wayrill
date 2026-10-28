@@ -16,10 +16,6 @@
   width: max-content;
   max-width: min(400px, calc(100vw - 80px));
 }
-.diagnostics-toolbar input[type='checkbox'] {
-  flex-shrink: 0;
-  margin: 0;
-}
 .diagnostics-folder {
   margin-inline-start: auto;
 }

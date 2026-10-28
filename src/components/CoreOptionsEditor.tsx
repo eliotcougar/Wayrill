@@ -127,7 +127,7 @@ export default function CoreOptionsEditor({
           title="Core policy"
           configured={Object.hasOwn(draft, 'policy') ? ['Core policy'] : []}
         >
-          <label className="editor-checkbox">
+          <label className="check-control">
             <input
               type="checkbox"
               checked={Object.hasOwn(draft, 'policy')}
@@ -151,7 +151,7 @@ export default function CoreOptionsEditor({
         tab="metrics"
         className="runtime-body"
       >
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={Object.hasOwn(draft, 'stats')}
@@ -167,7 +167,7 @@ export default function CoreOptionsEditor({
           title="Metrics"
           configured={Object.hasOwn(draft, 'metrics') ? ['Metrics'] : []}
         >
-          <label className="editor-checkbox">
+          <label className="check-control">
             <input
               type="checkbox"
               checked={Object.hasOwn(draft, 'metrics')}

@@ -20,10 +20,8 @@
 .form-row > .editor-field {
   margin: 0;
 }
-.form-row > .editor-checkbox {
+.form-row > .check-control {
   min-height: var(--control-size);
-  padding: 0;
-  margin: 0;
 }
 .form-row > .small-action {
   min-height: var(--control-size);

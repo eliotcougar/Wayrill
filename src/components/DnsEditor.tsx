@@ -161,7 +161,7 @@ function CheckField({
   disabled?: boolean;
 }) {
   return (
-    <label className="editor-checkbox" data-diagnostic-field={diagnosticKey}>
+    <label className="check-control" data-diagnostic-field={diagnosticKey}>
       <input
         type="checkbox"
         checked={checked}
@@ -861,7 +861,7 @@ export default function DnsEditor({
                               />
                               <fieldset className="dns-record-types" data-diagnostic-field="qType">
                                 <legend>DNS record types</legend>
-                                <div className="dns-record-type-options">
+                                <div className="compact-controls dns-record-type-options">
                                   {[
                                     [1, 'A'],
                                     [28, 'AAAA'],
@@ -871,7 +871,10 @@ export default function DnsEditor({
                                     [16, 'TXT'],
                                     [12, 'PTR'],
                                   ].map(([value, name]) => (
-                                    <label key={value} className="editor-checkbox">
+                                    <label
+                                      key={value}
+                                      className="check-control check-control--compact"
+                                    >
                                       <input
                                         type="checkbox"
                                         checked={hasQuestionType(policy.qType, Number(value))}

@@ -207,7 +207,7 @@ export default function PreparedOutboundLibrary({
                 <Trash2 size={15} />
               </button>
               {replace ? (
-                <label className="stash-choice">
+                <label className="check-control stash-choice">
                   <input
                     autoComplete="off"
                     type="radio"

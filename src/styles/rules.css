@@ -382,19 +382,6 @@
   gap: 8px 14px;
   margin-bottom: 12px;
 }
-.dns-record-type-options .editor-checkbox {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  margin: 0;
-}
-.dns-record-type-options input {
-  flex: none;
-  width: 14px;
-  min-width: 0;
-  margin: 0;
-}
 
 .dns-editor-window .output-editor-list {
   margin-bottom: 16px;

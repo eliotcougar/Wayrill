@@ -228,8 +228,8 @@ export default function SubscriptionSettingsForm({
               </button>
             </div>
           )}
-          <label>
-            Group name
+          <label className="editor-field">
+            <span>Group name</span>
             <input
               className="text-control"
               autoComplete="off"
@@ -240,8 +240,8 @@ export default function SubscriptionSettingsForm({
             />
           </label>
           {mode === 'paste' ? (
-            <label>
-              Configurations / subscription content
+            <label className="editor-field">
+              <span>Configurations / subscription content</span>
               <textarea
                 className="text-control"
                 aria-label="Configurations / subscription content"
@@ -254,8 +254,8 @@ export default function SubscriptionSettingsForm({
           ) : (
             <>
               <div className="stash-subscription">
-                <label>
-                  Subscription URL{group && !group.url ? ' (optional)' : ''}
+                <label className="editor-field">
+                  <span>Subscription URL{group && !group.url ? ' (optional)' : ''}</span>
                   <input
                     className="text-control"
                     autoComplete="off"
@@ -270,8 +270,8 @@ export default function SubscriptionSettingsForm({
                   />
                 </label>
                 {hasUrl && (
-                  <label>
-                    Download via
+                  <label className="editor-field">
+                    <span>Download via</span>
                     <select
                       className="text-control"
                       value={maintenance.viaProxy ? 'proxy' : 'direct'}
@@ -288,7 +288,7 @@ export default function SubscriptionSettingsForm({
                   <span>
                     This URL is already used by <bdi>{duplicate.name}</bdi>.
                   </span>
-                  <label className="stash-checkbox">
+                  <label className="check-control">
                     <input
                       type="checkbox"
                       checked={!duplicatePending}
@@ -303,7 +303,7 @@ export default function SubscriptionSettingsForm({
               {hasUrl && (
                 <>
                   <div className="subscription-refresh-fields">
-                    <label className="stash-checkbox">
+                    <label className="check-control">
                       <input
                         type="checkbox"
                         checked={maintenance.autoRefresh}
@@ -312,8 +312,8 @@ export default function SubscriptionSettingsForm({
                       Refresh automatically
                     </label>
                     {hasUrl && (
-                      <label>
-                        Update interval (minutes)
+                      <label className="editor-field">
+                        <span>Update interval (minutes)</span>
                         <input
                           className="text-control"
                           type="number"
@@ -332,10 +332,10 @@ export default function SubscriptionSettingsForm({
                       </label>
                     )}
                   </div>
-                  <details ref={advanced} className="subscription-request-settings">
+                  <details ref={advanced} className="editor-advanced subscription-request-settings">
                     <summary>Advanced request settings</summary>
-                    <label>
-                      User-Agent
+                    <label className="editor-field">
+                      <span>User-Agent</span>
                       <input
                         className="text-control"
                         autoComplete="off"
@@ -345,8 +345,8 @@ export default function SubscriptionSettingsForm({
                         placeholder={`Wayrill/${appVersion}`}
                       />
                     </label>
-                    <label>
-                      Request headers (JSON)
+                    <label className="editor-field">
+                      <span>Request headers (JSON)</span>
                       <textarea
                         className="text-control"
                         spellCheck={false}
@@ -354,7 +354,7 @@ export default function SubscriptionSettingsForm({
                         onChange={(event) => setHeaders(event.target.value)}
                       />
                     </label>
-                    <label className="stash-checkbox">
+                    <label className="check-control">
                       <input
                         type="checkbox"
                         checked={allowHttp}
@@ -367,7 +367,7 @@ export default function SubscriptionSettingsForm({
               )}
               <fieldset className="subscription-health-fields">
                 <legend>Server health</legend>
-                <label className="stash-checkbox">
+                <label className="check-control">
                   <input
                     type="checkbox"
                     checked={maintenance.removeUnreachable}
@@ -377,8 +377,8 @@ export default function SubscriptionSettingsForm({
                 </label>
                 {maintenance.removeUnreachable && (
                   <div className="subscription-health-intervals">
-                    <label>
-                      Max retries after the first attempt
+                    <label className="editor-field">
+                      <span>Max retries after the first attempt</span>
                       <input
                         className="text-control"
                         type="number"

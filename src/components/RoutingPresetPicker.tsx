@@ -133,7 +133,7 @@ export default function RoutingPresetPicker({
         ))}
       </div>
       {strategy && mode === 'replace' && (
-        <label className="editor-checkbox">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={setStrategy}

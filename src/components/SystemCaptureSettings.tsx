@@ -205,7 +205,7 @@ function ProxySection({
               <>
                 <div className="capture-variable-switches">
                   {(['http', 'https', 'ftp', 'all'] as const).map((name) => (
-                    <label key={name}>
+                    <label key={name} className="check-control">
                       <input
                         type="checkbox"
                         checked={request[name]}
@@ -249,7 +249,7 @@ function ProxySection({
                 maxLength={2000}
               />
             </label>
-            <label className="stash-checkbox">
+            <label className="check-control">
               <input
                 type="checkbox"
                 checked={request.autoDetect}
@@ -708,7 +708,7 @@ export default function SystemCaptureSettings({
                     Uninstall driver
                   </button>
                 </div>
-                <label className="stash-checkbox">
+                <label className="check-control">
                   <input
                     type="checkbox"
                     checked={confirmDriver}

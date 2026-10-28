@@ -383,7 +383,7 @@ export default function GeodataBrowser({
                 >
                   <legend>Attributes · match all selected</legend>
                   <div>
-                    <label>
+                    <label className="check-control check-control--compact">
                       <input
                         type="checkbox"
                         checked={!selection.attributes.length}
@@ -395,7 +395,7 @@ export default function GeodataBrowser({
                       All entries
                     </label>
                     {attributes.map((a) => (
-                      <label key={a}>
+                      <label key={a} className="check-control check-control--compact">
                         <input
                           type="checkbox"
                           aria-label={`Attribute @${a}`}
@@ -409,7 +409,7 @@ export default function GeodataBrowser({
                 </fieldset>
               )}
               {kind === 'geoip' && (
-                <label className="geo-inverse">
+                <label className="check-control">
                   <input
                     type="checkbox"
                     checked={selection.inverse}

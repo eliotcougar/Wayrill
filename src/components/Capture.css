@@ -98,11 +98,6 @@
 .application-selectors .capture-selector-list:empty {
   display: none;
 }
-.application-selectors input[type='checkbox'] {
-  flex: 0 0 auto;
-  min-width: 0;
-  width: 14px;
-}
 .application-selectors .capture-selector-list > div {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;

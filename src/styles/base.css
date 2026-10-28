@@ -72,8 +72,12 @@ button svg {
   background: var(--scrollbar-hover);
 }
 
-input[type='checkbox'],
-input[type='radio'] {
+:where(input[type='checkbox'], input[type='radio']) {
+  width: var(--choice-size);
+  height: var(--choice-size);
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
   accent-color: var(--accent-fill);
 }
 .sr-only {

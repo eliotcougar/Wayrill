@@ -15,6 +15,9 @@ Add feature sheets there rather than importing CSS from components.
   textareas. `field` and `editor-field` style their direct controls and immediate
   control wrappers, without reaching into nested editors/dialogs. Use
   `search-control` for an icon and input sharing one border and focus ring.
+  `check-control` lays out a native checkbox/radio and its label; its compact
+  variant is for dense option lists. Keep text fields in explicit `editor-field`
+  wrappers rather than styling every label inside a dialog.
 - `styles/layout.css` owns wrapping action and form rows. Use `action-row` for
   buttons/status controls and `form-row` for labeled controls with adjacent
   actions. `action-row--spread` separates the leading and trailing content.
@@ -40,6 +43,10 @@ Filter sidebars use the same compact density; dialog searches use normal density
 and the node-library search uses compact density.
 Keep checkbox, radio and file inputs distinct from text controls. Composite
 secret fields and editable selects own one outer border and one focus treatment.
+Native checkboxes and radios share `--choice-size`; rich selectable rows and
+theme cards retain their own layout around those controls.
+Choice rows follow the normal control height; `check-control--compact` uses a
+24px row for options that already live in a dense list or wrapping group.
 
 Field appearance uses low-specificity selectors so validation, inherited-value
 hints and composite controls can specialize it without escalating specificity.

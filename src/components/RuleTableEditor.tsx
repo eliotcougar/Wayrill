@@ -630,7 +630,7 @@ export default function RuleTableEditor({
                                 }
                               />
                             </label>
-                            <label className="editor-checkbox">
+                            <label className="check-control">
                               <input
                                 type="checkbox"
                                 checked={selectedRule.enabled}

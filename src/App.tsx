@@ -1970,7 +1970,7 @@ export default function App() {
                           {sharing.value?.problem && (
                             <p className="notice notice--error">{sharing.value.problem}</p>
                           )}
-                          <label className="editor-checkbox">
+                          <label className="check-control">
                             <input
                               type="checkbox"
                               checked={icsFilter}

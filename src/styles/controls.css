@@ -290,19 +290,29 @@ textarea.text-control {
   gap: 20px;
   align-items: center;
 }
-.editor-two-fields > .editor-checkbox {
+.editor-two-fields > .check-control {
   align-self: end;
   min-height: var(--control-size);
-  padding: 0;
   margin-bottom: var(--space-4);
 }
-.editor-checkbox {
+.check-control {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
-  font-size: 11px;
+  min-width: 0;
+  min-height: var(--control-size);
+  margin: 0;
+  font-size: var(--control-text-size);
+  line-height: var(--control-line-height);
   color: var(--text);
-  padding: 4px 0 12px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.check-control--compact {
+  min-height: var(--space-6);
+}
+.check-control:has(> input:disabled) {
+  cursor: default;
 }
 .editor-section-heading {
   padding: 9px 0 16px;

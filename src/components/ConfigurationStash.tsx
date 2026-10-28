@@ -639,8 +639,8 @@ export default function ConfigurationStash({
                       </div>
                     ))}
                 <div className="form-row stash-group-controls">
-                  <label>
-                    Group
+                  <label className="editor-field">
+                    <span>Group</span>
                     <select
                       className="text-control"
                       aria-label="Stash group"
@@ -726,8 +726,8 @@ export default function ConfigurationStash({
                   </button>
                 </div>
                 <div className="form-row stash-search">
-                  <label>
-                    Search
+                  <label className="editor-field">
+                    <span>Search</span>
                     <input
                       className="text-control"
                       autoComplete="off"
@@ -740,8 +740,8 @@ export default function ConfigurationStash({
                       placeholder="Name, server, protocol or group"
                     />
                   </label>
-                  <label>
-                    Show
+                  <label className="editor-field">
+                    <span>Show</span>
                     <select
                       className="text-control"
                       aria-label="Configuration type"
@@ -891,7 +891,7 @@ export default function ConfigurationStash({
                         )}
 
                         {replaceLabel ? (
-                          <label className="stash-choice">
+                          <label className="check-control stash-choice">
                             <input
                               autoComplete="off"
                               type="radio"

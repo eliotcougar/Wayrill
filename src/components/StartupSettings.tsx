@@ -51,7 +51,7 @@ export default function StartupSettings({
         </button>
       </div>
       <div className="dialog-body">
-        <label className="editor-check">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={enabled}

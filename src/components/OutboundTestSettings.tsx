@@ -58,7 +58,7 @@ export default function OutboundTestSettings({
               onChange={(testUrl) => setDraft({ ...draft, testUrl })}
             />
           </div>
-          <label className="editor-checkbox">
+          <label className="check-control">
             <input
               type="checkbox"
               checked={draft.udpEnabled}
