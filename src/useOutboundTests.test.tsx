@@ -6,7 +6,9 @@ import useOutboundTests from './useOutboundTests';
 import { serviceCall } from './serviceClient';
 import { makeNode } from './graph/catalog';
 import type { GraphState } from './graph/types';
-import type { Stash } from './profiles/import';
+import { parseEntry, serializeStash, type Stash } from './profiles/import';
+import { defaultGroup } from './profiles/stashModel';
+import { mergeLibraryUpdate } from './profiles/stashMerge';
 import { createTestPlan, type TestPlanInput } from './outboundTestPlan';
 import { createPolicyExample } from './graph/policyExample';
 import OutboundTestResults from './components/OutboundTestResults';
@@ -73,8 +75,16 @@ class FakeWorker {
     this.terminated = true;
   }
 }
-function Probe({ g = graph, show = false }: { g?: GraphState; show?: boolean }) {
-  latest = useOutboundTests(g, stash);
+function Probe({
+  g = graph,
+  s = stash,
+  show = false,
+}: {
+  g?: GraphState;
+  s?: Stash;
+  show?: boolean;
+}) {
+  latest = useOutboundTests(g, s);
   return show && latest.open ? <OutboundTestResults tests={latest} /> : null;
 }
 beforeEach(() => {
@@ -145,6 +155,55 @@ it('retests both measurements in-place and keeps the dialog, other results and i
   expect(latest.records.latency.results.size).toBe(2);
   expect(host.querySelector('dialog')).toBe(dialog);
 });
+it.each(['latency', 'speed'] as const)(
+  'retains %s results after a service refresh changes only subscription metadata',
+  async (mode) => {
+    FakeWorker.realPlans = true;
+    const entry = parseEntry('socks://127.0.0.1:1080#Saved server');
+    const library: Stash = {
+      ...stash,
+      groups: [{ ...defaultGroup(), id: 'provider', name: 'Provider', entries: [entry] }],
+    };
+    vi.mocked(serviceCall).mockImplementation(async (_method, params) => ({
+      job: 1,
+      busy: false,
+      cancelled: false,
+      results: (params!.targets as { id: string }[]).map(({ id }) => ({
+        id,
+        latencyMs: mode === 'latency' ? 25 : null,
+        ip: null,
+        country: null,
+        error: null,
+        countryError: null,
+        ...(mode === 'latency'
+          ? { udp: { reachable: true, error: null } }
+          : { speed: { bytesPerSecond: 1_000_000, bytes: 5_000_000, elapsedMs: 5000 } }),
+      })),
+    }));
+    await act(() => root.render(<Probe s={library} />));
+    await act(() => latest.start([entry], undefined, mode));
+    const results = latest.records[mode].results;
+    expect(results.size).toBe(1);
+    // Normal service publication: an unchanged refresh advances its timestamp,
+    // then the merge worker returns freshly deserialized connection objects.
+    const refreshed = {
+      ...library,
+      groups: library.groups.map((group) => ({ ...group, updatedAt: Date.now() })),
+    };
+    const merged = mergeLibraryUpdate(serializeStash(library), library, serializeStash(refreshed))!;
+    const synchronized = { ...library, groups: merged.groups };
+    expect(synchronized.groups[0].entries[0].profile).not.toBe(entry.profile);
+    expect(synchronized.groups[0].entries[0].profile).toEqual(entry.profile);
+    await act(() => root.render(<Probe s={synchronized} />));
+    expect(latest.records[mode].results).toBe(results);
+    expect(serviceCall).not.toHaveBeenCalledWith('outbounds.testCancel', expect.anything());
+
+    const changed = structuredClone(synchronized);
+    changed.groups[0].entries[0].profile!.settings.port = 1081;
+    await act(() => root.render(<Probe s={changed} />));
+    expect(latest.records[mode].results.size).toBe(0);
+  },
+);
 it('cleans up a failed worker submission immediately and permits a later test', async () => {
   vi.useFakeTimers();
   await act(() => root.render(<Probe />));

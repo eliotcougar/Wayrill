@@ -1,6 +1,7 @@
 import type { StashEntry, StashGroup } from './import';
 import { searchText } from '../text';
 import { entryAvailable } from './subscriptionState';
+import { jsonEqual } from '../graph/xrayJson';
 
 export interface LibraryRow {
   group: StashGroup;
@@ -37,7 +38,7 @@ export function searchLibrary(rows: LibraryRow[], query: string, groupId = '', u
       (!term || row.search.includes(term)),
   );
 }
-/** Health timestamps, locks and schedules do not invalidate an existing connectivity result. */
+/** Service snapshots deserialize definitions; metadata changes must not invalidate test results. */
 export function sameTestLibrary(before: StashGroup[], after: StashGroup[]) {
   return (
     before === after ||
@@ -54,8 +55,8 @@ export function sameTestLibrary(before: StashGroup[], after: StashGroup[]) {
                 entry === candidate ||
                 (entry.id === candidate.id &&
                   entry.name === candidate.name &&
-                  entry.profile === candidate.profile &&
-                  entry.draft === candidate.draft)
+                  jsonEqual(entry.profile, candidate.profile) &&
+                  jsonEqual(entry.draft, candidate.draft))
               );
             }))
         );
