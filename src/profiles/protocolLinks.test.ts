@@ -120,6 +120,39 @@ describe('Protocol subscription links', () => {
     ).toBe('shadowsocks-outbound');
     expect(parseEntry('socks://[::1]:20922').profile?.kind).toBe('socks-outbound');
   });
+  it.each(
+    ['ss', 'socks', 'socks5'].flatMap((scheme) =>
+      ['qa/with?query#fragment@:🦊', 'literal%2F%40%23'].map((password) => ({ scheme, password })),
+    ),
+  )(
+    'preserves legacy $scheme password $password through subscription import',
+    ({ scheme, password }) => {
+      const user = scheme === 'ss' ? 'aes-128-gcm' : 'qa';
+      const link = `${scheme}://${Buffer.from(`${user}:${password}@[::1]:20922`).toString('base64')}#Legacy%20server`;
+      const imported = importProfiles(btoa(link));
+      expect(imported.rejected).toBe(0);
+      const entries = imported.groups[0].entries;
+      expect(entries).toHaveLength(1);
+      const entry = entries[0];
+      expect(entry.problem).toBe('');
+      expect(entry.name).toBe('Legacy server');
+      if (scheme === 'ss')
+        expect(JSON.parse(String(entry.profile?.settings.json)).settings).toMatchObject({
+          address: '::1',
+          port: 20922,
+          method: user,
+          password,
+        });
+      else
+        expect(entry.profile?.settings).toMatchObject({
+          address: '::1',
+          port: 20922,
+          auth: 'password',
+          username: user,
+          password,
+        });
+    },
+  );
   for (const link of [
     'trojan://qa@127.0.0.1:443?insecure=1',
     'ss://YWVzLTEyOC1nY206cWE=@127.0.0.1:443?plugin=obfs-local',

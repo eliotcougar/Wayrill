@@ -94,8 +94,17 @@ export function protocolLink(
       main = body.split(/[?#]/)[0];
     // A plain SOCKS host (including IPv6) needs no credentials. Only opaque
     // authorities use the legacy whole-authority Base64 representation.
-    if (!main.includes('@') && !main.includes(':') && !main.startsWith('['))
-      source = `${scheme}://${decode(main)}${body.slice(main.length)}`;
+    if (!main.includes('@') && !main.includes(':') && !main.startsWith('[')) {
+      const decoded = decode(main),
+        separator = decoded.lastIndexOf('@');
+      // Legacy Base64 contains literal credentials, not URL-escaped userinfo.
+      // Protect reserved characters before passing the authority to URL.
+      const authority =
+        separator < 0
+          ? decoded
+          : `${encodeURIComponent(decoded.slice(0, separator))}${decoded.slice(separator)}`;
+      source = `${scheme}://${authority}${body.slice(main.length)}`;
+    }
   }
   let u: URL;
   try {
