@@ -84,9 +84,8 @@
   flex: 1;
   padding: 0 20px 15px;
 }
-.stash-body > .runtime-error,
-.stash-body > .runtime-notice {
-  margin-top: 12px;
+.stash-body > .notice {
+  margin-top: var(--space-3);
 }
 .stash-search,
 .stash-group-controls {
@@ -249,13 +248,6 @@
   background: var(--surface-raised);
   color: var(--danger);
   padding: 7px 20px;
-  font-size: 12px;
-}
-.runtime-draft-badge {
-  padding: 8px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
   font-size: 12px;
 }
 .runtime-diagnostics {

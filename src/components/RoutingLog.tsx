@@ -269,7 +269,7 @@ function FilterRoutingLog({
         </button>
       </div>
       {(transferError || outputPreferenceError || rulePreferenceError) && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {transferError || outputPreferenceError || rulePreferenceError}
         </p>
       )}

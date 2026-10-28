@@ -12,7 +12,10 @@ export default function ResourceWarnings({
   const count = report?.skippedSelectorCount ?? 0;
   if (!count) return null;
   return (
-    <div className="runtime-warning" role="status">
+    <div
+      className={`notice notice--warning${compact ? ' action-row action-row--spread' : ''}`}
+      role="status"
+    >
       <strong>
         {count} unavailable geodata {count === 1 ? 'entry' : 'entries'} skipped
       </strong>

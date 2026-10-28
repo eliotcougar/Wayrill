@@ -1968,7 +1968,7 @@ export default function App() {
                             {sharing.value?.pair?.public.name} → {sharing.value?.pair?.private.name}
                           </p>
                           {sharing.value?.problem && (
-                            <p className="runtime-error">{sharing.value.problem}</p>
+                            <p className="notice notice--error">{sharing.value.problem}</p>
                           )}
                           <label className="editor-checkbox">
                             <input

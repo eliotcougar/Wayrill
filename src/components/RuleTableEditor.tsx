@@ -860,7 +860,7 @@ export default function RuleTableEditor({
         <DiagnosticList issues={issues} onIssue={reviewLocal} local />
       </div>
       {saveError && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {saveError}
         </p>
       )}

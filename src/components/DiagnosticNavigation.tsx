@@ -132,7 +132,7 @@ export default function DiagnosticList({
     return local || issue.nodeId || issue.scope === 'defaults' ? (
       <button
         type="button"
-        className={`diagnostic diagnostic-${issue.severity}`}
+        className={`notice notice--${issue.severity} notice--compact diagnostic`}
         key={index}
         onClick={() => onIssue(issue)}
       >
@@ -142,7 +142,7 @@ export default function DiagnosticList({
         </span>
       </button>
     ) : (
-      <p className={`diagnostic diagnostic-${issue.severity}`} key={index}>
+      <p className={`notice notice--${issue.severity} notice--compact diagnostic`} key={index}>
         {content}
       </p>
     );

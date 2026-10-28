@@ -54,7 +54,7 @@ export default function WinHttpDiagnostics({
         )}
       </div>
       {!!error && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {error}
         </p>
       )}

@@ -566,7 +566,7 @@ export default function PolicyEditor({
       </EditorTabPanels>
       <div className="rule-editor-diagnostics" aria-live="polite">
         {saveError && (
-          <div className="runtime-error" role="alert">
+          <div className="notice notice--error" role="alert">
             {saveError}
           </div>
         )}

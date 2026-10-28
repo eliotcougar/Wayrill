@@ -316,7 +316,7 @@ export default function ProxyChainEditor({
       </EditorTabPanels>
       <div className="rule-editor-diagnostics" aria-live="polite">
         {((problem && !untouchedEmpty) || saveError) && (
-          <div className="runtime-error" role="alert">
+          <div className="notice notice--error" role="alert">
             {problem || saveError}
           </div>
         )}

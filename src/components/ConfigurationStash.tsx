@@ -590,7 +590,7 @@ export default function ConfigurationStash({
                 store.error ||
                 maintenance?.statuses.service?.state === 'error' ||
                 maintenance?.statuses.runtime?.state === 'error') && (
-                <div className="runtime-error" role="alert">
+                <div className="notice notice--error" role="alert">
                   {error ||
                     store.error ||
                     maintenance?.statuses.service?.message ||
@@ -598,7 +598,7 @@ export default function ConfigurationStash({
                 </div>
               )}
             {panel === tab && notice && (
-              <div className="action-row action-row--spread runtime-notice stash-notice">
+              <div className="action-row action-row--spread notice notice--success stash-notice">
                 <span role="status">{notice}</span>
                 <button
                   className="icon-button"
@@ -997,7 +997,7 @@ export default function ConfigurationStash({
       )}
 
       {removeId && (
-        <div className="runtime-note stash-remove-confirmation">
+        <div className="notice stash-remove-confirmation">
           Remove {removingGroup?.name} and its stash entries? Graph nodes keep their current
           settings; linked policy groups retain their last snapshot until relinked.{' '}
           <button

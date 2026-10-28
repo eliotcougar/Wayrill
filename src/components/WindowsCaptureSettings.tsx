@@ -230,7 +230,7 @@ export default function WindowsCaptureSettings({
             </p>
 
             {catalogError && (
-              <p role="alert" className="runtime-error">
+              <p role="alert" className="notice notice--error">
                 {catalogError}
               </p>
             )}
@@ -434,7 +434,7 @@ export default function WindowsCaptureSettings({
         )}
       </EditorTabPanels>
       {error && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {error}
         </p>
       )}

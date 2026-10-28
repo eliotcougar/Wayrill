@@ -77,7 +77,7 @@ export default function OutboundTestResults({ tests }: { tests: OutboundTests })
           </label>
         </div>
         {tests.error && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {tests.error}
           </p>
         )}

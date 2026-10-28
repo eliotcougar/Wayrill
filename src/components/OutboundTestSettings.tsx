@@ -109,7 +109,7 @@ export default function OutboundTestSettings({
             Speed tests download for up to 5 seconds or 256 MiB per route. Use a download file URL.
           </p>
           {error && (
-            <p role="alert" className="runtime-error">
+            <p role="alert" className="notice notice--error">
               {error}
             </p>
           )}

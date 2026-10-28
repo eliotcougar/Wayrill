@@ -163,7 +163,7 @@ function ProxySection({
           ))}
         {row?.error && <p className="field-help">{row.error.message}</p>}
         {row?.conflict && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {row.scopeConflict
               ? 'Windows changed the proxy scope. Switch back to restore the previous assignment, or keep external settings to release it.'
               : 'Another application changed these settings. Restore owned values or keep external settings before setting a new proxy.'}
@@ -598,7 +598,7 @@ export default function SystemCaptureSettings({
                   </p>
                 ) : null}
                 {snapshot?.capture.availability?.message && (
-                  <p className="runtime-error" role="alert">
+                  <p className="notice notice--error" role="alert">
                     {snapshot.capture.availability.message}
                   </p>
                 )}
@@ -738,7 +738,7 @@ export default function SystemCaptureSettings({
       </EditorTabPanels>
       <div className="system-capture-feedback" aria-live="polite">
         {error && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {error}
           </p>
         )}

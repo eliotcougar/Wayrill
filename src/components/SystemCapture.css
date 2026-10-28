@@ -113,7 +113,7 @@
   overflow: auto;
   flex-shrink: 0;
 }
-.system-capture-feedback p {
+.system-capture-feedback > :where(p:not(.notice)) {
   margin: 6px 0;
 }
 .capture-desktop-notice {

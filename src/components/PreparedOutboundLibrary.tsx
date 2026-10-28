@@ -131,7 +131,7 @@ export default function PreparedOutboundLibrary({
         </label>
       </div>
       {error && (
-        <div role="alert" className="runtime-error">
+        <div role="alert" className="notice notice--error">
           {error}
         </div>
       )}

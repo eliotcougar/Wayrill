@@ -26,6 +26,10 @@ Add feature sheets there rather than importing CSS from components.
   scrolls inside a constrained viewport. Features own column widths, numeric
   alignment and the scrolling container. Virtualized/grid lists retain their
   layout because their fixed row geometry is part of the rendering contract.
+- `styles/feedback.css` owns inheritance badges, `notice` panels and their
+  success, warning and error variants. Use the neutral panel for information,
+  and `notice--compact` for dense diagnostic rows. Features own placement and
+  actions; keep severity, content spacing and wrapping in the shared stylesheet.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`

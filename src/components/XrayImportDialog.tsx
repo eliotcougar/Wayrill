@@ -233,7 +233,7 @@ export default function XrayImportDialog({
           </section>
         )}
         {failure && (
-          <p ref={errorText} className="runtime-error" role="alert" tabIndex={-1}>
+          <p ref={errorText} className="notice notice--error" role="alert" tabIndex={-1}>
             {failure}
           </p>
         )}

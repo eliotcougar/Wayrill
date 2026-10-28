@@ -229,16 +229,14 @@ export default function DiagnosticsDialog({
             <FolderOpen size={15} /> Open folder
           </button>
         </div>
-        {!desktop && (
-          <p className="runtime-note">Application logs are available in the Windows app.</p>
-        )}
+        {!desktop && <p className="notice">Application logs are available in the Windows app.</p>}
         {(error || transferError) && (
-          <p role="alert" className="runtime-error">
+          <p role="alert" className="notice notice--error">
             {transferError || error}
           </p>
         )}
         {fileErrors.map((source) => (
-          <p role="alert" className="runtime-error" key={source.source}>
+          <p role="alert" className="notice notice--error" key={source.source}>
             {diagnosticSourceNames[source.source]}: {source.error}
           </p>
         ))}

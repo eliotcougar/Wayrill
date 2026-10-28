@@ -117,28 +117,28 @@ function RuntimePanelView({
         <RuntimeProgressOverlay progress={runtimeProgress(runtime)}>
           <EditorTabPanels tabs={tabs} className="runtime-body">
             {!desktop && (
-              <div className="runtime-note">
+              <div className="notice">
                 The browser can check and compile graphs. Run controls require Wayrill for Windows.
               </div>
             )}
             {desktop && !connected && (
-              <div className="runtime-note">
+              <div className="notice">
                 The networking service is unavailable. Current runtime state is unknown; the last
                 known state may have changed. Install or start the service, then refresh.
               </div>
             )}
             {compiled?.capture && (
-              <div className="runtime-note">
+              <div className="notice">
                 Draft local capture: {compiled.capture.inputs.length} sources.
               </div>
             )}
             {connected && !captureAvailable && (
-              <div className="runtime-error" role="alert">
+              <div className="notice notice--error" role="alert">
                 Update the networking service to run these local capture conditions.
               </div>
             )}
             {connected && ownershipUnavailable && captureOwnership && (
-              <div className="runtime-error" role="alert">
+              <div className="notice notice--error" role="alert">
                 <strong>
                   {captureOwnership.state === 'blocked'
                     ? 'WinDivert is in use'
@@ -150,12 +150,12 @@ function RuntimePanelView({
               </div>
             )}
             {connected && snapshot?.capture?.firewallRecoveryError && (
-              <div className="runtime-error" role="alert">
+              <div className="notice notice--error" role="alert">
                 {snapshot.capture.firewallRecoveryError}
               </div>
             )}
             {connected && (snapshot?.appProtection?.blocked || snapshot?.appProtection?.error) && (
-              <div className="runtime-note" role="status">
+              <div className="notice" role="status">
                 {snapshot.appProtection.blocked &&
                   'Selected applications are blocked until routing recovers. Stop releases protection.'}
                 {snapshot.appProtection.error && (
@@ -167,7 +167,7 @@ function RuntimePanelView({
               snapshot?.capture?.lastError &&
               !ownershipExplains(snapshot.capture.lastError) &&
               snapshot.capture.lastError !== snapshot.core.lastError?.message && (
-                <div className="runtime-error" role="alert">
+                <div className="notice notice--error" role="alert">
                   <strong>
                     {snapshot.capture.state === 'failed'
                       ? 'Capture failure'
@@ -178,38 +178,38 @@ function RuntimePanelView({
                 </div>
               )}
             {connected && !activationAvailable && (
-              <div className="runtime-note">Update the Wayrill service to enable this action.</div>
+              <div className="notice">Update the Wayrill service to enable this action.</div>
             )}
             {connected && !nativeAvailable && (
-              <div className="runtime-note">
+              <div className="notice">
                 Install the matching Wayrill service to run imported configurations.
               </div>
             )}
             {connected && !observationAvailable && (
-              <div className="runtime-note">
+              <div className="notice">
                 Install the matching Wayrill service to run graphs with an observatory.
               </div>
             )}
             {connected && !capacityAvailable && (
-              <p className="runtime-error" role="alert">
+              <p className="notice notice--error" role="alert">
                 Update the networking service to run this graph at the required capacity.
               </p>
             )}
             {connected && !protocolAvailable && (
-              <div className="runtime-note">
+              <div className="notice">
                 Install the matching Wayrill service to use this graph’s protocols.
               </div>
             )}
             {!adapterAvailable && (
-              <div className="runtime-note">Update the networking service to run TUN capture.</div>
+              <div className="notice">Update the networking service to run TUN capture.</div>
             )}
             {actions.setupOutbounds.length > 0 && (
-              <div className="runtime-note">
+              <div className="notice">
                 Replace the example outbound with a working profile in Stash before starting.
               </div>
             )}
             {resourceFailure && (
-              <div className="runtime-error" role="alert">
+              <div className="notice notice--error" role="alert">
                 <p>{resourceFailure.message}</p>
                 <DiagnosticList issues={resourceFailure.issues} onIssue={onIssue} />
                 {onResources && (
@@ -220,7 +220,7 @@ function RuntimePanelView({
               </div>
             )}
             {visibleCommandError && (
-              <div className="runtime-error" role="alert">
+              <div className="notice notice--error" role="alert">
                 {runtime.errorAction && (
                   <>
                     <strong>
@@ -247,7 +247,7 @@ function RuntimePanelView({
               </div>
             )}
             {connected && snapshot?.recovery?.state === 'waiting' && (
-              <div className="runtime-notice" role="status">
+              <div className="notice" role="status">
                 {snapshot.recovery.desiredState === 'running'
                   ? 'Recovering routing automatically…'
                   : snapshot.recovery.desiredState === 'unknown'
@@ -256,23 +256,23 @@ function RuntimePanelView({
               </div>
             )}
             {connected && snapshot?.recovery?.state === 'blocked' && (
-              <div className="runtime-warning" role="status">
+              <div className="notice notice--warning" role="status">
                 <strong>Recovery needs attention</strong>
                 <p>{snapshot.recovery.lastError?.message}</p>
               </div>
             )}
             {connected && snapshot?.userSettings?.lastError ? (
-              <div className="runtime-warning" role="status">
+              <div className="notice notice--warning" role="status">
                 <strong>User proxy settings need attention</strong>
                 <p>{snapshot.userSettings.lastError.message}</p>
               </div>
             ) : connected && snapshot?.userSettings?.waitingForUser ? (
-              <div className="runtime-notice" role="status">
+              <div className="notice" role="status">
                 User proxy settings will resume after sign-in.
               </div>
             ) : null}
             {connected && snapshot?.config.recoveryError && (
-              <div className="runtime-error" role="alert">
+              <div className="notice notice--error" role="alert">
                 <strong>Saved configuration needs recovery</strong>
                 <br />
                 {snapshot.config.recoveryError.message}
@@ -283,7 +283,7 @@ function RuntimePanelView({
               snapshot?.core.lastError &&
               snapshot.core.lastError.message !== snapshot.config.recoveryError?.message &&
               !ownershipExplains(snapshot.core.lastError.message) && (
-                <div className="runtime-error" role="alert">
+                <div className="notice notice--error" role="alert">
                   <strong>
                     {snapshot.core.state === 'failed' ? 'Core failure' : 'Previous core failure'}
                   </strong>
@@ -302,7 +302,7 @@ function RuntimePanelView({
               <ResourceWarnings report={snapshot?.resources} onResources={onResources} compact />
             )}
             {connected && notice && (
-              <div className="runtime-notice" role="status">
+              <div className="notice notice--success" role="status">
                 <strong>Last completed action</strong>
                 <br />
                 {notice}
@@ -357,7 +357,7 @@ function RuntimePanelView({
                       </div>
                     )}
                 </div>
-                <p className="runtime-draft-badge">
+                <p className="notice">
                   {checks.pending
                     ? 'Checking graph…'
                     : errors.length

@@ -189,12 +189,12 @@ export default function TrafficPanel({
         </button>
       </div>
       {resetError && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {resetError}
         </p>
       )}
       {preferences.error && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {preferences.error}
         </p>
       )}
@@ -271,27 +271,27 @@ export default function TrafficPanel({
         }
       >
         {contextChanged && (
-          <p className="runtime-note">
+          <p className="notice">
             The service/core session changed; resume to see its current counters.
           </p>
         )}
         {!runtime.desktop && (
-          <p className="runtime-note">
+          <p className="notice">
             Open the Windows app to collect live traffic. The browser preview does not run Xray.
           </p>
         )}
         {currentTraffic?.error && (
-          <p className="runtime-note">
+          <p className="notice">
             {currentTraffic.error} Monitoring failure does not establish whether routing stopped.
           </p>
         )}
         {currentTraffic?.persistenceError && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {currentTraffic.persistenceError}
           </p>
         )}
         {history.error && (
-          <p className="runtime-note">
+          <p className="notice">
             Chart history could not be loaded. Current samples still appear.{' '}
             <button className="secondary-button" onClick={history.refresh}>
               Retry history
@@ -456,7 +456,7 @@ export default function TrafficPanel({
               </table>
             </div>
             {endpoints.error && (
-              <p className="runtime-error" role="alert">
+              <p className="notice notice--error" role="alert">
                 {endpoints.error}{' '}
                 <button
                   className="secondary-button"

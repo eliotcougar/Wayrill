@@ -253,7 +253,7 @@ export default function CoreOptionsEditor({
         </div>
       )}
       {saveError && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {saveError}
         </p>
       )}

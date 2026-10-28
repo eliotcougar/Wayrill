@@ -1,60 +1,3 @@
-.validation-summary {
-  display: flex;
-  gap: 13px;
-  align-items: center;
-  color: var(--success);
-  margin-bottom: 18px;
-}
-.validation-summary h3 {
-  color: var(--text);
-  margin: 0 0 7px;
-  font-weight: 500;
-  font-size: 16px;
-}
-.validation-summary p {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-.diagnostic {
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 9px 10px;
-  margin-bottom: 7px;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  width: 100%;
-  background: var(--surface-raised);
-  color: var(--warning);
-  text-align: left;
-  font-size: 11px;
-  line-height: 1.6;
-}
-.diagnostic svg {
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-.diagnostic-error {
-  background: var(--surface-raised);
-  border-color: var(--danger-border);
-  color: var(--danger);
-}
-.diagnostic > span:not(.diagnostic-action) {
-  flex: 1;
-  min-width: 0;
-}
-.diagnostic-severity {
-  display: block;
-  font-size: 11px;
-}
-.diagnostic-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  font-weight: 600;
-}
 .runtime-window {
   width: min(1080px, calc(100vw - 48px));
   height: min(740px, calc(100vh - 48px));
@@ -82,32 +25,6 @@
 }
 .runtime-window .online {
   color: var(--success);
-}
-.runtime-note,
-.runtime-notice,
-.runtime-error {
-  padding: 12px 15px;
-  margin-bottom: 15px;
-  border-radius: 5px;
-  font-size: 12px;
-  line-height: 1.65;
-}
-.runtime-note {
-  background: var(--surface-hover);
-  border: 1px solid var(--border-strong);
-  color: var(--text);
-}
-.runtime-notice {
-  background: var(--success-soft);
-  border: 1px solid var(--success-border);
-  color: var(--success);
-}
-.runtime-error {
-  background: var(--danger-soft);
-  border: 1px solid var(--danger-border);
-  color: var(--danger);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .runtime-cards {
   display: grid;

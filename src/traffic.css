@@ -316,8 +316,7 @@
 .traffic-window .editor-tab-panel[hidden] {
   display: none;
 }
-.traffic-overview-body .runtime-note,
-.traffic-overview-body .runtime-error {
+.traffic-overview-body .notice {
   margin: 0;
 }
 @media (max-height: 600px) {

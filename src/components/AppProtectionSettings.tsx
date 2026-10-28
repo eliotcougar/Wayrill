@@ -141,13 +141,13 @@ export default function AppProtectionSettings({
           releases them. Versioned installations follow app updates automatically.
         </p>
         {snapshot?.error && (
-          <p role="alert" className="runtime-error">
+          <p role="alert" className="notice notice--error">
             {snapshot.error.message}
           </p>
         )}
       </div>
       {(error || catalogError) && (
-        <p role="alert" className="runtime-error">
+        <p role="alert" className="notice notice--error">
           {error || catalogError}
         </p>
       )}

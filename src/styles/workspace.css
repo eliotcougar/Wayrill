@@ -455,13 +455,6 @@ textarea::placeholder {
   padding: 11px 13px;
   margin-top: 20px;
 }
-button.diagnostic:hover {
-  filter: brightness(1.15);
-}
-button.diagnostic:focus-visible {
-  outline: 2px solid var(--focus-ring, var(--border-strong));
-  outline-offset: 2px;
-}
 .shortcut-list {
   display: flex;
   flex-direction: column;

@@ -197,7 +197,7 @@ export default function SubscriptionSettingsForm({
         }}
       >
         {(error || operationError) && (
-          <div className="runtime-error" role="alert">
+          <div className="notice notice--error" role="alert">
             {error || operationError}
           </div>
         )}
@@ -284,7 +284,7 @@ export default function SubscriptionSettingsForm({
                 )}
               </div>
               {duplicate && (
-                <div className="subscription-duplicate runtime-note">
+                <div className="subscription-duplicate notice">
                   <span>
                     This URL is already used by <bdi>{duplicate.name}</bdi>.
                   </span>

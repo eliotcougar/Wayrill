@@ -132,7 +132,7 @@ export default function StashEntryEditor({
         )}
       </div>
       {error && (
-        <div role="alert" className="runtime-error">
+        <div role="alert" className="notice notice--error">
           {error}
         </div>
       )}

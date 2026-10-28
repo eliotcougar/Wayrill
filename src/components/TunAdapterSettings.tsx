@@ -167,7 +167,7 @@ export default function TunAdapterSettings({
               <span className="field-help">
                 {adapter.kind === 'ics' ? 'ICS TUN' : 'Host TUN'} · {states[adapter.state]}
               </span>
-              {adapter.error && <p className="runtime-error">{adapter.error}</p>}
+              {adapter.error && <p className="notice notice--error">{adapter.error}</p>}
             </div>
             <button
               className="icon-button"
@@ -180,7 +180,7 @@ export default function TunAdapterSettings({
           </div>
         ))}
         {removing && (
-          <div className="runtime-warning" role="group" aria-label="Confirm adapter removal">
+          <div className="notice notice--warning" role="group" aria-label="Confirm adapter removal">
             <p>Remove {removing.name} from Windows?</p>
             <p className="field-help">Starting TUN again creates an adapter.</p>
             <div className="action-row">
@@ -202,7 +202,7 @@ export default function TunAdapterSettings({
           </div>
         )}
         {error && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {error}
           </p>
         )}

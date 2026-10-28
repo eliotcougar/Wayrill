@@ -1393,9 +1393,9 @@ it('clears a previous action error after successful export while retaining the p
   mocks.fetch.mockRejectedValue(new Error('Source timeout'));
   await selectTab('Subscriptions');
   await act(async () => action('Refresh').click());
-  expect(container.querySelector('.runtime-error')?.textContent).toContain('Source timeout');
+  expect(container.querySelector('.notice--error')?.textContent).toContain('Source timeout');
   await groupAction('Public source', 'Export group…');
-  expect(container.querySelector('.runtime-error')).toBeNull();
+  expect(container.querySelector('.notice--error')).toBeNull();
   expect(container.querySelector('.stash-problem')?.textContent).toContain('Source timeout');
   expect(container.textContent).toContain('Public source exported');
 });

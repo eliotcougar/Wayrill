@@ -120,17 +120,7 @@
   cursor: default;
 }
 .defaults-impact-warning {
-  margin-top: 20px;
-  border: 1px solid var(--warning-border);
-  background: var(--surface-raised);
-  padding: 12px;
-  border-radius: 5px;
-  font-size: 11px;
-  color: var(--warning);
-}
-.defaults-impact-warning p {
-  line-height: 1.7;
-  margin: 7px 0;
+  margin-top: var(--space-5);
 }
 .defaults-window .rule-editor-footer > span {
   line-height: 1.75;
@@ -173,23 +163,6 @@
 .setting-inheritance .small-action {
   font-size: 9px;
   margin: 0;
-}
-.override-badge,
-.inherited-badge {
-  font-size: 9px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  line-height: 1.2;
-}
-.override-badge {
-  color: var(--warning);
-  background: var(--surface-raised);
-  border: 1px solid var(--warning-border);
-}
-.inherited-badge {
-  color: var(--success);
-  background: var(--success-soft);
-  border: 1px solid var(--success-border);
 }
 .node-defaults-summary {
   border: 1px solid var(--border-strong);

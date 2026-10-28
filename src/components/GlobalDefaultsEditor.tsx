@@ -351,7 +351,7 @@ export default function GlobalDefaultsEditor({
           {large && analysis.pending && <p role="status">Checking affected nodes…</p>}
           {checkFailure && <p role="alert">{checkFailure.message}</p>}
           {!!inheritedErrors.length && (
-            <div className="defaults-impact-warning" role="status">
+            <div className="notice notice--warning defaults-impact-warning" role="status">
               <strong>
                 {inheritedErrors.length} node configuration issue(s) after these defaults
               </strong>
@@ -372,7 +372,7 @@ export default function GlobalDefaultsEditor({
         </div>
       )}
       {saveError && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {saveError}
         </p>
       )}

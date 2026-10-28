@@ -89,12 +89,12 @@ export default function StartupSettings({
           <p role="status">Waiting for Windows networking. Retrying automatically…</p>
         )}
         {saved?.lastError && (
-          <p className="runtime-error" role="status">
+          <p className="notice notice--error" role="status">
             Last automatic start: {saved.lastError.message}
           </p>
         )}
         {error && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {error}
           </p>
         )}

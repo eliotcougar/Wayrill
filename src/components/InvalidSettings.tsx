@@ -20,7 +20,7 @@ export default function InvalidSettings({
       return (
         <button
           type="button"
-          className="diagnostic diagnostic-error"
+          className="notice notice--error notice--compact diagnostic"
           key={id}
           onClick={() => onReview(id)}
         >

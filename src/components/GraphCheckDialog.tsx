@@ -50,7 +50,6 @@ export default function GraphCheckDialog({
               Xray validation passed.
             </span>
           )}
-          {result?.status === 'passed' && <ResourceWarnings report={result.resourceWarnings} />}
           {result?.status === 'failed' && (
             <span className="graph-check-status" role="alert">
               Validation failed.
@@ -71,7 +70,10 @@ export default function GraphCheckDialog({
         </>
       }
     >
-      <div className="validation-summary" aria-busy={checks.pending}>
+      <div
+        className={`validation-summary${errors.length ? ' has-errors' : warnings ? ' has-warnings' : ''}`}
+        aria-busy={checks.pending}
+      >
         {errors.length ? <AlertCircle size={26} /> : <CheckCheck size={26} />}
         <h3>
           {checks.pending
@@ -86,7 +88,7 @@ export default function GraphCheckDialog({
       {!checks.pending && <DiagnosticList issues={checks.issues} onIssue={onIssue} />}
       {result?.status === 'passed' && <ResourceWarnings report={result.resourceWarnings} />}
       {result?.status === 'failed' && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {result.message}
         </p>
       )}

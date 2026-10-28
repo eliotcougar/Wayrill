@@ -203,7 +203,7 @@
   padding: 0 22px;
   background: var(--surface-raised);
 }
-.rule-editor-diagnostics p {
+.rule-editor-diagnostics > :where(p:not(.notice)) {
   font-size: 11px;
   line-height: 1.6;
   margin: 7px 0;

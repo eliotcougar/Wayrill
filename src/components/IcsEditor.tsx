@@ -57,7 +57,7 @@ export function SharingRecovery({
   return (
     <section>
       {sharing.recoveryPending && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {sharing.lastError?.message || 'Sharing recovery needs attention.'}
         </p>
       )}
@@ -76,7 +76,7 @@ export function SharingRecovery({
         </button>
       </div>
       {error && (
-        <p role="alert" className="runtime-error">
+        <p role="alert" className="notice notice--error">
           {error}
         </p>
       )}
@@ -234,7 +234,7 @@ export default function IcsEditor({
         </button>
       </div>
       {(sharing.error || value?.problem) && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {sharing.error || value?.problem}
         </p>
       )}
@@ -373,7 +373,7 @@ export default function IcsEditor({
         ))}
       </details>
       {error && (
-        <p className="runtime-error" role="alert">
+        <p className="notice notice--error" role="alert">
           {error}
         </p>
       )}

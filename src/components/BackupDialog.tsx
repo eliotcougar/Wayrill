@@ -513,7 +513,7 @@ export default function BackupDialog({
         )}
         {busy && <p role="status">Processing backup…</p>}
         {error && (
-          <p className="runtime-error" role="alert">
+          <p className="notice notice--error" role="alert">
             {error}
           </p>
         )}
