@@ -310,7 +310,7 @@ export default function Inspector({
             />
           </div>
           {isGraphInbound(node.data.kind) && (
-            <label className="inbound-enable-control">
+            <label className="check-control check-control--compact inbound-enable-control">
               <input
                 type="checkbox"
                 checked={!isDisabledInbound(node.data)}

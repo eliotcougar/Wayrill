@@ -259,7 +259,7 @@ export default function ConnectionEditor({
               onChange={(event) => setSearch(event.target.value)}
             />
             <div className="action-row action-row--spread connection-list-tools">
-              <label className="connection-unavailable">
+              <label className="check-control">
                 <input
                   autoComplete="off"
                   type="checkbox"

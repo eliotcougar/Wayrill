@@ -73,7 +73,7 @@ export default function OutputList<T extends OutputIdentity>({
   return (
     <div
       ref={list}
-      className="output-editor-list"
+      className="compact-controls output-editor-list"
       role="group"
       aria-label={label}
       data-diagnostic-field="outputs"

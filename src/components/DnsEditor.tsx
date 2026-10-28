@@ -1142,6 +1142,7 @@ export default function DnsEditor({
                             <strong>Fallback</strong>
                           ) : (
                             <input
+                              className="text-control"
                               aria-label={`Output ${order + 1} name`}
                               data-diagnostic-field="name"
                               spellCheck={false}

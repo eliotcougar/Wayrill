@@ -20,8 +20,9 @@ Add feature sheets there rather than importing CSS from components.
   control wrappers, without reaching into nested editors/dialogs. Use
   `search-control` for an icon and input sharing one border and focus ring.
   `check-control` lays out a native checkbox/radio and its label; its compact
-  variant is for dense option lists. Keep text fields in explicit `editor-field`
-  wrappers rather than styling every label inside a dialog.
+  variant is for dense option lists. Custom switches and process rows containing
+  multiple independent controls retain their own layout. Keep text fields in
+  explicit `editor-field` wrappers rather than styling every label inside a dialog.
   `popover-surface` shares the border, background, typography and shadow of
   menus, editable preset lists and checkbox filters; each component retains its
   placement, scrolling limits, semantics and keyboard behavior.
@@ -118,6 +119,8 @@ inspector fields and icon buttons use `--control-size-compact` (32px). A `field`
 selects the compact density; an `editor-field` selects the normal density.
 Use `compact-controls` for a group of compact inputs and action buttons, as in
 pagination. Its padding and font size change together with the minimum height.
+Routing and DNS output-name rows also use `compact-controls` and `text-control`,
+matching their drag/delete buttons; feature CSS owns only the row layout.
 Filter sidebars use the same compact density; dialog searches use normal density
 and the node-library search uses compact density.
 Keep checkbox, radio and file inputs distinct from text controls. Composite
@@ -157,6 +160,8 @@ errors cannot remove selection feedback. Neither changes card or port geometry.
 Node cards use named output rows. Handle colors come from connection-type
 metadata, also used by the editor and connection checks; do not duplicate that
 mapping in port-name CSS classes. Keep the semantic data attributes for inspection.
+Named port rows and their connection-type markers belong in the graph sheet;
+inbound enablement in the inspector belongs in the workspace sheet.
 Workspace runtime indicators belong in `styles/workspace.css`, runtime dialog
 content in `styles/runtime.css`, and rule-field expansion in `styles/rules.css`.
 Feature sheets such as Stash and traffic units must not style these unrelated

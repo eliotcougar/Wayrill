@@ -247,7 +247,7 @@ export default function RuleTableEditor({
           <legend>{label}</legend>
           <div className="rule-protocol-options">
             {options.map((p) => (
-              <label key={p.value}>
+              <label className="check-control check-control--compact" key={p.value}>
                 <input
                   type="checkbox"
                   checked={selectedProtocols.includes(p.value)}

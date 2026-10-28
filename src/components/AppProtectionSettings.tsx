@@ -152,7 +152,7 @@ export default function AppProtectionSettings({
         </p>
       )}
       <fieldset className="capture-settings-fields" disabled={!desktop || busy || !snapshot}>
-        <label className="app-protection-switch">
+        <label className="check-control">
           <input
             type="checkbox"
             checked={draft.enabled}
