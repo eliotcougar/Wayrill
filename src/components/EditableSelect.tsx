@@ -158,7 +158,7 @@ export default function EditableSelect({
       <div
         ref={menu}
         id={menuId}
-        className="editable-select-options"
+        className="popover-surface editable-select-options"
         role="listbox"
         aria-label={`Presets for ${label}`}
         popover="manual"

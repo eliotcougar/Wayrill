@@ -54,11 +54,11 @@ export default function RoutingLogFilter<K extends string | null>({
           event.currentTarget.open = false;
       }}
     >
-      <summary>
+      <summary className="secondary-button">
         <ListFilter size={15} aria-hidden="true" /> {label}
         {shown < choices.length ? ` (${choices.length - shown} hidden)` : ''}
       </summary>
-      <fieldset>
+      <fieldset className="popover-surface">
         <legend>Visible {label.toLowerCase()}</legend>
         <label className="check-control check-control--compact routing-log-all">
           <input

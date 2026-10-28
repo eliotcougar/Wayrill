@@ -35,20 +35,7 @@
   position: relative;
 }
 .routing-log-choice-filter summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  cursor: pointer;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 3px 8px;
-  background: var(--surface-raised);
-  min-height: var(--control-size);
-}
-.routing-log-choice-filter summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  list-style: none;
 }
 .routing-log-choice-filter fieldset {
   position: absolute;
@@ -60,11 +47,6 @@
   min-width: 180px;
   max-width: 320px;
   max-height: 240px;
-  overflow: auto;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 6px 18px var(--shadow);
 }
 .routing-log-choice-filter legend {
   position: absolute;

@@ -17,14 +17,6 @@
 .menus {
   min-width: 0;
 }
-.menu-dropdown {
-  max-width: calc(100vw - 16px);
-  max-height: calc(100vh - 60px);
-  overflow: auto;
-}
-.menu-dropdown button {
-  gap: 12px;
-}
 .toolbar {
   row-gap: 8px;
 }

@@ -102,7 +102,7 @@ export function MenuPopup({
       ref={root}
       id={id}
       role="menu"
-      className={`menu-dropdown ${className}`}
+      className={`popover-surface menu-dropdown ${className}`}
       aria-label={label}
       aria-labelledby={anchor?.id}
       onKeyDown={(event) => {
@@ -215,7 +215,9 @@ export function MenuPopup({
                       {item.icon}
                     </span>
                   )}
-                  {item.label}
+                  <span className="menu-item-text" title={item.label}>
+                    {item.label}
+                  </span>
                 </span>
                 {item.items ? (
                   <ChevronRight size={14} aria-hidden="true" />

@@ -451,20 +451,23 @@ textarea.text-control {
   color: var(--text);
   cursor: pointer;
 }
-.editable-select-options {
-  position: fixed;
-  inset: auto;
+/* Menus, preset lists and checkbox filters share a floating surface, not behavior. */
+.popover-surface {
   margin: 0;
-  padding: 4px;
+  padding: var(--space-1);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: 0 8px 24px var(--shadow-dialog);
+  box-shadow: 0 8px 24px var(--shadow);
   overflow: auto;
   overscroll-behavior: contain;
-  font: inherit;
-  font-size: 12px;
+  font-size: var(--control-text-size);
+  line-height: var(--control-line-height);
+}
+.editable-select-options {
+  position: fixed;
+  inset: auto;
 }
 .editable-select-options > [role='option'] {
   display: flex;

@@ -18,6 +18,9 @@ Add feature sheets there rather than importing CSS from components.
   `check-control` lays out a native checkbox/radio and its label; its compact
   variant is for dense option lists. Keep text fields in explicit `editor-field`
   wrappers rather than styling every label inside a dialog.
+  `popover-surface` shares the border, background, typography and shadow of
+  menus, editable preset lists and checkbox filters; each component retains its
+  placement, scrolling limits, semantics and keyboard behavior.
 - `styles/layout.css` owns wrapping action and form rows. Use `action-row` for
   buttons/status controls and `form-row` for labeled controls with adjacent
   actions. `action-row--spread` separates the leading and trailing content.

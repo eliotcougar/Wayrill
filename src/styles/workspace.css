@@ -651,12 +651,10 @@ textarea::placeholder {
 }
 
 /* Keyboard focus stays inside the visible bounds of menus, tabs and panels. */
-.menu-dropdown button[aria-disabled='true'],
 .editor-tab-list button[aria-disabled='true'] {
   opacity: 0.4;
   cursor: default;
 }
-.menu-dropdown button:focus-visible,
 .editor-tab-list button:focus-visible,
 .editor-tab-panel:focus-visible {
   outline: 2px solid var(--accent);
