@@ -131,7 +131,7 @@ export default function ApplicationSelectors({
         ? catalog?.services.find((p) => p.name.toLowerCase() === r.value.toLowerCase())?.displayName
         : undefined;
   return (
-    <fieldset className="application-selectors" data-diagnostic-field="applications">
+    <fieldset className="editor-panel application-selectors" data-diagnostic-field="applications">
       <legend>Processes, Windows apps & services</legend>
       <p className="field-help">
         Local inputs match process names and paths. TUN and WinDivert also match child processes,

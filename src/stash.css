@@ -49,8 +49,7 @@
 }
 .stash-toolbar,
 .stash-search,
-.stash-group-controls,
-.stash-pagination {
+.stash-group-controls {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -178,13 +177,6 @@
 .stash-entry-actions button {
   font-size: 11px;
   padding: 6px 8px;
-}
-.stash-pagination {
-  justify-content: center;
-  border: 0;
-  padding: 15px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
 }
 .stash-empty {
   padding: 25px;
@@ -353,8 +345,7 @@
   color: var(--text-secondary);
   font-size: 12px;
 }
-.subscription-group-name,
-.subscription-group-link {
+.subscription-group-name {
   justify-self: start;
   padding: 0;
   border: 0;
@@ -362,13 +353,8 @@
   color: var(--accent);
   text-align: start;
   font: inherit;
-}
-.subscription-group-name {
   font-weight: 600;
   overflow-wrap: anywhere;
-}
-.subscription-group-link {
-  text-decoration: underline;
 }
 .stash-remove-confirmation {
   flex-shrink: 0;

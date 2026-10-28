@@ -165,10 +165,6 @@
   margin: 0;
 }
 .node-defaults-summary {
-  border: 1px solid var(--border-strong);
-  background: var(--surface-adjacent);
-  border-radius: 5px;
-  padding: 10px;
   margin: 10px 0 18px;
 }
 .node-defaults-summary > span {
@@ -179,9 +175,6 @@
 .node-defaults-summary .small-action {
   margin: 7px 0;
   font-size: 10px;
-}
-.node-defaults-summary .field-help {
-  margin-bottom: 0;
 }
 @media (max-width: 800px) {
   .defaults-columns {

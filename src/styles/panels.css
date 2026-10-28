@@ -1,0 +1,11 @@
+/* A common frame for grouped configuration, independent of its form/grid layout. */
+.editor-panel {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+.editor-panel--subtle {
+  background: var(--surface-adjacent);
+}

@@ -182,13 +182,6 @@
 .rule-node .react-flow__handle-left {
   left: -1px;
 }
-.socks-port-labels {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  text-align: right;
-  padding-right: 2px;
-}
 .rule-node .port-data {
   border-color: var(--connection-traffic);
 }

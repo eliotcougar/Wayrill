@@ -16,10 +16,6 @@
 .backup-components {
   display: grid;
   gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 0;
 }
 .backup-passwords {
   display: grid;
@@ -27,26 +23,6 @@
 }
 .backup-filter-list {
   max-height: 300px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.backup-filter-list > label {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-}
-.backup-filter-list > label:last-child {
-  border-bottom: 0;
-}
-.backup-filter-list small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  margin-top: 3px;
-}
-.backup-filter-list span {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 .backup-filter-list > p {
   padding: 12px;

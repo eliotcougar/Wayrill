@@ -168,7 +168,7 @@ export default function PolicySourcesEditor({
               <p className="field-help">Import a subscription into Configuration stash first.</p>
             )}
             {displayedSources.map((source) => (
-              <div className="policy-source-card" key={source.groupId}>
+              <div className="editor-panel policy-source-card" key={source.groupId}>
                 <div className="output-editor-heading">
                   <h4>{source.name}</h4>
                   <button
@@ -388,14 +388,14 @@ export default function PolicySourcesEditor({
           </section>
         )}
         {mode === 'prefixes' && (
-          <p className="policy-explanation">
+          <p className="notice">
             Native Xray selectors match outbound tag prefixes. The preview follows the current graph
             tags. Imported prefix semantics stay intact.
           </p>
         )}
       </div>
       <section
-        className="policy-set-preview"
+        className="editor-panel editor-panel--subtle policy-set-preview"
         aria-label="Resolved outbound set"
         aria-busy={pending || searchPending}
       >

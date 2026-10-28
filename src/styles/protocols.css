@@ -15,10 +15,7 @@
   overflow-y: auto;
 }
 .protocol-object {
-  margin: 12px 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
+  margin: var(--space-3) 0;
 }
 .protocol-object > summary {
   cursor: pointer;

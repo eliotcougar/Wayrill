@@ -358,7 +358,7 @@ export default function Inspector({
           {graph.defaults &&
             bindingsFor(node.data.kind).length > 0 &&
             !!node.data.overrides?.length && (
-              <div className="node-defaults-summary">
+              <div className="notice node-defaults-summary">
                 <span>
                   {node.data.overrides?.length} independent{' '}
                   {node.data.overrides?.length === 1 ? 'setting' : 'settings'}

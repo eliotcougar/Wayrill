@@ -337,14 +337,6 @@ textarea::placeholder {
   color: var(--text-secondary);
   line-height: 1.7;
 }
-.connection-mode {
-  display: inline-block;
-  padding: 5px 9px;
-  color: var(--success);
-  background: var(--success-soft);
-  border-radius: 4px;
-  font-size: 10px;
-}
 .inspector-empty {
   margin: auto 0;
   padding: 35px 6px;
@@ -383,18 +375,6 @@ textarea::placeholder {
   font-size: 10px;
   color: var(--text-secondary);
   user-select: none;
-}
-.status-design {
-  color: var(--success);
-  display: flex;
-  gap: 7px;
-  align-items: center;
-}
-.status-design > span {
-  width: 5px;
-  height: 5px;
-  background: var(--success-soft);
-  border-radius: 50%;
 }
 .status-divider {
   width: 1px;
@@ -591,10 +571,6 @@ textarea::placeholder {
   font-size: 10px;
   line-height: 1.6;
   margin: 0 0 14px;
-}
-.credentials-note {
-  padding: 10px 3px;
-  margin-bottom: 9px;
 }
 .configuration-preview .code-block {
   max-height: 350px;

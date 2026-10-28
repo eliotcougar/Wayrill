@@ -6,21 +6,6 @@
 .policy-editor-body > .field {
   max-width: 680px;
 }
-.policy-explanation,
-.policy-shared-note {
-  padding: 14px 16px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  color: var(--text);
-  line-height: 1.6;
-  margin: 10px 0 20px;
-}
-.policy-shared-note {
-  border-color: var(--success-border);
-  background: var(--surface-adjacent);
-  color: var(--success);
-}
 .policy-set-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
@@ -37,13 +22,8 @@
 .policy-set-preview {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-adjacent);
-  min-width: 0;
   position: sticky;
   top: 0;
-  padding: 12px;
   max-height: min(480px, calc(100cqh - 28px));
   overflow: auto;
 }
@@ -54,11 +34,7 @@
   flex-shrink: 0;
 }
 .policy-source-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin: 12px 0;
-  background: var(--surface-raised);
-  padding: 12px;
+  margin: var(--space-3) 0;
 }
 .policy-source-card h4 {
   margin: 0;
@@ -81,10 +57,7 @@
   min-width: 240px;
 }
 .policy-stash-picker {
-  border: 1px solid var(--border);
-  padding: 12px;
-  border-radius: 8px;
-  margin: 12px 0;
+  margin: var(--space-3) 0;
 }
 .policy-picker-list,
 .policy-manual-list {
@@ -153,10 +126,6 @@
   color: var(--text-muted);
   line-height: 1.6;
   padding: 12px 0;
-}
-.policy-fallback-current {
-  font-size: 13px;
-  margin-bottom: 12px;
 }
 @media (max-width: 700px) {
   .policy-editor-body {

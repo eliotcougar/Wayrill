@@ -127,7 +127,7 @@ export default function PolicyOutboundPicker({
       </div>
       {poolOpen && (
         <div
-          className="policy-stash-picker"
+          className="editor-panel policy-stash-picker"
           role="region"
           aria-label={`${label} picker`}
           aria-busy={pending}
@@ -183,7 +183,7 @@ export default function PolicyOutboundPicker({
       )}
       {open && (
         <div
-          className="policy-stash-picker"
+          className="editor-panel policy-stash-picker"
           role="region"
           aria-label={`${label} picker`}
           aria-busy={pending}

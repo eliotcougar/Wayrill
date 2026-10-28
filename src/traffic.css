@@ -182,20 +182,6 @@
   flex: 1;
   min-height: 0;
 }
-.status-traffic {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  white-space: nowrap;
-  padding: 0;
-}
-.status-traffic:hover {
-  color: var(--text);
-}
 @media (max-width: 560px) {
   .traffic-cards {
     grid-template-columns: 1fr;
@@ -226,15 +212,6 @@
 }
 .traffic-runtime-state {
   margin-left: auto;
-}
-.traffic-measurement-note,
-.traffic-scale {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.traffic-scale {
-  margin: 8px 6px 0;
 }
 .traffic-up {
   stroke-dasharray: 7 5;
@@ -271,8 +248,6 @@
   }
   .traffic-chart figcaption,
   .traffic-chart-caption,
-  .traffic-scale,
-  .traffic-measurement-note,
   .traffic-card dt,
   .traffic-card-heading {
     color: CanvasText;

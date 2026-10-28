@@ -247,18 +247,20 @@ export default function BackupDialog({
             )}
             {scope === 'graph' && <p className="field-help">Includes linked Stash dependencies.</p>}
             {scope === 'filters' && (
-              <div className="backup-filter-list" aria-label="Filters to back up">
-                <label className="check-control">
+              <div className="choice-list backup-filter-list" aria-label="Filters to back up">
+                <label className="check-control choice-row choice-row--compact">
                   <input
                     type="checkbox"
                     disabled={busy || !filters.length}
                     checked={filters.length > 0 && filterIds.length === filters.length}
                     onChange={(e) => setFilterIds(e.target.checked ? filters.map((n) => n.id) : [])}
                   />
-                  All
+                  <span className="choice-row-content">
+                    <strong>All</strong>
+                  </span>
                 </label>
                 {filters.map((n) => (
-                  <label className="check-control" key={n.id}>
+                  <label className="check-control choice-row choice-row--compact" key={n.id}>
                     <input
                       type="checkbox"
                       disabled={busy}
@@ -269,8 +271,8 @@ export default function BackupDialog({
                         )
                       }
                     />
-                    <span>
-                      {n.data.label}
+                    <span className="choice-row-content">
+                      <strong>{n.data.label}</strong>
                       <small>
                         {n.data.kind === 'routing-filter' ? 'Traffic filter' : 'DNS filter'}
                       </small>
@@ -377,7 +379,7 @@ export default function BackupDialog({
                   Wayrill {content.appVersion} · {new Date(content.createdAt).toLocaleString()} ·{' '}
                   {encrypted ? 'Encrypted' : 'Not encrypted'}
                 </p>
-                <fieldset className="backup-components">
+                <fieldset className="editor-panel backup-components">
                   <legend>Restore</legend>
                   {content.graph && (
                     <label className="check-control">

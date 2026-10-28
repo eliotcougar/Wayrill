@@ -30,20 +30,10 @@
   flex-direction: column;
   gap: 12px;
 }
-.capture-catalog-status {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
 .application-selectors {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 10px;
 }
 .application-selectors legend {
   color: var(--text-secondary);

@@ -36,14 +36,10 @@
   font-weight: 600;
   margin-bottom: 4px;
 }
-.theme-choice small,
-.theme-note {
+.theme-choice small {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.6;
-}
-.theme-note {
-  margin: 14px 0 0;
 }
 .theme-error {
   color: var(--danger);

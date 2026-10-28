@@ -424,9 +424,7 @@ export default function PolicyEditor({
             {tab === 'strategy' && (
               <>
                 {field('strategy')}
-                <p className="policy-explanation">
-                  {strategyDescription[String(settings.strategy)]}
-                </p>
+                <p className="notice">{strategyDescription[String(settings.strategy)]}</p>
                 {['random', 'roundRobin'].includes(String(settings.strategy)) &&
                   (settings.fallbackEnabled ? (
                     <p className="field-help">
@@ -473,13 +471,13 @@ export default function PolicyEditor({
             {tab === 'observation' && (
               <>
                 {isGroup && !observed ? (
-                  <div className="policy-explanation">
+                  <div className="notice">
                     This strategy does not require observations. Enable “Observe candidate health”
                     in Strategy to configure probes.
                   </div>
                 ) : (
                   <>
-                    <p className="policy-shared-note">
+                    <p className="notice">
                       {isGroup
                         ? `${existing ? 'Uses' : 'Creates'} the shared observatory. Applying also changes its settings${observerUsedBy ? ` for ${observerUsedBy} other connected group(s)` : ''}.`
                         : `Shared by ${observerUsedBy} connected group(s).`}

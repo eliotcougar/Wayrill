@@ -26,6 +26,10 @@ Add feature sheets there rather than importing CSS from components.
   actions. `action-row--spread` separates the leading and trailing content.
   Feature sheets retain placement, widths and margins rather than repeating the
   flex layout, alignment and gap.
+- `styles/panels.css` owns the `editor-panel` frame for grouped settings. The
+  subtle variant sits at the surrounding editor's surface level. Features own
+  layout, placement and scrolling limits; use notices for explanatory messages
+  and choice lists for selectable rows rather than creating another panel type.
 - `styles/dialogs.css` owns dialog/editor shells, title bars, tabs and footers.
   `dialog--compact` reduces header/footer spacing for dense working views, such
   as statistics and policy editors. Tab appearance targets `role="tab"` inside

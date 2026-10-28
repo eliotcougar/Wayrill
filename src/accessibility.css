@@ -58,8 +58,7 @@
   .toolbar-spacer {
     display: none;
   }
-  .toolbar .view-tools,
-  .toolbar .check-button {
+  .toolbar .view-tools {
     display: flex;
   }
   .workspace-name {

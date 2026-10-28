@@ -1,12 +1,3 @@
-.resource-editor-window {
-  width: min(960px, 94vw);
-}
-.resource-editor-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 20px;
-}
 .resource-settings {
   min-width: 0;
 }
