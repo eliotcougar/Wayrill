@@ -1,7 +1,8 @@
-import { readPolicySources } from './policySources';
+import { readPolicySources, type PolicyReference } from './policySources';
+import { readProxyChain } from './proxyChains';
 import { uniqueInboundTag, uniqueOutboundTag } from './catalog';
 import { isInboundKind, inboundPreview } from './inbounds';
-import { isExecutableOutboundKind, outboundPreview } from './outbounds';
+import { isExecutableOutboundKind, isOutboundKind, outboundPreview } from './outbounds';
 import { isProtocolKind, protocolPreview } from './protocols';
 import { nativeConfig } from './xrayNodes';
 import { xrayInboundConfig, xrayOutboundConfig } from './xrayCompiler';
@@ -28,6 +29,8 @@ export function duplicateSelection(graph: GraphState): GraphState {
     );
   }
   const mapping = new Map(selected.map((node) => [node.id, crypto.randomUUID()]));
+  const remap = (ref: PolicyReference): PolicyReference =>
+    ref.type === 'node' ? { ...ref, nodeId: mapping.get(ref.nodeId) ?? ref.nodeId } : ref;
   const copies: RuleNode[] = [];
   for (const node of selected) {
     const copy: RuleNode = {
@@ -39,7 +42,7 @@ export function duplicateSelection(graph: GraphState): GraphState {
     };
     delete copy.data.stashLink;
     const kind = copy.data.kind;
-    if (isExecutableOutboundKind(kind) || kind === 'policy-group' || kind === 'xray-outbound') {
+    if (isOutboundKind(kind)) {
       copy.data.settings.tag = uniqueOutboundTag(String(copy.data.settings.tag || 'outbound'), [
         ...graph.nodes,
         ...copies,
@@ -80,11 +83,13 @@ export function duplicateSelection(graph: GraphState): GraphState {
     }
     if (kind === 'policy-group') {
       const sources = structuredClone(readPolicySources(copy.data));
-      const remap = (ref: (typeof sources.manual)[number]) =>
-        ref.type === 'node' ? { ...ref, nodeId: mapping.get(ref.nodeId) ?? ref.nodeId } : ref;
       sources.manual = sources.manual.map(remap);
       if (sources.fallback) sources.fallback = remap(sources.fallback);
       copy.data.settings.sources = JSON.stringify(sources);
+    } else if (kind === 'proxy-chain') {
+      const chain = readProxyChain(copy.data);
+      chain.steps = chain.steps.map((step) => ({ ...step, outbound: remap(step.outbound) }));
+      copy.data.settings.steps = JSON.stringify(chain);
     }
     copies.push(copy);
   }

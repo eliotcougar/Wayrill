@@ -5,9 +5,65 @@ import { nativeLiveFixture } from './nativeLiveFixture';
 import { importXrayConfig } from './xrayImport';
 import { compileXrayGraph, syncXrayConnections } from './xrayCompiler';
 import { parseGraph, serializeGraph } from './model';
+import { readProxyChain } from './proxyChains';
+import { compileRuntimeGraph } from './runtime';
 import type { GraphState } from './types';
 
+function chainGraph() {
+  const graph = importXrayConfig(JSON.stringify(nativeLiveFixture('noauth')));
+  const first = graph.nodes.find((n) => n.data.settings.tag === 'upstream')!;
+  const last = makeNode('socks-outbound', { x: 0, y: 0 }, 'last');
+  Object.assign(last.data.settings, { tag: 'last', address: '127.0.0.1', port: 20924 });
+  const chain = makeNode('proxy-chain', { x: 0, y: 0 }, 'chain');
+  chain.data.settings.tag = 'exit';
+  chain.data.settings.steps = JSON.stringify({
+    version: 1,
+    steps: [
+      { id: 'first', outbound: { type: 'node', nodeId: first.id } },
+      { id: 'last', outbound: { type: 'node', nodeId: last.id } },
+    ],
+  });
+  graph.nodes.push(last, chain);
+  chain.selected = true;
+  return { graph, first, last, chain };
+}
+
 describe('independent node copies', () => {
+  it('gives a duplicated proxy chain an independent executable tag', () => {
+    const { graph, chain } = chainGraph();
+    const next = duplicateSelection(graph);
+    const copy = next.nodes.find((n) => n.selected)!;
+    expect(copy.data.settings.tag).toBe('exit-2');
+    expect(readProxyChain(copy.data)).toEqual(readProxyChain(chain.data));
+    const compiled = compileRuntimeGraph(next).config;
+    const outbounds = compiled.outbounds as Record<string, unknown>[];
+    expect(outbounds.filter((o) => o.tag === 'exit')).toHaveLength(1);
+    expect(outbounds.filter((o) => o.tag === 'exit-2')).toHaveLength(1);
+  });
+  it('rewires copied chain hops to copied nodes while retaining unselected dependencies', () => {
+    const { graph, first, last, chain } = chainGraph();
+    first.selected = true;
+    const before = serializeGraph(graph);
+    const next = duplicateSelection(graph);
+    const copiedChain = next.nodes.find((n) => n.selected && n.data.kind === 'proxy-chain')!;
+    const copiedFirst = next.nodes.find((n) => n.selected && n.data.kind !== 'proxy-chain')!;
+    expect(readProxyChain(copiedChain.data).steps.map((s) => s.outbound)).toEqual([
+      { type: 'node', nodeId: copiedFirst.id },
+      { type: 'node', nodeId: last.id },
+    ]);
+    copiedFirst.data.settings.port = 20925;
+    const compiled = compileRuntimeGraph(parseGraph(serializeGraph(next))).config;
+    const outbounds = compiled.outbounds as Record<string, unknown>[];
+    const relayFor = (tag: string) => {
+      const exit = outbounds.find((o) => o.tag === tag)!;
+      const relay = (exit.streamSettings as { sockopt: { dialerProxy: string } }).sockopt
+        .dialerProxy;
+      return outbounds.find((o) => o.tag === relay)!.settings;
+    };
+    expect(relayFor(String(copiedChain.data.settings.tag))).toMatchObject({ port: 20925 });
+    expect(relayFor(String(chain.data.settings.tag))).toMatchObject({ port: 20922 });
+    expect(serializeGraph(graph)).toBe(before);
+  });
   it('preserves native omissions and extensions without redirecting original references', () => {
     const config = nativeLiveFixture('noauth');
     const outputs = config.outbounds as Record<string, unknown>[];
