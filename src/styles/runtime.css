@@ -10,8 +10,9 @@
 }
 .runtime-body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
-  padding: 20px 24px;
+  padding: var(--space-5) 22px;
   overflow: auto;
 }
 .xray-import-window .runtime-actions {
@@ -19,7 +20,7 @@
 }
 .runtime-connection {
   margin-left: auto;
-  padding: 12px;
+  padding-inline: var(--space-2);
   color: var(--text-secondary);
   font-size: 11px;
 }

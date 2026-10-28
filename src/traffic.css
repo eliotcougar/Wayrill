@@ -214,7 +214,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 14px;
-  padding: 8px 18px;
+  padding: var(--space-2) var(--space-5);
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
@@ -286,24 +286,8 @@
   gap: 4px;
 }
 
-.traffic-window .rule-editor-titlebar {
-  padding: 12px 18px;
-  align-items: center;
-}
-.traffic-window .rule-editor-titlebar h2 {
-  margin: 0;
-}
-.traffic-window .rule-editor-tabs {
-  padding: 3px 12px 0;
-}
-.traffic-window .rule-editor-tabs button {
-  padding: 9px 12px;
-}
-.traffic-window .rule-editor-footer {
-  padding: 8px 18px;
-}
 .traffic-window .traffic-body {
-  padding: 12px 18px;
+  padding: var(--space-3) var(--space-5);
 }
 .traffic-overview-body {
   display: flex;
@@ -312,9 +296,6 @@
 }
 .traffic-overview-body > :not(.traffic-chart) {
   flex-shrink: 0;
-}
-.traffic-window .editor-tab-panel[hidden] {
-  display: none;
 }
 .traffic-overview-body .notice {
   margin: 0;

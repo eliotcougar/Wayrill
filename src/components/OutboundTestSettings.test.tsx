@@ -12,7 +12,6 @@ it('enables an unfiltered editable UDP destination and saves the checkbox and ma
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   HTMLElement.prototype.showPopover = function () {};
   HTMLElement.prototype.hidePopover = function () {};
-  HTMLElement.prototype.scrollIntoView = function () {};
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host),

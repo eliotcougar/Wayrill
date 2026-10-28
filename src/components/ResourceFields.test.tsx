@@ -28,7 +28,6 @@ beforeEach(() => {
   HTMLElement.prototype.hidePopover = function () {
     delete this.dataset.open;
   };
-  HTMLElement.prototype.scrollIntoView = () => {};
 });
 afterEach(async () => {
   await act(async () => root.unmount());

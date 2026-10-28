@@ -1,11 +1,6 @@
 .capture-window {
   width: min(1100px, calc(100vw - 40px));
   height: min(690px, calc(100vh - 36px));
-  display: flex;
-  flex-direction: column;
-}
-.capture-window:not([open]) {
-  display: none;
 }
 .capture-picker-list strong {
   display: block;
@@ -50,9 +45,6 @@
 .capture-picker-list label span {
   min-width: 0;
   flex: 1;
-}
-.capture-window .rule-editor-footer {
-  flex-shrink: 0;
 }
 .capture-window .rule-editor-footer p {
   margin: 0 auto 0 0;

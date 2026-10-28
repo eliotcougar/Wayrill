@@ -187,7 +187,7 @@ export default function ProxyChainEditor({
   return (
     <dialog
       ref={dialog}
-      className="rule-editor-window policy-editor"
+      className="rule-editor-window policy-editor dialog--compact"
       aria-labelledby="chain-editor-title"
       onCancel={(e) => {
         e.stopPropagation();

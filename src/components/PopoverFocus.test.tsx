@@ -17,7 +17,6 @@ beforeEach(() => {
   HTMLElement.prototype.hidePopover = function () {
     delete this.dataset.open;
   };
-  HTMLElement.prototype.scrollIntoView = vi.fn();
   action.mockReset();
   host = document.createElement('div');
   document.body.append(host);

@@ -650,16 +650,6 @@ textarea::placeholder {
   vertical-align: 1px;
 }
 
-/* Keyboard focus stays inside the visible bounds of menus, tabs and panels. */
-.editor-tab-list button[aria-disabled='true'] {
-  opacity: 0.4;
-  cursor: default;
-}
-.editor-tab-list button:focus-visible,
-.editor-tab-panel:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -3px;
-}
 .node-editor-action {
   width: 100%;
   margin-bottom: 16px;

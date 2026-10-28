@@ -27,6 +27,10 @@ Add feature sheets there rather than importing CSS from components.
   Feature sheets retain placement, widths and margins rather than repeating the
   flex layout, alignment and gap.
 - `styles/dialogs.css` owns dialog/editor shells, title bars, tabs and footers.
+  `dialog--compact` reduces header/footer spacing for dense working views, such
+  as statistics and policy editors. Tab appearance targets `role="tab"` inside
+  `editor-tab-list`; trailing actions keep normal button styles. Keep scrolling,
+  focus and selected/disabled states here rather than in individual windows.
 - `styles/tables.css` owns native `data-table` cell spacing, dividers and headers.
   Use `data-table--compact` for dense lists and `data-table--sticky` when a table
   scrolls inside a constrained viewport. Features own column widths, numeric

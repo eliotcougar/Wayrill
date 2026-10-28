@@ -488,7 +488,7 @@ export default function SystemCaptureSettings({
   return (
     <dialog
       ref={dialog}
-      className="rule-editor-window capture-window system-capture-window"
+      className="rule-editor-window system-capture-window"
       aria-labelledby="system-capture-title"
       onClose={onClose}
       onCancel={(e) => {
@@ -508,7 +508,7 @@ export default function SystemCaptureSettings({
       </div>
       <EditorTabs tabs={tabs} label="Traffic capture mechanisms" disabled={busy}>
         <button
-          className="icon-button"
+          className="secondary-button icon-button"
           aria-label="Refresh system capture settings"
           disabled={!desktop || busy}
           onClick={() => void load()}

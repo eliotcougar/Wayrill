@@ -78,7 +78,10 @@ export function EditorTabs<K extends string>({
             aria-controls={`${id}-panel-${key}`}
             aria-disabled={disabled || undefined}
             tabIndex={focusKey === key ? 0 : -1}
-            onFocus={() => setFocused(key)}
+            onFocus={(event) => {
+              setFocused(key);
+              event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            }}
             onClick={() => {
               if (!disabled) onSelect(key);
             }}

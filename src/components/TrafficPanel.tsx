@@ -167,7 +167,7 @@ export default function TrafficPanel({
   return (
     <dialog
       ref={dialog}
-      className="rule-editor-window traffic-window"
+      className="rule-editor-window traffic-window dialog--compact"
       aria-labelledby="traffic-title"
       onClose={onClose}
       onCancel={onClose}

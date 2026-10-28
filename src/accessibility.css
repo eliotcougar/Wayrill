@@ -33,20 +33,6 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.editor-tab-list {
-  overflow-x: auto;
-  padding: 3px;
-}
-.editor-tab-list [role='tab'] {
-  flex-shrink: 0;
-}
-.rule-editor-tabs {
-  min-width: 0;
-}
-.editor-tab-panel,
-.runtime-body {
-  min-width: 0;
-}
 .editor-field,
 .editor-field input,
 .editor-field textarea,
@@ -110,9 +96,6 @@
   .rule-editor-tabs {
     padding: 3px 6px 0;
   }
-  .rule-editor-tabs button {
-    padding: 8px 10px;
-  }
   .rule-editor-columns,
   .defaults-columns {
     grid-template-columns: minmax(0, 1fr);
@@ -157,9 +140,6 @@
     flex: none;
     min-height: 140px;
     overflow: visible;
-  }
-  .rule-editor-titlebar p {
-    margin-top: 4px;
   }
 }
 

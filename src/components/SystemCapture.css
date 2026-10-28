@@ -3,12 +3,9 @@
 }
 .system-capture-body {
   overflow: auto;
-  padding: 18px 24px;
+  padding: var(--space-4) 22px;
   flex: 1;
   min-height: 0;
-}
-.system-capture-body[hidden] {
-  display: none;
 }
 .capture-current {
   background: var(--surface-sunken);
@@ -104,14 +101,13 @@
   margin: 6px 0;
 }
 .capture-desktop-notice {
-  margin: 10px 24px 0;
+  margin: var(--space-2) 22px 0;
   font-size: 12px;
   color: var(--text-muted);
 }
 .system-capture-window .rule-editor-footer .field-help {
   margin: 0;
   flex: 1;
-  max-width: none;
 }
 .windows-settings-embedded {
   position: static;
@@ -209,15 +205,6 @@
   border-radius: 5px;
   color: var(--text);
   padding: 7px 9px;
-}
-.system-capture-window .rule-editor-tabs {
-  align-items: center;
-}
-.system-capture-window .rule-editor-tabs > .icon-button {
-  margin-left: auto;
-  padding: 7px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
 }
 
 .capture-diagnostics {

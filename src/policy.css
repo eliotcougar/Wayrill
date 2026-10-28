@@ -267,13 +267,6 @@
   }
 }
 
-/* Keep the working area useful on a 1280 x 800 laptop. */
-.policy-editor .rule-editor-titlebar {
-  padding: 10px 20px;
-}
-.policy-editor .rule-editor-titlebar h2 {
-  margin: 0;
-}
 .policy-editor .policy-name-field {
   flex-direction: row;
   align-items: center;
@@ -287,15 +280,6 @@
   flex: 1;
   min-width: 0;
 }
-.policy-editor .rule-editor-tabs {
-  padding-top: 0;
-}
-.policy-editor .rule-editor-tabs button {
-  padding: 8px 15px;
-}
 .policy-picker-list {
   max-height: 200px;
-}
-.policy-editor .rule-editor-footer {
-  padding: 10px 20px;
 }

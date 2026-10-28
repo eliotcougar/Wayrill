@@ -292,7 +292,7 @@ export default function PolicyEditor({
   return (
     <dialog
       ref={dialog}
-      className="rule-editor-window policy-editor"
+      className="rule-editor-window policy-editor dialog--compact"
       aria-labelledby="policy-editor-title"
       onCancel={(e) => {
         e.stopPropagation();

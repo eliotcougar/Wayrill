@@ -55,7 +55,6 @@ beforeEach(async () => {
   HTMLElement.prototype.hidePopover = function () {
     delete this.dataset.open;
   };
-  HTMLElement.prototype.scrollIntoView = vi.fn();
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

@@ -59,6 +59,11 @@
   background: var(--surface-hover);
   border-color: var(--border-strong);
 }
+.primary-button.icon-button,
+.secondary-button.icon-button {
+  min-height: var(--control-size-compact);
+  padding: 0;
+}
 .field {
   --field-control-size: var(--control-size-compact);
   --field-control-text-size: 11px;

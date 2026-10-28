@@ -5,6 +5,10 @@ import appConfig from './vite.config.ts';
 export default mergeConfig(
   appConfig,
   defineConfig({
-    test: { environment: 'node', include: ['src/**/*.test.{ts,tsx}'] },
+    test: {
+      environment: 'node',
+      include: ['src/**/*.test.{ts,tsx}'],
+      setupFiles: ['./src/test/browserSetup.ts'],
+    },
   }),
 );
