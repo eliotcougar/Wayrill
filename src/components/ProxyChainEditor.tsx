@@ -293,7 +293,7 @@ export default function ProxyChainEditor({
                   : 'Connect Observation on the canvas to monitor this chain.'}
             </p>
             {monitored && (
-              <dl>
+              <dl className="key-value-list">
                 <dt>Mode</dt>
                 <dd>{String(observer.data.settings.mode)}</dd>
                 <dt>Probe URL</dt>

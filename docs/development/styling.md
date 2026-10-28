@@ -68,6 +68,10 @@ Add feature sheets there rather than importing CSS from components.
   to omit the final divider; features retain scrolling limits and responsive
   action placement. The inline content variant keeps names and details on one
   wrapping line. Selectable rows reuse this content without becoming action rows.
+  `key-value-list` styles native `dl` summaries with direct `dt`/`dd` pairs,
+  aligned label/value columns and safe wrapping. Use its compact variant for
+  source counts. Features keep placement, numeric alignment and deliberate
+  column constraints, without repeating the label/value appearance.
 - `styles/choices.css` owns rich checkbox/radio lists. Combine `check-control`
   with `choice-row` inside `choice-list`; use the compact row variant for dense
   catalogs. `item-content` lays out a name and details, with an inline

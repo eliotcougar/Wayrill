@@ -14,21 +14,9 @@
   margin-bottom: 16px;
 }
 .capture-values {
-  margin: 8px 0 0;
-  font-size: 12px;
-}
-.capture-values > div {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  gap: 12px;
-  margin: 6px 0;
-}
-.capture-values dt {
-  color: var(--text-muted);
+  margin-top: var(--space-2);
 }
 .capture-values dd {
-  margin: 0;
-  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 .capture-settings-fields {

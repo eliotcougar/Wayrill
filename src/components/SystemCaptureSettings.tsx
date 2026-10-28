@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { X, RefreshCw, Play, Square } from 'lucide-react';
 import { EditorTabs, EditorTabPanels, useEditorTabs } from './EditorTabs';
 import useModalDialog from './useModalDialog';
@@ -133,32 +133,24 @@ function ProxySection({
         )}
         {row?.supported &&
           (environment ? (
-            <dl className="capture-values">
+            <dl className="key-value-list capture-values">
               {['http_proxy', 'https_proxy', 'ftp_proxy', 'all_proxy', 'no_proxy'].map((name) => (
-                <div key={name}>
+                <Fragment key={name}>
                   <dt>{name}</dt>
                   <dd>{environmentValue(name)}</dd>
-                </div>
+                </Fragment>
               ))}
             </dl>
           ) : (
-            <dl className="capture-values">
-              <div>
-                <dt>Manual proxy</dt>
-                <dd>{row.values.enabled ? String(row.values.server) : 'Off'}</dd>
-              </div>
-              <div>
-                <dt>Bypass</dt>
-                <dd>{String(row.values.bypass || 'None')}</dd>
-              </div>
-              <div>
-                <dt>PAC</dt>
-                <dd>{String(row.values.pacUrl || 'Off')}</dd>
-              </div>
-              <div>
-                <dt>Automatic discovery</dt>
-                <dd>{row.values.autoDetect ? 'On' : 'Off'}</dd>
-              </div>
+            <dl className="key-value-list capture-values">
+              <dt>Manual proxy</dt>
+              <dd>{row.values.enabled ? String(row.values.server) : 'Off'}</dd>
+              <dt>Bypass</dt>
+              <dd>{String(row.values.bypass || 'None')}</dd>
+              <dt>PAC</dt>
+              <dd>{String(row.values.pacUrl || 'Off')}</dd>
+              <dt>Automatic discovery</dt>
+              <dd>{row.values.autoDetect ? 'On' : 'Off'}</dd>
             </dl>
           ))}
         {row?.error && <p className="field-help">{row.error.message}</p>}

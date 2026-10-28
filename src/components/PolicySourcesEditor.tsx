@@ -421,7 +421,10 @@ export default function PolicySourcesEditor({
         )}
         {!preview.problem &&
           (mode === 'combined' || preview.duplicates > 0 || preview.rejected > 0) && (
-            <dl className="policy-source-totals" aria-label="Candidate source totals">
+            <dl
+              className="key-value-list key-value-list--compact policy-source-totals"
+              aria-label="Candidate source totals"
+            >
               {mode === 'prefixes' ? (
                 <>
                   <dt>Native prefix matches</dt>

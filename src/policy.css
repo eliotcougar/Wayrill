@@ -135,15 +135,12 @@
   color: var(--text-muted);
 }
 .policy-source-totals {
-  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px 12px;
-  margin: 0 0 10px;
-  font-size: 11px;
+  margin-bottom: var(--space-3);
 }
 .policy-source-totals dd {
-  margin: 0;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .policy-fallback {
