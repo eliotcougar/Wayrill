@@ -80,13 +80,7 @@
   line-height: 1.8;
 }
 .defaults-field-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px 24px;
-  align-items: start;
-}
-.wide-option {
-  grid-column: 1 / -1;
+  row-gap: var(--space-4);
 }
 .default-option .field {
   margin-bottom: 0;
@@ -149,11 +143,6 @@
 .protocol-defaults-group .field {
   margin-bottom: 0;
 }
-@media (max-width: 760px) {
-  .protocol-defaults-group .defaults-field-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 .setting-inheritance .small-action {
   font-size: 9px;
   margin: 0;
@@ -173,9 +162,6 @@
 @media (max-width: 800px) {
   .defaults-columns {
     grid-template-columns: 170px minmax(0, 1fr);
-  }
-  .defaults-field-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
   .defaults-content {
     padding: 16px;

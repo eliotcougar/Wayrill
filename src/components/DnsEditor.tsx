@@ -727,7 +727,7 @@ export default function DnsEditor({
                                     onChange={(port) => setServer({ port })}
                                   />
                                 )}
-                              <div className="dns-field-grid">
+                              <div className="field-grid">
                                 <SelectField
                                   hint={resolverHint('queryStrategy')}
                                   label="Server address family"
@@ -765,7 +765,7 @@ export default function DnsEditor({
                                   help="Optional IP literal. Empty inherits the handler setting."
                                 />
                                 <h4>Cache overrides</h4>
-                                <div className="dns-field-grid">
+                                <div className="field-grid">
                                   <SelectField
                                     hint={
                                       resolverDefaults.disableCache
@@ -945,7 +945,7 @@ export default function DnsEditor({
                                 multiline
                                 help={preferenceHelp}
                               />
-                              <div className="dns-field-grid">
+                              <div className="field-grid">
                                 <TextField
                                   hint={'Any answer IP'}
                                   label="Expected answer IPs"
@@ -994,7 +994,7 @@ export default function DnsEditor({
                 </div>
               ) : tab === 'settings' && handler ? (
                 <div className="output-editor">
-                  <div className="dns-field-grid">
+                  <div className="field-grid">
                     <SelectField
                       label="Handler address family"
                       diagnosticKey="queryStrategy"
@@ -1066,7 +1066,7 @@ export default function DnsEditor({
                           by domain rules.
                         </small>
                       </div>
-                      <div className="dns-field-grid">
+                      <div className="field-grid">
                         <SelectField
                           label="Forward network"
                           diagnosticKey="rewriteNetwork"

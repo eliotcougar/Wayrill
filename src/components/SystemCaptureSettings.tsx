@@ -216,7 +216,7 @@ function ProxySection({
                   ))}
                 </div>
                 {request.all && (
-                  <div className="capture-field-pair">
+                  <div className="field-grid capture-field-pair">
                     <label className="editor-field">
                       <span>ALL_PROXY protocol</span>
                       <select

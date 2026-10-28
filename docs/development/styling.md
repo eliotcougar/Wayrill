@@ -31,6 +31,11 @@ Add feature sheets there rather than importing CSS from components.
   row layout, wraps long titles and keeps the heading's margins out of the row.
   Feature sheets retain placement, widths and margins rather than repeating the
   flex layout, alignment and gap.
+  `field-grid` supplies two equal columns, a shared column gap and single-column
+  reflow at the common narrow breakpoint. Normal fields keep their own vertical
+  spacing; grids of defaults metadata that clear field margins own their row gap.
+  `wide-option` spans both columns. Native editors expand only their direct
+  textarea fields, so that rule cannot change nested editors' layouts.
 - `styles/panels.css` owns the `editor-panel` frame for grouped settings. The
   subtle variant sits at the surrounding editor's surface level. Features own
   layout, placement and scrolling limits; use notices for explanatory messages

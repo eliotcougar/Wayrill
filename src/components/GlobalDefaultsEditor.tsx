@@ -142,7 +142,7 @@ export default function GlobalDefaultsEditor({
         : { ...current, settings: { ...current.settings, [key]: value } },
     );
   const renderFields = (fields: typeof globalFields) => (
-    <div className="defaults-field-grid">
+    <div className="field-grid defaults-field-grid">
       {fields.map((f) => (
         <div
           className={

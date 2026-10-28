@@ -39,9 +39,7 @@
   gap: 12px;
 }
 .capture-field-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  row-gap: var(--space-3);
 }
 .capture-settings-fields .editor-field {
   margin-bottom: 0;
@@ -123,9 +121,6 @@
   border: 0;
 }
 @media (max-width: 700px) {
-  .capture-field-pair {
-    grid-template-columns: 1fr;
-  }
   .capture-values > div {
     grid-template-columns: 105px minmax(0, 1fr);
   }

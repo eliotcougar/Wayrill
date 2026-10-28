@@ -186,7 +186,7 @@ export default function NativeObjectFields({
   );
   const advanced = fields.filter((f) => !basic.includes(f));
   const controls = (items: NativeField[]) => (
-    <div className="editor-field-grid">
+    <div className="field-grid editor-field-grid">
       {items.map((field) => (
         <NativeControl
           key={field.key}

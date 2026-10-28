@@ -1,4 +1,14 @@
-/* Reusable rows for actions and labeled controls. Feature sheets own placement. */
+/* Shared rows and form grids. Feature sheets own placement and grouping. */
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-5);
+  align-items: start;
+  min-width: 0;
+}
+.field-grid > .wide-option {
+  grid-column: 1 / -1;
+}
 .action-row,
 .form-row,
 .section-heading {
@@ -40,4 +50,9 @@
 .form-row > .icon-button {
   width: var(--control-size);
   height: var(--control-size);
+}
+@media (max-width: 800px) {
+  .field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

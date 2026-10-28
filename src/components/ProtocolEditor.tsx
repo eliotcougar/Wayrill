@@ -849,7 +849,7 @@ export default function ProtocolEditor({
             });
             if (!fields.length) return null;
             const render = (items: typeof fields) => (
-              <div className="defaults-field-grid">
+              <div className="field-grid defaults-field-grid">
                 {items.map((field) => (
                   <div
                     key={field.key}
