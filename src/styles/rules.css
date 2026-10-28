@@ -188,14 +188,6 @@
   color: var(--text-secondary);
   font-size: 11px;
 }
-.rule-plan-preview pre {
-  color: var(--success);
-  font-size: 11px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: Consolas, monospace;
-}
 .rule-editor-diagnostics {
   max-height: 100px;
   overflow: auto;
@@ -450,10 +442,6 @@
 .preset-hosts {
   margin-bottom: 14px;
   font-size: 12px;
-}
-.preset-hosts pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .preset-import-button {

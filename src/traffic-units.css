@@ -90,7 +90,6 @@
   flex: 1;
   min-height: 150px;
   resize: none;
-  font-family: var(--font-mono);
 }
 .expanded-rule-field > div {
   display: flex;

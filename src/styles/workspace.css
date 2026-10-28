@@ -592,23 +592,12 @@ textarea::placeholder {
   line-height: 1.6;
   margin: 0 0 14px;
 }
-.field .json-setting,
-.configuration-preview pre {
-  font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 10px;
-  tab-size: 2;
-}
 .credentials-note {
   padding: 10px 3px;
   margin-bottom: 9px;
 }
-.configuration-preview pre {
+.configuration-preview .code-block {
   max-height: 350px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--text);
-  line-height: 1.6;
 }
 .fakedns-pool .editor-section-heading {
   display: flex;

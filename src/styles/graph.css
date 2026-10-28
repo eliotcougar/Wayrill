@@ -132,7 +132,7 @@
 }
 .node-detail > strong {
   color: var(--text);
-  font-family: 'Cascadia Code', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 400;
   white-space: nowrap;

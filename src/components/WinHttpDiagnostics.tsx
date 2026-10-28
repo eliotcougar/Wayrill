@@ -64,7 +64,13 @@ export default function WinHttpDiagnostics({
           <p className="field-help">
             Includes proxy addresses and PAC URLs. Review before sharing.
           </p>
-          <textarea aria-label="WinHTTP diagnostics" readOnly value={report} spellCheck={false} />
+          <textarea
+            className="text-control code-control"
+            aria-label="WinHTTP diagnostics"
+            readOnly
+            value={report}
+            spellCheck={false}
+          />
         </details>
       )}
     </div>

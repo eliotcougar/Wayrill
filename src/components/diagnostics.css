@@ -23,7 +23,6 @@
   flex: 1;
   min-height: 180px;
   resize: none;
-  font: 12px/1.5 var(--font-mono, monospace);
   white-space: pre;
   overflow: auto;
 }

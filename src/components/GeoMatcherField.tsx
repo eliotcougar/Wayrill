@@ -65,7 +65,7 @@ function Expanded({
           />
         </div>
         <textarea
-          className="text-control"
+          className="text-control code-control"
           ref={input}
           autoFocus
           aria-label={`Expanded ${label}`}

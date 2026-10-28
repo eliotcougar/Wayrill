@@ -306,7 +306,7 @@ export default function ProxyChainEditor({
         )}
         {tab === 'preview' && (
           <section className="policy-section">
-            <pre className="policy-preview" tabIndex={0}>
+            <pre className="code-block" tabIndex={0}>
               {pending
                 ? 'Checking chain…'
                 : problem || JSON.stringify(checked?.result?.config, null, 2)}

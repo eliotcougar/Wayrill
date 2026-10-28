@@ -187,7 +187,7 @@ export default function RoutingPresetPicker({
           0 && (
           <details className="preset-hosts">
             <summary>Suggested DNS handler hosts</summary>
-            <pre>
+            <pre className="code-block" tabIndex={0}>
               {JSON.stringify(
                 Object.fromEntries(
                   Object.entries((preset as DnsPreset).hosts).filter(

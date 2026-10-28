@@ -90,7 +90,7 @@
 :where(.field, .editor-field)
   > :where(div)
   > :where(input:not([type='checkbox'], [type='radio']), textarea, select),
-.text-control {
+:where(.text-control) {
   width: 100%;
   min-width: 0;
   min-height: var(--field-control-size, var(--control-size));
@@ -116,8 +116,8 @@
 select.text-control {
   cursor: pointer;
 }
-:where(.field, .editor-field) textarea,
-textarea.text-control {
+:where(.field, .editor-field) :where(textarea),
+:where(textarea.text-control) {
   resize: vertical;
   min-height: 55px;
   line-height: 1.5;

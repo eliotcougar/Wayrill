@@ -346,7 +346,7 @@ export default function WindowsCaptureSettings({
               changes the selected packages; unmatched exemptions are preserved.
             </p>
             <input
-              className="text-control capture-package-search"
+              className="text-control"
               aria-label="Search loopback packages"
               placeholder="Search Windows apps"
               value={search}

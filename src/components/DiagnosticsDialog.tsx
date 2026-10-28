@@ -243,7 +243,7 @@ export default function DiagnosticsDialog({
         <textarea
           ref={output}
           aria-label="Application log entries"
-          className="text-control diagnostics-output"
+          className="text-control code-control diagnostics-output"
           readOnly
           value={text}
           placeholder={

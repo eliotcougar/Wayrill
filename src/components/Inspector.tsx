@@ -343,13 +343,15 @@ export default function Inspector({
               <p className="field-help">FakeDNS real-address lookup · Automatic</p>
             )}
           {node.data.native && (
-            <details className="settings-section">
+            <details className="settings-section configuration-preview">
               <summary>Imported native fields</summary>
               <div className="settings-section-body">
                 <p className="field-help">
                   Original imported fields. This preview may contain credentials.
                 </p>
-                <pre>{JSON.stringify(node.data.native.original, null, 2)}</pre>
+                <pre className="code-block code-block--compact" tabIndex={0}>
+                  {JSON.stringify(node.data.native.original, null, 2)}
+                </pre>
               </div>
             </details>
           )}
@@ -496,7 +498,9 @@ export default function Inspector({
                   The preview includes configured credentials.
                 </p>
                 {preview ? (
-                  <pre tabIndex={0}>{preview}</pre>
+                  <pre className="code-block code-block--compact" tabIndex={0}>
+                    {preview}
+                  </pre>
                 ) : (
                   <p className="field-message error">
                     Correct the configuration issues to view the preview.

@@ -556,7 +556,7 @@ export default function PolicyEditor({
                 <p className="field-help">
                   Balancer and observatory fragments. May contain credentials.
                 </p>
-                <pre className="policy-preview" tabIndex={0}>
+                <pre className="code-block" tabIndex={0}>
                   {preview}
                 </pre>
               </>

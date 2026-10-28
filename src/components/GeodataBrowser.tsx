@@ -350,7 +350,7 @@ export default function GeodataBrowser({
           <label className="geo-expression">
             Expression
             <input
-              className="text-control"
+              className="text-control code-control"
               aria-label={`${kind === 'geosite' ? 'GeoSite' : 'GeoIP'} expression`}
               value={expression}
               maxLength={4096}

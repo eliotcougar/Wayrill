@@ -1,0 +1,25 @@
+/* Structured text uses one font and surface across previews and diagnostic tools. */
+code,
+.code-control,
+.code-block {
+  font-family: var(--font-mono);
+  tab-size: 2;
+}
+.code-block {
+  min-width: 0;
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--control-text-size);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+}
+.code-block--compact {
+  padding: var(--space-2);
+  font-size: 11px;
+}

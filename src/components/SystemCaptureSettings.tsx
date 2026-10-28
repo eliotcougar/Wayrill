@@ -345,7 +345,9 @@ function ProxySection({
           {commands && (
             <>
               <p>For an existing PowerShell session (user overrides system):</p>
-              <pre>{commands}</pre>
+              <pre className="code-block" tabIndex={0}>
+                {commands}
+              </pre>
             </>
           )}
         </details>

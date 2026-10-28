@@ -568,7 +568,7 @@ export default function RuleTableEditor({
                         />
                       </div>
                       <textarea
-                        className="text-control"
+                        className="text-control code-control"
                         ref={expandedInput}
                         autoFocus
                         aria-label={`Expanded ${expanded.label}`}
@@ -673,7 +673,9 @@ export default function RuleTableEditor({
                                 connection controls the destination; displayed conditions control
                                 mapped fields.
                               </p>
-                              <pre>{JSON.stringify(selectedRule.native.original, null, 2)}</pre>
+                              <pre className="code-block" tabIndex={0}>
+                                {JSON.stringify(selectedRule.native.original, null, 2)}
+                              </pre>
                             </details>
                           )}
                           <fieldset className="rule-destination-group">
@@ -847,7 +849,9 @@ export default function RuleTableEditor({
             ) : (
               <div className="rule-plan-preview">
                 <p>This node’s rules. Run graph compiles all connected paths.</p>
-                <pre tabIndex={0}>{JSON.stringify(plan, null, 2)}</pre>
+                <pre className="code-block" tabIndex={0}>
+                  {JSON.stringify(plan, null, 2)}
+                </pre>
               </div>
             )}
           </>

@@ -265,7 +265,7 @@ export default function FakeDnsEditor({
         </label>
       </EditorTabPanel>
       <EditorTabPanel tabs={tabs} tab="preview" className="runtime-body">
-        <pre className="config-preview" tabIndex={0} aria-label="Xray configuration preview">
+        <pre className="code-block" tabIndex={0} aria-label="Xray configuration preview">
           {preview}
         </pre>
       </EditorTabPanel>

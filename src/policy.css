@@ -21,15 +21,6 @@
   background: var(--surface-adjacent);
   color: var(--success);
 }
-.policy-preview {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: 16px;
-  border-radius: 8px;
-  background: var(--surface-sunken);
-  font-size: 12px;
-  line-height: 1.5;
-}
 .policy-set-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);

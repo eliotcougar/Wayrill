@@ -281,7 +281,7 @@ export function SettingField({
           id={id}
           aria-invalid={invalid}
           aria-describedby={describedBy}
-          className={field.type === 'json' ? 'json-setting' : undefined}
+          className={field.type === 'json' ? 'code-control' : undefined}
           spellCheck={false}
           rows={field.type === 'json' ? 4 : 2}
           maxLength={field.maxLength ?? 4096}

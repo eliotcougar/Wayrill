@@ -78,10 +78,6 @@
   flex-direction: column;
   gap: 6px;
 }
-.geo-expression input {
-  width: 100%;
-  font-family: var(--font-mono, monospace);
-}
 .geo-attributes {
   min-width: 0;
   margin: 0;

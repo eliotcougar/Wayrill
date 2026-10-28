@@ -87,9 +87,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 12px;
-  font:
-    11px/1.65 Consolas,
-    monospace;
+  font: 11px/1.65 var(--font-mono);
 }
 .runtime-events > div {
   display: grid;

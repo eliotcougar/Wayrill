@@ -1218,7 +1218,9 @@ export default function DnsEditor({
                   {previewError ? (
                     <p className="field-message error">{previewError}</p>
                   ) : (
-                    <pre tabIndex={0}>{preview}</pre>
+                    <pre className="code-block" tabIndex={0}>
+                      {preview}
+                    </pre>
                   )}
                 </div>
               )}

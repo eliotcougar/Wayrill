@@ -31,6 +31,11 @@ Add feature sheets there rather than importing CSS from components.
   as statistics and policy editors. Tab appearance targets `role="tab"` inside
   `editor-tab-list`; trailing actions keep normal button styles. Keep scrolling,
   focus and selected/disabled states here rather than in individual windows.
+- `styles/code.css` owns `code-block` previews and the `code-control` monospace
+  field modifier. Combine `text-control code-control` for standalone structured
+  textareas. Use `code-block--compact` in the inspector; features retain their
+  height limits and scrolling layout. Keep diagnostic logs that depend on column
+  alignment unwrapped, while configuration previews wrap long values.
 - `styles/tables.css` owns native `data-table` cell spacing, dividers and headers.
   Use `data-table--compact` for dense lists and `data-table--sticky` when a table
   scrolls inside a constrained viewport. Features own column widths, numeric
@@ -55,8 +60,9 @@ theme cards retain their own layout around those controls.
 Choice rows follow the normal control height; `check-control--compact` uses a
 24px row for options that already live in a dense list or wrapping group.
 
-Field appearance uses low-specificity selectors so validation, inherited-value
-hints and composite controls can specialize it without escalating specificity.
+Field and standalone text-control appearance, including textarea defaults, uses
+zero-specificity selectors so feature sizing, validation, inherited-value hints
+and composite controls can specialize it without escalating specificity.
 The element font reset must also have zero specificity; a type selector with
 `font: inherit` would defeat the field's font size and line height.
 Preserve visible focus on every keyboard-operable control.

@@ -239,7 +239,9 @@ function RuntimePanelView({
                 {resourceFailure ? (
                   <details>
                     <summary>Core diagnostics</summary>
-                    <pre className="core-error-log">{error}</pre>
+                    <pre className="code-block" tabIndex={0}>
+                      {error}
+                    </pre>
                   </details>
                 ) : (
                   error
@@ -291,7 +293,9 @@ function RuntimePanelView({
                   {resourceFailure ? (
                     <details>
                       <summary>Core diagnostics</summary>
-                      <pre className="core-error-log">{snapshot.core.lastError.message}</pre>
+                      <pre className="code-block" tabIndex={0}>
+                        {snapshot.core.lastError.message}
+                      </pre>
                     </details>
                   ) : (
                     snapshot.core.lastError.message
