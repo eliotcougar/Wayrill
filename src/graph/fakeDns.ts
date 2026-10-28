@@ -1,5 +1,5 @@
 import { coreDefaultHint } from './coreDefaults';
-import { ipProblem } from './addressValidation';
+import { ipProblem, isIpLiteral } from './addressValidation';
 import { prefixesOverlap } from './ipNetwork';
 import {
   checkJson,
@@ -159,7 +159,7 @@ export function fakeDnsPools(data: RuleNodeData): unknown {
       typeof ip !== 'string' ||
       !ip.includes('/') ||
       ipProblem(ip) ||
-      /^(?:!|geoip:|ext:)/.test(ip)
+      !isIpLiteral(ip.split('/')[0])
     )
       throw new Error('Every FakeDNS pool needs an IPv4 or IPv6 CIDR.');
     if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 1)

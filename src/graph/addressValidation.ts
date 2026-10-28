@@ -15,8 +15,8 @@ export function isIpLiteral(address: string): boolean {
   );
 }
 export function ipProblem(value: string): boolean {
-  const item = value.replace(/^!/, '');
-  if (/^(geoip:|ext:)[^\s]+$/.test(item)) return false;
+  const item = value.replace(/^!+/, '');
+  if (/^(geoip:|ext:|ext-ip:)[^\s]+$/.test(item)) return false;
   const [address, prefix, ...extra] = item.split('/');
   return (
     !isIpLiteral(address) ||
@@ -38,8 +38,7 @@ export function domainProblem(value: string): string | null {
   if (/\s/.test(value)) return 'Use one domain condition per line without spaces.';
   return null;
 }
-export const dnsIpLiteral = (value: string) =>
-  !!value && !value.includes('/') && !/^(geoip:|ext:|!)/.test(value) && !ipProblem(value);
+export const dnsIpLiteral = isIpLiteral;
 export function dnsAddressProblem(address: string): string | null {
   if (dnsIpLiteral(address) || address === 'localhost') return null;
   try {
