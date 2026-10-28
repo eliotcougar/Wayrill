@@ -849,53 +849,51 @@ export default function ProtocolEditor({
             });
             if (!fields.length) return null;
             const render = (items: typeof fields) => (
-              <section className="protocol-defaults-group" aria-label={group.title}>
-                <div className="defaults-field-grid">
-                  {items.map((field) => (
-                    <div
-                      key={field.key}
-                      className={
-                        ['json', 'textarea'].includes(field.type) ? 'wide-option' : undefined
+              <div className="defaults-field-grid">
+                {items.map((field) => (
+                  <div
+                    key={field.key}
+                    className={
+                      ['json', 'textarea'].includes(field.type) ? 'wide-option' : undefined
+                    }
+                  >
+                    <InheritableSetting
+                      data={current}
+                      defaults={defaults}
+                      preparedRoot={effective?.raw ?? null}
+                      field={field}
+                      value={current.settings[field.key]}
+                      issues={[]}
+                      idPrefix="protocol-default"
+                      onValidity={validity}
+                      onReset={
+                        defaults
+                          ? () => sharedChange(resetNodeDefaults(current, defaults, field.key))
+                          : undefined
                       }
-                    >
-                      <InheritableSetting
-                        data={current}
-                        defaults={defaults}
-                        preparedRoot={effective?.raw ?? null}
-                        field={field}
-                        value={current.settings[field.key]}
-                        issues={[]}
-                        idPrefix="protocol-default"
-                        onValidity={validity}
-                        onReset={
-                          defaults
-                            ? () => sharedChange(resetNodeDefaults(current, defaults, field.key))
-                            : undefined
-                        }
-                        onOverride={() =>
-                          sharedChange({
-                            ...current,
-                            ...overrideSetting(current, field.key, current.settings[field.key]),
-                          })
-                        }
-                        onChange={(value) =>
-                          sharedChange({
-                            ...current,
-                            ...overrideSetting(current, field.key, value),
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-              </section>
+                      onOverride={() =>
+                        sharedChange({
+                          ...current,
+                          ...overrideSetting(current, field.key, current.settings[field.key]),
+                        })
+                      }
+                      onChange={(value) =>
+                        sharedChange({
+                          ...current,
+                          ...overrideSetting(current, field.key, value),
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
             );
             const basic = fields.filter((f) =>
                 basicGlobalSettings.has(bindingFor(data.kind, f.key)!.key),
               ),
               advanced = fields.filter((f) => !basic.includes(f));
             return (
-              <section key={group.id}>
+              <section className="protocol-defaults-group" aria-label={group.title} key={group.id}>
                 <h3>{group.title}</h3>
                 {!!basic.length && render(basic)}
                 {!!advanced.length && (

@@ -169,7 +169,7 @@ export default function PolicySourcesEditor({
             )}
             {displayedSources.map((source) => (
               <div className="editor-panel policy-source-card" key={source.groupId}>
-                <div className="output-editor-heading">
+                <div className="section-heading">
                   <h4>{source.name}</h4>
                   <button
                     className="icon-button"

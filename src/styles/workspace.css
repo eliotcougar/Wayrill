@@ -575,19 +575,6 @@ textarea::placeholder {
 .configuration-preview .code-block {
   max-height: 350px;
 }
-.fakedns-pool .editor-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 0;
-  padding: 0 0 12px;
-  border-top: 0;
-}
-.fakedns-pool h3 {
-  margin: 0;
-  font-size: 13px;
-}
 .fakedns-pool + .fakedns-pool {
   margin-top: 16px;
   padding-top: 16px;

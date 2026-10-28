@@ -760,7 +760,7 @@ export default function RuleTableEditor({
               </div>
             ) : tab === 'outputs' ? (
               <div className="output-editor" data-diagnostic-field="outputs">
-                <div className="output-editor-heading">
+                <div className="section-heading">
                   <h3>Outputs</h3>
                   <button
                     className="icon-button"

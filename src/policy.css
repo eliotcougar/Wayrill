@@ -13,9 +13,6 @@
   gap: 16px;
   margin: 0;
 }
-.policy-set-layout h3 {
-  margin: 0 0 12px;
-}
 .policy-set-sources section + section {
   margin-top: 24px;
 }
@@ -35,10 +32,6 @@
 }
 .policy-source-card {
   margin: var(--space-3) 0;
-}
-.policy-source-card h4 {
-  margin: 0;
-  overflow-wrap: anywhere;
 }
 .policy-source-count {
   color: var(--success);

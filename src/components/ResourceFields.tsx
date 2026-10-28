@@ -171,7 +171,7 @@ export default function ResourceFields({
   const waiting = busy || !!status?.busy;
   return (
     <div className="resource-settings" data-diagnostic-field="resources">
-      <div className="resource-toolbar">
+      <div className="section-heading">
         <h3>Resource files</h3>
         <button
           className="secondary-button"
@@ -190,7 +190,7 @@ export default function ResourceFields({
             key={kind}
             aria-label={`${kindName(kind)} files`}
           >
-            <div className="resource-table-heading">
+            <div className="section-heading">
               <h3>{kindName(kind)}</h3>
               <div className="resource-actions">
                 <button

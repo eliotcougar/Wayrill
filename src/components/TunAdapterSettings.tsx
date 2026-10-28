@@ -147,7 +147,7 @@ export default function TunAdapterSettings({
         {retired && inventory?.recoveryPending && (
           <p role="status">Finish Internet sharing recovery before removing the shared adapter.</p>
         )}
-        <div className="tun-adapter-heading">
+        <div className="section-heading tun-adapter-heading">
           <h3>Installed adapters</h3>
           <button
             className="icon-button"

@@ -154,21 +154,6 @@
   overflow: auto;
   padding: 20px 24px;
 }
-.output-editor-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-.output-editor-heading h3 {
-  font-size: 15px;
-  font-weight: 500;
-  margin: 0;
-}
-.output-editor-heading p {
-  color: var(--text-secondary);
-  font-size: 11px;
-}
 .output-editor-row {
   display: flex;
   gap: 20px;

@@ -10,6 +10,9 @@ Add feature sheets there rather than importing CSS from components.
   monospace font. Light/dark and forced-color themes share the same dimensions.
 - `styles/base.css` owns element defaults, focus, native checkbox/radio accents,
   scrollbars, reduced motion and visually hidden content.
+  Ordinary `h3`/`h4` content headings have explicit size, weight, line height and
+  spacing, using zero specificity. Deliberate hierarchy in dialog titles, graph
+  cards and workspace chrome remains feature-owned.
 - `styles/controls.css` owns buttons, fields, toggles, editable selects and
   disclosure controls. Use `text-control` for standalone inputs, selects and
   textareas. `field` and `editor-field` style their direct controls and immediate
@@ -24,6 +27,8 @@ Add feature sheets there rather than importing CSS from components.
 - `styles/layout.css` owns wrapping action and form rows. Use `action-row` for
   buttons/status controls and `form-row` for labeled controls with adjacent
   actions. `action-row--spread` separates the leading and trailing content.
+  Use `section-heading` for a content heading with adjacent actions; it shares
+  row layout, wraps long titles and keeps the heading's margins out of the row.
   Feature sheets retain placement, widths and margins rather than repeating the
   flex layout, alignment and gap.
 - `styles/panels.css` owns the `editor-panel` frame for grouped settings. The

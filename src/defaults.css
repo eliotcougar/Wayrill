@@ -144,13 +144,7 @@
   flex: 0 0 auto;
 }
 .protocol-defaults-group {
-  margin-top: 22px;
-}
-.protocol-defaults-group h3 {
-  color: var(--success);
-  font-size: 14px;
-  font-weight: 500;
-  margin: 0 0 15px;
+  margin-top: var(--space-5);
 }
 .protocol-defaults-group .field {
   margin-bottom: 0;

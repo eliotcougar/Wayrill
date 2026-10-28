@@ -142,7 +142,7 @@ export default function FakeDnsEditor({
             <>
               {pools.map((p, index) => (
                 <section className="fakedns-pool" key={index}>
-                  <div className="editor-section-heading">
+                  <div className="section-heading">
                     <h3>Pool {index + 1}</h3>
                     <button
                       className="icon-button"

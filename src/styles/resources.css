@@ -1,29 +1,9 @@
 .resource-settings {
   min-width: 0;
 }
-.resource-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.resource-toolbar h3 {
-  margin: 0;
-}
 .resource-table-section {
   margin-bottom: 22px;
   min-width: 0;
-}
-.resource-table-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.resource-table-heading h3 {
-  margin: 0;
 }
 .resource-file-name {
   display: flex;

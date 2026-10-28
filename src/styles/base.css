@@ -19,6 +19,17 @@ body {
   color: var(--text);
   font-size: 13px;
 }
+/* Ordinary content headings. Feature-specific hierarchy stays with its owner. */
+:where(h3, h4) {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+:where(h4) {
+  font-size: 13px;
+}
 :where(button, input, textarea, select) {
   font: inherit;
   -webkit-tap-highlight-color: transparent;

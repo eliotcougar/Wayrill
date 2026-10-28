@@ -1102,7 +1102,7 @@ export default function DnsEditor({
                 </div>
               ) : tab === 'settings' ? (
                 <div className="output-editor">
-                  <div className="output-editor-heading">
+                  <div className="section-heading">
                     <h3>Outputs</h3>
                     <button
                       className="icon-button"
