@@ -23,7 +23,7 @@ The reference is scoped to this upstream pin, not every release. The refreshed d
 - [Lua and Browser Dialer](#6-lua-decision-hooks-and-browser-assisted-networking)
 - [Environment, resource and certificate reloads](#7-environment-resource-and-certificate-reloads)
 - [Wayrill integration choices](#8-what-wayrill-can-reuse-and-what-remains-app-owned)
-- [Verification and upgrade coverage](#9-verification-and-upgrade-coverage)
+- [Upgrade coverage](#9-upgrade-coverage)
 
 ## Choosing an integration mechanism
 

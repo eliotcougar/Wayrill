@@ -1,24 +1,52 @@
-# Executable subscription budgets
+# Configuration sizes and limits
 
-The shared budget lives in `service/limits.json`. TypeScript imports it; Rust boundary constants are checked against it by a regression test. Desktop activation also checks the connected service's advertised capacity.
+The first beta supports large subscriptions, but the library, visible graph and
+executed Xray configuration have different limits. Keep a large server set in
+Stash and select candidates with a policy group instead of adding thousands of
+cards to the canvas.
 
-| Resource | Limit |
+| Item | Limit |
 | --- | ---: |
-| Total core outbounds per config | 16,384 |
-| Emitted traffic rules per config | 16,384 |
-| Serialized UTF-8 core config | 16 MiB |
-| Named-pipe frame including LF | 32 MiB |
-| Metrics response | 8 MiB |
-| Endpoints in a periodic snapshot | 128 |
-| Endpoint page | 100 |
-| Routing path visits | 65,536 |
+| Stash/source entries | 50,000 |
+| Subscription groups in Stash | 500 |
+| Visible graph nodes | 500 |
+| Executed outbounds in one core configuration | 16,384 |
+| Emitted traffic rules in one core configuration | 16,384 |
+| Serialized core configuration / Xray JSON import | 16 MiB |
+| Graph/workspace file | 64 MiB |
+| DNS entries/outputs in a native import | 128 |
+| Executed socket inbounds in one core configuration | 16 |
 
-All core outbounds count, including visible destinations, policy aliases, fragment stages, DNS helpers and the implicit unmatched blocker in authored graphs. The sample maximum pool contains 16,380 members plus four existing/generated outbounds. Larger drafts receive explicit errors; no members are discarded. Stashes and saved source snapshots still support 50,000 entries, so filtering substantial subscriptions remains independent of the execution budget. Graph/workspace files permit 64 MiB.
+Generated helpers count toward the execution limit. A policy group with 16,384
+server members may therefore be too large once DNS, aliases, fragmentation or
+other internal outbounds are included. Chained filters can also produce more
+Xray rules than the visible rule count suggests. Check reports an oversized or
+overly complex result; it does not silently discard members.
 
-Large graph checks run in an owned Web Worker after a 100 ms edit debounce, with a 60-second execution limit. Changing the draft cancels unfinished work by terminating its worker; completed workers can be reused. Startup failures, crashes and timeouts produce a blocking check error and retire the worker. A later draft retries with a fresh worker. Results are tied to both draft identity and analysis scope, so stale replies cannot validate a newer draft.
+## Importing large Xray configurations
 
-Exact candidate sets use aliases when an outbound tag would accidentally select another outbound by prefix. For sets of at least 128 members, selectors are compressed after every group and helper is built. A prefix is usable only when every final core tag it selects belongs to that group. Unicode prefixes end at whole code points. Explicit native prefix selectors retain their original behavior. Xray caches selections and sorts selected tags; compaction reduces cold selection work and selector JSON without changing membership or selection ordering. See [pinned outbound manager](https://github.com/XTLS/Xray-core/blob/b26a91de4f3294e26a0ad0a970b81a386a41f789/app/proxyman/outbound/outbound.go).
+For a native configuration with more than 256 outbounds, Wayrill can keep
+unreferenced candidates in an internal pool. The default outbound, explicit
+rule destinations and group fallbacks remain visible. Group previews and
+pickers let you work with the pool without turning every candidate into a card.
+Unchanged export retains the native outbounds and their original ordering.
 
-Imported native configs with more than 256 outbounds keep unreferenced candidates in an internal raw pool. The default outbound, rule destinations and group fallbacks remain visible. The editor's 500-canvas-node limit remains; a config needing too many distinct visible nodes is rejected. Policy previews search/page the pool; manual selection has a paged imported-pool picker. Export preserves every native outbound and its original order/settings.
+A configuration that genuinely needs more than 500 distinct visible nodes still
+exceeds the canvas limit. Reduce its visible routing complexity or split the
+setup where appropriate; see [Xray import/export](xray-import.md).
 
-Statistics retain all endpoint counters once in the service. Periodic snapshots/event replay include at most 128 rows and counts; large tables request 100-row pages. Replies carry generation, revision and sample identity. The frontend discards responses from a previous core/service session and hides stale rates while refreshing. History and exact decimal-string byte totals are unchanged. Endpoint tags at the service boundary are bounded to 1 KiB UTF-8, above the editor's ordinary tag budget including generated tags.
+## Checks and large tables
+
+Large graph checks run in the background. Editing the draft invalidates its old
+results. If a check fails or exceeds its execution time, it produces a blocking
+error; an unfinished result cannot validate the new graph.
+
+Traffic statistics retains endpoint counters in the service and retrieves large
+tables in pages. A compact live snapshot is not a statement that later rows have
+zero traffic. Search/page the relevant view rather than expecting the service to
+send the entire library with every update.
+
+The executable budgets are recorded in [service/limits.json](../../service/limits.json).
+Other service and transport bounds protect individual requests and operations;
+they are not additional subscription capacity. The app checks the connected
+service's capabilities before activation.
