@@ -148,6 +148,20 @@ pub fn fetch(
             },
         )
     })?;
+    // WinHTTP otherwise returns compressed bytes unchanged. Negotiate gzip;
+    // the read loop below limits the decompressed body.
+    let decompression = WINHTTP_DECOMPRESSION_FLAG_GZIP;
+    if unsafe {
+        WinHttpSetOption(
+            request.0,
+            WINHTTP_OPTION_DECOMPRESSION,
+            (&decompression as *const u32).cast(),
+            std::mem::size_of_val(&decompression) as u32,
+        )
+    } == 0
+    {
+        return Err("Cannot enable subscription response decompression.".into());
+    }
     // Refuse redirects rather than send subscription authorization to another origin.
     let redirects = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
     if unsafe {
@@ -328,6 +342,49 @@ mod http_integration {
         .unwrap();
         worker.join().unwrap();
         assert_eq!(reply, "fictional-subscription-跳");
+    }
+    #[test]
+    fn decompresses_http_responses_before_decoding_subscription_text() {
+        // Gzip of the UTF-8 JSON asserted below, including non-ASCII text.
+        let body = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x0a\x8b\xae\x56\x2a\x4a\xcd\x4d\x2c\xca\x2e\x56\xb2\x52\x0a\xc9\xcf\xae\xcc\x57\x78\x36\x77\xe3\x93\x5d\x6b\x94\x6a\x63\x01\xdb\x3a\x8b\xbc\x1c\x00\x00\x00";
+        for proxy in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let worker = thread::spawn(move || {
+                let mut socket = accept(&listener);
+                let request = read_request(&mut socket);
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+                socket.write_all(body).unwrap();
+                request
+            });
+            let url = if proxy {
+                "http://subscription.example/subscription".into()
+            } else {
+                format!("http://127.0.0.1:{port}/subscription")
+            };
+            let result = fetch(
+                &url,
+                true,
+                "",
+                &if proxy {
+                    BTreeMap::from([("Accept-Encoding".into(), "gzip".into())])
+                } else {
+                    BTreeMap::new()
+                },
+                proxy.then_some(port),
+            );
+            let request = worker.join().unwrap().to_ascii_lowercase();
+            assert_eq!(result.unwrap(), r#"[{"remarks":"Tokyo 東京"}]"#);
+            assert!(request.contains("accept-encoding: gzip\r\n"), "{request}");
+            assert!(
+                request.starts_with(if proxy {
+                    "get http://subscription.example/subscription "
+                } else {
+                    "get /subscription "
+                }),
+                "{request}"
+            );
+        }
     }
     #[test]
     fn downloads_from_ipv6_loopback_without_stripping_host_brackets() {
