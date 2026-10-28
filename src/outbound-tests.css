@@ -28,16 +28,7 @@
   overflow: auto;
 }
 .outbound-test-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   margin-bottom: 12px;
-}
-.outbound-test-controls label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .outbound-test-row {
   display: grid;

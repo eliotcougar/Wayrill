@@ -60,11 +60,12 @@ export default function OutboundTestResults({ tests }: { tests: OutboundTests })
         </button>
       </div>
       <div className="dialog-body">
-        <div className="outbound-test-controls">
+        <div className="action-row action-row--spread compact-controls outbound-test-controls">
           <span role="status">{tests.status}</span>
-          <label>
+          <label className="inline-field">
             Results{' '}
             <select
+              className="text-control"
               value={view}
               onChange={(e) => {
                 setView(e.target.value as typeof view);

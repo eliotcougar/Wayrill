@@ -198,7 +198,7 @@ export default function TrafficPanel({
           {preferences.error}
         </p>
       )}
-      <div className="traffic-display-controls">
+      <div className="action-row traffic-display-controls">
         <button
           className="secondary-button"
           disabled={
@@ -348,11 +348,12 @@ export default function TrafficPanel({
                 </section>
               ))}
             </div>
-            <div className="traffic-chart-toolbar">
+            <div className="action-row action-row--spread compact-controls traffic-chart-toolbar">
               <h3>Rate history{paused ? ' · paused' : ''}</h3>
-              <label>
+              <label className="inline-field">
                 Show{' '}
                 <select
+                  className="text-control"
                   aria-label="Traffic chart time window"
                   value={minutes}
                   onChange={(e) => setMinutes(Number(e.target.value))}

@@ -69,28 +69,10 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.traffic-chart-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 0;
-}
 .traffic-chart-toolbar h3 {
   font-size: 13px;
   font-weight: 500;
   margin: 0;
-}
-.traffic-chart-toolbar label {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-.traffic-chart-toolbar select {
-  margin-left: 8px;
-  padding: 6px 8px;
-  background: var(--surface-raised);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
 }
 .traffic-chart {
   margin: 0;
@@ -196,19 +178,11 @@
 }
 
 .traffic-display-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
+  column-gap: var(--space-3);
   padding: var(--space-2) var(--space-5);
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
-}
-.traffic-display-controls .secondary-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 .traffic-runtime-state {
   margin-left: auto;

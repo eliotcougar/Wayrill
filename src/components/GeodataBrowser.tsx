@@ -254,7 +254,7 @@ export default function GeodataBrowser({
         </button>
       </div>
       <div className="action-row action-row--spread geo-source">
-        <label>
+        <label className="inline-field">
           Resource file
           <select
             className="text-control"

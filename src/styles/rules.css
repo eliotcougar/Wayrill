@@ -88,7 +88,7 @@
   display: block;
   overflow-wrap: anywhere;
 }
-.rule-list-item small {
+.rule-list-item :where(small) {
   display: block;
   color: var(--text-muted);
   font-size: 10px;
@@ -260,7 +260,7 @@
   line-height: 1.6;
 }
 .rule-condition-summary {
-  display: -webkit-box !important;
+  display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;

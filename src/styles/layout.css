@@ -26,6 +26,18 @@
   align-items: flex-end;
   gap: var(--space-3);
 }
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--control-text-size);
+  line-height: var(--control-line-height);
+}
+.inline-field > .text-control {
+  width: auto;
+}
 :where(.action-row, .form-row, .section-heading) > button {
   flex-shrink: 0;
 }

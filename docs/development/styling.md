@@ -37,6 +37,11 @@ Add feature sheets there rather than importing CSS from components.
   row layout, wraps long titles and keeps the heading's margins out of the row.
   Feature sheets retain placement, widths and margins rather than repeating the
   flex layout, alignment and gap.
+  Use `inline-field` for a label beside a control, with `text-control` on the
+  input/select itself. Its density follows `compact-controls` where appropriate;
+  feature sheets retain width constraints rather than duplicating field borders,
+  colors, padding or label alignment. Standalone native controls need an explicit
+  shared class when they are outside a `field` or `editor-field` wrapper.
   `field-grid` supplies two equal columns, a shared column gap and single-column
   reflow at the common narrow breakpoint. Normal fields keep their own vertical
   spacing; grids of defaults metadata that clear field margins own their row gap.
