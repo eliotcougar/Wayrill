@@ -64,9 +64,13 @@
   .workspace-name {
     width: 100%;
   }
-  .workspace-body {
+  .app-shell > .workspace-area {
+    flex: none;
+  }
+  .app-shell > .workspace-area > .workspace-body {
     flex: none;
     flex-direction: column;
+    width: 100%;
   }
   .node-palette,
   .inspector {

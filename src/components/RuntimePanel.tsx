@@ -237,7 +237,7 @@ function RuntimePanelView({
                   </>
                 )}
                 {resourceFailure ? (
-                  <details>
+                  <details className="disclosure">
                     <summary>Core diagnostics</summary>
                     <pre className="code-block" tabIndex={0}>
                       {error}
@@ -291,7 +291,7 @@ function RuntimePanelView({
                   </strong>
                   <br />
                   {resourceFailure ? (
-                    <details>
+                    <details className="disclosure">
                       <summary>Core diagnostics</summary>
                       <pre className="code-block" tabIndex={0}>
                         {snapshot.core.lastError.message}
@@ -315,24 +315,24 @@ function RuntimePanelView({
             {tab === 'overview' ? (
               <>
                 <div className="runtime-cards">
-                  <div>
+                  <div className="editor-panel editor-panel--outlined">
                     <span>Xray core</span>
                     <strong className={running ? 'online' : ''}>{view.core.value}</strong>
                     {(view.current || (desktop && snapshot)) && <small>{view.core.detail}</small>}
                   </div>
-                  <div>
+                  <div className="editor-panel editor-panel--outlined">
                     <span>Applied configuration</span>
                     <strong>{view.applied.value}</strong>
                     {!view.current && desktop && snapshot?.config.present && (
                       <small>{view.applied.detail}</small>
                     )}
                   </div>
-                  <div>
+                  <div className="editor-panel editor-panel--outlined">
                     <span>Windows proxy</span>
                     <strong>{view.proxy.value}</strong>
                     {view.current && <small>{view.proxy.detail}</small>}
                   </div>
-                  <div>
+                  <div className="editor-panel editor-panel--outlined">
                     <span>WinDivert capture</span>
                     <strong>{view.capture.value}</strong>
                     {view.current && <small>{view.capture.detail}</small>}
@@ -340,7 +340,7 @@ function RuntimePanelView({
                   {snapshot?.tun &&
                     (snapshot.tun.state === 'running' ||
                       compiled?.summary.listeners.some((i) => i.protocol === 'tun')) && (
-                      <div>
+                      <div className="editor-panel editor-panel--outlined">
                         <span>TUN capture</span>
                         <strong>
                           {snapshot.network?.state === 'waiting'

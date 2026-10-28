@@ -304,7 +304,7 @@ export default function TrafficPanel({
               {(['upload', 'download'] as const).map((direction) => (
                 <section
                   key={direction}
-                  className={`traffic-card ${direction}`}
+                  className={`editor-panel editor-panel--outlined traffic-card ${direction}`}
                   aria-label={`${direction} traffic`}
                 >
                   <span className="traffic-card-heading">

@@ -2,11 +2,6 @@
   width: min(1000px, calc(100vw - 40px));
   height: min(700px, calc(100vh - 40px));
 }
-.traffic-window h2 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
 .traffic-window .online {
   color: var(--success);
 }
@@ -16,13 +11,10 @@
   gap: 12px;
 }
 .traffic-card {
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 4px 12px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
 }
 .traffic-card-heading {
   display: flex;
@@ -260,9 +252,6 @@
   }
   .traffic-overview-body {
     gap: 8px;
-  }
-  .traffic-card {
-    padding: 8px 12px;
   }
   .traffic-rate {
     font-size: 24px;

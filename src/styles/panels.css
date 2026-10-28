@@ -1,4 +1,4 @@
-/* A common frame for grouped configuration, independent of its form/grid layout. */
+/* A common frame for grouped settings and summaries, independent of their layout. */
 .editor-panel {
   min-width: 0;
   padding: var(--space-3);
@@ -8,4 +8,7 @@
 }
 .editor-panel--subtle {
   background: var(--surface-adjacent);
+}
+.editor-panel--outlined {
+  border-color: var(--border-strong);
 }

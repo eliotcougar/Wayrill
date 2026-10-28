@@ -53,6 +53,16 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.dialog-header h2:has(> svg),
+.rule-editor-titlebar h2:has(> svg) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.dialog-header h2 > svg,
+.rule-editor-titlebar h2 > svg {
+  flex-shrink: 0;
+}
 .rule-editor-titlebar > div {
   min-width: 0;
 }

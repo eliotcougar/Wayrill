@@ -2,11 +2,6 @@
   width: min(1050px, calc(100vw - 40px));
   height: min(760px, calc(100vh - 40px));
 }
-.defaults-window h2 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
 .defaults-search {
   padding: 12px 22px;
   border-bottom: 1px solid var(--border);

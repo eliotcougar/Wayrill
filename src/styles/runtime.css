@@ -2,12 +2,6 @@
   width: min(1080px, calc(100vw - 48px));
   height: min(740px, calc(100vh - 48px));
 }
-.runtime-window h2,
-.runtime-section h3 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
 .runtime-diagnostics {
   display: grid;
   gap: 5px;
@@ -37,15 +31,13 @@
 }
 .runtime-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 13px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 .runtime-cards > div {
-  padding: 18px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface-raised);
+  padding: var(--space-4);
+  overflow-wrap: anywhere;
 }
 .runtime-cards span,
 .runtime-cards strong,
@@ -65,11 +57,6 @@
 .runtime-cards small {
   color: var(--text-secondary);
   font-size: 10px;
-}
-@media (max-width: 1000px) {
-  .runtime-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 .runtime-section {
   margin-top: 22px;

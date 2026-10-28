@@ -266,11 +266,6 @@
   z-index: 1;
 }
 
-.subscription-settings-window h2 {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .subscription-duplicate {
   grid-column: 1 / -1;
   margin: 0;

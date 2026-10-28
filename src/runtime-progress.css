@@ -84,15 +84,6 @@
     border: 1px solid CanvasText;
   }
 }
-@media (max-width: 800px) {
-  .workspace-area {
-    flex: none;
-  }
-  .workspace-area > .workspace-body {
-    width: 100%;
-  }
-}
-
 .runtime-window .workspace-area > .workspace-body {
   overflow: hidden;
 }

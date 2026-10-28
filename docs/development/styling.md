@@ -47,15 +47,20 @@ Add feature sheets there rather than importing CSS from components.
   spacing; grids of defaults metadata that clear field margins own their row gap.
   `wide-option` spans both columns. Native editors expand only their direct
   textarea fields, so that rule cannot change nested editors' layouts.
-- `styles/panels.css` owns the `editor-panel` frame for grouped settings. The
-  subtle variant sits at the surrounding editor's surface level. Features own
-  layout, placement and scrolling limits; use notices for explanatory messages
-  and choice lists for selectable rows rather than creating another panel type.
+- `styles/panels.css` owns the `editor-panel` frame for grouped settings and
+  status summaries. The subtle variant sits at the surrounding editor's surface
+  level; the outlined variant gives standalone Runtime and traffic summaries a
+  stronger boundary. Features own layout, density, placement and scrolling limits,
+  keeping the hierarchy of live rates distinct from ordinary runtime values.
+  Use notices for explanatory messages and choice lists for selectable rows
+  rather than creating another panel type.
 - `styles/dialogs.css` owns dialog/editor shells, title bars, tabs and footers.
   `dialog--compact` reduces header/footer spacing for dense working views, such
   as statistics and policy editors. Tab appearance targets `role="tab"` inside
   `editor-tab-list`; trailing actions keep normal button styles. Keep scrolling,
   focus and selected/disabled states here rather than in individual windows.
+  Titles with a direct icon share its alignment and spacing here; plain titles
+  retain inline text layout, including mixed-direction subscription names.
   The dialog body owns its outer gutter; its final child's trailing margin is
   removed so notices and option groups do not add a second bottom gap.
 - `styles/code.css` owns `code-block` previews and the `code-control` monospace
@@ -154,7 +159,9 @@ input appearance into a dialog sheet, or using `!important` to fix precedence.
 Existing vendor/platform overrides are narrow exceptions.
 
 `accessibility.css` is loaded last for cross-feature reflow, forced colors and
-keyboard behavior. Check it when changing shell dimensions or overflow.
+keyboard behavior. Check it when changing shell dimensions or overflow. Scope
+main-workspace reflow to the app shell: dialogs reuse the progress overlay's
+workspace wrapper and must retain their bounded, scrolling content area.
 
 ## Verification
 
