@@ -197,7 +197,8 @@
 }
 
 .capture-picker-header input,
-.capture-picker-header select {
+.capture-picker-header select,
+.application-selectors details > input {
   background: var(--surface-sunken);
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -206,6 +207,9 @@
 }
 
 .application-selectors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -213,6 +217,27 @@
 }
 .application-selectors legend {
   color: var(--text-secondary);
+}
+.application-selectors > .field-help {
+  margin: 0;
+}
+.application-selectors .capture-picker-header > .small-action {
+  margin: 0;
+  min-height: 36px;
+}
+.application-selectors .capture-picker-header > input:not([type='checkbox']),
+.application-selectors .capture-picker-header > select {
+  min-height: 36px;
+}
+.application-selectors details > :not(summary) {
+  margin-top: 8px;
+}
+.application-selectors details > input {
+  width: 100%;
+  min-height: 36px;
+}
+.application-selectors .capture-selector-list:empty {
+  display: none;
 }
 .application-selectors input[type='checkbox'] {
   flex: 0 0 auto;

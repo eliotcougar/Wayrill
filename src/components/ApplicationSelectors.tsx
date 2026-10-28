@@ -308,11 +308,16 @@ export default function ApplicationSelectors({
           ))}
         </div>
         <div className="capture-picker-header">
-          <button disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>
+          <button
+            className="secondary-button"
+            disabled={!currentPage}
+            onClick={() => setPage(currentPage - 1)}
+          >
             Previous
           </button>
           <span>{filtered.length} available</span>
           <button
+            className="secondary-button"
             disabled={(currentPage + 1) * 50 >= filtered.length}
             onClick={() => setPage(currentPage + 1)}
           >

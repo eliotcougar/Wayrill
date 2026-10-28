@@ -177,10 +177,18 @@
   min-height: 100px;
   resize: vertical;
 }
+.stash-import input:not([type='checkbox']):not([type='radio']),
+.stash-import select {
+  min-height: 36px;
+}
 .stash-subscription {
   display: grid;
   grid-template-columns: 2fr 1fr;
+  align-items: end;
   gap: 10px;
+}
+.stash-subscription > :only-child {
+  grid-column: 1 / -1;
 }
 .subscription-request-settings textarea {
   min-height: 62px;
