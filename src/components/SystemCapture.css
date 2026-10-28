@@ -46,6 +46,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
+.capture-settings-fields .editor-field {
+  margin-bottom: 0;
+}
 .capture-variable-switches {
   display: flex;
   gap: 18px;
@@ -122,6 +125,7 @@
 .system-capture-window .rule-editor-footer .field-help {
   margin: 0;
   flex: 1;
+  max-width: none;
 }
 .windows-settings-embedded {
   position: static;
