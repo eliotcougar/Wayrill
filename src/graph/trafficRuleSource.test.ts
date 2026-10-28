@@ -65,6 +65,22 @@ const app = (value: string, children = false): ApplicationSelector => ({
 });
 
 describe('manual traffic source updates', () => {
+  it('keeps a re-enabled source application enabled on subsequent refreshes', () => {
+    const source = [{ ...row('web'), process: ['browser.exe'] }];
+    let current = attach(source);
+    const original = current.rules[0].applications![0];
+    current = edit(current, 0, { applications: [{ ...original, enabled: false }] });
+    current = update(readRuleTable(tableSettings(current)), source);
+    expect(current.rules[0].applications).toEqual([{ ...app('browser.exe'), enabled: false }]);
+    current = edit(current, 0, { applications: [{ ...original, enabled: true }] });
+    expect(current.rules[0].applications).toEqual([app('browser.exe')]);
+    for (let i = 0; i < 2; i++) {
+      current = update(readRuleTable(tableSettings(current)), [
+        { ...row('web', [`domain:updated${i}.test`]), process: ['browser.exe', 'new.exe'] },
+      ]);
+      expect(current.rules[0].applications).toEqual([app('browser.exe'), app('new.exe')]);
+    }
+  });
   it('compiles source-backed rules exactly like the same effective local rules', () => {
     const graph = enableDefaults(createRoutingExample());
     const filter = graph.nodes.find((n) => n.data.kind === 'routing-filter')!;

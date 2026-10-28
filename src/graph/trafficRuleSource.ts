@@ -98,6 +98,7 @@ export function editSourcedRule(rule: TableRule, update: Partial<TableRule>): Ta
       if (!same(old.get(key), row)) {
         removed.delete(key);
         if (!same(original.get(key), row)) added.set(key, row);
+        else added.delete(key);
       }
     if (added.size || removed.size)
       edits.applications = { added: [...added.values()], removed: [...removed] };
