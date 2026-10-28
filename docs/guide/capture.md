@@ -153,6 +153,15 @@ networking helpers if they are separate processes. The barrier is released after
 successful routing recovery; explicit Stop releases it. This protects transitions,
 not every possible period of direct connectivity.
 
+Versioned installations follow updates automatically. The service checks the
+selected installation every 30 seconds and again before arming protection. It
+recognizes numeric version folders (including `app-` versions) and hash-named
+version folders, updates the displayed executable path, and protects both old
+and new installed versions during a transition. It does not search the whole PC
+for another executable with the same name. Package selections already follow
+their package family across updates. After moving an app to a different
+installation directory, select its new location.
+
 If an interrupted update leaves selected apps blocked, finish installation or
 start the service and explicitly Stop. Collect [diagnostics](troubleshooting.md)
 before changing unrelated firewall rules.

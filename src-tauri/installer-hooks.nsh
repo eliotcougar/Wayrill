@@ -41,6 +41,7 @@
   File /oname=Installer-Service.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Installer-Service.ps1"
   File /oname=Installer-Lifecycle.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Installer-Lifecycle.ps1"
   File /oname=installer-manifest.json "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\manifest.json"
+  File /oname=upgrade-protection.exe "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\wayrill-service.exe"
   Delete "$PLUGINSDIR\Wayrill-Service.log"
   ${DisableX64FSRedirection}
   nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Installer-Service.ps1" -Action Prepare -LogPath "$PLUGINSDIR\Wayrill-Service.log"'

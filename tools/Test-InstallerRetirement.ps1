@@ -26,4 +26,25 @@ $script:state.tun.sharing.recoveryPending=$true;$script:calls=@();$caught=$false
 try{Stop-WayrillRouting 'owner'}catch{$caught=$_.Exception.Message -eq 'Old retained-adapter error'}
 Assert $caught 'Preserve initial error while recovery remains pending'
 Assert ($script:journalChecks -eq 1) 'Unsafe snapshot must not pass cleanup'
+$script:old=@{serviceVersion='0.31.18';core=@{state='running'};appProtection=@{phase='upgrade';error=@{code='APP_PROTECTION'}}}
+$script:armed=$false;$script:repairWorks=$true
+function Initialize-WayrillUpgradeProtection { $script:armed=$script:repairWorks; return $script:armed }
+function Invoke-WayrillInstallerApi($Method,$OwnerSid){
+ $script:calls+=$Method
+ switch($Method){
+  'service.status' {return $script:old}
+  'core.stopForUpgrade' {throw 'Missing protected application'}
+  'core.stop' {Assert $script:armed 'Must arm the replacement barrier before retirement';return (Retired)}
+ }
+}
+$script:calls=@();Stop-WayrillRouting 'owner' -ForUpgrade
+Assert (($script:calls -join ',') -eq 'service.status,core.stopForUpgrade,service.status,core.stop') 'Old-service recovery must arm before explicit retirement'
+$script:repairWorks=$false;$script:calls=@();$caught=$false
+try{Stop-WayrillRouting 'owner' -ForUpgrade}catch{$caught=$_.Exception.Message -eq 'Missing protected application'}
+Assert $caught 'Failed barrier repair must preserve the original failure'
+Assert ('core.stop' -notin $script:calls) 'Failed barrier repair must never retire routing'
+$script:old.serviceVersion='0.31.19';$script:repairWorks=$true;$script:calls=@();$caught=$false
+try{Stop-WayrillRouting 'owner' -ForUpgrade}catch{$caught=$_.Exception.Message -eq 'Missing protected application'}
+Assert $caught 'Current coordinators must use their own lifecycle'
+Assert ('core.stop' -notin $script:calls) 'Do not bypass the current coordinator protection contract'
 @{passed=$true;checks=$script:checks}|ConvertTo-Json

@@ -3,15 +3,21 @@ use super::Target;
 use crate::native::wide;
 use std::{
     ffi::c_void,
+    fs::OpenOptions,
+    os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
+    path::Path,
     ptr::{null, null_mut},
 };
 use wayrill_protocol::{ApiError, Result};
 use windows_sys::{
     core::GUID,
     Win32::{
-        Foundation::HANDLE,
+        Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, HANDLE},
         NetworkManagement::WindowsFilteringPlatform::*,
         Security::{FreeSid, Isolation::DeriveAppContainerSidFromAppContainerName},
+        Storage::FileSystem::{
+            GetFinalPathNameByHandleW, FILE_FLAG_BACKUP_SEMANTICS, VOLUME_NAME_NT,
+        },
     },
 };
 
@@ -76,6 +82,10 @@ impl Drop for Memory {
 }
 enum Identity {
     Executable(Memory),
+    MissingExecutable {
+        _path: Vec<u16>,
+        blob: FWP_BYTE_BLOB,
+    },
     Package(*mut c_void),
 }
 impl Identity {
@@ -84,9 +94,25 @@ impl Identity {
             Target::Executable { value } => {
                 let mut blob = null_mut();
                 // SAFETY: terminated input; Windows allocates the returned blob.
-                unsafe {
-                    check(FwpmGetAppIdFromFileName0(wide(value).as_ptr(), &mut blob))?;
+                let code = unsafe { FwpmGetAppIdFromFileName0(wide(value).as_ptr(), &mut blob) };
+                if matches!(code, ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND) {
+                    // Updaters remove old executables/version directories. Keep
+                    // protecting the exact selected path without requiring it to
+                    // exist, rather than dropping the target or the whole barrier.
+                    let mut path = missing_executable_id(Path::new(value))?;
+                    let blob = FWP_BYTE_BLOB {
+                        size: (path.len() * 2) as u32,
+                        data: path.as_mut_ptr().cast(),
+                    };
+                    return Ok(Self::MissingExecutable { _path: path, blob });
                 }
+                check(code).map_err(|mut error| {
+                    error.message = format!(
+                        "Cannot identify protected application '{value}': {}",
+                        error.message
+                    );
+                    error
+                })?;
                 Ok(Self::Executable(Memory(blob.cast())))
             }
             Target::Package { value } => {
@@ -113,6 +139,11 @@ impl Identity {
                 condition.conditionValue.r#type = FWP_BYTE_BLOB_TYPE;
                 condition.conditionValue.Anonymous.byteBlob = blob.0.cast();
             }
+            Self::MissingExecutable { blob, .. } => {
+                condition.fieldKey = FWPM_CONDITION_ALE_APP_ID;
+                condition.conditionValue.r#type = FWP_BYTE_BLOB_TYPE;
+                condition.conditionValue.Anonymous.byteBlob = std::ptr::from_ref(blob).cast_mut();
+            }
             Self::Package(sid) => {
                 condition.fieldKey = FWPM_CONDITION_ALE_PACKAGE_ID;
                 condition.conditionValue.r#type = FWP_SID;
@@ -121,6 +152,70 @@ impl Identity {
         }
         condition
     }
+}
+
+fn missing_executable_id(path: &Path) -> Result<Vec<u16>> {
+    // Resolve the nearest existing ancestor through Windows, including junctions
+    // and volume mount points. Never guess a drive's NT device name or hide an
+    // access/volume error as an absent application.
+    let mut ancestor = path;
+    let directory = loop {
+        match OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(ancestor)
+        {
+            Ok(directory) => break directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                ancestor = ancestor
+                    .parent()
+                    .ok_or_else(|| ApiError::io("Resolve protected application's volume", error))?;
+            }
+            Err(error) => return Err(ApiError::io("Resolve protected application's path", error)),
+        }
+    };
+    let mut native = vec![0; 32768];
+    // SAFETY: owned live directory handle and initialized WCHAR output buffer.
+    let length = unsafe {
+        GetFinalPathNameByHandleW(
+            directory.as_raw_handle(),
+            native.as_mut_ptr(),
+            native.len() as u32,
+            VOLUME_NAME_NT,
+        )
+    } as usize;
+    if length == 0 {
+        return Err(ApiError::io(
+            "Resolve protected application's device path",
+            std::io::Error::last_os_error(),
+        ));
+    }
+    if length >= native.len() {
+        return Err(ApiError::new(
+            "APP_PROTECTION",
+            "Protected application's device path is too long.",
+        ));
+    }
+    native.truncate(length);
+    let suffix = path
+        .strip_prefix(ancestor)
+        .map_err(|_| ApiError::new("APP_PROTECTION", "Invalid protected application's path."))?;
+    if !suffix.as_os_str().is_empty() {
+        if native.last() != Some(&(b'\\' as u16)) {
+            native.push(b'\\' as u16);
+        }
+        use std::os::windows::ffi::OsStrExt;
+        native.extend(suffix.as_os_str().encode_wide());
+    }
+    native.push(0);
+    // FwpmGetAppIdFromFileName lowercases ASCII, preserving non-ASCII WCHARs.
+    // Unicode/locale lowercasing would produce a different application ID.
+    for unit in &mut native {
+        if (b'A' as u16..=b'Z' as u16).contains(unit) {
+            *unit += 32;
+        }
+    }
+    Ok(native)
 }
 impl Drop for Identity {
     fn drop(&mut self) {
@@ -308,4 +403,85 @@ pub(super) fn replace(targets: &[Target]) -> Result<()> {
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_id(identity: &Identity) -> Vec<u16> {
+        let condition = identity.condition();
+        // SAFETY: the identity owns the blob and its UTF-16 bytes throughout.
+        unsafe {
+            let blob = &*condition.conditionValue.Anonymous.byteBlob;
+            std::slice::from_raw_parts(blob.data.cast::<u16>(), blob.size as usize / 2).to_vec()
+        }
+    }
+
+    #[test]
+    fn device_path_normalization_matches_windows_application_ids() {
+        let executable = std::env::current_exe().unwrap();
+        let target = Target::Executable {
+            value: executable.to_string_lossy().into_owned(),
+        };
+        assert_eq!(
+            missing_executable_id(&executable).unwrap(),
+            app_id(&Identity::new(&target).unwrap())
+        );
+    }
+
+    #[test]
+    fn removed_executable_and_version_folder_keep_the_same_identity() {
+        let root = std::env::temp_dir().join(format!("wayrill-app-id-{}", std::process::id()));
+        let directory = root.join("VÉRSION-中文");
+        std::fs::create_dir_all(&directory).unwrap();
+        let executable = directory.join("BROWSER.exe");
+        std::fs::write(&executable, b"identity fixture").unwrap();
+        let target = Target::Executable {
+            value: executable.to_string_lossy().into_owned(),
+        };
+        let before = app_id(&Identity::new(&target).unwrap());
+        std::fs::remove_file(&executable).unwrap();
+        assert_eq!(app_id(&Identity::new(&target).unwrap()), before);
+        std::fs::remove_dir(&directory).unwrap();
+        assert_eq!(app_id(&Identity::new(&target).unwrap()), before);
+        std::fs::write(&executable, b"cannot exist").unwrap_err();
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(&executable, b"replacement").unwrap();
+        assert_eq!(app_id(&Identity::new(&target).unwrap()), before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "changes the owned WFP barrier; isolated guest only"]
+    fn native_barrier_accepts_removed_apps_and_preserves_it_on_invalid_volume() {
+        assert_eq!(
+            std::env::var("WAYRILL_APP_PROTECTION_VM_TEST").as_deref(),
+            Ok("authorized-guest")
+        );
+        let engine = Engine::open().unwrap();
+        assert!(
+            owned_filters(&engine).unwrap().is_empty(),
+            "guest already has an armed barrier"
+        );
+        let target = Target::Executable {
+            value: std::env::temp_dir()
+                .join("removed-wayrill-version")
+                .join("app.exe")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        replace(&[target]).unwrap();
+        let before = owned_filters(&engine).unwrap();
+        assert_eq!(before.len(), 4);
+        let failed = replace(&[Target::Executable {
+            value: "Z:\\absent-volume\\app.exe".into(),
+        }]);
+        let after = owned_filters(&engine).unwrap();
+        let cleanup = replace(&[]);
+        assert!(failed.is_err());
+        assert_eq!(before, after);
+        cleanup.unwrap();
+        assert!(owned_filters(&engine).unwrap().is_empty());
+    }
 }

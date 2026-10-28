@@ -170,6 +170,13 @@ fn main() {
         }
         return;
     }
+    if args.len() == 2 && args[1] == "--prepare-upgrade-protection" {
+        if let Err(error) = app_protection::prepare_installed_upgrade() {
+            crate::diagnostics::error!("Prepare app protection: {}", error.message);
+            std::process::exit(1);
+        }
+        return;
+    }
     if args.len() == 2 && args[1] == "--remove-tun-adapters" {
         if let Err(error) = tun::adapters::uninstall() {
             crate::diagnostics::error!("Remove owned TUN adapters: {}", error.message);

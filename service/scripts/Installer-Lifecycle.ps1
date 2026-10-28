@@ -165,6 +165,17 @@ function Test-WayrillRetiredRuntime($Snapshot) {
         $Snapshot.systemProxy.managed -eq $false -and
         $Snapshot.systemCapture.managed -eq $false
 }
+function Initialize-WayrillUpgradeProtection {
+    $taskRepair=Join-Path $PSScriptRoot 'upgrade-protection.exe'
+    $taskManifestPath=Join-Path $PSScriptRoot 'installer-manifest.json'
+    if (-not (Test-Path -LiteralPath $taskRepair) -or -not (Test-Path -LiteralPath $taskManifestPath)) { return $false }
+    $taskManifest=Get-Content -LiteralPath $taskManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $taskExpected=@($taskManifest.files | Where-Object path -EQ 'wayrill-service.exe')
+    if ($taskExpected.Count -ne 1 -or (Get-FileHash -LiteralPath $taskRepair).Hash -ne $taskExpected[0].sha256) { throw 'Upgrade protection helper integrity check failed. Routing was preserved.' }
+    & $taskRepair --prepare-upgrade-protection
+    if ($LASTEXITCODE -ne 0) { throw 'App protection could not be armed. Routing and installed files were preserved.' }
+    return $true
+}
 function Stop-WayrillRouting([string]$OwnerSid,[switch]$ForUpgrade) {
     $taskMethod='core.stop'
     if ($ForUpgrade) {
@@ -177,6 +188,18 @@ function Stop-WayrillRouting([string]$OwnerSid,[switch]$ForUpgrade) {
         # A failure in unused retained-adapter bookkeeping must not prevent
         # installing its repair. Observe once; never retry or force-kill Stop.
         $taskState=Invoke-WayrillInstallerApi -Method service.status -OwnerSid $OwnerSid
+        if ($ForUpgrade -and $taskMethod -eq 'core.stopForUpgrade' -and
+            $taskState.appProtection.phase -eq 'upgrade' -and
+            $taskState.appProtection.error.code -eq 'APP_PROTECTION' -and
+            [Version]$taskState.serviceVersion -le [Version]'0.31.18') {
+            # Older services cannot arm protection for a removed executable and
+            # leave Upgrade recorded after failure. The new installer can arm
+            # that same saved list, then ask the old service to retire while its
+            # Upgrade phase retains the persistent barrier. No target is skipped.
+            if (Initialize-WayrillUpgradeProtection) {
+                $taskState=Invoke-WayrillInstallerApi -Method core.stop -OwnerSid $OwnerSid
+            }
+        }
         if (-not (Test-WayrillRetiredRuntime $taskState)) { throw $taskFailure }
     }
     if (-not (Test-WayrillRetiredRuntime $taskState)) { throw 'Routing has not fully stopped. Installed files were preserved.' }

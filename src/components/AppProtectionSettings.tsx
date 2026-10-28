@@ -42,6 +42,7 @@ export default function AppProtectionSettings({
   const alive = useRef(true),
     working = useRef(false),
     loaded = useRef(false),
+    edited = useRef(false),
     readVersion = useRef(0);
   const desktop = desktopServiceAvailable();
   const listLocked = snapshot !== null && snapshot.phase !== 'idle';
@@ -58,7 +59,7 @@ export default function AppProtectionSettings({
         const current = await serviceCall<ProtectionSnapshot>('appProtection.get');
         if (!active || !alive.current || request !== readVersion.current) return;
         setSnapshot(current);
-        if (initial || !loaded.current) {
+        if (initial || !loaded.current || !edited.current) {
           setDraft(current.config);
           setVersion(current.version);
           loaded.current = true;
@@ -100,6 +101,7 @@ export default function AppProtectionSettings({
   const add = (target: ProtectionTarget) => {
     const trimmed = { ...target, value: target.value.trim() };
     if (!trimmed.value || draft.applications.some((t) => identity(t) === identity(trimmed))) return;
+    edited.current = true;
     setDraft({ ...draft, applications: [...draft.applications, trimmed] });
     setValue('');
   };
@@ -136,7 +138,7 @@ export default function AppProtectionSettings({
         </strong>
         <p className="field-help">
           Selected apps cannot connect directly during routing restarts or Wayrill updates. Stop
-          releases them.
+          releases them. Versioned installations follow app updates automatically.
         </p>
         {snapshot?.error && (
           <p role="alert" className="runtime-error">
@@ -154,7 +156,10 @@ export default function AppProtectionSettings({
           <input
             type="checkbox"
             checked={draft.enabled}
-            onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+            onChange={(e) => {
+              edited.current = true;
+              setDraft({ ...draft, enabled: e.target.checked });
+            }}
           />{' '}
           Block direct access during restarts and updates
         </label>
@@ -251,14 +256,15 @@ export default function AppProtectionSettings({
                 className="icon-button"
                 aria-label={`Remove ${target.value}`}
                 disabled={listLocked}
-                onClick={() =>
+                onClick={() => {
+                  edited.current = true;
                   setDraft({
                     ...draft,
                     applications: draft.applications.filter(
                       (t) => identity(t) !== identity(target),
                     ),
-                  })
-                }
+                  });
+                }}
               >
                 <Trash2 size={15} />
               </button>
@@ -286,6 +292,7 @@ export default function AppProtectionSettings({
                 if (alive.current) {
                   setSnapshot(saved);
                   setDraft(saved.config);
+                  edited.current = false;
                   setVersion(saved.version);
                 }
                 await onRuntimeRefresh();
@@ -302,6 +309,7 @@ export default function AppProtectionSettings({
                 if (alive.current) {
                   setSnapshot(current);
                   setDraft(current.config);
+                  edited.current = false;
                   setVersion(current.version);
                 }
               })

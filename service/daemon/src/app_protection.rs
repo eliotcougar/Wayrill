@@ -1,4 +1,5 @@
 //! A service-owned restart barrier. WFP policy outlives every routing process.
+mod versions;
 mod wfp;
 use crate::{storage, system_settings::version};
 use serde::{Deserialize, Serialize};
@@ -90,12 +91,14 @@ pub enum Phase {
     Upgrade,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct State {
     owner_sid: String,
     config: Config,
     phase: Phase,
+    #[serde(default)]
+    targets: Vec<Target>,
 }
 
 #[derive(Deserialize)]
@@ -123,6 +126,7 @@ pub struct Manager<B = Windows> {
     state: State,
     error: Option<ApiError>,
     retry_at: Option<Instant>,
+    refresh_at: Instant,
     backend: B,
 }
 impl Manager<Windows> {
@@ -136,6 +140,7 @@ impl<B: Backend> Manager<B> {
             owner_sid: owner.into(),
             config: Config::default(),
             phase: Phase::Idle,
+            targets: Vec::new(),
         });
         if state.owner_sid != owner {
             return Err(ApiError::new(
@@ -155,6 +160,7 @@ impl<B: Backend> Manager<B> {
             state,
             error: None,
             retry_at: None,
+            refresh_at: Instant::now() + Duration::from_secs(30),
             backend,
         };
         let _ = manager.sync();
@@ -201,8 +207,18 @@ impl<B: Backend> Manager<B> {
         if self.state.phase != Phase::Idle && config.enabled {
             return Err(ApiError::new("BUSY", "Routing is recovering. Disable protection to release its applications, or wait before changing the list."));
         }
+        let resolved = if config.enabled {
+            versions::resolve(&config.applications)?
+        } else {
+            versions::Resolved {
+                applications: config.applications.clone(),
+                targets: vec![],
+            }
+        };
+        config.applications = resolved.applications;
+        config.validate()?;
         if config.enabled {
-            self.backend.validate(&config.applications)?;
+            self.backend.validate(&resolved.targets)?;
         }
         let state = State {
             phase: if config.enabled {
@@ -211,6 +227,7 @@ impl<B: Backend> Manager<B> {
                 Phase::Idle
             },
             config,
+            targets: resolved.targets,
             ..self.state.clone()
         };
         self.save(state)?;
@@ -228,13 +245,25 @@ impl<B: Backend> Manager<B> {
         if !self.state.config.enabled {
             return Ok(());
         }
+        let previous = self.state.clone();
         if self.state.phase == Phase::Idle || phase == Phase::Upgrade {
             self.save(State {
                 phase,
                 ..self.state.clone()
             })?;
         }
-        self.sync()
+        if let Err(error) = self.sync() {
+            // Native replacement is transactional: a failed arm has not changed
+            // the prior barrier. Do not leave an intact runtime locked as an
+            // upgrade that never began. Preserve write-ahead intent if restoring
+            // the journal itself fails.
+            return Err(crate::lifecycle::Cleanup::after_failure(
+                error,
+                "restore app-protection phase",
+                self.save(previous),
+            ));
+        }
+        Ok(())
     }
     pub fn release(&mut self) -> Result<()> {
         // Write-ahead intent: an interrupted explicit release is retried at
@@ -251,6 +280,23 @@ impl<B: Backend> Manager<B> {
         self.release()
     }
     pub fn reconcile(&mut self, now: Instant) -> bool {
+        if self.state.config.enabled && now >= self.refresh_at {
+            self.refresh_at = now + Duration::from_secs(30);
+            match self.refresh_targets() {
+                Ok(false) => {}
+                Ok(true) => {
+                    if self.blocked() || self.error.is_some() {
+                        let _ = self.sync_at(now);
+                    }
+                    return true;
+                }
+                Err(mut error) => {
+                    error.retryable = true;
+                    self.record_result(Err(error), now).ok();
+                    return true;
+                }
+            }
+        }
         if self.retry_at.is_none_or(|at| now < at) {
             return false;
         }
@@ -261,12 +307,48 @@ impl<B: Backend> Manager<B> {
         self.sync_at(Instant::now())
     }
     fn sync_at(&mut self, now: Instant) -> Result<()> {
-        let targets = if self.state.config.enabled && self.state.phase != Phase::Idle {
-            self.state.config.applications.as_slice()
+        // Releasing protection must remain possible even if an installation or
+        // drive has disappeared. Discovery is a prerequisite only for arming.
+        let result = if !self.state.config.enabled || self.state.phase == Phase::Idle {
+            self.backend.replace(&[])
         } else {
-            &[]
+            self.refresh_targets()
+                .and_then(|_| self.backend.replace(&self.state.targets))
         };
-        let result = self.backend.replace(targets);
+        self.record_result(result, now)
+    }
+    fn refresh_targets(&mut self) -> Result<bool> {
+        if !self.state.config.enabled {
+            return Ok(false);
+        }
+        let mut resolved = versions::resolve(&self.state.config.applications)?;
+        if self.state.phase != Phase::Idle {
+            for target in &self.state.targets {
+                if !resolved.targets.contains(target) {
+                    resolved.targets.push(target.clone());
+                }
+            }
+        }
+        if resolved.targets.len() > 1024 {
+            return Err(invalid("Too many protected application versions."));
+        }
+        let mut next = self.state.clone();
+        next.config.applications = resolved.applications;
+        next.config.validate()?;
+        next.targets = resolved.targets;
+        next.targets.sort_by_key(|target| {
+            (
+                matches!(target, Target::Package { .. }),
+                target.value().to_ascii_lowercase(),
+            )
+        });
+        if next == self.state {
+            return Ok(false);
+        }
+        self.save(next)?;
+        Ok(true)
+    }
+    fn record_result(&mut self, result: Result<()>, now: Instant) -> Result<()> {
         self.error = result.as_ref().err().cloned();
         // Windows can temporarily refuse a policy change. Retry the durable
         // phase on the serialized service tick, including a failed explicit
@@ -307,6 +389,28 @@ pub fn clear_installed() -> Result<()> {
             .map_err(|e| ApiError::io("Preserve damaged app-protection settings", e))
         }
     }
+}
+
+pub fn prepare_installed_upgrade() -> Result<()> {
+    // Installer-only bridge for an older coordinator whose failed arm left its
+    // upgrade phase recorded. The installer verifies that state before it uses
+    // explicit retirement; it never stops routing without a successful barrier.
+    let path = PathBuf::from(
+        std::env::var_os("ProgramData")
+            .ok_or_else(|| invalid("Windows ProgramData is unavailable."))?,
+    )
+    .join("Wayrill/app-protection.json");
+    let state = storage::read::<State>(&path)?
+        .ok_or_else(|| invalid("App-protection settings are missing."))?;
+    if state.phase != Phase::Upgrade || !state.config.enabled {
+        return Err(invalid(
+            "The retiring service has not requested an app-protection upgrade barrier.",
+        ));
+    }
+    let mut config = state.config;
+    config.validate()?;
+    let resolved = versions::resolve(&config.applications)?;
+    wfp::replace(&resolved.targets)
 }
 
 #[cfg(test)]
@@ -395,7 +499,7 @@ mod tests {
         assert!(manager.arm(Phase::Restart).is_err());
         assert_eq!(
             storage::read::<State>(&path).unwrap().unwrap().phase,
-            Phase::Restart
+            Phase::Idle
         );
         manager.arm(Phase::Recovery).unwrap();
         native.0.borrow_mut().1 = true;
@@ -470,6 +574,7 @@ mod tests {
         manager.arm(Phase::Restart).unwrap();
         native.0.borrow_mut().1 = true;
         assert!(manager.arm(Phase::Upgrade).is_err());
+        assert!(!manager.upgrading());
         let retry_at = manager.retry_at.unwrap();
         native.0.borrow_mut().1 = true;
         assert!(manager.reconcile(retry_at));
@@ -481,10 +586,10 @@ mod tests {
         assert!(manager.reconcile(retry_at + Duration::from_secs(30)));
         assert!(manager.error.is_none());
         assert_eq!(native.0.borrow().0, manager.state.config.applications);
-        assert_eq!(manager.state.phase, Phase::Upgrade);
+        assert_eq!(manager.state.phase, Phase::Restart);
         assert_eq!(
             storage::read::<State>(&path).unwrap().unwrap().phase,
-            Phase::Upgrade
+            Phase::Restart
         );
         std::fs::remove_file(path).unwrap();
     }
@@ -537,6 +642,72 @@ mod tests {
         assert_eq!(manager.state.phase, Phase::Idle);
         assert!(Manager::open_with("other-owner", path.clone(), native).is_err());
         std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn installed_versions_refresh_without_rewriting_an_idle_barrier_and_persist_across_upgrade() {
+        let path = path();
+        let root = path.with_extension("versions");
+        let old = root.join("app-1.0.0").join("browser.exe");
+        let new = root.join("app-1.1.0").join("browser.exe");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, b"old").unwrap();
+        let native = Fake::default();
+        let mut manager = Manager::open_with("owner", path.clone(), native.clone()).unwrap();
+        manager
+            .set(
+                Set {
+                    expected_version: version(&manager.state.config),
+                    config: Config {
+                        enabled: true,
+                        applications: vec![Target::Executable {
+                            value: old.to_string_lossy().into_owned(),
+                        }],
+                    },
+                },
+                Path::new("C:\\Wayrill"),
+            )
+            .unwrap();
+        let calls = native.0.borrow().2;
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::write(&new, b"new").unwrap();
+        assert!(manager.reconcile(manager.refresh_at));
+        assert_eq!(
+            manager.state.config.applications[0].value(),
+            new.to_string_lossy()
+        );
+        assert_eq!(
+            native.0.borrow().2,
+            calls,
+            "idle discovery must not rewrite WFP"
+        );
+        assert!(
+            !manager.reconcile(manager.refresh_at),
+            "unchanged versions must be quiet"
+        );
+        manager.arm(Phase::Upgrade).unwrap();
+        assert_eq!(
+            native.0.borrow().0.len(),
+            2,
+            "old and new versions must both be blocked"
+        );
+        std::fs::remove_dir_all(old.parent().unwrap()).unwrap();
+        manager.reconcile(manager.refresh_at);
+        assert_eq!(
+            native.0.borrow().0.len(),
+            2,
+            "an armed transition retains the old identity"
+        );
+        drop(manager);
+        let mut replacement = Manager::open_with("owner", path.clone(), native.clone()).unwrap();
+        assert_eq!(native.0.borrow().0.len(), 2);
+        assert_eq!(
+            replacement.state.config.applications[0].value(),
+            new.to_string_lossy()
+        );
+        replacement.ready().unwrap();
+        assert!(native.0.borrow().0.is_empty());
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn selectors_are_exact_and_deduplicated() {

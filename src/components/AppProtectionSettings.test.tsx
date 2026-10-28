@@ -86,6 +86,7 @@ it('adds exact helper paths, hides selected apps, and deduplicates running insta
   expect(busy.mock.calls.map(([value]) => value)).toEqual([true, false]);
 });
 it('keeps a local draft when another client saves, and requires refresh instead of a stale save', async () => {
+  await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   snapshot = {
     ...snapshot,
     version: 'external',
@@ -95,11 +96,29 @@ it('keeps a local draft when another client saves, and requires refresh instead 
   };
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(host.textContent).toContain('Settings changed elsewhere');
-  expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
   expect(button('Save').disabled).toBe(true);
   await act(async () => button('Refresh').click());
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
   expect(host.querySelectorAll('.app-protection-list li').length).toBe(0);
+});
+it('follows automatic executable updates in a clean editor without overwriting local edits', async () => {
+  snapshot = {
+    ...snapshot,
+    version: 'new-version',
+    config: {
+      ...snapshot.config,
+      applications: [{ kind: 'executable', value: 'C:\\Apps\\app-2.0.0\\app.exe' }],
+    },
+  };
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(host.textContent).toContain('C:\\Apps\\app-2.0.0\\app.exe');
+  expect(host.textContent).not.toContain('Settings changed elsewhere');
+  await act(async () => button('Save').click());
+  expect(serviceCall).toHaveBeenCalledWith(
+    'appProtection.set',
+    expect.objectContaining({ expectedVersion: 'new-version' }),
+  );
 });
 it('allows disabling protection during recovery and admits only one rapid save', async () => {
   snapshot = { ...snapshot, phase: 'recovery', blocked: true };
