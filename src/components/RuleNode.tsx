@@ -24,7 +24,7 @@ import { isOutboundKind } from '../graph/outbounds';
 import { isPolicyKind } from '../graph/policies';
 import { isRuleTableKind } from '../graph/rules';
 import { isInboundKind, isHttpInbound } from '../graph/inbounds';
-import { captureNodeName, isProtocolKind, isProtocolInbound } from '../graph/protocols';
+import { captureNodeName, isProtocolKind } from '../graph/protocols';
 import { isDnsEditor } from '../graph/dns';
 import { NodeEditorContext } from './NodeEditorContext';
 import { GraphDiagnosticsContext } from './GraphDiagnosticsContext';
@@ -83,10 +83,6 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
     data.kind === 'proxy-chain' ||
     isNativeXrayKind(data.kind) ||
     isProtocolKind(data.kind);
-  const namedPorts =
-    ports.includes('observation') ||
-    table ||
-    (isInboundKind(data.kind) && !isProtocolInbound(data.kind));
   const openEditor = useContext(NodeEditorContext);
   const updateInternals = useUpdateNodeInternals();
   const portSignature = ports.join(',');
@@ -141,7 +137,7 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
         nodeId={id}
         observationTag={isOutboundKind(data.kind) ? String(data.settings.tag ?? '') : undefined}
       />
-      {namedPorts ? (
+      {(!compact || ports.length > 0) && (
         <>
           {table &&
             (!isNativeXrayKind(data.kind) ||
@@ -201,23 +197,6 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
             ))}
           </div>
         </>
-      ) : (
-        !compact && (
-          <div className="node-port-labels">
-            <span>{hasInputPort(data.kind) ? 'Input' : 'Source'}</span>
-            {isProtocolInbound(data.kind) ? (
-              <span>All traffic</span>
-            ) : (
-              <span>
-                {ports.length === 2
-                  ? 'Matches / Otherwise'
-                  : ports.length
-                    ? 'Output'
-                    : 'Destination'}
-              </span>
-            )}
-          </div>
-        )
       )}
       {hasInputPort(data.kind) && (
         <Handle
@@ -253,11 +232,8 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
           style={{
             color: connectionTypes[sourceConnectionKind(data, port)].color,
             borderColor: connectionTypes[sourceConnectionKind(data, port)].color,
-            top: namedPorts ? `calc(100% - ${(ports.length - index - 0.5) * 27}px)` : '50%',
+            top: `calc(100% - ${(ports.length - index - 0.5) * 27}px)`,
           }}
-          className={
-            port === 'observation' ? 'port-observation' : namedPorts ? 'port-named' : `port-${port}`
-          }
           data-connection-kind={sourceConnectionKind(data, port)}
           title={`${data.label}: ${port === 'dns' && !table ? `DNS (${isHttpInbound(data) ? 'TCP' : 'TCP/UDP'} ports ${String(data.settings.dnsPorts || '53')})` : portLabel(port, data)} · ${connectionTypes[sourceConnectionKind(data, port)].description}`}
           aria-label={`${data.label}: ${portLabel(port, data)} ${port === 'observation' ? 'port' : 'output port'}`}

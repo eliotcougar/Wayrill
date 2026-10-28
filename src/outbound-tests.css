@@ -67,7 +67,7 @@
   text-align: left;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  color: var(--text-muted);
   cursor: pointer;
 }
 .outbound-test-summary.passed {
@@ -110,7 +110,7 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 .toolbar-traffic span {

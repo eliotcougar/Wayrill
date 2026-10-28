@@ -114,7 +114,7 @@
   margin: 0 0 7px;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--muted, var(--text-secondary));
+  color: var(--text-muted);
   overflow-wrap: anywhere;
 }
 .default-scope .override-badge,

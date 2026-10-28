@@ -23,7 +23,6 @@
   --surface-hover: #2d3b4e;
   --scrollbar-thumb: #63758d;
   --scrollbar-hover: #8498b1;
-  --surface-overlay: #121a25db;
   --text: #dce6f3;
   --text-secondary: #b9c9dd;
   --text-muted: #9aabc2;
@@ -35,7 +34,6 @@
   --accent-fill-hover: #88decd;
   --on-accent: #102722;
   --accent-soft: #24423f;
-  --accent-border: #456d68;
   --success: #91ccbb;
   --success-soft: #21382f;
   --success-border: #3b6354;
@@ -63,15 +61,12 @@
   --canvas-edge: #101721;
   --selection-fill: #285d59;
   --selection-text: #f4ffff;
-  --selection-ring: #6cd4c126;
   --switch-track: #3c4a60;
   --switch-active: #438c7e;
   --switch-thumb: #d7fff3;
   --backdrop: #090f18b8;
   --shadow: #0004;
   --shadow-dialog: #0008;
-  --muted: var(--text-muted);
-  --text-primary: var(--text);
 }
 
 /* Shared semantic colors for the workspace, graph and all editors. */
@@ -85,7 +80,6 @@
   --surface-hover: #e2e9f2;
   --scrollbar-thumb: #788a9f;
   --scrollbar-hover: #63758d;
-  --surface-overlay: #ffffffed;
   --text: #1e2b3d;
   --text-secondary: #3e536c;
   --text-muted: #566980;
@@ -97,7 +91,6 @@
   --accent-fill-hover: #006b58;
   --on-accent: #ffffff;
   --accent-soft: #deeee9;
-  --accent-border: #5a9c8d;
   --success: #146d56;
   --success-soft: #e4f3ed;
   --success-border: #72a895;
@@ -125,7 +118,6 @@
   --canvas-edge: #edf1f7;
   --selection-fill: #c4e4dd;
   --selection-text: #123b34;
-  --selection-ring: #006b5826;
   --switch-track: #72849b;
   --switch-active: #087d69;
   --switch-thumb: #ffffff;
@@ -143,7 +135,6 @@
     --surface-hover: Canvas;
     --scrollbar-thumb: ButtonText;
     --scrollbar-hover: Highlight;
-    --surface-overlay: Canvas;
     --text: CanvasText;
     --text-secondary: CanvasText;
     --text-muted: CanvasText;
@@ -155,7 +146,6 @@
     --accent-fill-hover: Highlight;
     --on-accent: HighlightText;
     --accent-soft: Canvas;
-    --accent-border: ButtonBorder;
     --success: CanvasText;
     --success-soft: Canvas;
     --success-border: ButtonBorder;
@@ -183,7 +173,6 @@
     --canvas-edge: Canvas;
     --selection-fill: Highlight;
     --selection-text: HighlightText;
-    --selection-ring: Highlight;
     --switch-track: ButtonText;
     --switch-active: Highlight;
     --switch-thumb: ButtonFace;

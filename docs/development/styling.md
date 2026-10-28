@@ -8,6 +8,7 @@ Add feature sheets there rather than importing CSS from components.
 
 - `tokens.css` defines semantic colors, spacing, control dimensions and the
   monospace font. Light/dark and forced-color themes share the same dimensions.
+  Use the semantic token directly rather than adding aliases or unused palettes.
 - `styles/base.css` owns element defaults, focus, native checkbox/radio accents,
   scrollbars, reduced motion and visually hidden content.
   Ordinary `h3`/`h4` content headings have explicit size, weight, line height and
@@ -146,6 +147,9 @@ states, reusing shared control appearance and semantic tokens.
 Keep graph card states together in `styles/graph.css`. Selection owns elevation
 and its outline; validation and the Main role share a separate ring so that
 errors cannot remove selection feedback. Neither changes card or port geometry.
+Node cards use named output rows. Handle colors come from connection-type
+metadata, also used by the editor and connection checks; do not duplicate that
+mapping in port-name CSS classes. Keep the semantic data attributes for inspection.
 Workspace runtime indicators belong in `styles/workspace.css`, runtime dialog
 content in `styles/runtime.css`, and rule-field expansion in `styles/rules.css`.
 Feature sheets such as Stash and traffic units must not style these unrelated
