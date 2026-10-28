@@ -1056,11 +1056,22 @@ textarea::placeholder {
   box-shadow: 0 18px 80px var(--shadow-dialog);
   color-scheme: inherit;
 }
+.app-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-dialog > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .app-dialog::backdrop {
   background: var(--backdrop);
   backdrop-filter: blur(3px);
 }
 .dialog-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1073,13 +1084,18 @@ textarea::placeholder {
   margin: 0;
 }
 .dialog-body {
+  min-height: 0;
+  overflow: auto;
   padding: 20px 23px;
 }
 .dialog-footer {
+  flex-shrink: 0;
   padding: 12px 22px;
   border-top: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
 }
 .dialog-note {
   color: var(--text);
@@ -2695,24 +2711,6 @@ button.diagnostic:focus-visible {
 }
 .tun-capture-setup .field-action-row button {
   min-height: 34px;
-}
-
-/* Keep the next action visible even when a graph has many diagnostics. */
-.app-dialog:has(.graph-check-validation)[open] {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.app-dialog:has(.graph-check-validation) .dialog-body {
-  min-height: 0;
-  overflow: auto;
-}
-.app-dialog:has(.graph-check-validation) .dialog-header,
-.app-dialog:has(.graph-check-validation) .dialog-footer {
-  flex-shrink: 0;
-}
-.app-dialog:has(.graph-check-validation) .dialog-footer {
-  gap: 8px;
 }
 
 .graph-check-status {

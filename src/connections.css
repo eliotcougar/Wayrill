@@ -1,19 +1,6 @@
 .connection-editor {
   width: min(680px, 94vw);
   max-height: 90vh;
-  overflow: hidden;
-}
-.connection-editor form {
-  display: flex;
-  flex-direction: column;
-  max-height: calc(90vh - 2px);
-}
-.connection-editor .dialog-header,
-.connection-editor .dialog-footer {
-  flex-shrink: 0;
-}
-.connection-editor .dialog-footer {
-  gap: 10px;
 }
 .connection-editor-summary {
   flex-shrink: 0;

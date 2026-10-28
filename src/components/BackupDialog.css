@@ -1,17 +1,6 @@
 .backup-dialog[open] {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
   width: min(620px, 94vw);
   max-height: 90vh;
-}
-.backup-dialog .dialog-header,
-.backup-dialog .dialog-footer {
-  flex-shrink: 0;
-}
-.backup-dialog .dialog-body {
-  min-height: 0;
-  overflow: auto;
 }
 .backup-content {
   display: grid;
