@@ -23,12 +23,15 @@
   width: 212px;
 }
 .rule-node {
+  --node-ring: 0 0 0 0 transparent;
+  --node-elevation: 0 5px 14px var(--shadow);
+
   width: 212px;
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   padding: 13px 15px 0;
-  box-shadow: 0 5px 14px var(--shadow);
+  box-shadow: var(--node-ring), var(--node-elevation);
   transition:
     border-color 0.12s,
     box-shadow 0.12s;
@@ -37,14 +40,41 @@
 .rule-node:hover {
   border-color: var(--node-color);
 }
+/* Main, selection and validation decorate the same card independently. */
+.rule-node.is-main {
+  --node-ring: 0 0 0 1px color-mix(in srgb, var(--main-outbound) 35%, transparent);
+  --node-elevation: 0 6px 20px var(--shadow);
+
+  border-color: var(--main-outbound);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--main-outbound) 12%, transparent),
+      transparent 60%
+    ),
+    var(--surface-raised);
+}
 .rule-node.is-selected {
+  --node-elevation: 0 3px 6px var(--shadow), 0 14px 28px var(--shadow);
+
   /* Two-pixel visible stroke without changing card or port measurements. */
   border-color: var(--accent);
   outline: 1px solid var(--accent);
   outline-offset: 0;
-  box-shadow:
-    0 3px 6px var(--shadow),
-    0 14px 28px var(--shadow);
+}
+.rule-node.is-main.is-selected {
+  border-color: var(--main-outbound);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rule-node.has-errors {
+  --node-ring: 0 0 0 2px var(--danger);
+}
+.node-problem {
+  font-size: 10px;
+  color: var(--danger);
+  padding: 5px 12px;
+  background: var(--danger-soft);
 }
 .rule-node.is-disabled {
   opacity: 0.55;
@@ -306,24 +336,6 @@
   background: var(--surface-hover);
 }
 
-/* Main is a workspace role, independent of selection and outbound protocol. */
-.rule-node.is-main {
-  border-color: var(--main-outbound);
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--main-outbound) 12%, transparent),
-      transparent 60%
-    ),
-    var(--surface-raised);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--main-outbound) 35%, transparent),
-    0 6px 20px var(--shadow);
-}
-.rule-node.is-main.is-selected {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 .node-main-badge {
   margin-left: auto;
   display: inline-flex;

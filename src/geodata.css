@@ -111,15 +111,9 @@
   align-items: center;
   gap: 4px;
 }
-.expanded-rule-field > .rule-field-heading {
-  justify-content: space-between;
-}
 .geo-expanded {
   width: min(850px, 94vw);
   height: min(600px, 88vh);
-}
-.geo-expanded .expanded-rule-field {
-  padding: 16px 20px;
 }
 @media (max-width: 640px) {
   .geo-columns {

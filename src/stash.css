@@ -178,40 +178,6 @@
   font-size: 11px;
   padding: 6px 8px;
 }
-.rule-node.has-errors {
-  box-shadow: 0 0 0 2px var(--danger);
-}
-.node-problem {
-  font-size: 10px;
-  color: var(--danger);
-  padding: 5px 12px;
-  background: var(--danger-soft);
-}
-.storage-alert {
-  background: var(--surface-raised);
-  color: var(--danger);
-  padding: 7px 20px;
-  font-size: 12px;
-}
-.runtime-diagnostics {
-  display: grid;
-  gap: 5px;
-}
-.runtime-diagnostics button {
-  text-align: left;
-  font-size: 12px;
-}
-.status-runtime {
-  border: 0;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font: inherit;
-}
-.status-runtime.online {
-  color: var(--success);
-}
-
 .stash-window > .result-pager {
   border-top: 1px solid var(--border);
   padding: 10px 20px;

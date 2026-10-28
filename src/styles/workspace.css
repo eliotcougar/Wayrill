@@ -377,6 +377,22 @@ textarea::placeholder {
   height: 12px;
   background: var(--surface-hover);
 }
+.status-runtime {
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+.status-runtime.online {
+  color: var(--success);
+}
+.storage-alert {
+  background: var(--surface-raised);
+  color: var(--danger);
+  padding: 7px 20px;
+  font-size: 12px;
+}
 .status-help {
   min-width: 0;
   overflow: hidden;
@@ -628,6 +644,35 @@ textarea::placeholder {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+.runtime-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 10px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+.runtime-indicator.running {
+  color: var(--success);
+  border-color: currentColor;
+}
+.runtime-dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.runtime-indicator.running .runtime-dot {
+  background: currentColor;
+}
+@media (forced-colors: active) {
+  .runtime-indicator.running {
+    color: Highlight;
+  }
 }
 @media (max-width: 1280px) {
   .toolbar .workspace-name {

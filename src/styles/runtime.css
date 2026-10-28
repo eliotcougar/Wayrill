@@ -8,6 +8,14 @@
   align-items: center;
   gap: 9px;
 }
+.runtime-diagnostics {
+  display: grid;
+  gap: 5px;
+}
+.runtime-diagnostics button {
+  text-align: left;
+  font-size: 12px;
+}
 .runtime-body {
   flex: 1;
   min-width: 0;

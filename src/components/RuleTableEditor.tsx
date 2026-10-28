@@ -577,7 +577,7 @@ export default function RuleTableEditor({
                         value={expanded.value}
                         onChange={(e) => setExpanded({ ...expanded, value: e.target.value })}
                       />
-                      <div>
+                      <div className="action-row expanded-rule-actions">
                         <button
                           className="secondary-button"
                           onClick={() => {

@@ -107,6 +107,15 @@ The remaining feature sheets cover Stash, policies, traffic, system capture and
 other individual dialogs. Feature sheets should define their own layout and
 states, reusing shared control appearance and semantic tokens.
 
+Keep graph card states together in `styles/graph.css`. Selection owns elevation
+and its outline; validation and the Main role share a separate ring so that
+errors cannot remove selection feedback. Neither changes card or port geometry.
+Workspace runtime indicators belong in `styles/workspace.css`, runtime dialog
+content in `styles/runtime.css`, and rule-field expansion in `styles/rules.css`.
+Feature sheets such as Stash and traffic units must not style these unrelated
+components. Use an explicit action-row class instead of styling every direct
+`div` in an expanded field; the field heading has its own alignment.
+
 Before adding an override, change the owning rule or shared primitive if that is
 where the behavior belongs. Keep intentional responsive or state variants beside
 their base rule. Avoid appending a second definition of the same selector, copying

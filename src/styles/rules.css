@@ -115,6 +115,37 @@
   flex-direction: column;
   min-height: 0;
 }
+.rule-detail-normal {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.rule-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.expanded-rule-field {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.expanded-rule-field h3 {
+  margin: 0;
+}
+.expanded-rule-field textarea {
+  flex: 1;
+  min-height: 150px;
+  resize: none;
+}
+.expanded-rule-actions {
+  justify-content: flex-end;
+}
 .rule-detail-tools {
   padding: 10px 20px;
   display: flex;
