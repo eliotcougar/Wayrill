@@ -31,7 +31,7 @@ export default function AppearanceSettings({
               onChange={() => theme.setPreference(value)}
             />
             <Icon size={21} aria-hidden="true" />
-            <span className="choice-row-content">
+            <span className="item-content">
               <strong>{label}</strong>
             </span>
           </label>

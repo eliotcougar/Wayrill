@@ -1,23 +1,5 @@
-.tun-adapter-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-}
 .tun-adapter-heading {
   margin-top: 20px;
-}
-.tun-adapter-row > div {
-  min-width: 0;
-}
-.tun-adapter-row strong {
-  display: block;
-  overflow-wrap: anywhere;
-}
-.tun-adapter-row .field-help {
-  display: block;
-  margin-top: 4px;
 }
 .tun-adapter-remove {
   color: var(--danger);

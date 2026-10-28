@@ -348,13 +348,16 @@ export default function PolicySourcesEditor({
               page={manualCurrent}
               onPage={setManualPage}
             />
-            <div className="policy-manual-list">
+            <div className="item-list policy-manual-list">
               {manualMatches
                 .slice(manualCurrent * 30, (manualCurrent + 1) * 30)
                 .map(({ reference, index: i, summary }) => {
                   return (
-                    <div className="policy-picker-row" key={`${referenceKey(reference)}-${i}`}>
-                      <span>
+                    <div
+                      className="item-row policy-picker-row"
+                      key={`${referenceKey(reference)}-${i}`}
+                    >
+                      <span className="item-content">
                         <strong dir="auto" title={summary.name}>
                           {summary.name}
                         </strong>

@@ -160,25 +160,27 @@ export default function TunAdapterSettings({
         </div>
         {loading && <p role="status">Loading adapters…</p>}
         {inventory && inventory.adapters.length === 0 && <p>No retained adapters.</p>}
-        {inventory?.adapters.map((adapter) => (
-          <div className="tun-adapter-row" key={adapter.id}>
-            <div>
-              <strong>{adapter.name}</strong>
-              <span className="field-help">
-                {adapter.kind === 'ics' ? 'ICS TUN' : 'Host TUN'} · {states[adapter.state]}
-              </span>
-              {adapter.error && <p className="notice notice--error">{adapter.error}</p>}
+        <div className="item-list">
+          {inventory?.adapters.map((adapter) => (
+            <div className="item-row tun-adapter-row" key={adapter.id}>
+              <div className="item-content">
+                <strong>{adapter.name}</strong>
+                <small>
+                  {adapter.kind === 'ics' ? 'ICS TUN' : 'Host TUN'} · {states[adapter.state]}
+                </small>
+                {adapter.error && <p className="notice notice--error">{adapter.error}</p>}
+              </div>
+              <button
+                className="icon-button"
+                aria-label={`Remove ${adapter.name}`}
+                disabled={!canManage || !adapter.canRemove}
+                onClick={() => setRemoving(adapter)}
+              >
+                <Trash2 size={17} />
+              </button>
             </div>
-            <button
-              className="icon-button"
-              aria-label={`Remove ${adapter.name}`}
-              disabled={!canManage || !adapter.canRemove}
-              onClick={() => setRemoving(adapter)}
-            >
-              <Trash2 size={17} />
-            </button>
-          </div>
-        ))}
+          ))}
+        </div>
         {removing && (
           <div className="notice notice--warning" role="group" aria-label="Confirm adapter removal">
             <p>Remove {removing.name} from Windows?</p>

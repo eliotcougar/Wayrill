@@ -61,19 +61,19 @@
 .application-selector-row:last-child {
   border-bottom: 0;
 }
-.application-selector-row > .choice-row-content {
+.application-selector-row > .item-content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.application-selector-row > .choice-row-content > :is(strong, small) {
+.application-selector-row > .item-content > :is(strong, small) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .application-selector-row > button {
   grid-column: 4;
 }
-.application-choice > .choice-row-content {
+.application-choice > .item-content {
   flex-wrap: nowrap;
   overflow: hidden;
 }

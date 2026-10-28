@@ -255,7 +255,7 @@ export default function BackupDialog({
                     checked={filters.length > 0 && filterIds.length === filters.length}
                     onChange={(e) => setFilterIds(e.target.checked ? filters.map((n) => n.id) : [])}
                   />
-                  <span className="choice-row-content">
+                  <span className="item-content">
                     <strong>All</strong>
                   </span>
                 </label>
@@ -271,7 +271,7 @@ export default function BackupDialog({
                         )
                       }
                     />
-                    <span className="choice-row-content">
+                    <span className="item-content">
                       <strong>{n.data.label}</strong>
                       <small>
                         {n.data.kind === 'routing-filter' ? 'Traffic filter' : 'DNS filter'}

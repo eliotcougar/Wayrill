@@ -1,0 +1,46 @@
+/* Names, supporting details and actions share one rhythm across catalogs. */
+.item-list {
+  min-width: 0;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.item-list > .item-row:last-child {
+  border-bottom: 0;
+}
+.item-row > button {
+  flex-shrink: 0;
+}
+.item-content {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--control-text-size);
+  line-height: var(--control-line-height);
+  overflow-wrap: anywhere;
+}
+.item-content > strong {
+  display: block;
+  font-weight: 600;
+}
+.item-content > small {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.item-content--inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+.item-content--inline > :is(strong, small) {
+  display: inline;
+  margin: 0;
+}

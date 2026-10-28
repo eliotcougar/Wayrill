@@ -287,7 +287,7 @@ export default function ConnectionEditor({
                       draftChanged();
                     }}
                   />
-                  <span className="choice-row-content">
+                  <span className="item-content">
                     <strong dir="auto" title={node.data.label}>
                       {node.data.label}
                     </strong>

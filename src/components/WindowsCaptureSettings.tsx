@@ -315,7 +315,7 @@ export default function WindowsCaptureSettings({
                         }))
                       }
                     />
-                    <span className="choice-row-content choice-row-content--inline">
+                    <span className="item-content item-content--inline">
                       <strong>{a.name}</strong>
                       <small title={a.description}>
                         {excluded(a.id)
@@ -415,7 +415,7 @@ export default function WindowsCaptureSettings({
                       }))
                     }
                   />
-                  <span className="choice-row-content choice-row-content--inline">
+                  <span className="item-content item-content--inline">
                     <strong>{p.name}</strong>
                     <small title={p.family}>{p.family}</small>
                   </span>

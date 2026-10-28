@@ -303,7 +303,7 @@ export default function ApplicationSelectors({
                 checked={false}
                 onChange={() => add([p.value])}
               />
-              <span className="choice-row-content choice-row-content--inline">
+              <span className="item-content item-content--inline">
                 <strong>{p.name}</strong>
                 {p.detail.toLowerCase() !== p.name.toLowerCase() && <small>{p.detail}</small>}
               </span>
@@ -340,7 +340,7 @@ export default function ApplicationSelectors({
                 onChange(rows.map((v, j) => (j === i ? { ...v, enabled: e.target.checked } : v)))
               }
             />
-            <span className="choice-row-content" title={r.value}>
+            <span className="item-content" title={r.value}>
               {nameFor(r) ? (
                 <>
                   <strong>{nameFor(r)}</strong>

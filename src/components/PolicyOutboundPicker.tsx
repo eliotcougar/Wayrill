@@ -159,10 +159,10 @@ export default function PolicyOutboundPicker({
             disabled={pending}
             onPage={setPage}
           />
-          <div className="policy-picker-list">
+          <div className="item-list policy-picker-list">
             {poolMatches.slice(poolPage * 30, (poolPage + 1) * 30).map((node) => (
-              <div className="policy-picker-row" key={node.id}>
-                <span>
+              <div className="item-row policy-picker-row" key={node.id}>
+                <span className="item-content">
                   <strong dir="auto" title={node.data.label}>
                     {node.data.label}
                   </strong>
@@ -239,10 +239,10 @@ export default function PolicyOutboundPicker({
             disabled={pending}
             onPage={setPage}
           />
-          <div className="policy-picker-list">
+          <div className="item-list policy-picker-list">
             {matches.slice(currentPage * 30, (currentPage + 1) * 30).map(({ group, entry }) => (
-              <div className="policy-picker-row" key={`${group.id}/${entry.id}`}>
-                <span>
+              <div className="item-row policy-picker-row" key={`${group.id}/${entry.id}`}>
+                <span className="item-content">
                   <strong dir="auto" title={entry.name}>
                     {entry.name}
                   </strong>

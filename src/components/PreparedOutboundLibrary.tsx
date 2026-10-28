@@ -135,10 +135,10 @@ export default function PreparedOutboundLibrary({
           {error}
         </div>
       )}
-      <div className="stash-entries">
+      <div className="item-list stash-entries">
         {matches.slice(currentPage * 60, (currentPage + 1) * 60).map((entry) => (
-          <div className="stash-entry" key={JSON.stringify(entryLink(stash, entry))}>
-            <div className="stash-entry-main">
+          <div className="item-row stash-entry" key={JSON.stringify(entryLink(stash, entry))}>
+            <div className="item-content stash-entry-main">
               <strong dir="auto" title={entry.name}>
                 {entry.name}
               </strong>

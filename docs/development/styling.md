@@ -52,9 +52,14 @@ Add feature sheets there rather than importing CSS from components.
   textareas. Use `code-block--compact` in the inspector; features retain their
   height limits and scrolling layout. Keep diagnostic logs that depend on column
   alignment unwrapped, while configuration previews wrap long values.
+- `styles/lists.css` owns `item-row` spacing and dividers for name/details/action
+  lists, and `item-content` typography and wrapping. Use `item-list` around rows
+  to omit the final divider; features retain scrolling limits and responsive
+  action placement. The inline content variant keeps names and details on one
+  wrapping line. Selectable rows reuse this content without becoming action rows.
 - `styles/choices.css` owns rich checkbox/radio lists. Combine `check-control`
   with `choice-row` inside `choice-list`; use the compact row variant for dense
-  catalogs. `choice-row-content` lays out a name and details, with an inline
+  catalogs. `item-content` lays out a name and details, with an inline
   variant for compact lists. Native checked/disabled state drives row appearance.
   Features retain scrolling limits, truncation and multi-action row layouts.
   Use `choice-group` for a fieldset of options and `check-control choice-card`

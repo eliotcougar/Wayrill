@@ -54,36 +54,25 @@
 }
 .policy-picker-list,
 .policy-manual-list {
-  max-height: 270px;
   overflow: auto;
   margin-top: 12px;
 }
-.policy-picker-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+.policy-picker-list {
+  max-height: 200px;
 }
-.policy-picker-row > span {
-  min-width: 0;
+.policy-manual-list {
+  max-height: 270px;
 }
-.policy-picker-row strong,
 .policy-candidate-table strong {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.policy-picker-row small,
 .policy-candidate-table small {
   display: block;
   color: var(--text-muted);
   font-size: 11px;
   margin-top: 4px;
   overflow-wrap: anywhere;
-}
-.policy-picker-row button {
-  flex-shrink: 0;
 }
 .policy-candidate-table {
   flex: 1 1 auto;
@@ -177,34 +166,10 @@
   flex: 1;
   min-width: 180px;
 }
-.prepared-library .stash-toolbar {
-  align-items: center;
-}
-.prepared-library .stash-entry-main {
-  min-width: 0;
-  flex: 1;
-}
 .prepared-library .stash-entry-main strong {
-  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.prepared-library .stash-entry-main small {
-  color: var(--muted);
-}
-.prepared-library .stash-entry-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.prepared-library .stash-entry {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
 }
 @media (max-width: 600px) {
   .prepared-library .stash-entry {
@@ -227,7 +192,4 @@
 .policy-name-field > input {
   flex: 1;
   min-width: 0;
-}
-.policy-picker-list {
-  max-height: 200px;
 }

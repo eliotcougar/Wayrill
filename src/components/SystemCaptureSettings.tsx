@@ -581,7 +581,7 @@ export default function SystemCaptureSettings({
                         checked={httpScope === channel}
                         onChange={() => setHttpScope(channel)}
                       />
-                      <span className="choice-row-content">
+                      <span className="item-content">
                         <strong>{label}</strong>
                         <small>{state}</small>
                       </span>
