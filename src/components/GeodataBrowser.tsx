@@ -13,11 +13,15 @@ import { errorText, serviceCall } from '../serviceClient';
 import useModalDialog from './useModalDialog';
 import '../geodata.css';
 
-function usePage(params: Record<string, unknown> | null, revision: string) {
+function usePage(
+  params: (Record<string, unknown> & { offset: number; limit: number }) | null,
+  revision: string,
+  changeOffset: (offset: number) => void,
+) {
   const key = JSON.stringify([params, revision]);
   const [state, setState] = useState<{ key: string; page?: GeoPage; error?: string }>({ key: '' });
   useEffect(() => {
-    const [input] = JSON.parse(key) as [Record<string, unknown> | null, string];
+    const [input] = JSON.parse(key) as [typeof params, string];
     if (!input) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -27,6 +31,11 @@ function usePage(params: Record<string, unknown> | null, revision: string) {
         if (!active) return;
         if (!page.ready) {
           timer = setTimeout(() => void read(), 250);
+          return;
+        }
+        const total = page.total ?? 0;
+        if (input.offset > 0 && input.offset >= total) {
+          changeOffset(Math.max(0, Math.ceil(total / input.limit) - 1) * input.limit);
           return;
         }
         setState({ key, page });
@@ -49,7 +58,7 @@ function usePage(params: Record<string, unknown> | null, revision: string) {
       active = false;
       clearTimeout(timer);
     };
-  }, [key]);
+  }, [key, changeOffset]);
   const previous = state.key
     ? (JSON.parse(state.key) as [Record<string, unknown> | null, string])[0]
     : null;
@@ -171,7 +180,7 @@ export default function GeodataBrowser({
     };
   }, []);
   const revision = `${generation}:${refresh}`;
-  const listing = usePage({ file, kind, query, offset, limit: 100 }, revision);
+  const listing = usePage({ file, kind, query, offset, limit: 100 }, revision, setOffset);
   const entries = usePage(
     selection
       ? {
@@ -187,6 +196,7 @@ export default function GeodataBrowser({
         }
       : null,
     revision,
+    setEntryOffset,
   );
   const insert = (entry: string) => {
     const problem = onInsert(entry);

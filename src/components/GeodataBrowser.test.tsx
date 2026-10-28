@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import GeoBrowseButton from './GeoBrowseButton';
 import GeoMatcherField from './GeoMatcherField';
+import GeodataBrowser from './GeodataBrowser';
 import { GeoResourcesContext } from '../geodata';
 import { factoryResources } from '../graph/resources';
 import { serviceCall } from '../serviceClient';
@@ -41,6 +42,67 @@ const button = (name: string) =>
   [...host.querySelectorAll('button')].find(
     (b) => b.getAttribute('aria-label') === name || b.textContent?.trim() === name,
   )!;
+it.each(['groups', 'entries'] as const)(
+  'recovers the %s page when a resource update removes its results',
+  async (scope) => {
+    let generation = 0;
+    vi.mocked(serviceCall).mockImplementation(async (method, params = {}) => {
+      if (method === 'resources.status') return { generation, files: [] } as never;
+      const paged = Boolean(params.group) === (scope === 'entries');
+      const total = paged ? (generation === 0 ? 201 : generation === 1 ? 101 : 0) : 1;
+      const offset = Number(params.offset);
+      return {
+        ready: true,
+        total,
+        rows: Array.from({ length: Math.min(100, Math.max(0, total - offset)) }, (_, i) =>
+          params.group
+            ? { value: `full:entry${offset + i}.test`, preview: `full:entry${offset + i}.test` }
+            : { code: `group${offset + i}`, count: 1 },
+        ),
+        group: params.group ? { count: total, attributes: [], inverse: false } : null,
+      } as never;
+    });
+    await act(async () =>
+      root.render(
+        <GeodataBrowser
+          kind="geosite"
+          resources={factoryResources()}
+          initialExpression={scope === 'entries' ? 'geosite:google' : ''}
+          onInsert={() => null}
+          onClose={vi.fn()}
+        />,
+      ),
+    );
+    const section = () =>
+      host.querySelector(
+        `[aria-label="${scope === 'groups' ? 'Resource groups' : 'Expression preview'}"]`,
+      )!;
+    const next = () => section().querySelector<HTMLButtonElement>('[aria-label="Next page"]')!;
+    const previous = () =>
+      section().querySelector<HTMLButtonElement>('[aria-label="Previous page"]')!;
+    await wait();
+    for (let i = 0; i < 2; i++) {
+      await act(async () => next().click());
+      await wait();
+    }
+    expect(section().textContent).toContain('201–201 / 201');
+    generation = 1;
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    await wait();
+    await wait();
+    expect(section().textContent).toContain('101–101 / 101');
+    expect(section().querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(next().disabled).toBe(true);
+    expect(previous().disabled).toBe(false);
+    generation = 2;
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    await wait();
+    await wait();
+    expect(section().textContent).toContain('0 results');
+    expect(previous().disabled).toBe(true);
+    expect(next().disabled).toBe(true);
+  },
+);
 async function wait() {
   await act(async () => vi.advanceTimersByTimeAsync(150));
 }
