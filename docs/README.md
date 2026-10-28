@@ -1,6 +1,6 @@
 # Wayrill documentation
 
-These guides describe **Wayrill 0.31.18**, the first Windows x64 beta. Start with
+These guides describe **Wayrill 0.31.20**, the current Windows x64 beta. Start with
 a small working connection, then add routing rules, DNS and automatic maintenance
 as you need them.
 
