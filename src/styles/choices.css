@@ -1,0 +1,56 @@
+/* Rich native checkbox/radio rows extend check-control without changing selection. */
+.choice-list {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+}
+.choice-row {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.choice-list > .choice-row:last-child {
+  border-bottom: 0;
+}
+.choice-row--compact {
+  min-height: var(--control-size-compact);
+  padding: var(--space-1) var(--space-2);
+}
+.choice-row:hover:not(:has(> input:disabled)),
+.choice-row:focus-within {
+  background: var(--surface-hover);
+}
+.choice-row:has(> input[type='radio']:checked) {
+  background: var(--accent-soft);
+}
+.choice-row:has(> input:disabled) {
+  color: var(--text-muted);
+}
+.choice-row-content {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--control-text-size);
+  line-height: var(--control-line-height);
+  overflow-wrap: anywhere;
+}
+.choice-row-content > strong {
+  display: block;
+  font-weight: 600;
+}
+.choice-row-content > small {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.choice-row-content--inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+.choice-row-content--inline > :is(strong, small) {
+  display: inline;
+  margin: 0;
+}

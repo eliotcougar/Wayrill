@@ -166,29 +166,6 @@
   flex: 1 1 0;
   min-height: 0;
 }
-.capture-picker-list.capture-system-list label {
-  padding: 5px 8px;
-  gap: 8px;
-}
-.capture-picker-list.capture-system-list label:last-child {
-  border-bottom: 0;
-}
-.capture-system-list .capture-system-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 3px 8px;
-}
-.capture-system-list .capture-system-row strong {
-  font-weight: 600;
-}
-.capture-system-list .capture-system-row strong,
-.capture-system-list .capture-system-row small {
-  display: inline;
-  white-space: normal;
-  overflow: visible;
-  overflow-wrap: anywhere;
-}
 
 .capture-diagnostics {
   margin: 0 0 16px;

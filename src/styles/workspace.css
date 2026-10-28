@@ -643,29 +643,6 @@ textarea::placeholder {
   width: 100%;
   margin-bottom: 16px;
 }
-.capture-picker-list .application-choice {
-  padding-block: 5px;
-}
-.capture-picker-list .application-choice > span {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-}
-.capture-picker-list .application-choice strong {
-  flex-shrink: 0;
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.capture-picker-list .application-choice small {
-  display: inline;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .palette-item,
 .rule-drag-handle {

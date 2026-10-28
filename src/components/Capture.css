@@ -2,49 +2,19 @@
   width: min(1100px, calc(100vw - 40px));
   height: min(690px, calc(100vh - 36px));
 }
-.capture-picker-list strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-.capture-picker-list small {
-  display: block;
-  color: var(--text-muted);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .capture-picker-header {
   flex-shrink: 0;
 }
 .capture-picker-header h3 {
   flex-basis: 100%;
 }
-.capture-picker-header input {
+.capture-picker-header > .text-control {
   flex: 1;
   min-width: 160px;
+  width: auto;
 }
 .capture-picker-list {
-  overflow: auto;
-  min-height: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
   flex: 1 0 150px;
-}
-.capture-picker-list label {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-.capture-picker-list label span {
-  min-width: 0;
-  flex: 1;
 }
 .capture-window .rule-editor-footer p {
   margin: 0 auto 0 0;
@@ -90,39 +60,43 @@
 .application-selectors .capture-selector-list:empty {
   display: none;
 }
-.application-selectors .capture-selector-list > div {
+.application-selector-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  margin-top: 6px;
+  grid-template-columns: var(--choice-size) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
 }
-.application-selectors .capture-selector-list > div > span {
+.application-selector-row:last-child {
+  border-bottom: 0;
+}
+.application-selector-row > .choice-row-content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.application-selectors .capture-selector-list > div > span > strong,
-.application-selectors .capture-selector-list > div > span > small {
-  display: block;
+.application-selector-row > .choice-row-content > :is(strong, small) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.application-selectors .capture-selector-list > div > span > small {
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-.application-selectors .capture-selector-list button {
+.application-selector-row > button {
   grid-column: 4;
 }
-.application-selectors .capture-selector-list label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.application-choice > .choice-row-content {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.application-choice strong {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.application-selectors .capture-picker-header > label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.application-choice small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }

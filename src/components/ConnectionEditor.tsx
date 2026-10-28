@@ -272,12 +272,9 @@ export default function ConnectionEditor({
                 {compatible.length} compatible · {filtered.length} shown
               </p>
             </div>
-            <div className="connection-candidates">
+            <div className="choice-list connection-candidates">
               {filtered.map(({ node, problem: reason }) => (
-                <label
-                  className={`connection-candidate${targetId === node.id ? ' is-chosen' : ''}${reason ? ' is-unavailable' : ''}`}
-                  key={node.id}
-                >
+                <label className="check-control choice-row connection-candidate" key={node.id}>
                   <input
                     autoComplete="off"
                     type="radio"
@@ -290,7 +287,7 @@ export default function ConnectionEditor({
                       draftChanged();
                     }}
                   />
-                  <span>
+                  <span className="choice-row-content">
                     <strong dir="auto" title={node.data.label}>
                       {node.data.label}
                     </strong>

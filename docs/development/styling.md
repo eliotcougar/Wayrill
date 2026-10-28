@@ -36,6 +36,11 @@ Add feature sheets there rather than importing CSS from components.
   textareas. Use `code-block--compact` in the inspector; features retain their
   height limits and scrolling layout. Keep diagnostic logs that depend on column
   alignment unwrapped, while configuration previews wrap long values.
+- `styles/choices.css` owns rich checkbox/radio lists. Combine `check-control`
+  with `choice-row` inside `choice-list`; use the compact row variant for dense
+  catalogs. `choice-row-content` lays out a name and details, with an inline
+  variant for compact lists. Native checked/disabled state drives row appearance.
+  Features retain scrolling limits, truncation and multi-action row layouts.
 - `styles/tables.css` owns native `data-table` cell spacing, dividers and headers.
   Use `data-table--compact` for dense lists and `data-table--sticky` when a table
   scrolls inside a constrained viewport. Features own column widths, numeric

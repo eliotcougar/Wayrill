@@ -167,7 +167,7 @@ export default function ApplicationSelectors({
           </select>
         )}
         {kind !== 'service' && (
-          <label>
+          <label className="check-control">
             <input
               autoComplete="off"
               type="checkbox"
@@ -290,11 +290,11 @@ export default function ApplicationSelectors({
             Select none
           </button>
         </div>
-        <div className="capture-picker-list">
+        <div className="choice-list capture-picker-list">
           {filtered.slice(currentPage * 50, currentPage * 50 + 50).map((p) => (
             <label
               key={`${p.name}|${p.detail}`}
-              className="application-choice"
+              className="check-control choice-row choice-row--compact application-choice"
               title={`${p.name} · ${p.detail}`}
             >
               <input
@@ -303,7 +303,7 @@ export default function ApplicationSelectors({
                 checked={false}
                 onChange={() => add([p.value])}
               />
-              <span>
+              <span className="choice-row-content choice-row-content--inline">
                 <strong>{p.name}</strong>
                 {p.detail.toLowerCase() !== p.name.toLowerCase() && <small>{p.detail}</small>}
               </span>
@@ -330,7 +330,7 @@ export default function ApplicationSelectors({
       </details>
       <div className="capture-selector-list">
         {rows.map((r, i) => (
-          <div key={i} className="form-row capture-picker-header">
+          <div key={i} className="application-selector-row">
             <input
               autoComplete="off"
               type="checkbox"
@@ -340,7 +340,7 @@ export default function ApplicationSelectors({
                 onChange(rows.map((v, j) => (j === i ? { ...v, enabled: e.target.checked } : v)))
               }
             />
-            <span title={r.value}>
+            <span className="choice-row-content" title={r.value}>
               {nameFor(r) ? (
                 <>
                   <strong>{nameFor(r)}</strong>
@@ -353,7 +353,7 @@ export default function ApplicationSelectors({
               )}
             </span>
             {r.kind !== 'service' && (
-              <label>
+              <label className="check-control check-control--compact">
                 <input
                   autoComplete="off"
                   type="checkbox"

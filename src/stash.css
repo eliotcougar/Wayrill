@@ -172,8 +172,7 @@
   flex-shrink: 0;
 }
 .stash-entry-actions button,
-.stash-toolbar button,
-.stash-choice {
+.stash-toolbar button {
   white-space: nowrap;
 }
 .stash-entry-actions button {
@@ -253,17 +252,6 @@
   }
 }
 
-.stash-choice {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  min-height: 32px;
-}
-.stash-choice input {
-  width: 16px;
-  height: 16px;
-}
 .stash-replacement-summary {
   display: grid;
   gap: 4px;

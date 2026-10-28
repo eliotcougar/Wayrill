@@ -95,57 +95,9 @@
 }
 .connection-candidates {
   max-height: 230px;
-  overflow-y: auto;
-  padding: 3px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-}
-.connection-candidate {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 7px 10px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.connection-candidate input {
-  margin: 4px 0 0;
-  flex-shrink: 0;
-}
-.connection-candidate > span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.connection-candidate strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-}
-.connection-candidate small {
-  color: var(--text);
-  font-size: 11px;
-  line-height: 1.5;
 }
 .connection-candidate .connection-reason {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  overflow: visible;
   color: var(--warning);
-}
-.connection-candidate:hover,
-.connection-candidate:focus-within {
-  background: var(--surface-hover);
-}
-.connection-candidate.is-chosen {
-  border-color: var(--connection-traffic);
-  background: var(--surface-hover);
-}
-.connection-candidate.is-unavailable {
-  cursor: default;
 }
 .connection-preview {
   display: flex;

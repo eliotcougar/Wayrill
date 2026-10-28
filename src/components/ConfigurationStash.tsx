@@ -891,7 +891,7 @@ export default function ConfigurationStash({
                         )}
 
                         {replaceLabel ? (
-                          <label className="check-control stash-choice">
+                          <label className="check-control check-control--compact">
                             <input
                               autoComplete="off"
                               type="radio"

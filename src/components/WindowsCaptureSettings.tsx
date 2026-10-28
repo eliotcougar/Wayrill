@@ -195,7 +195,7 @@ export default function WindowsCaptureSettings({
       <EditorTabPanels tabs={tabs} className="windows-settings-body">
         {tab === 'interfaces' ? (
           <>
-            <label>
+            <label className="check-control check-control--compact">
               <input
                 type="checkbox"
                 checked={options.interfaces.monitorNewInterfaces}
@@ -211,7 +211,7 @@ export default function WindowsCaptureSettings({
               />{' '}
               Monitor new interfaces
             </label>
-            <label>
+            <label className="check-control check-control--compact">
               <input
                 type="checkbox"
                 checked={options.bypassLocalTraffic}
@@ -282,13 +282,13 @@ export default function WindowsCaptureSettings({
                 Clear selection
               </button>
             </div>
-            <div className="capture-picker-list capture-system-list">
+            <div className="choice-list capture-picker-list capture-system-list">
               {catalog?.interfaces.map((a) => {
                 const saved = options.interfaces.interfaces.find(
                   (i) => i.id.toLowerCase() === a.id.toLowerCase(),
                 );
                 return (
-                  <label key={a.id}>
+                  <label key={a.id} className="check-control choice-row choice-row--compact">
                     <input
                       type="checkbox"
                       disabled={excluded(a.id)}
@@ -315,7 +315,7 @@ export default function WindowsCaptureSettings({
                         }))
                       }
                     />
-                    <span className="capture-system-row">
+                    <span className="choice-row-content choice-row-content--inline">
                       <strong>{a.name}</strong>
                       <small title={a.description}>
                         {excluded(a.id)
@@ -397,13 +397,13 @@ export default function WindowsCaptureSettings({
               </button>
             </div>
             <div
-              className="capture-picker-list capture-system-list"
+              className="choice-list capture-picker-list capture-system-list"
               role="region"
               aria-label="Windows app loopback permissions"
               tabIndex={0}
             >
               {rows.map((p) => (
-                <label key={p.family}>
+                <label key={p.family} className="check-control choice-row choice-row--compact">
                   <input
                     type="checkbox"
                     disabled={busy}
@@ -415,7 +415,7 @@ export default function WindowsCaptureSettings({
                       }))
                     }
                   />
-                  <span className="capture-system-row">
+                  <span className="choice-row-content choice-row-content--inline">
                     <strong>{p.name}</strong>
                     <small title={p.family}>{p.family}</small>
                   </span>
