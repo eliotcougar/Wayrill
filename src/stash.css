@@ -19,8 +19,8 @@
   gap: 12px 18px;
 }
 .stash-import .stash-checkbox {
-  min-height: 34px;
   margin: 0;
+  min-height: var(--control-size);
 }
 .subscription-settings-actions,
 .subscription-maintenance-status,
@@ -77,7 +77,7 @@
   align-items: center;
   flex-wrap: wrap;
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border, var(--border));
+  border-bottom: 1px solid var(--border);
 }
 .stash-toolbar > span {
   margin-left: auto;
@@ -112,9 +112,6 @@
   padding: 14px 0;
   align-items: flex-end;
 }
-.stash-group-controls > button {
-  min-height: 34px;
-}
 .stash-search label,
 .stash-group-controls label {
   display: flex;
@@ -143,19 +140,8 @@
   align-self: flex-end;
   display: flex;
   align-items: center;
-  min-height: 34px;
   margin: 0 0 0 auto;
-}
-.stash-window input:not([type='checkbox']):not([type='radio']),
-.stash-window textarea,
-.stash-window select {
-  background: var(--surface-sunken);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  padding: 8px;
-  font: inherit;
-  min-width: 0;
+  min-height: var(--control-size);
 }
 .stash-import {
   padding: 15px;
@@ -176,10 +162,6 @@
 .stash-import textarea {
   min-height: 100px;
   resize: vertical;
-}
-.stash-import input:not([type='checkbox']):not([type='radio']),
-.stash-import select {
-  min-height: 36px;
 }
 .stash-subscription {
   display: grid;
@@ -350,7 +332,6 @@
   min-height: 32px;
 }
 .stash-choice input {
-  accent-color: var(--accent-fill);
   width: 16px;
   height: 16px;
 }
@@ -440,9 +421,6 @@
   flex: 1;
   font-size: 12px;
   color: var(--text-secondary);
-}
-.subscription-group-tools > button {
-  min-height: 34px;
 }
 .subscription-group-list {
   margin-top: 12px;

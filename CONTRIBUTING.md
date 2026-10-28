@@ -5,6 +5,7 @@ contract before changing networking. The Windows service owns privileged actions
 the frontend stages user intent. Keep changes focused and preserve that boundary.
 
 Use [build instructions](docs/development/building.md) and [tests](docs/development/testing.md).
+For frontend appearance changes, follow the [styling guide](docs/development/styling.md).
 Include a minimal reproduction, behavior change, validation and limitations in
 pull requests. Keep fixtures synthetic and independent; retain useful regression
 tests. Never use a contributor's active VPN or network as an automatic test target.

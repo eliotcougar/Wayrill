@@ -1,5 +1,17 @@
-/* Shared semantic colors for the workspace, graph and all editors. */
+/* Shared dimensions are independent of the selected color theme. */
 :root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --control-size: 36px;
+  --control-size-compact: 32px;
+  --control-radius: 5px;
+  --control-text-size: 12px;
+  --control-line-height: 16px;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
   --main-outbound: #e2bc67;
   color-scheme: dark;
   --surface: #10151d;
@@ -59,6 +71,8 @@
   --muted: var(--text-muted);
   --text-primary: var(--text);
 }
+
+/* Shared semantic colors for the workspace, graph and all editors. */
 :root[data-theme='light'] {
   --main-outbound: #89600a;
   color-scheme: light;

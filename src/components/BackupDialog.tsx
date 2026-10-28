@@ -14,7 +14,6 @@ import { exportFile } from '../exportFile';
 import { readImportText } from '../importText';
 import type { GraphState } from '../graph/types';
 import type { Stash } from '../profiles/import';
-import './BackupDialog.css';
 
 export interface BackupRequestState {
   mode: 'create' | 'restore';

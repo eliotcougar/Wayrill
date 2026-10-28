@@ -140,7 +140,6 @@
   margin: 0;
   padding: 0;
   flex: 0 0 auto;
-  accent-color: var(--accent);
 }
 .geo-error {
   color: var(--danger);

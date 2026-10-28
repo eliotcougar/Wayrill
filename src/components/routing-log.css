@@ -60,11 +60,11 @@
 }
 .routing-log-choice-filter summary {
   cursor: pointer;
-  min-height: 33px;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   padding: 3px 8px;
   background: var(--surface-raised);
+  min-height: var(--control-size);
 }
 .routing-log-choice-filter summary:focus-visible {
   outline: 2px solid var(--accent);

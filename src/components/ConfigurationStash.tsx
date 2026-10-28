@@ -642,6 +642,7 @@ export default function ConfigurationStash({
                   <label>
                     Group
                     <select
+                      className="text-control"
                       aria-label="Stash group"
                       value={groupId}
                       disabled={busy || !!editor}
@@ -728,6 +729,7 @@ export default function ConfigurationStash({
                   <label>
                     Search
                     <input
+                      className="text-control"
                       autoComplete="off"
                       aria-label="Search configurations"
                       value={query}
@@ -741,6 +743,7 @@ export default function ConfigurationStash({
                   <label>
                     Show
                     <select
+                      className="text-control"
                       aria-label="Configuration type"
                       value={availability}
                       onChange={(event) => {

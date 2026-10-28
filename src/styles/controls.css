@@ -1,0 +1,444 @@
+/* Shared controls and form primitives. Feature layouts belong in their own sheets. */
+.icon-button {
+  border: 0;
+  background: transparent;
+  width: var(--control-size-compact);
+  height: var(--control-size-compact);
+  border-radius: var(--control-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-secondary);
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.icon-button.active {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.icon-button.active-subtle {
+  color: var(--text);
+}
+.primary-button,
+.secondary-button {
+  border-radius: var(--control-radius);
+  min-height: var(--control-size);
+  padding: var(--space-2) var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: var(--control-text-size);
+  line-height: var(--control-line-height);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.primary-button {
+  background: var(--accent-fill);
+  border: 1px solid var(--accent-fill);
+  color: var(--on-accent);
+}
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-fill-hover);
+}
+.secondary-button {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+.secondary-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+.field {
+  --field-control-size: var(--control-size-compact);
+  --field-control-text-size: 11px;
+  --field-control-padding: 8px;
+  margin-bottom: var(--space-4);
+}
+.field > label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.field > label > span {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+/* Zero-specificity field selectors let validation, default hints and composite
+   controls specialize the shared appearance without specificity battles. */
+:where(.field, .editor-field)
+  :where(input:not([type='checkbox'], [type='radio']), textarea, select),
+.text-control {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--field-control-size, var(--control-size));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--control-radius);
+  padding: var(--space-2) var(--field-control-padding, 10px);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--field-control-text-size, var(--control-text-size));
+  line-height: var(--control-line-height);
+  outline-offset: 1px;
+  color-scheme: inherit;
+}
+:where(.field, .editor-field) select,
+select.text-control {
+  cursor: pointer;
+}
+:where(.field, .editor-field) textarea,
+textarea.text-control {
+  resize: vertical;
+  min-height: 55px;
+  line-height: 1.5;
+}
+.field .toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  min-height: 30px;
+}
+.toggle-field > input {
+  position: absolute;
+  right: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 31px;
+  height: 18px;
+  margin: 0;
+  z-index: 1;
+}
+.toggle-field > span:first-child {
+  flex: 1;
+  color: var(--text);
+  font-size: 11px;
+}
+.field .toggle-switch {
+  width: 29px;
+  height: 16px;
+  background: var(--switch-track);
+  border-radius: 9px;
+  position: relative;
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  background: var(--switch-thumb);
+  border-radius: 50%;
+  transition: left 0.1s;
+}
+.toggle-field input:checked + .toggle-switch {
+  background: var(--switch-active);
+}
+.toggle-field input:checked + .toggle-switch::after {
+  left: 16px;
+  background: var(--switch-thumb);
+}
+.toggle-field input:focus-visible + .toggle-switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.field-help {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+.field-message {
+  font-size: 10px;
+  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 6px 0 0;
+}
+.field-message svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.field-message.error {
+  color: var(--danger);
+}
+.field-message.warning {
+  color: var(--warning);
+}
+.field-invalid > input,
+.field-invalid .editable-select input,
+.field-invalid .editable-select-toggle,
+.field-invalid > select,
+.field-invalid > textarea,
+.field-invalid .secret-setting {
+  border-color: var(--danger-border);
+}
+.secret-setting {
+  display: flex;
+  min-height: var(--field-control-size, var(--control-size));
+  align-items: center;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--control-radius);
+}
+.secret-setting input {
+  width: 100%;
+  min-width: 0;
+  min-height: calc(var(--field-control-size, var(--control-size)) - 2px);
+  padding: var(--space-2) var(--field-control-padding, 10px);
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--control-radius);
+}
+.secret-setting .icon-button {
+  width: var(--control-size-compact);
+  flex-shrink: 0;
+}
+.secret-setting:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.secret-setting input:focus-visible {
+  outline: none;
+}
+.small-action {
+  color: var(--success);
+  border: 1px solid var(--success-border);
+  background: var(--success-soft);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 10px;
+  margin-top: 7px;
+}
+.editor-field {
+  --field-control-size: var(--control-size);
+  --field-control-text-size: var(--control-text-size);
+  --field-control-padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+  min-width: 0;
+}
+.editor-field > span,
+.editor-field > label {
+  font-size: 11px;
+  color: var(--text);
+}
+.editor-field textarea {
+  font-family: var(--font-mono);
+}
+.editor-field input[type='file'] {
+  padding: 0;
+  overflow: hidden;
+}
+.editor-field input[type='file']::file-selector-button {
+  min-height: calc(var(--control-size) - 2px);
+  padding: 0 12px;
+  margin-inline-end: 10px;
+  border: 0;
+  border-inline-end: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.editor-field input[type='file']:not(:disabled)::file-selector-button:hover {
+  background: var(--surface-hover);
+}
+.editor-field small {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.editor-two-fields {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+}
+.editor-two-fields > .editor-checkbox {
+  align-self: end;
+  min-height: var(--control-size);
+  padding: 0;
+  margin-bottom: 15px;
+}
+.editor-checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text);
+  padding: 4px 0 12px;
+}
+.editor-section-heading {
+  padding: 9px 0 16px;
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--text);
+}
+.editor-section-heading small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-top: 8px;
+}
+.editor-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.editor-advanced summary {
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 17px;
+  font-size: 12px;
+}
+.editor-note,
+.editor-empty {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.editor-empty {
+  padding: 12px;
+}
+
+/* Keep native disclosure controls mounted so collapsing never clears drafts. */
+.settings-advanced {
+  margin: 14px 0;
+}
+.settings-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-size);
+  cursor: pointer;
+}
+.settings-advanced > summary::before {
+  content: '▸';
+  flex-shrink: 0;
+}
+.settings-advanced[open] > summary::before {
+  content: '▾';
+}
+.settings-advanced > summary small {
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.field-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.field-action-row > p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.field-action-row:has(> .editor-field) {
+  align-items: flex-end;
+}
+.field-action-row > .editor-field {
+  flex: 1 1 240px;
+  margin: 0;
+}
+.field-action-row > button {
+  flex-shrink: 0;
+}
+
+.editable-select {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--control-size-compact);
+}
+.field .editable-select > input,
+.editor-field .editable-select > input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.editable-select:focus-within {
+  border-radius: var(--control-radius);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.editable-select > input:focus-visible,
+.editable-select-toggle:focus-visible {
+  outline: none;
+}
+.editable-select-toggle {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-left: 0;
+  border-radius: 0 var(--control-radius) var(--control-radius) 0;
+  background: var(--surface-sunken);
+  color: var(--text);
+  cursor: pointer;
+}
+.editable-select-options {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 8px 24px var(--shadow-dialog);
+  overflow: auto;
+  overscroll-behavior: contain;
+  font: inherit;
+  font-size: 12px;
+}
+.editable-select-options > [role='option'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-size-compact);
+  padding: 7px 9px;
+  line-height: 16px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.editable-select-options > [role='option'] > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.editable-select-options > [role='option'] > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.editable-select-options > .active {
+  background: var(--accent-soft);
+}
+@media (forced-colors: active) {
+  .editable-select-options > .active {
+    background: Highlight;
+    color: HighlightText;
+  }
+  .editable-select-options > .active > svg {
+    color: HighlightText;
+  }
+}

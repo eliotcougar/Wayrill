@@ -61,12 +61,13 @@
 .traffic-card dt {
   font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 5px;
+  margin-bottom: 0;
 }
 .traffic-card dd {
   margin: 0;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .traffic-chart-toolbar {
   display: flex;
@@ -104,6 +105,9 @@
 }
 .traffic-chart figcaption {
   display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  min-height: 18px;
   align-items: center;
   gap: 7px;
   padding: 0 6px;
@@ -111,6 +115,7 @@
   color: var(--text);
 }
 .traffic-chart-caption {
+  white-space: nowrap;
   margin-left: auto;
   color: var(--text-muted);
 }
@@ -243,9 +248,6 @@
 .traffic-scale {
   margin: 8px 6px 0;
 }
-.traffic-chart figcaption {
-  flex-wrap: wrap;
-}
 .traffic-up {
   stroke-dasharray: 7 5;
 }
@@ -295,12 +297,6 @@
   justify-content: space-between;
   gap: 4px;
 }
-.traffic-card dt {
-  margin-bottom: 0;
-}
-.traffic-card dd {
-  white-space: nowrap;
-}
 
 .traffic-window .rule-editor-titlebar {
   padding: 12px 18px;
@@ -335,13 +331,6 @@
 .traffic-overview-body .runtime-note,
 .traffic-overview-body .runtime-error {
   margin: 0;
-}
-.traffic-chart figcaption {
-  flex-shrink: 0;
-  min-height: 18px;
-}
-.traffic-chart-caption {
-  white-space: nowrap;
 }
 @media (max-height: 600px) {
   .traffic-window .rule-editor-titlebar,

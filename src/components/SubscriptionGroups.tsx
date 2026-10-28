@@ -83,6 +83,7 @@ export default function SubscriptionGroups({
         <label>
           Find group
           <input
+            className="text-control"
             aria-label="Find subscription group"
             value={query}
             onChange={(event) => {

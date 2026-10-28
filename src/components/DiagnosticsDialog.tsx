@@ -13,8 +13,6 @@ import {
 import { desktopServiceAvailable, errorText } from '../serviceClient';
 import { exportFile } from '../exportFile';
 import RoutingLogFilter, { allLogItems, logItemVisible } from './RoutingLogFilter';
-import './routing-log.css';
-import './diagnostics.css';
 
 type Snapshot = { sources: DiagnosticSource[]; timeMs: number };
 const levels = ['error', 'warning', 'info', 'debug', 'trace'];
@@ -247,7 +245,7 @@ export default function DiagnosticsDialog({
         <textarea
           ref={output}
           aria-label="Application log entries"
-          className="diagnostics-output"
+          className="text-control diagnostics-output"
           readOnly
           value={text}
           placeholder={

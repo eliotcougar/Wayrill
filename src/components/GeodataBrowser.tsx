@@ -11,7 +11,6 @@ import {
 import { resourceFilename, type ResourceKind, type ResourceSet } from '../graph/resources';
 import { errorText, serviceCall } from '../serviceClient';
 import useModalDialog from './useModalDialog';
-import '../geodata.css';
 
 function usePage(
   params: (Record<string, unknown> & { offset: number; limit: number }) | null,

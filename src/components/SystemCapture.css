@@ -61,7 +61,6 @@
   font-size: 12px;
 }
 .system-capture-window input[type='checkbox'] {
-  accent-color: var(--accent-fill);
   flex: 0 0 auto;
   width: 14px;
 }
@@ -289,7 +288,6 @@
 .capture-http-scopes input {
   margin: 0;
   width: 14px;
-  accent-color: var(--accent-fill);
 }
 .capture-http-scopes span {
   grid-column: 2;

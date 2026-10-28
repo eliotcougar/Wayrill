@@ -166,6 +166,7 @@ export default function ConnectionEditor({
             <div>
               <label htmlFor="connection-source">Source node</label>
               <select
+                className="text-control"
                 id="connection-source"
                 autoFocus
                 value={sourceId}
@@ -193,6 +194,7 @@ export default function ConnectionEditor({
             <div>
               <label htmlFor="connection-output">Output port</label>
               <select
+                className="text-control"
                 id="connection-output"
                 value={port}
                 disabled={!source}
@@ -248,6 +250,7 @@ export default function ConnectionEditor({
             <legend>Destination input</legend>
             <label htmlFor="connection-search">Find a destination</label>
             <input
+              className="text-control"
               autoComplete="off"
               id="connection-search"
               type="search"

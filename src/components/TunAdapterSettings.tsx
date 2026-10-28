@@ -3,7 +3,6 @@ import { RefreshCw, Trash2, X } from 'lucide-react';
 import useModalDialog from './useModalDialog';
 import { errorText, serviceCall } from '../serviceClient';
 import type { RuntimeController } from '../useRuntime';
-import './TunAdapterSettings.css';
 
 type Adapter = {
   kind: 'host' | 'ics';

@@ -1,0 +1,138 @@
+/* Dialog and editor shells, including their shared headers, tabs and actions. */
+.app-dialog {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 0;
+  width: min(490px, 90vw);
+  max-height: 80vh;
+  box-shadow: 0 18px 80px var(--shadow-dialog);
+  color-scheme: inherit;
+}
+.app-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-dialog > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.app-dialog::backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(3px);
+}
+.dialog-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 17px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 23px;
+}
+.dialog-footer {
+  flex-shrink: 0;
+  padding: 12px 22px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.dialog-note {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.rule-editor-window {
+  width: min(1060px, calc(100vw - 48px));
+  height: min(730px, calc(100vh - 48px));
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-adjacent);
+  color: var(--text);
+  color-scheme: inherit;
+  box-shadow: 0 24px 90px var(--shadow-dialog);
+  overflow: hidden;
+}
+.rule-editor-window[open] {
+  display: flex;
+  flex-direction: column;
+}
+.rule-editor-window::backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(2px);
+}
+.rule-editor-titlebar {
+  padding: 16px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.rule-editor-titlebar h2 {
+  font-size: 17px;
+  margin: 0 0 7px;
+  font-weight: 600;
+}
+.rule-editor-titlebar p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.rule-editor-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 9px 17px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.rule-editor-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 11px 15px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 12px;
+}
+.rule-editor-tabs button[aria-selected='true'] {
+  color: var(--success);
+  border-bottom-color: var(--accent-fill);
+}
+.rule-editor-footer {
+  border-top: 1px solid var(--border);
+  padding: 13px 22px;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  align-items: center;
+  flex-shrink: 0;
+}
+.rule-editor-footer > span {
+  margin-right: auto;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.editor-tab-list {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+}
+.editor-tab-panel[hidden] {
+  display: none;
+}

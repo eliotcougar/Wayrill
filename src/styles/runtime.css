@@ -1,0 +1,213 @@
+.validation-summary {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  color: var(--success);
+  margin-bottom: 18px;
+}
+.validation-summary h3 {
+  color: var(--text);
+  margin: 0 0 7px;
+  font-weight: 500;
+  font-size: 16px;
+}
+.validation-summary p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.diagnostic {
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 9px 10px;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  background: var(--surface-raised);
+  color: var(--warning);
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.diagnostic svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.diagnostic-error {
+  background: var(--surface-raised);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.diagnostic > span:not(.diagnostic-action) {
+  flex: 1;
+  min-width: 0;
+}
+.diagnostic-severity {
+  display: block;
+  font-size: 11px;
+}
+.diagnostic-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.runtime-window {
+  width: min(1080px, calc(100vw - 48px));
+  height: min(740px, calc(100vh - 48px));
+}
+.runtime-window h2,
+.runtime-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.runtime-body {
+  flex: 1;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow: auto;
+}
+.xray-import-window .runtime-actions {
+  margin-bottom: 15px;
+}
+.runtime-connection {
+  margin-left: auto;
+  padding: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.runtime-window .online {
+  color: var(--success);
+}
+.runtime-note,
+.runtime-notice,
+.runtime-error {
+  padding: 12px 15px;
+  margin-bottom: 15px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.runtime-note {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+.runtime-notice {
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+  color: var(--success);
+}
+.runtime-error {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.runtime-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+  margin-bottom: 18px;
+}
+.runtime-cards > div {
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+.runtime-cards span,
+.runtime-cards strong,
+.runtime-cards small {
+  display: block;
+}
+.runtime-cards span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.runtime-cards strong {
+  font-size: 19px;
+  font-weight: 500;
+  margin: 12px 0;
+  text-transform: capitalize;
+}
+.runtime-cards small {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+@media (max-width: 1000px) {
+  .runtime-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.runtime-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.runtime-actions:has(> .editor-field) {
+  align-items: flex-end;
+}
+.runtime-actions > .editor-field {
+  margin-bottom: 0;
+}
+.runtime-section {
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+  padding-top: 15px;
+}
+.runtime-section h3 {
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+.runtime-section p,
+.runtime-scope {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.runtime-scope {
+  margin: 16px 0;
+}
+.runtime-events {
+  margin-top: 13px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 12px;
+  font:
+    11px/1.65 Consolas,
+    monospace;
+}
+.runtime-events > div {
+  display: grid;
+  grid-template-columns: 75px 155px 1fr;
+  gap: 9px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.runtime-events time {
+  color: var(--text-muted);
+}
+.runtime-events strong {
+  color: var(--success);
+  font-weight: 500;
+}
+.runtime-events span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.graph-check-status {
+  align-self: center;
+  margin-right: auto;
+  color: var(--text);
+  font-size: 12px;
+}

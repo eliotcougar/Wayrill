@@ -15,18 +15,6 @@
   font-size: 11px;
   color: var(--text-secondary);
 }
-.traffic-unit-settings select {
-  width: 100%;
-  min-height: 33px;
-  padding: 7px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  background: var(--surface-sunken);
-  color: var(--text);
-  color-scheme: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
 .traffic-units-disclosure {
   position: relative;
 }
@@ -99,17 +87,10 @@
   margin: 0;
 }
 .expanded-rule-field textarea {
-  background: var(--surface-sunken);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 9px 10px;
-  width: 100%;
-  font-size: 12px;
   flex: 1;
   min-height: 150px;
   resize: none;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 .expanded-rule-field > div {
   display: flex;

@@ -16,10 +16,6 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-.diagnostics-toolbar > button,
-.diagnostics-toolbar summary {
-  min-height: 36px;
-}
 .diagnostics-toolbar .routing-log-choice-filter fieldset {
   left: 0;
   right: auto;
@@ -40,11 +36,6 @@
   font: 12px/1.5 var(--font-mono, monospace);
   white-space: pre;
   overflow: auto;
-  background: var(--surface-sunken);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 10px;
 }
 .diagnostics-status {
   display: flex;

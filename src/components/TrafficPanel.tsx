@@ -31,7 +31,6 @@ import {
   saveTrafficSortPreferences,
   sortTrafficEndpoints,
 } from '../trafficSorting';
-import '../traffic.css';
 import { endpointDisplayName, type DisplayNames } from '../graph/displayNames';
 
 type EndpointView = Pick<

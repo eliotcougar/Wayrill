@@ -253,6 +253,7 @@ export default function GlobalDefaultsEditor({
       <div className="defaults-search">
         <Search size={15} />
         <input
+          className="text-control"
           autoComplete="off"
           aria-label="Search global defaults"
           placeholder="Search settings, transport or scope…"

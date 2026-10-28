@@ -38,7 +38,6 @@ import { referenceSummary } from './editorSummaries';
 import PolicyOutboundPicker from './PolicyOutboundPicker';
 import { SettingField } from './SettingField';
 import { settingDefaultHint } from '../graph/defaults';
-import '../policy.css';
 
 export default function PolicyEditor({
   node,

@@ -46,7 +46,8 @@ The development references cover [tests](development/testing.md),
 [releases](development/releasing.md), [service API](development/service-api.md),
 [lifecycle](development/lifecycle.md), [reliability](development/reliability.md),
 [graph compilation](development/graph-compiler.md) and
-[connection layout](development/edge-routing.md).
+[connection layout](development/edge-routing.md). Frontend appearance follows the
+[styling guide](development/styling.md).
 
 Core contributors should read the [integration guide](development/xray-integration.md),
 [customization inventory](development/xray-customizations.md),

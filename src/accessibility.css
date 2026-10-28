@@ -1,7 +1,4 @@
 /* WebView2 applies Windows text enlargement itself. Reflow, never scale twice. */
-.app-shell {
-  min-width: 0;
-}
 .menu-bar,
 .toolbar,
 .status-bar {
@@ -210,8 +207,7 @@
   }
   .rule-node,
   dialog,
-  .menu-dropdown,
-  .add-node-menu {
+  .menu-dropdown {
     border-color: CanvasText;
   }
   .react-flow__edge-path,

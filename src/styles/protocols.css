@@ -1,0 +1,45 @@
+.editor-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+}
+.editor-field-grid .editor-field:has(textarea) {
+  grid-column: 1 / -1;
+}
+.native-policy-fields .runtime-actions > .editor-field {
+  flex: 1;
+}
+
+/* Source-defined protocol editors */
+.protocol-editor-window .runtime-body {
+  overflow-y: auto;
+}
+.protocol-object {
+  margin: 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.protocol-object > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 4px 0 10px;
+}
+.protocol-collection-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.protocol-editor-window .rule-editor-titlebar p {
+  max-width: 700px;
+}
+.protocol-editor-window .rule-editor-diagnostics {
+  max-height: 110px;
+  overflow: auto;
+}
+.protocol-collection-tools select {
+  min-width: 170px;
+  flex: 1;
+}

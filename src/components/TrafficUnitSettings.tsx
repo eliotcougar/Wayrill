@@ -7,6 +7,7 @@ export default function TrafficUnitSettings() {
       <label>
         Data rate
         <select
+          className="text-control"
           aria-label="Data rate units"
           value={units.rate}
           onChange={(e) => units.set({ rate: e.target.value as RateUnit })}
@@ -19,6 +20,7 @@ export default function TrafficUnitSettings() {
       <label>
         Data amount
         <select
+          className="text-control"
           aria-label="Data amount units"
           value={units.amount}
           onChange={(e) => units.set({ amount: e.target.value as AmountUnit })}

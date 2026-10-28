@@ -3,7 +3,6 @@ import { Gauge, Timer, X } from 'lucide-react';
 import useModalDialog from './useModalDialog';
 import ResultPager from './ResultPager';
 import { summarizeTest, type OutboundTests } from '../useOutboundTests';
-import '../outbound-tests.css';
 import UdpTestBadge from './UdpTestBadge';
 import { mergeTestPlans, type TestRow, type TestSelection } from '../outboundTestPlan';
 export default function OutboundTestResults({ tests }: { tests: OutboundTests }) {

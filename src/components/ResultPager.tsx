@@ -1,4 +1,3 @@
-import './ResultPager.css';
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight } from 'lucide-react';
 

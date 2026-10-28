@@ -231,6 +231,7 @@ export default function SubscriptionSettingsForm({
           <label>
             Group name
             <input
+              className="text-control"
               autoComplete="off"
               ref={nameInput}
               aria-label="Group name"
@@ -242,6 +243,7 @@ export default function SubscriptionSettingsForm({
             <label>
               Configurations / subscription content
               <textarea
+                className="text-control"
                 aria-label="Configurations / subscription content"
                 spellCheck={false}
                 value={content}
@@ -255,6 +257,7 @@ export default function SubscriptionSettingsForm({
                 <label>
                   Subscription URL{group && !group.url ? ' (optional)' : ''}
                   <input
+                    className="text-control"
                     autoComplete="off"
                     type={urlFocused ? 'text' : 'password'}
                     spellCheck={false}
@@ -270,6 +273,7 @@ export default function SubscriptionSettingsForm({
                   <label>
                     Download via
                     <select
+                      className="text-control"
                       value={maintenance.viaProxy ? 'proxy' : 'direct'}
                       onChange={(event) => set({ viaProxy: event.target.value === 'proxy' })}
                     >
@@ -311,6 +315,7 @@ export default function SubscriptionSettingsForm({
                       <label>
                         Update interval (minutes)
                         <input
+                          className="text-control"
                           type="number"
                           min="1"
                           max="10080"
@@ -332,6 +337,7 @@ export default function SubscriptionSettingsForm({
                     <label>
                       User-Agent
                       <input
+                        className="text-control"
                         autoComplete="off"
                         value={agent}
                         maxLength={512}
@@ -342,6 +348,7 @@ export default function SubscriptionSettingsForm({
                     <label>
                       Request headers (JSON)
                       <textarea
+                        className="text-control"
                         spellCheck={false}
                         value={headers}
                         onChange={(event) => setHeaders(event.target.value)}
@@ -373,6 +380,7 @@ export default function SubscriptionSettingsForm({
                     <label>
                       Max retries after the first attempt
                       <input
+                        className="text-control"
                         type="number"
                         min="0"
                         max="5"

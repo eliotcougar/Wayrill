@@ -65,6 +65,7 @@ function Expanded({
           />
         </div>
         <textarea
+          className="text-control"
           ref={input}
           autoFocus
           aria-label={`Expanded ${label}`}
@@ -134,6 +135,7 @@ export default function GeoMatcherField({
         </div>
       </div>
       <textarea
+        className="text-control"
         ref={input}
         id={id}
         aria-label={label}

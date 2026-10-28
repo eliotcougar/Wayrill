@@ -228,6 +228,7 @@ function SourceCollection({
     <div className="protocol-collection">
       <div className="protocol-collection-tools">
         <select
+          className="text-control"
           aria-label={`${field.label} entry`}
           value={active}
           disabled={entryBlocked}
@@ -914,6 +915,7 @@ export default function ProtocolEditor({
         <label className="editor-field">
           <span>Native protocol options</span>
           <textarea
+            className="text-control"
             rows={21}
             spellCheck={false}
             data-diagnostic-field="json"

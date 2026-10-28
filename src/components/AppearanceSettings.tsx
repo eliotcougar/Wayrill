@@ -1,7 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 import Dialog from './Dialog';
 import type useTheme from '../useTheme';
-import '../appearance.css';
 const choices = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },

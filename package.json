@@ -4,8 +4,8 @@
   "version": "0.31.20",
   "type": "module",
   "scripts": {
-    "format": "prettier --write src vite.config.ts package.json vitest.config.ts eslint.config.js",
-    "format:check": "prettier --check src vite.config.ts package.json vitest.config.ts eslint.config.js",
+    "format": "prettier --write src vite.config.ts package.json vitest.config.ts eslint.config.js stylelint.config.js",
+    "format:check": "prettier --check src vite.config.ts package.json vitest.config.ts eslint.config.js stylelint.config.js",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
@@ -16,8 +16,10 @@
     "prebuild": "node tools/Check-CoreDefaults.mjs",
     "pretest": "node tools/Check-CoreDefaults.mjs",
     "check:core-defaults": "node tools/Check-CoreDefaults.mjs",
-    "lint": "eslint src vite.config.ts vitest.config.ts eslint.config.js --max-warnings 0",
-    "lint:fix": "npm run lint -- --fix",
+    "lint": "npm run lint:ts && npm run lint:css",
+    "lint:ts": "eslint src vite.config.ts vitest.config.ts eslint.config.js --max-warnings 0",
+    "lint:css": "stylelint \"src/**/*.css\" --max-warnings 0",
+    "lint:fix": "npm run lint:ts -- --fix && npm run lint:css -- --fix",
     "check": "npm run check:core-defaults && npm run lint && tsc -b && npm run format:check"
   },
   "dependencies": {
@@ -42,6 +44,8 @@
     "globals": "17.13.0",
     "jsdom": "30.1.2",
     "prettier": "3.9.9",
+    "stylelint": "17.16.0",
+    "stylelint-config-recommended": "18.0.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.1",
     "vite": "^8.3.3",

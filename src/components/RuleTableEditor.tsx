@@ -307,6 +307,7 @@ export default function RuleTableEditor({
         </div>
         {key === 'network' ? (
           <select
+            className="text-control"
             id={`rule-condition-${key}`}
             aria-label={label}
             value={selectedRule?.conditions[key] ?? ''}
@@ -321,6 +322,7 @@ export default function RuleTableEditor({
           </select>
         ) : list || key === 'attrs' ? (
           <textarea
+            className="text-control"
             ref={key === 'domain' ? domainInput : key === 'ip' ? ipInput : undefined}
             id={`rule-condition-${key}`}
             aria-label={label}
@@ -334,6 +336,7 @@ export default function RuleTableEditor({
           />
         ) : (
           <input
+            className="text-control"
             id={`rule-condition-${key}`}
             aria-label={label}
             maxLength={16384}
@@ -482,6 +485,7 @@ export default function RuleTableEditor({
                     <label className="editor-field">
                       <span>Default output</span>
                       <select
+                        className="text-control"
                         data-diagnostic-field="defaultOutput"
                         value={hasOutput(table.defaultOutput) ? table.defaultOutput : ''}
                         onChange={(event) =>
@@ -507,6 +511,7 @@ export default function RuleTableEditor({
                     <label className="editor-field">
                       <span>Action</span>
                       <select
+                        className="text-control"
                         aria-label="Ambiguous TUN ownership"
                         value={tunAmbiguity.action}
                         onChange={(e) =>
@@ -528,6 +533,7 @@ export default function RuleTableEditor({
                       <label className="editor-field">
                         <span>Route to</span>
                         <select
+                          className="text-control"
                           aria-label="Ambiguous TUN output"
                           value={tunAmbiguity.output}
                           onChange={(e) =>
@@ -562,6 +568,7 @@ export default function RuleTableEditor({
                         />
                       </div>
                       <textarea
+                        className="text-control"
                         ref={expandedInput}
                         autoFocus
                         aria-label={`Expanded ${expanded.label}`}
@@ -615,6 +622,7 @@ export default function RuleTableEditor({
                             <label className="editor-field">
                               <span>Rule name</span>
                               <input
+                                className="text-control"
                                 data-diagnostic-field="name"
                                 value={selectedRule.name}
                                 onChange={(event) =>
@@ -640,6 +648,7 @@ export default function RuleTableEditor({
                           <label className="editor-field">
                             <span>Send to output</span>
                             <select
+                              className="text-control"
                               data-diagnostic-field="output"
                               value={hasOutput(selectedRule.output) ? selectedRule.output : ''}
                               onChange={(event) => setRule({ output: event.target.value })}
@@ -672,6 +681,7 @@ export default function RuleTableEditor({
                             <label className="editor-field">
                               <span>Combine these alternatives</span>
                               <select
+                                className="text-control"
                                 value={selectedRule.targetMatch ?? 'any'}
                                 onChange={(event) =>
                                   setRule({ targetMatch: event.target.value as 'any' | 'all' })
@@ -768,6 +778,7 @@ export default function RuleTableEditor({
                     return (
                       <>
                         <input
+                          className="text-control"
                           aria-label={`Output ${order + 1} name`}
                           data-diagnostic-field="name"
                           value={output.name}

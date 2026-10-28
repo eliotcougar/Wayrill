@@ -5,7 +5,6 @@ import { exportFile } from '../exportFile';
 import { maskLogDestination } from '../routingLogPrivacy';
 import RoutingLogFilter, { allLogItems, logItemVisible } from './RoutingLogFilter';
 import useRoutingLogVisibility from './useRoutingLogVisibility';
-import './routing-log.css';
 
 export type RoutingLogRow = {
   id: string;

@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { runtimeProgress } from '../runtimeProgress';
-import '../runtime-progress.css';
 
 export default function RuntimeProgressOverlay({
   progress,

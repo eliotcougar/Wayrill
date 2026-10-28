@@ -5,7 +5,6 @@ import { type ApplicationSelector } from '../graph/applications';
 import { useWindowsCatalog } from './useWindowsCatalog';
 import { desktopServiceAvailable, errorText, serviceCall } from '../serviceClient';
 import { applicationChoices } from './applicationChoices';
-import './Capture.css';
 export default function ApplicationSelectors({
   rows,
   onChange,
@@ -140,6 +139,7 @@ export default function ApplicationSelectors({
       </p>
       <div className="capture-picker-header">
         <select
+          className="text-control"
           aria-label="Application type"
           value={kind}
           onChange={(e) => {
@@ -153,6 +153,7 @@ export default function ApplicationSelectors({
         </select>
         {kind === 'process' && (
           <select
+            className="text-control"
             aria-label="Process match"
             value={mode}
             onChange={(e) => {
@@ -200,6 +201,7 @@ export default function ApplicationSelectors({
       )}
       <div className="capture-picker-header">
         <input
+          className="text-control"
           autoComplete="off"
           aria-label="Application selector"
           placeholder={
@@ -239,6 +241,7 @@ export default function ApplicationSelectors({
       <details>
         <summary>Choose from this PC</summary>
         <input
+          className="text-control"
           autoComplete="off"
           aria-label="Search applications"
           value={search}

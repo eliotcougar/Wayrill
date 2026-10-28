@@ -25,7 +25,6 @@ import {
 } from '../systemCapture';
 import type { GraphState } from '../graph/types';
 import type { RuntimeCompilation } from '../graph/runtime';
-import './SystemCapture.css';
 
 type Tab = 'proxy' | 'environment' | 'winhttp' | 'windivert' | 'loopback' | 'protection';
 type Run = (method: string, params?: Record<string, unknown>) => Promise<void>;

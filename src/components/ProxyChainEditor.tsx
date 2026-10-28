@@ -16,7 +16,6 @@ import { clearNodePosition } from '../graph/placement';
 import { editPolicyGraph } from '../graph/policies';
 import type { GraphState, RuleNode } from '../graph/types';
 import type { Stash } from '../profiles/import';
-import '../policy.css';
 
 export default function ProxyChainEditor({
   node,

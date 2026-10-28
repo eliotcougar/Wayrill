@@ -37,7 +37,6 @@ import {
 } from './observatorySummary';
 import OutboundTestSettings from './components/OutboundTestSettings';
 import OutboundTestResults from './components/OutboundTestResults';
-import './outbound-tests.css';
 import useExecutionGraph from './useExecutionGraph';
 import useWorkspaceViewport from './useWorkspaceViewport';
 import useEdgeRouting from './useEdgeRouting';
@@ -95,8 +94,6 @@ import DnsEditor from './components/DnsEditor';
 import NativeDnsEditor from './components/NativeDnsEditor';
 import CoreOptionsEditor from './components/CoreOptionsEditor';
 import { isNativeConfigEditor, isNativeXrayKind } from './graph/xrayNodes';
-import './defaults.css';
-import './traffic-units.css';
 import GlobalDefaultsEditor from './components/GlobalDefaultsEditor';
 import RuntimePanel from './components/RuntimePanel';
 import GraphRuntimeToolbar from './components/GraphRuntimeToolbar';
@@ -126,7 +123,6 @@ import {
   connectionSources,
 } from './graph/connectionEditing';
 import ConnectionEditor, { type ConnectionRequest } from './components/ConnectionEditor';
-import './connections.css';
 import useGraphAnalysis from './useGraphAnalysis';
 import { runtimePresentation } from './runtimePresentation';
 import useRuntime from './useRuntime';
@@ -142,7 +138,6 @@ import { isProtocolKind } from './graph/protocols';
 import ProtocolEditor from './components/ProtocolEditor';
 import ConfigurationStash from './components/ConfigurationStash';
 import { GraphDiagnosticsContext } from './components/GraphDiagnosticsContext';
-import './stash.css';
 import type {
   GraphState,
   NodeKind,
