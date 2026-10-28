@@ -6,8 +6,10 @@ import type { GraphState } from './types';
 it('converts literal UDP addresses without losing nonstandard ports or IPv6 brackets', () => {
   expect(tcpResolverAddress('10.0.2.2', 19353)).toBe('tcp://10.0.2.2:19353');
   expect(tcpResolverAddress('2001:db8::53', 5353)).toBe('tcp://[2001:db8::53]:5353');
+  expect(tcpResolverAddress('1.1.1.1')).toBe('tcp://1.1.1.1:53');
+  expect(tcpResolverAddress('1.1.1.1', 0)).toBe('tcp://1.1.1.1:53');
   expect(() => tcpResolverAddress('https://example.test/dns-query')).toThrow();
-  expect(() => tcpResolverAddress('1.1.1.1', 0)).toThrow();
+  expect(() => tcpResolverAddress('1.1.1.1', -1)).toThrow();
 });
 it('locates UDP policy failover warnings and leaves the graph unchanged', () => {
   const servers = makeNode('dns-servers', { x: 0, y: 0 }, 'servers');

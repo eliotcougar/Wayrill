@@ -7,6 +7,8 @@ export const isUdpResolver = (address: string) => dnsIpLiteral(address);
 
 /** TCP endpoints carry their port in the URL; the separate core port applies to UDP only. */
 export function tcpResolverAddress(address: string, port = 53): string {
+  // Xray's UDP resolver treats an explicit zero as the default DNS port too.
+  if (port === 0) port = 53;
   if (!isUdpResolver(address) || !Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('Choose a valid UDP resolver address and port first.');
   return `tcp://${address.includes(':') ? `[${address}]` : address}:${port}`;

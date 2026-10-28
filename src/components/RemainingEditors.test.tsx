@@ -237,3 +237,33 @@ it('edits native DNS server strings through the real form and converts them only
     { address: '1.0.0.1', finalQuery: false },
   ]);
 });
+
+it.each([
+  { address: '1.1.1.1', port: 0, endpoint: 'tcp://1.1.1.1:53' },
+  { address: '2001:db8::53', port: 5353, endpoint: 'tcp://[2001:db8::53]:5353' },
+])(
+  'converts imported UDP DNS $address:$port using its effective port',
+  async ({ address, port, endpoint }) => {
+    const server = { address, port, domains: ['domain:example.test'], skipFallback: true };
+    const graph = importXrayConfig(
+      JSON.stringify({
+        dns: { servers: [server, '9.9.9.9'] },
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      }),
+    );
+    const node = graph.nodes.find((n) => n.data.kind === 'xray-dns-servers')!;
+    const apply = vi.fn();
+    await act(() =>
+      root.render(<NativeDnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
+    );
+    expect(editorButton('Use TCP DNS').disabled).toBe(false);
+    await act(() => editorButton('Use TCP DNS').click());
+    expect(host.querySelector<HTMLInputElement>('#resolver-0-address')!.value).toBe(endpoint);
+    expect(editorButton('Apply DNS settings').disabled).toBe(false);
+    await act(() => editorButton('Apply DNS settings').click());
+    expect(JSON.parse(apply.mock.calls[0][1].settings.json).servers[0]).toEqual({
+      ...server,
+      address: endpoint,
+    });
+  },
+);
