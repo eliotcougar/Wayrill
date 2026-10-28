@@ -105,7 +105,6 @@
 }
 .geo-empty {
   margin: auto;
-  color: var(--text-secondary);
 }
 .rule-field-actions {
   display: flex;

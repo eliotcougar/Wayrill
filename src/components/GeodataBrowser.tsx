@@ -373,7 +373,7 @@ export default function GeodataBrowser({
               {parsed.error}
             </p>
           ) : !selection ? (
-            <p className="geo-empty">Select a group</p>
+            <p className="empty-state geo-empty">Select a group</p>
           ) : (
             <>
               {kind === 'geosite' && attributes.length > 0 && (

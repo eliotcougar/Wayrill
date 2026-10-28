@@ -69,6 +69,9 @@ Add feature sheets there rather than importing CSS from components.
   success, warning and error variants. Use the neutral panel for information,
   and `notice--compact` for dense diagnostic rows. Features own placement and
   actions; keep severity, content spacing and wrapping in the shared stylesheet.
+  `empty-state` shares typography and wrapping for empty/no-match results. Use
+  its centered variant for large lists and inline variant in already padded
+  panels. Keep larger illustrated canvas/editor prompts feature-owned.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`

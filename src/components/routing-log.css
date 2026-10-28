@@ -119,10 +119,6 @@
 .routing-log-footer > :last-child:not(:first-child) {
   margin-inline-start: auto;
 }
-.routing-log-empty {
-  padding: 14px;
-  color: var(--text-muted);
-}
 @media (forced-colors: active) {
   .routing-log-header {
     background: Canvas;
@@ -132,8 +128,7 @@
   .routing-log-entry {
     border-color: CanvasText;
   }
-  .routing-log-footer,
-  .routing-log-empty {
+  .routing-log-footer {
     color: CanvasText;
   }
 }

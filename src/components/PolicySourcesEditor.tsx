@@ -485,7 +485,7 @@ export default function PolicySourcesEditor({
         )}
         {preview.problem && <p className="error">{preview.problem}</p>}
         {!pending && !preview.total && !preview.problem && (
-          <p className="policy-empty">
+          <p className="empty-state empty-state--inline">
             {pristineEmpty
               ? 'Choose an outbound from Stash or a subscription group'
               : 'No matching outbound. Adjust the sources or filters'}

@@ -220,10 +220,6 @@ textarea::placeholder {
 .palette-item:hover .palette-grip {
   opacity: 1;
 }
-.empty-search {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
 .inspector {
   width: 340px;
   background: var(--surface-adjacent);

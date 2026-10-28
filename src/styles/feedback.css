@@ -1,4 +1,20 @@
-/* Shared feedback panels. Placement and interactive layouts belong to features. */
+/* Shared feedback. Features own placement and interactive layouts. */
+.empty-state {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.empty-state--centered {
+  padding: var(--space-6);
+  text-align: center;
+}
+.empty-state--inline {
+  padding: var(--space-2) 0;
+}
 .notice {
   min-width: 0;
   margin: 0 0 var(--space-3);

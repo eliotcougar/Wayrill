@@ -332,14 +332,10 @@ select.text-control {
   font-size: 10px;
   margin-top: 8px;
 }
-.editor-note,
-.editor-empty {
+.editor-note {
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.8;
-}
-.editor-empty {
-  padding: 12px;
 }
 
 /* Keep native disclosure controls mounted so collapsing never clears drafts. */

@@ -192,7 +192,7 @@ export default function SubscriptionGroups({
         })}
       </div>
       {!filtered.length && (
-        <p className="stash-empty">
+        <p className="empty-state empty-state--centered">
           {groups.length > 1
             ? 'No matching groups.'
             : 'Add a subscription or import configurations to create a group.'}

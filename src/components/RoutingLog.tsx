@@ -341,7 +341,7 @@ function FilterRoutingLog({
               })}
             </div>
             {!rows.length && (
-              <p className="routing-log-empty">
+              <p className="empty-state">
                 {retained.length && filtered
                   ? 'No matching destinations.'
                   : 'No routing decisions yet.'}

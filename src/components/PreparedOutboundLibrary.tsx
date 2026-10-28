@@ -237,7 +237,7 @@ export default function PreparedOutboundLibrary({
         ))}
       </div>
       {!matches.length && (
-        <p className="stash-empty">
+        <p className="empty-state empty-state--centered">
           {entries.length
             ? 'No matching outbounds.'
             : kind === 'policy-group'

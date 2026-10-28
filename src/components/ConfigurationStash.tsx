@@ -918,7 +918,7 @@ export default function ConfigurationStash({
                   ))}
                 </div>
                 {!filtered.length && (
-                  <p className="stash-empty">
+                  <p className="empty-state empty-state--centered">
                     {total
                       ? 'No matching configurations.'
                       : 'Import configurations or add a subscription group to get started.'}

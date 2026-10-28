@@ -178,11 +178,6 @@
   font-size: 11px;
   padding: 6px 8px;
 }
-.stash-empty {
-  padding: 25px;
-  text-align: center;
-  color: var(--text-secondary);
-}
 .rule-node.has-errors {
   box-shadow: 0 0 0 2px var(--danger);
 }

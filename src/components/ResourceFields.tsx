@@ -325,7 +325,7 @@ export default function ResourceFields({
                 })}
                 {!files.length && (
                   <tr>
-                    <td colSpan={4} className="editor-empty">
+                    <td colSpan={4} className="empty-state">
                       No files
                     </td>
                   </tr>

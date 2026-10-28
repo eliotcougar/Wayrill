@@ -346,7 +346,7 @@ export default function GlobalDefaultsEditor({
             );
           })}
           {!visible.length && !['resources', 'display'].includes(section) && (
-            <p className="editor-empty">No matching defaults.</p>
+            <p className="empty-state">No matching defaults.</p>
           )}
           {large && analysis.pending && <p role="status">Checking affected nodes…</p>}
           {checkFailure && <p role="alert">{checkFailure.message}</p>}

@@ -151,7 +151,7 @@ export function OrderedEntries({
           <span className="sr-only">{compact && !entry.enabled ? 'Disabled' : ''}</span>
         </button>
       ))}
-      {!entries.length && <p className="editor-empty">{empty}</p>}
+      {!entries.length && <p className="empty-state">{empty}</p>}
     </div>
   );
 }

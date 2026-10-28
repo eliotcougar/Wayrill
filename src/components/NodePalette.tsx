@@ -80,7 +80,9 @@ export default function NodePalette({
           </div>,
           document.body,
         )}
-      {!filtered.length && <p className="empty-search">No nodes match “{query}”.</p>}
+      {!filtered.length && (
+        <p className="empty-state empty-state--inline">No nodes match “{query}”.</p>
+      )}
     </aside>
   );
 }
