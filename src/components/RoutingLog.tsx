@@ -232,7 +232,7 @@ function FilterRoutingLog({
         </button>
       </div>
       <div className="action-row routing-log-filters">
-        <label className="palette-search routing-log-search">
+        <label className="search-control routing-log-search">
           <Search size={15} aria-hidden="true" />
           <input
             type="search"

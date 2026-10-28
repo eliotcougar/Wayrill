@@ -26,7 +26,7 @@ export default function AdvancedSettings({
           <small title={configured.join(', ')}>{configured.length} configured</small>
         )}
       </summary>
-      <div className="settings-advanced-body">{children}</div>
+      {children}
     </details>
   );
 }

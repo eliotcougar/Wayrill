@@ -481,7 +481,7 @@ export default function DnsEditor({
             <>
               {tab === 'main' ? (
                 <div className="rule-editor-columns">
-                  <div className="ordered-rules">
+                  <div className="compact-controls ordered-rules">
                     <div className="rule-list-tools">
                       <button
                         className="icon-button"

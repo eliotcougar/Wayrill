@@ -396,7 +396,7 @@ export default function RuleTableEditor({
           <>
             {tab === 'rules' ? (
               <div className="rule-editor-columns">
-                <div className="ordered-rules" inert={!!expanded}>
+                <div className="compact-controls ordered-rules" inert={!!expanded}>
                   <div className="rule-list-tools">
                     <button
                       className="icon-button"

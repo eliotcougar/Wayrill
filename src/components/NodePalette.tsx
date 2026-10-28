@@ -23,7 +23,7 @@ export default function NodePalette({
   );
   return (
     <aside className="node-palette" aria-label="Node library">
-      <div className="palette-search">
+      <label className="compact-controls search-control">
         <Search size={15} aria-hidden="true" />
         <input
           autoComplete="off"
@@ -33,7 +33,7 @@ export default function NodePalette({
           placeholder="Find a node…"
           aria-label="Search node library"
         />
-      </div>
+      </label>
       {(['Local capture', 'Inbounds', 'Rules & filters', 'Outbounds'] as const).map((group) => {
         const entries = filtered.filter((item) => item.group === group);
         return (

@@ -23,15 +23,7 @@
   flex-shrink: 0;
 }
 .routing-log-search {
-  display: flex;
-  align-items: center;
   flex: 1 1 180px;
-  min-width: 0;
-}
-.routing-log-search input {
-  font-size: 12px;
-  height: 100%;
-  appearance: none;
 }
 .routing-log-choice-filter .routing-log-all {
   border-bottom: 1px solid var(--border);

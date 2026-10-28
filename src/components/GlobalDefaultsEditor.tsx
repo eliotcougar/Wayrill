@@ -250,16 +250,17 @@ export default function GlobalDefaultsEditor({
           <X size={18} />
         </button>
       </div>
-      <div className="defaults-search">
-        <Search size={15} />
-        <input
-          className="text-control"
-          autoComplete="off"
-          aria-label="Search global defaults"
-          placeholder="Search settings, transport or scope…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="action-row defaults-search">
+        <label className="search-control">
+          <Search size={15} aria-hidden="true" />
+          <input
+            autoComplete="off"
+            aria-label="Search global defaults"
+            placeholder="Search settings, transport or scope…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
         <span>{globalFields.length} settings</span>
       </div>
       <div className="defaults-columns">

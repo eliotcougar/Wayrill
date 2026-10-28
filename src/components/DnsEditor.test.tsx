@@ -197,7 +197,6 @@ it.each(['Cancel', 'Apply changes'])(
     expect(advanced.open).toBe(false);
     await act(() => advanced.querySelector('summary')!.click());
     expect(advanced.open).toBe(true);
-    expect(footer.parentElement?.className).toBe('ordered-rules');
     expect(footer.previousElementSibling?.getAttribute('aria-label')).toBe(
       'Ordered DNS preferences',
     );

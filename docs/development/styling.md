@@ -12,7 +12,9 @@ Add feature sheets there rather than importing CSS from components.
   scrollbars, reduced motion and visually hidden content.
 - `styles/controls.css` owns buttons, fields, toggles, editable selects and
   disclosure controls. Use `text-control` for standalone inputs, selects and
-  textareas; controls within `field` or `editor-field` inherit this appearance.
+  textareas. `field` and `editor-field` style their direct controls and immediate
+  control wrappers, without reaching into nested editors/dialogs. Use
+  `search-control` for an icon and input sharing one border and focus ring.
 - `styles/layout.css` owns wrapping action and form rows. Use `action-row` for
   buttons/status controls and `form-row` for labeled controls with adjacent
   actions. `action-row--spread` separates the leading and trailing content.
@@ -25,6 +27,8 @@ inspector fields and icon buttons use `--control-size-compact` (32px). A `field`
 selects the compact density; an `editor-field` selects the normal density.
 Use `compact-controls` for a group of compact inputs and action buttons, as in
 pagination. Its padding and font size change together with the minimum height.
+Filter sidebars use the same compact density; dialog searches use normal density
+and the node-library search uses compact density.
 Keep checkbox, radio and file inputs distinct from text controls. Composite
 secret fields and editable selects own one outer border and one focus treatment.
 
@@ -33,6 +37,11 @@ hints and composite controls can specialize it without escalating specificity.
 The element font reset must also have zero specificity; a type selector with
 `font: inherit` would defeat the field's font size and line height.
 Preserve visible focus on every keyboard-operable control.
+
+`AdvancedSettings` uses a native `details` element and the shared `editor-advanced`
+appearance. Collapsing keeps its children mounted, preserving drafts and validity.
+The summary owns its chevron, minimum hit area and open-state spacing; do not
+reintroduce closed-summary margins or add separate sizing rules in each editor.
 
 ## Feature ownership
 

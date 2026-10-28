@@ -8,15 +8,12 @@
   gap: 9px;
 }
 .defaults-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 12px 22px;
   border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
-.defaults-search input {
+.defaults-search > .search-control {
   flex: 1;
 }
 .defaults-search > span {
@@ -231,15 +228,6 @@
   }
 }
 
-/* A hint is never a stored value. Keep explicit zero/false values normal. */
-.field input::placeholder,
-.field textarea::placeholder,
-.editor-field input::placeholder,
-.editor-field textarea::placeholder {
-  color: var(--text-muted, var(--text-secondary));
-  opacity: 1;
-  font-style: italic;
-}
 .default-hint-select,
 .resolved-default-hint {
   color: var(--text-muted, var(--text-secondary));

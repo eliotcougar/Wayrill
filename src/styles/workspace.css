@@ -138,31 +138,6 @@
   border-radius: 4px;
   font-size: 10px;
 }
-.palette-search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: var(--surface-sunken);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 0 9px;
-  height: 33px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.palette-search input {
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: none;
-  color: var(--text);
-  width: 100%;
-  font-size: 11px;
-  min-width: 0;
-}
-.palette-search:focus-within {
-  border-color: var(--success-border);
-}
 input::placeholder,
 textarea::placeholder {
   color: var(--text-subtle);
@@ -776,13 +751,6 @@ button.diagnostic:focus-visible {
 }
 .example-setup button {
   white-space: nowrap;
-}
-.settings-advanced-body {
-  padding: 12px 0 0;
-}
-.settings-advanced[hidden],
-.defaults-settings-group[hidden] {
-  display: none;
 }
 
 .ics-notice {
