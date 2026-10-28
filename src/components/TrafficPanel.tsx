@@ -469,7 +469,7 @@ export default function TrafficPanel({
               </p>
             )}
             {endpoints.paged && (
-              <div className="policy-pagination">
+              <div className="action-row action-row--spread compact-controls pagination traffic-pagination">
                 <button
                   className="secondary-button"
                   disabled={!!paused || !endpoints.offset}

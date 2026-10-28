@@ -1,40 +1,21 @@
 .result-pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 0;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  flex-shrink: 0;
+  padding: var(--space-2) 0;
 }
 .result-pager > div,
-.result-pager form,
-.result-pager label {
+.result-pager form {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
 }
 .result-pager input {
   width: 65px;
 }
-.result-pager button {
-  padding-inline: var(--space-2);
-}
-
 .result-pager-compact {
   justify-content: flex-start;
-  gap: 6px;
-  padding: 6px 0;
+  padding: var(--space-1) 0;
 }
 .result-pager-compact > span {
   margin-right: auto;
-}
-.result-pager-compact > div,
-.result-pager-compact form {
-  gap: 3px;
 }
 .result-pager-compact button {
   padding: 0;

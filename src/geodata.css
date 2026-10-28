@@ -96,9 +96,6 @@
   color: var(--danger);
   overflow-wrap: anywhere;
 }
-.geo-pages {
-  font-variant-numeric: tabular-nums;
-}
 .geo-empty {
   margin: auto;
 }

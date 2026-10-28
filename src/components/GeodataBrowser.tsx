@@ -82,7 +82,7 @@ function Pages({
   change: (v: number) => void;
 }) {
   return (
-    <div className="action-row action-row--spread geo-pages">
+    <div className="action-row action-row--spread compact-controls pagination">
       <button
         type="button"
         className="icon-button"

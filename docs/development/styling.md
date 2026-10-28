@@ -43,6 +43,13 @@ Add feature sheets there rather than importing CSS from components.
   feature sheets retain width constraints rather than duplicating field borders,
   colors, padding or label alignment. Standalone native controls need an explicit
   shared class when they are outside a `field` or `editor-field` wrapper.
+  Its default automatic control width has zero specificity so explicit feature
+  widths, such as a page-jump field, take precedence naturally.
+  Use `pagination` with `action-row` and `compact-controls` for paging controls:
+  it shares muted count text, tabular numerals and line height across result,
+  resource, process and traffic lists. Components keep their navigation behavior,
+  group layout and outer spacing; feature sheets must not style another feature's
+  pager. Compact icon navigation remains a deliberate ResultPager variant.
   `field-grid` supplies two equal columns, a shared column gap and single-column
   reflow at the common narrow breakpoint. Normal fields keep their own vertical
   spacing; grids of defaults metadata that clear field margins own their row gap.

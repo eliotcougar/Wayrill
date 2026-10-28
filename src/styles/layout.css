@@ -35,8 +35,20 @@
   font-size: var(--control-text-size);
   line-height: var(--control-line-height);
 }
-.inline-field > .text-control {
+:where(.inline-field > .text-control) {
   width: auto;
+}
+.pagination {
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: var(--control-line-height);
+  font-variant-numeric: tabular-nums;
+}
+.pagination > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 :where(.action-row, .form-row, .section-heading) > button {
   flex-shrink: 0;

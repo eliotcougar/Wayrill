@@ -310,7 +310,7 @@ export default function ApplicationSelectors({
             </label>
           ))}
         </div>
-        <div className="form-row capture-picker-header">
+        <div className="action-row compact-controls pagination">
           <button
             className="secondary-button"
             disabled={!currentPage}

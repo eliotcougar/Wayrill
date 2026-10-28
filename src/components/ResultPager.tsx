@@ -25,13 +25,13 @@ export default function ResultPager({
     valid = /^\d+$/.test(jump) && number >= 1 && number <= pages;
   if (pages === 1)
     return (
-      <p className="result-pager" role="status" aria-label={`${label} results`}>
+      <p className="pagination result-pager" role="status" aria-label={`${label} results`}>
         {count.toLocaleString()} {count === 1 ? 'result' : 'results'}
       </p>
     );
   return (
     <nav
-      className={`compact-controls result-pager${compact ? ' result-pager-compact' : ''}`}
+      className={`action-row action-row--spread compact-controls pagination result-pager${compact ? ' result-pager-compact' : ''}`}
       aria-label={`${label} pages`}
     >
       <span role="status" title={`Page ${current + 1} of ${pages.toLocaleString()}`}>
@@ -84,7 +84,7 @@ export default function ResultPager({
           }
         }}
       >
-        <label>
+        <label className="inline-field">
           <span className={compact ? 'sr-only' : undefined}>Go to page</span>{' '}
           <input
             className="text-control"
