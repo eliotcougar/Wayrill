@@ -2385,9 +2385,11 @@ button.diagnostic:focus-visible {
 .menu-item-icon {
   color: var(--muted);
 }
+.rule-editor-body:has(> .routing-presets) {
+  overflow: auto;
+}
 .routing-presets {
   padding: 22px;
-  overflow: auto;
 }
 .preset-output-mapping {
   display: grid;
