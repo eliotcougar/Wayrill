@@ -77,6 +77,13 @@ Add feature sheets there rather than importing CSS from components.
   `empty-state` shares typography and wrapping for empty/no-match results. Use
   its centered variant for large lists and inline variant in already padded
   panels. Keep larger illustrated canvas/editor prompts feature-owned.
+  Field help, validation messages and resolved default hints also live here.
+  Use `field-message error`/`warning` for field validation, including native
+  protocol fields. Plain help styles reach only a field's direct `small` child,
+  allowing named default/validation styles to take precedence without affecting
+  nested editors. A flex-column `editor-field` supplies its own feedback gap;
+  do not add a paragraph margin to that gap. Invalid controls and composite
+  secret fields use their `aria-invalid` state for the shared error border.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`

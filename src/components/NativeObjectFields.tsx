@@ -153,7 +153,7 @@ function NativeControl({
       )}
       {field.help && <small id={`${id}-help`}>{field.help}</small>}
       {error && (
-        <small className="error" role="alert" id={`${id}-error`}>
+        <small className="field-message error" role="alert" id={`${id}-error`}>
           {error}
         </small>
       )}

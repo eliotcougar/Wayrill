@@ -173,20 +173,3 @@
     width: 100%;
   }
 }
-
-.default-hint-select,
-.resolved-default-hint {
-  color: var(--text-muted, var(--text-secondary));
-  font-style: italic;
-  opacity: 1;
-}
-.resolved-default-hint {
-  font-size: 11px;
-  line-height: 1.5;
-  margin: 3px 0 0;
-  overflow-wrap: anywhere;
-}
-.default-hint-select option {
-  color: var(--text-primary, var(--text-subtle));
-  font-style: normal;
-}

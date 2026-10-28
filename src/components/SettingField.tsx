@@ -182,7 +182,7 @@ export function SettingField({
       ? onInherit?.()
       : onChange(field.type === 'boolean' ? v === 'true' : v);
   return (
-    <div className={`field${invalid ? ' field-invalid' : ''}`} data-setting-key={field.key}>
+    <div className="field" data-setting-key={field.key}>
       {(field.type !== 'boolean' || onInherit) && (
         <label htmlFor={id}>
           {field.label}

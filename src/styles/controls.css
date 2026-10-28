@@ -112,6 +112,14 @@
   opacity: 1;
   font-style: italic;
 }
+.default-hint-select {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.default-hint-select option {
+  color: var(--text);
+  font-style: normal;
+}
 :where(.field, .editor-field) select,
 select.text-control {
   cursor: pointer;
@@ -173,37 +181,10 @@ select.text-control {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.field-help {
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.6;
-  margin: 6px 0 0;
-  overflow-wrap: anywhere;
-}
-.field-message {
-  font-size: 10px;
-  line-height: 1.6;
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin: 6px 0 0;
-}
-.field-message svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.field-message.error {
-  color: var(--danger);
-}
-.field-message.warning {
-  color: var(--warning);
-}
-.field-invalid > input,
-.field-invalid .editable-select input,
-.field-invalid .editable-select-toggle,
-.field-invalid > select,
-.field-invalid > textarea,
-.field-invalid .secret-setting {
+:is(.field, .editor-field) > :is(input, textarea, select)[aria-invalid='true'],
+:is(.field, .editor-field) > div > :is(input, textarea, select)[aria-invalid='true'],
+.editable-select:has(> input[aria-invalid='true']) > .editable-select-toggle,
+.secret-setting:has(> input[aria-invalid='true']) {
   border-color: var(--danger-border);
 }
 .secret-setting {
@@ -261,6 +242,10 @@ select.text-control {
   font-size: 11px;
   color: var(--text);
 }
+/* The column gap supplies feedback spacing; don't add paragraph margins to it. */
+.editor-field > :is(small, .field-help, .field-message, .resolved-default-hint) {
+  margin: 0;
+}
 .editor-field textarea {
   font-family: var(--font-mono);
 }
@@ -282,12 +267,6 @@ select.text-control {
 }
 .editor-field input[type='file']:not(:disabled)::file-selector-button:hover {
   background: var(--surface-hover);
-}
-.editor-field small {
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
 }
 .editor-two-fields {
   display: grid;

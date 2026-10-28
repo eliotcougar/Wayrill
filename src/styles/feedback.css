@@ -1,4 +1,43 @@
 /* Shared feedback. Features own placement and interactive layouts. */
+.field-help,
+.field-message,
+:where(.editor-field > small) {
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.field-help,
+.resolved-default-hint,
+:where(.editor-field > small) {
+  color: var(--text-muted);
+}
+.field-help,
+.field-message {
+  margin: 6px 0 0;
+}
+.field-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+.field-message svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.field-message.error {
+  color: var(--danger);
+}
+.field-message.warning {
+  color: var(--warning);
+}
+.resolved-default-hint {
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.5;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .empty-state {
   min-width: 0;
   margin: 0;
