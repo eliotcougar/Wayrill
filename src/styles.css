@@ -2659,6 +2659,7 @@ button.diagnostic:focus-visible {
   display: flex;
   align-items: flex-end;
   gap: 12px;
+  margin-top: 15px;
 }
 .routing-url-row .editor-field {
   flex: 1;

@@ -15,6 +15,13 @@
   align-items: center;
   gap: 8px;
 }
+.backup-content .editor-check input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent-fill);
+}
 .backup-actions {
   display: flex;
   gap: 10px;

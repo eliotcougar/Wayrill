@@ -245,21 +245,8 @@
   gap: 8px;
   align-items: flex-end;
 }
-.policy-fallback .policy-picker-actions > button,
-.policy-picker-actions > .editor-field input,
-.policy-picker-actions > .editor-field select {
-  min-height: 38px;
-}
 .policy-picker-actions > label {
   min-width: 240px;
-}
-.policy-fallback .policy-picker-actions > button {
-  min-height: 32px;
-  margin: 0;
-  font-size: 11px;
-}
-.policy-fallback .policy-picker-actions > label select {
-  min-height: 32px;
 }
 
 .policy-name-field {
