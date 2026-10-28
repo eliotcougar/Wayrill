@@ -54,24 +54,11 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--space-1);
   flex-wrap: nowrap;
 }
 .resource-table {
-  width: 100%;
-  border-collapse: collapse;
   table-layout: fixed;
-}
-.resource-table th,
-.resource-table td {
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: middle;
-}
-.resource-table th {
-  color: var(--text-secondary);
-  font-size: 11px;
 }
 .resource-table th:nth-child(2) {
   width: 62px;
@@ -80,7 +67,7 @@
   width: 84px;
 }
 .resource-table th:last-child {
-  width: 80px;
+  width: calc(2 * var(--control-size-compact) + 2 * var(--table-cell-padding) + var(--space-1));
 }
 .resource-table td strong {
   display: block;

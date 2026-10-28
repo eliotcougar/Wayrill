@@ -374,7 +374,7 @@ export default function TrafficPanel({
               {rate(0)} means measured idle traffic; — means no rate measurement.
             </p>
             <div className="traffic-table-scroll">
-              <table className="traffic-table">
+              <table className="data-table data-table--sticky traffic-table">
                 <thead>
                   <tr>
                     {(

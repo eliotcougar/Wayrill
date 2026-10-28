@@ -42,26 +42,13 @@
   border: 1px solid var(--border);
   border-radius: 5px;
 }
-.geo-scroll table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.geo-scroll td,
-.geo-scroll th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-}
-.geo-scroll th {
-  position: sticky;
-  top: 0;
-  background: var(--surface-raised);
-  font-weight: 600;
-}
 .geo-groups td:last-child,
 .geo-groups th:last-child {
   text-align: right;
   width: 80px;
+}
+.geo-entries td:last-child {
+  width: calc(var(--control-size-compact) + 2 * var(--table-cell-padding));
 }
 .geo-groups button {
   border: 0;

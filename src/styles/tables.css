@@ -1,0 +1,28 @@
+/* Native data tables share density and headers; features own columns and overflow. */
+.data-table {
+  --table-cell-padding: var(--space-3);
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.data-table--compact {
+  --table-cell-padding: var(--space-2);
+}
+.data-table > :where(thead, tbody, tfoot) > :where(tr) > :where(th, td) {
+  padding: var(--table-cell-padding);
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: middle;
+}
+.data-table > :where(thead) > :where(tr) > :where(th) {
+  background: var(--surface-adjacent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.data-table--sticky > :where(thead) > :where(tr) > :where(th) {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}

@@ -135,26 +135,12 @@
   overflow: auto;
 }
 .policy-candidate-table table {
-  width: 100%;
-  border-collapse: collapse;
   table-layout: fixed;
-}
-.policy-candidate-table th {
-  position: sticky;
-  top: 0;
-  background: var(--surface-adjacent);
-  text-align: left;
-  color: var(--text-muted);
-  font-size: 11px;
-  padding: 8px;
 }
 .policy-candidate-table th:first-child {
   width: 65%;
 }
 .policy-candidate-table td {
-  border-top: 1px solid var(--border);
-  padding: 10px 8px;
-  font-size: 11px;
   overflow-wrap: anywhere;
   vertical-align: top;
 }

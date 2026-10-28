@@ -151,15 +151,8 @@
   fill: var(--text-secondary);
   font-size: 15px;
 }
-.traffic-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
 .traffic-table th,
 .traffic-table td {
-  padding: 14px 12px;
-  border-bottom: 1px solid var(--border);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -170,7 +163,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.traffic-table th {
+.traffic-table tbody th {
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -188,11 +181,6 @@
 .traffic-endpoints-body .traffic-table-scroll {
   flex: 1;
   min-height: 0;
-}
-.traffic-endpoints-body .traffic-table thead {
-  position: sticky;
-  top: 0;
-  background: var(--surface-adjacent);
 }
 .status-traffic {
   display: flex;
@@ -367,8 +355,8 @@
   justify-content: flex-end;
   gap: 6px;
   width: 100%;
-  min-height: 43px;
-  padding: 10px 12px;
+  min-height: var(--control-size);
+  padding: var(--table-cell-padding);
   border: 0;
   background: transparent;
   color: inherit;

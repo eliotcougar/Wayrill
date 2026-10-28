@@ -21,6 +21,11 @@ Add feature sheets there rather than importing CSS from components.
   Feature sheets retain placement, widths and margins rather than repeating the
   flex layout, alignment and gap.
 - `styles/dialogs.css` owns dialog/editor shells, title bars, tabs and footers.
+- `styles/tables.css` owns native `data-table` cell spacing, dividers and headers.
+  Use `data-table--compact` for dense lists and `data-table--sticky` when a table
+  scrolls inside a constrained viewport. Features own column widths, numeric
+  alignment and the scrolling container. Virtualized/grid lists retain their
+  layout because their fixed row geometry is part of the rendering contract.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`

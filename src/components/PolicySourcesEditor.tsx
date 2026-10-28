@@ -505,7 +505,7 @@ export default function PolicySourcesEditor({
           </p>
         )}
         <div className="policy-candidate-table">
-          <table>
+          <table className="data-table data-table--compact data-table--sticky">
             <thead>
               <tr>
                 <th>Outbound</th>

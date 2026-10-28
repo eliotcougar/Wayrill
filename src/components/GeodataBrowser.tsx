@@ -314,7 +314,7 @@ export default function GeodataBrowser({
           ) : (
             <>
               <div className="geo-scroll">
-                <table>
+                <table className="data-table data-table--compact data-table--sticky">
                   <thead>
                     <tr>
                       <th>Group</th>
@@ -442,7 +442,7 @@ export default function GeodataBrowser({
               ) : (
                 <>
                   <div className="geo-scroll">
-                    <table>
+                    <table className="data-table data-table--compact">
                       <tbody>
                         {(entries.page.rows as GeoEntry[]).map((e, i) => (
                           <tr key={i}>

@@ -204,7 +204,7 @@ export default function ResourceFields({
                 </button>
               </div>
             </div>
-            <table className="resource-table">
+            <table className="data-table data-table--compact resource-table">
               <thead>
                 <tr>
                   <th>File</th>
