@@ -1,6 +1,6 @@
 import { validPolicyReference, type PolicyReference } from './policySources';
 import { jsonRecord, checkJson, jsonArray, parseJson } from './xrayJson';
-import type { RuleNodeData, NodeDefinition, Diagnostic } from './types';
+import type { RuleNodeData, NodeDefinition } from './types';
 export interface ChainStep {
   id: string;
   outbound: PolicyReference;
@@ -65,27 +65,4 @@ export function readProxyChain(data: RuleNodeData): ProxyChain {
     ids.add(step.id);
   }
   return value as unknown as ProxyChain;
-}
-export function chainProblems(data: RuleNodeData): Diagnostic[] {
-  if (data.kind !== 'proxy-chain') return [];
-  try {
-    const chain = readProxyChain(data);
-    return chain.steps.length >= 2
-      ? []
-      : [
-          {
-            severity: 'error',
-            fieldKey: 'steps',
-            message: 'Add at least two hops, in order from this PC to the destination.',
-          },
-        ];
-  } catch (error) {
-    return [
-      {
-        severity: 'error',
-        fieldKey: 'steps',
-        message: error instanceof Error ? error.message : 'Invalid chain.',
-      },
-    ];
-  }
 }

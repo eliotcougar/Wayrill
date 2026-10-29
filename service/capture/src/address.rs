@@ -110,9 +110,6 @@ impl DivertAddress {
     pub fn endpoint(self) -> u64 {
         u64::from_ne_bytes(self.data[..8].try_into().unwrap())
     }
-    pub fn parent_endpoint(self) -> u64 {
-        u64::from_ne_bytes(self.data[8..16].try_into().unwrap())
-    }
     pub fn process_id(self) -> u32 {
         u32::from_ne_bytes(self.data[16..20].try_into().unwrap())
     }

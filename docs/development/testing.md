@@ -10,6 +10,14 @@ Capture is a separate leaf workspace; check both WinDivert-enabled and
 attribution-only features. The complete [installer build](building.md) exercises
 its packaging guards and pinned core regressions.
 
+CI runs frontend checks and separate Windows Rust jobs for the service, desktop
+and capture workspaces. Native jobs use Rust 1.99.0, formatting, strict Clippy and
+locked tests. Capture is checked with both default and attribution-only features.
+The service job downloads and verifies the pinned geodata fixtures. Desktop
+native tests use a Tauri configuration override with installer resources disabled;
+installer payload validation remains part of the complete release build.
+Ignored system-mutation tests are never enabled by these jobs.
+
 Core configuration tests use WAYRILL_XRAY_TEST_EXE and an isolated
 WAYRILL_XRAY_FIXTURE_DIR. Confirm the executable matches its intended pin.
 Acceptance is not traffic evidence. Tests requiring private endpoints, native

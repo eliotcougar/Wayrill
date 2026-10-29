@@ -39,7 +39,6 @@ export {
   readProxyChain,
   emptyProxyChain,
   isCompositeKind,
-  chainProblems,
   proxyChainDefinition,
 } from './proxyChains';
 import { readProxyChain, isCompositeKind } from './proxyChains';

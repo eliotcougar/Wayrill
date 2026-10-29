@@ -87,22 +87,3 @@ export function nativeLiveFixture(mode: 'noauth' | 'password' | 'block'): Record
     metrics: { tag: 'metrics', listen: '127.0.0.1:20923' },
   };
 }
-export function nativeLiveUpstream(mode: 'noauth' | 'password'): Record<string, unknown> {
-  return {
-    log: { loglevel: 'warning' },
-    inbounds: [
-      {
-        tag: 'qa-socks-peer',
-        protocol: 'mixed',
-        listen: '127.0.0.1',
-        port: 20922,
-        settings: {
-          auth: mode,
-          udp: true,
-          ...(mode === 'password' ? { accounts: [{ user: 'qa-server', pass: 'qa-only' }] } : {}),
-        },
-      },
-    ],
-    outbounds: [{ protocol: 'freedom' }],
-  };
-}

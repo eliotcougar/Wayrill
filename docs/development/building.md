@@ -11,6 +11,10 @@
 - Python 3 only for regenerating audited protocol/default catalogues, not normal
   frontend, native or installer builds.
 
+The Windows native CI jobs pin Rust 1.99.0 and use the same locked Cargo
+workspaces. They run independently of installer packaging; see [tests](testing.md)
+for their fixtures and desktop configuration.
+
 No .NET runtime/SDK is required. Go is downloaded from its pinned vendor archive
 for core builds; build inputs are recorded in service/dependencies.json.
 
@@ -58,13 +62,13 @@ release materials; do not change the pin merely to accept a different dataset.
 
 Generated locations:
 
-| Path | Contents |
-| --- | --- |
-| `.tools/target/` | Cargo/Tauri output |
-| `.tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/` | Installer |
-| `.tools/installer-service/` | Matching staged service payload |
+| Path                                                           | Contents                                        |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| `.tools/target/`                                               | Cargo/Tauri output                              |
+| `.tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/`    | Installer                                       |
+| `.tools/installer-service/`                                    | Matching staged service payload                 |
 | `.tools/downloads/`, `service-deps/`, `go-sdk/`, `tun-source/` | Verified/generated build caches under `.tools/` |
-| `.tools/logs/` | Build logs |
+| `.tools/logs/`                                                 | Build logs                                      |
 
 Do not upload caches or installer binaries as repository source. Release assets
 are published separately after review. A reproducibility claim requires comparing

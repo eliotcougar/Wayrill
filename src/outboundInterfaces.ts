@@ -51,10 +51,6 @@ export function automaticDirectInterface(
   return interfaces.automatic || 'Unavailable';
 }
 
-export function directInterfaceName(value: string, interfaces: OutboundInterfaces): string {
-  return value || interfaces.automatic || 'Unavailable';
-}
-
 // One shared inventory for every card/editor, with no overlapping native calls.
 export function useOutboundInterfaces(): OutboundInterfaces {
   const [state, setState] = useState(unavailable);
