@@ -63,3 +63,10 @@ ad-hoc workarounds or add weak tests that only mirror the implementation.
 Ordinary checks must run from a clean clone without private fixtures, installed
 Wayrill or a test VM. Keep executable-backed checks in the explicit core suite;
 missing prerequisites must fail with instructions rather than silently skip.
+
+Owner-authorized direct pushes remain available after appropriate local checks;
+CI and code scanning run afterward. Other contributors use checked pull requests;
+see CONTRIBUTING.md and .github/rulesets. When merging a PR, do not automatically
+bypass failed requirements. Default-branch force pushes/deletion are blocked for
+everyone. Installer builds remain manual. Dependency PRs require review and the
+same checks; do not automatically merge them or change audited core/toolchain pins.

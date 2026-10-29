@@ -29,6 +29,13 @@ configuration are shared. `-SkipTests` retains formatting and Clippy; CI does no
 use it. Desktop tests use the same resource-free configuration as desktop dev,
 restoring the caller's environment afterwards.
 
+PRs also run CodeQL and dependency review. CodeQL's Windows jobs inspect the
+native source; its Rust build scripts use the resource-free desktop configuration.
+These scans do not build an installer or activate networking. Dependency review
+checks newly introduced advisories; it is separate from Dependabot's maintenance
+PRs and alerts about existing dependencies. See [Security](../../SECURITY.md) and
+the [contribution policy](../../CONTRIBUTING.md) for merge requirements.
+
 ## Core integration
 
 Build the public service/core package with `tools/Build-Networking-Service.ps1`,
