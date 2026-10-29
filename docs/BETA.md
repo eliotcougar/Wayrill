@@ -1,13 +1,14 @@
 # First beta: scope and limitations
 
-**Wayrill 0.31.20** is a public beta for Windows 10 and 11 on x64.
-Download the [complete installer](https://github.com/eliotcougar/Wayrill/releases/tag/v0.31.20)
+**Wayrill 0.31.22** is a public beta for Windows 10 and 11 on x64.
+Download the [complete installer](https://github.com/eliotcougar/Wayrill/releases/tag/v0.31.22)
 and follow [Getting started](guide/getting-started.md) for a first connection.
 Servers and subscriptions must be supplied by you.
 
 The installer includes the desktop, networking service, matching custom cores
-and selectable resource files. It is unsigned; Windows may show an
-unknown-publisher or reputation warning. Release checksums let you compare the
+and original XTLS resource files. Fresh and clean installations can download
+additional regional resources; upgrades preserve installed files. It is unsigned;
+Windows may show an unknown-publisher or reputation warning. Release checksums let you compare the
 downloaded bytes, but do not provide an Authenticode publisher identity.
 
 ## What to expect
