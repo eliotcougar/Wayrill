@@ -1,8 +1,10 @@
-param([switch]$SkipTests,[string]$CurlPath,[Parameter(Mandatory)][string]$TunOutputDirectory,[Parameter(Mandatory)][string]$MainOutputDirectory)
+param([switch]$SkipTests,[switch]$BuildOnly,[string]$CurlPath,[Parameter(Mandatory)][string]$TunOutputDirectory,[Parameter(Mandatory)][string]$MainOutputDirectory)
 $ErrorActionPreference='Stop'
 $taskProject=Split-Path $PSScriptRoot -Parent
 $taskCacheRoot=Join-Path $taskProject '.tools'
-function Invoke-MaintainedCoreTests([string[]]$Files, [hashtable]$Controls = @{}) {
+$TunOutputDirectory=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($TunOutputDirectory)
+$MainOutputDirectory=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($MainOutputDirectory)
+function Invoke-MaintainedCoreTests([string]$Source, [string[]]$Files, [hashtable]$Controls = @{}) {
     # Discover cases from the extension's maintained test files. Do not make an
     # app build depend on unrelated vendor timing/throughput assertions.
     $taskNames=@($Controls.Keys)+@(foreach($taskFile in $Files) {
@@ -12,12 +14,30 @@ function Invoke-MaintainedCoreTests([string[]]$Files, [hashtable]$Controls = @{}
     }) | Sort-Object -Unique
     if(-not $taskNames){throw 'No maintained Xray regression tests were discovered.'}
     $taskPackages=@(@($Controls.Values)+@($Files | ForEach-Object {
-        './'+[IO.Path]::GetRelativePath($taskSource,(Split-Path $_ -Parent)).Replace('\','/')
+        './'+[IO.Path]::GetRelativePath($Source,(Split-Path $_ -Parent)).Replace('\','/')
     }) | Sort-Object -Unique)
     $taskPattern='^('+($taskNames -join '|')+')$'
     Write-Host "Checking $(@($taskNames).Count) maintained Xray regressions in $($taskPackages.Count) packages."
     & $taskGo test -mod=readonly @taskPackages -run $taskPattern -count=1
     if($LASTEXITCODE -ne 0){throw 'Maintained Xray regression tests failed.'}
+}
+function Reset-CoreSource([string]$Parent, [string]$Commit) {
+    $taskParent=[IO.Path]::GetFullPath($Parent)
+    $taskDirectory=[IO.Path]::GetFullPath((Join-Path $taskParent "Xray-core-$Commit"))
+    if ((Split-Path $taskParent -Parent) -ne [IO.Path]::GetFullPath($taskCacheRoot) -or
+        (Split-Path $taskParent -Leaf) -notin @('main-source','tun-source') -or
+        (Split-Path $taskDirectory -Parent) -ne $taskParent) { throw 'Invalid generated core source path.' }
+    if (Test-Path -LiteralPath $taskParent) {
+        if ((Get-Item -LiteralPath $taskParent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Core source cache must not be a reparse point.' }
+    }
+    if (Test-Path -LiteralPath $taskDirectory) {
+        if ((Resolve-Path -LiteralPath $taskDirectory).Path -ne $taskDirectory -or
+            (Get-Item -LiteralPath $taskDirectory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint -or
+            @(Get-ChildItem -LiteralPath $taskDirectory -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) { throw 'Core source cache contains an unexpected path or reparse point.' }
+        Remove-Item -LiteralPath $taskDirectory -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $taskParent -Force | Out-Null
+    return $taskDirectory
 }
 New-Item -ItemType Directory -Path $taskCacheRoot -Force | Out-Null
 # Serialize the shared source cache and generated worker-integrity manifest.
@@ -46,18 +66,9 @@ try {
     }
     if((Get-FileHash $taskSourceZip).Hash -ne $taskPin.sourceArchiveSha256){throw 'Pinned Xray source integrity failure.'}
     $taskSourceParent=Join-Path $taskCacheRoot 'tun-source'
-    $taskSource=[IO.Path]::GetFullPath((Join-Path $taskSourceParent "Xray-core-$taskCommit"))
+    $taskSource=Reset-CoreSource $taskSourceParent $taskCommit
     # This is a generated cache, not a checkout. Overlaying an archive would retain
     # deleted worker extensions and could compile or ship them in the next build.
-    if (Test-Path -LiteralPath $taskSourceParent) {
-        if ((Get-Item -LiteralPath $taskSourceParent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'TUN source cache must not be a reparse point.' }
-    }
-    if (Test-Path -LiteralPath $taskSource) {
-        $taskResolvedSource=(Resolve-Path -LiteralPath $taskSource).Path
-        if ($taskResolvedSource -ne $taskSource -or (Split-Path $taskResolvedSource -Parent) -ne [IO.Path]::GetFullPath($taskSourceParent)) { throw 'Invalid generated TUN source path.' }
-        if ((Get-Item -LiteralPath $taskSource -Force).Attributes -band [IO.FileAttributes]::ReparsePoint -or @(Get-ChildItem -LiteralPath $taskSource -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) { throw 'TUN source cache contains a reparse point.' }
-        Remove-Item -LiteralPath $taskResolvedSource -Recurse -Force
-    }
     Expand-Archive $taskSourceZip -DestinationPath $taskSourceParent -Force
     # Both upstream UDP repairs are included in this base; apply only app integrations.
     $taskGit=(Get-Command git -ErrorAction Stop).Source
@@ -83,24 +94,29 @@ try {
         if((Get-FileHash -LiteralPath $taskInitializer.FullName).Hash -ne $taskPin.build.initializerFiles.($taskInitializer.Name)){throw 'Xray initializer source integrity failure.'}
         Copy-Item -LiteralPath $taskInitializer.FullName -Destination (Join-Path $taskSource ('main\wayrill_init_'+$taskInitializer.Name))
     }
-    $taskInitializerTests=@($taskInitializers | Where-Object Name -like '*_test.go' | ForEach-Object {Join-Path $taskSource ('main/wayrill_init_'+$_.Name)})
+    # Keep each compiled variant intact, including while a build tracer reads it.
+    $taskMainSource=Reset-CoreSource (Join-Path $taskCacheRoot 'main-source') $taskCommit
+    Copy-Item -LiteralPath $taskSource -Destination $taskMainSource -Recurse
+    $taskInitializerTests=@($taskInitializers | Where-Object Name -like '*_test.go' | ForEach-Object {Join-Path $taskMainSource ('main/wayrill_init_'+$_.Name)})
     $taskMainTests=@(foreach($taskMatch in [regex]::Matches([IO.File]::ReadAllText($taskFakePatch), '(?m)^\+\+\+ b/([^\r\n]+_test\.go)\r?$')) {
-        Join-Path $taskSource $taskMatch.Groups[1].Value
+        Join-Path $taskMainSource $taskMatch.Groups[1].Value
     })+$taskInitializerTests
     $env:GOCACHE=Join-Path $taskCacheRoot 'go-cache';$env:GOMODCACHE=Join-Path $taskCacheRoot 'go-modules';$env:CGO_ENABLED='0';$env:GOMAXPROCS='8'
     if((& $taskGo version) -notmatch ('^go version go'+[regex]::Escape($taskPin.build.goVersion)+' windows/amd64$')){throw 'Pinned Xray Go toolchain mismatch.'}
     New-Item -ItemType Directory -Path $MainOutputDirectory -Force | Out-Null
-    Push-Location $taskSource
+    Push-Location $taskMainSource
     try {
         # Preserve the upstream Lua DNS query contract for our context changes.
-        if(-not $SkipTests){Invoke-MaintainedCoreTests $taskMainTests -Controls @{TestDNSScriptQuery='./app/dns'}}
+        if(-not $SkipTests){Invoke-MaintainedCoreTests -Source $taskMainSource -Files $taskMainTests -Controls @{TestDNSScriptQuery='./app/dns'}}
         & $taskGo build -mod=readonly -trimpath -buildvcs=false -ldflags ('-s -w -X github.com/xtls/xray-core/core.build='+$taskPin.build.tag) -o (Join-Path $MainOutputDirectory 'xray.exe') ./main
         if($LASTEXITCODE -ne 0){throw 'Patched Xray main core build failed.'}
     }finally{Pop-Location}
     if((Get-FileHash (Join-Path $MainOutputDirectory 'xray.exe')).Hash -ne $taskPin.executableSha256){throw 'Patched Xray executable differs from its audited pin.'}
     # Package the exact main source before private attribution/adapter changes.
-    Compress-Archive -LiteralPath $taskSource -DestinationPath (Join-Path $MainOutputDirectory 'source.zip') -Force
-    Copy-Item -LiteralPath $taskFakePatch -Destination $MainOutputDirectory -Force
+    if(-not $BuildOnly) {
+        Compress-Archive -LiteralPath $taskMainSource -DestinationPath (Join-Path $MainOutputDirectory 'source.zip') -Force
+        Copy-Item -LiteralPath $taskFakePatch -Destination $MainOutputDirectory -Force
+    }
     $taskHandler=Join-Path $taskSource 'proxy\tun\handler.go'
     $taskText=[IO.File]::ReadAllText($taskHandler)
     $taskAnchor="`tctx = session.ContextWithInbound(ctx, &inbound)"
@@ -147,10 +163,11 @@ try {
     Get-ChildItem (Join-Path $taskProject 'service\core-control') -Filter '*.go' | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $taskSource ('main\wayrill_control_'+$_.Name)) -Force }
     $taskResources=Join-Path $taskSource 'resources'
     New-Item -ItemType Directory -Path $taskResources -Force | Out-Null
-    foreach($taskAssetName in @('geosite.dat','geoip.dat')) {
-        $taskAsset=Get-ChildItem (Join-Path $taskCacheRoot 'service-deps\xray') -Filter $taskAssetName -Recurse -File | Select-Object -First 1
-        if(-not $taskAsset){throw "Missing pinned test resource $taskAssetName"}
-        Copy-Item $taskAsset.FullName -Destination $taskResources -Force
+    if(-not $SkipTests) {
+        & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -CurlPath $taskCurl
+        foreach($taskAssetName in @('geosite.dat','geoip.dat')) {
+            Copy-Item -LiteralPath (Join-Path $taskProject ('service/resource-assets/'+$taskAssetName)) -Destination $taskResources -Force
+        }
     }
     Push-Location $taskSource
     try {
@@ -160,12 +177,19 @@ try {
         if(-not $SkipTests){
             $taskTunTests=@(Get-ChildItem (Join-Path $taskProject 'service/tun-core') -Filter '*_test.go' | ForEach-Object {Join-Path $taskSource ('proxy/tun/'+$_.Name)})
             $taskTunTests+=@(Get-ChildItem (Join-Path $taskProject 'service/core-control') -Filter '*_test.go' | ForEach-Object {Join-Path $taskSource ('main/wayrill_control_'+$_.Name)})
-            Invoke-MaintainedCoreTests ($taskTunTests+$taskInitializerTests)
+            $taskTunInitializers=@($taskInitializers | Where-Object Name -like '*_test.go' | ForEach-Object {Join-Path $taskSource ('main/wayrill_init_'+$_.Name)})
+            Invoke-MaintainedCoreTests -Source $taskSource -Files ($taskTunTests+$taskTunInitializers)
         }
         & $taskGo build -mod=readonly -trimpath -buildvcs=false -ldflags '-s -w' -o (Join-Path $TunOutputDirectory 'wayrill-tun.exe') ./main
         if($LASTEXITCODE -ne 0){throw 'TUN worker build failed.'}
     }finally{Pop-Location}
     $taskHash=(Get-FileHash (Join-Path $TunOutputDirectory 'wayrill-tun.exe')).Hash.ToLowerInvariant()
+    if($BuildOnly) {
+        $taskManifest=Get-Content (Join-Path $taskProject 'service/daemon/src/tun-core-manifest.json') -Raw | ConvertFrom-Json
+        if($taskManifest.sha256 -ne $taskHash -or $taskManifest.sourceCommit -ne $taskCommit -or $taskManifest.goVersion -ne $taskPin.build.goVersion) { throw 'TUN worker differs from its audited pin.' }
+        Write-Host "Both pinned Xray cores built; packaging and manifest updates were not requested."
+        return
+    }
     @{sha256=$taskHash;sourceCommit=$taskCommit;goVersion=$taskPin.build.goVersion} | ConvertTo-Json | Set-Content (Join-Path $taskProject 'service\daemon\src\tun-core-manifest.json') -Encoding utf8NoBOM
     Copy-Item (Join-Path $taskSource 'LICENSE'),(Join-Path $taskProject 'service\tun-core\wayrill_windows.go') -Destination $TunOutputDirectory -Force
     $taskWintun=Get-ChildItem (Join-Path $taskCacheRoot 'service-deps\xray') -Filter 'wintun.dll' -Recurse -File | Select-Object -First 1
@@ -175,7 +199,7 @@ try {
     foreach($taskAssetName in @('geosite.dat','geoip.dat')) {
         $taskCopiedAsset=[IO.Path]::GetFullPath((Join-Path $taskResources $taskAssetName))
         if ((Split-Path $taskCopiedAsset -Parent) -ne [IO.Path]::GetFullPath($taskResources)) {throw 'Invalid test asset cleanup path.'}
-        Remove-Item -LiteralPath $taskCopiedAsset -Force
+        if(Test-Path -LiteralPath $taskCopiedAsset){Remove-Item -LiteralPath $taskCopiedAsset -Force}
     }
     Compress-Archive -LiteralPath $taskSource -DestinationPath (Join-Path $TunOutputDirectory 'source.zip') -Force
     Write-Host "Pinned TUN attribution worker: $taskHash"

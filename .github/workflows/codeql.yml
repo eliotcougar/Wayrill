@@ -42,7 +42,11 @@ jobs:
             build-mode: none
           - language: go
             os: windows-latest
-            build-mode: autobuild
+            build-mode: manual
+    env:
+      # Trace the real builds instead of extracting unassembled Go fragments.
+      CODEQL_EXTRACTOR_GO_BUILD_TRACING: 'on'
+      CODEQL_EXTRACTOR_GO_OPTION_EXTRACT_TESTS: 'true'
     defaults:
       run:
         shell: pwsh
@@ -82,15 +86,21 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
+          # These filters apply to no-build extraction. Go follows the traced builds.
           config: |
             paths-ignore:
               - .tools/**
               - node_modules/**
               - dist/**
               - src-tauri/gen/**
-      - name: Extract Go sources
-        if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+      - name: Build and test both Xray variants
+        if: matrix.language == 'go'
+        env:
+          WAYRILL_CURL: C:\msys64\usr\bin\curl.exe
+        run: >-
+          ./tools/Build-XrayCores.ps1 -BuildOnly
+          -MainOutputDirectory .tools/codeql-build/main
+          -TunOutputDirectory .tools/codeql-build/tun
       - name: Analyze
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:

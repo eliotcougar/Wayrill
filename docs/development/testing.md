@@ -55,6 +55,21 @@ files and the Lua DNS compatibility control. Cases are discovered from those fil
 automatically. Broad upstream test-suite and performance audits are separate
 maintainer work; unrelated vendor timing assertions do not gate an app build.
 
+CodeQL traces both assembled Xray variants with the same core build script:
+
+```powershell
+pwsh -NoProfile -File tools/Build-XrayCores.ps1 -BuildOnly `
+    -MainOutputDirectory .tools/core-check/main `
+    -TunOutputDirectory .tools/core-check/tun
+```
+
+This builds and tests the pinned cores without packaging an installer or updating
+worker manifests. Main and TUN sources remain in separate generated trees under
+`.tools/main-source/` and `.tools/tun-source/`, so analysis sees each variant in
+its real package context. Go analysis uses manual build tracing, including test
+code; raw extension files are not standalone Go packages. Source, patch, SDK and
+executable integrity checks still apply. No installed app or VM is required.
+
 ## What deserves a regression
 
 Protect observable behavior: routing precedence, lossless import/save,
