@@ -1,0 +1,97 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '43 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            os: ubuntu-latest
+            build-mode: none
+          - language: javascript-typescript
+            os: ubuntu-latest
+            build-mode: none
+          - language: python
+            os: ubuntu-latest
+            build-mode: none
+          - language: rust
+            os: windows-latest
+            build-mode: none
+          - language: go
+            os: windows-latest
+            build-mode: autobuild
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.language == 'rust'
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Prepare Rust build scripts
+        if: matrix.language == 'rust'
+        run: |
+          npm ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup toolchain install --no-self-update --component rust-src
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # Reuse the resource-free desktop configuration; no installer payload.
+          $config = Get-Content src-tauri/tauri.dev.conf.json -Raw | ConvertFrom-Json | ConvertTo-Json -Compress
+          "TAURI_CONFIG=$config" >> $env:GITHUB_ENV
+      - name: Read pinned Go version
+        id: go-version
+        if: matrix.language == 'go'
+        run: |
+          $pins = Get-Content service/dependencies.json -Raw | ConvertFrom-Json
+          "version=$($pins.xray.build.goVersion)" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - .tools/**
+              - node_modules/**
+              - dist/**
+              - src-tauri/gen/**
+      - name: Extract Go sources
+        if: matrix.build-mode == 'autobuild'
+        uses: github/codeql-action/autobuild@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+      - name: Analyze
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}
