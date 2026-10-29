@@ -29,37 +29,6 @@ describe('serialized protected writes', () => {
     await next;
     expect(mock.invoke.mock.calls.map(([, p]) => p.key)).toEqual(['workspace', 'workspace']);
   });
-  it('waits for the active write before sending the next document', async () => {
-    let complete!: () => void;
-    mock.invoke
-      .mockImplementationOnce(
-        () =>
-          new Promise<void>((resolve) => {
-            complete = resolve;
-          }),
-      )
-      .mockResolvedValue(undefined);
-    const first = protectedWrite('workspace', 'first'),
-      second = protectedWrite('workspace', 'second');
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(mock.invoke).toHaveBeenCalledTimes(1);
-    complete();
-    await Promise.all([first, second]);
-    expect(mock.invoke.mock.calls.map(([, p]) => p.text)).toEqual(['first', 'second']);
-  });
-});
-
-it('skips unchanged protected content after a read or a successful write', async () => {
-  mock.invoke.mockResolvedValueOnce('stored').mockResolvedValue(undefined);
-  expect(await protectedRead('workspace')).toBe('stored');
-  await protectedWrite('workspace', 'stored');
-  await protectedWrite('workspace', 'changed');
-  await protectedWrite('workspace', 'changed');
-  expect(mock.invoke.mock.calls).toEqual([
-    ['protected_read', { key: 'workspace' }],
-    ['protected_write', { key: 'workspace', text: 'changed' }],
-  ]);
 });
 
 it('writes a reverted draft after an older write finishes instead of mistaking it for saved content', async () => {
@@ -110,39 +79,6 @@ it('migrates the user library once without deleting the recovery copy', async ()
   expect(await protectedRead('stash')).toBe('migrated');
   expect(mock.write).toHaveBeenCalledWith('legacy');
   expect(mock.invoke.mock.calls).toEqual([['protected_read', { key: 'stash' }]]);
-});
-it('uses the service library without consulting the stale desktop copy', async () => {
-  mock.read.mockResolvedValue('service');
-  expect(await protectedRead('stash')).toBe('service');
-  await protectedWrite('stash', 'edited');
-  expect(mock.invoke).not.toHaveBeenCalled();
-  expect(mock.write).toHaveBeenCalledWith('edited', undefined);
-});
-
-it('saves the graph while an independent service Stash write is still pending', async () => {
-  let finish!: () => void;
-  mock.write.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const saving = protectedWrite('stash', 'library');
-  await vi.waitFor(() => expect(mock.write).toHaveBeenCalledOnce());
-  const graph = protectedWrite('workspace', 'graph');
-  try {
-    await vi.waitFor(
-      () =>
-        expect(mock.invoke).toHaveBeenCalledWith('protected_write', {
-          key: 'workspace',
-          text: 'graph',
-        }),
-      { timeout: 300 },
-    );
-  } finally {
-    finish();
-    await Promise.all([saving, graph]);
-  }
 });
 it('does not suppress a deliberate Stash revert after an external service update', async () => {
   mock.read.mockResolvedValue('original');

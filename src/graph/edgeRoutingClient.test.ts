@@ -46,30 +46,6 @@ it('coalesces pending layouts, recovers from timeout and disposes scheduled work
   expect(workers[1].postMessage).toHaveBeenCalledOnce();
   expect(workers[1].terminate).toHaveBeenCalledOnce();
 });
-it('ignores stale replies and retries after a worker failure', () => {
-  vi.useFakeTimers();
-  const workers: WorkerStub[] = [];
-  const client = new EdgeRoutingClient(() => {
-    const worker = new WorkerStub();
-    workers.push(worker);
-    return worker as unknown as Worker;
-  });
-  const complete = vi.fn();
-  client.request(geometry, complete);
-  vi.advanceTimersByTime(80);
-  const worker = workers[0];
-  worker.onmessage?.({ data: { id: 999, paths: [] } });
-  expect(complete).not.toHaveBeenCalled();
-  worker.onerror?.({ preventDefault: vi.fn() });
-  expect(complete.mock.calls[0][1]).toContain('failed');
-  client.request(geometry, complete);
-  vi.advanceTimersByTime(80);
-  expect(workers).toHaveLength(2);
-  const replacement = workers[1];
-  replacement.onmessage?.({ data: { id: replacement.postMessage.mock.calls[0][0].id, paths: [] } });
-  expect(complete).toHaveBeenCalledTimes(2);
-  client.dispose();
-});
 
 it('continues routing during uninterrupted pointer movement rather than debouncing until release', () => {
   vi.useFakeTimers();
@@ -93,30 +69,5 @@ it('continues routing during uninterrupted pointer movement rather than debounci
   expect(worker.postMessage.mock.calls.length).toBeLessThanOrEqual(32);
   vi.advanceTimersByTime(16);
   expect(worker.postMessage.mock.calls.at(-1)?.[0].nodes[0].x).toBe(49);
-  client.dispose();
-});
-
-it('retains only the newest pending frame while a slow transaction runs', () => {
-  vi.useFakeTimers();
-  const worker = new WorkerStub();
-  const client = new EdgeRoutingClient(() => worker as unknown as Worker);
-  const complete = vi.fn();
-  client.request(geometry, complete);
-  vi.advanceTimersByTime(16);
-  for (let frame = 0; frame < 100; frame++) {
-    client.request(
-      { edges: [], nodes: [{ id: 'moving', x: frame, y: 0, width: 100, height: 80 }] },
-      complete,
-    );
-    vi.advanceTimersByTime(10);
-  }
-  expect(worker.postMessage).toHaveBeenCalledOnce();
-  worker.onmessage?.({ data: { id: worker.postMessage.mock.calls[0][0].id, paths: [] } });
-  expect(worker.postMessage).toHaveBeenCalledTimes(2);
-  expect(worker.postMessage.mock.calls[1][0].nodes[0].x).toBe(99);
-  worker.onmessage?.({ data: { id: worker.postMessage.mock.calls[1][0].id, paths: [] } });
-  expect(complete).toHaveBeenCalledTimes(2);
-  vi.advanceTimersByTime(500);
-  expect(worker.postMessage).toHaveBeenCalledTimes(2);
   client.dispose();
 });

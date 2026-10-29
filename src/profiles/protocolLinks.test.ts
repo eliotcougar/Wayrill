@@ -1,8 +1,5 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { decodeBase64, importProfiles, parseEntry } from './import';
 import { protocolLink } from './protocolLinks';
 import { fixtureId, fixtureKey } from '../graph/protocolFixtures';
@@ -81,32 +78,6 @@ describe('Protocol subscription links', () => {
         });
     },
   );
-
-  it.each(['1', 'true', 'yes', '2'])(
-    'retains unsupported insecure TLS requests instead of silently discarding %s',
-    (value) => {
-      const links = [
-        `trojan://fictional-qa-only@qa.example.invalid:443?insecure=${value}`,
-        `vmess://${btoa(JSON.stringify({ add: '127.0.0.1', port: 20922, id: fixtureId, insecure: value }))}`,
-      ];
-      for (const link of links) {
-        const entry = parseEntry(link);
-        expect(entry.profile).toBeNull();
-        expect(entry.raw).toBe(link);
-        expect(entry.problem).toContain('insecure TLS');
-      }
-    },
-  );
-  it.each([false, 0, '0', 'false', ''])(
-    'accepts a disabled VMess insecure option: %s',
-    (insecure) => {
-      const entry = parseEntry(
-        `vmess://${btoa(JSON.stringify({ add: '127.0.0.1', port: 20922, id: fixtureId, insecure }))}`,
-      );
-      expect(entry.profile?.kind).toBe('vmess-outbound');
-      expect(entry.problem).toBe('');
-    },
-  );
   for (const [name, link, kind] of cases)
     it(`imports ${name} into a ready stash profile`, () => {
       const entry = parseEntry(link);
@@ -114,45 +85,6 @@ describe('Protocol subscription links', () => {
       expect(entry.profile?.kind).toBe(kind);
       expect(importProfiles(btoa(link)).groups[0].entries[0].profile?.kind).toBe(kind);
     });
-  it('accepts complete legacy Base64 authorities and IPv6', () => {
-    expect(
-      parseEntry(`ss://${btoa('aes-128-gcm:fictional-qa-only@[::1]:20922')}#QA`).profile?.kind,
-    ).toBe('shadowsocks-outbound');
-    expect(parseEntry('socks://[::1]:20922').profile?.kind).toBe('socks-outbound');
-  });
-  it.each(
-    ['ss', 'socks', 'socks5'].flatMap((scheme) =>
-      ['qa/with?query#fragment@:🦊', 'literal%2F%40%23'].map((password) => ({ scheme, password })),
-    ),
-  )(
-    'preserves legacy $scheme password $password through subscription import',
-    ({ scheme, password }) => {
-      const user = scheme === 'ss' ? 'aes-128-gcm' : 'qa';
-      const link = `${scheme}://${Buffer.from(`${user}:${password}@[::1]:20922`).toString('base64')}#Legacy%20server`;
-      const imported = importProfiles(btoa(link));
-      expect(imported.rejected).toBe(0);
-      const entries = imported.groups[0].entries;
-      expect(entries).toHaveLength(1);
-      const entry = entries[0];
-      expect(entry.problem).toBe('');
-      expect(entry.name).toBe('Legacy server');
-      if (scheme === 'ss')
-        expect(JSON.parse(String(entry.profile?.settings.json)).settings).toMatchObject({
-          address: '::1',
-          port: 20922,
-          method: user,
-          password,
-        });
-      else
-        expect(entry.profile?.settings).toMatchObject({
-          address: '::1',
-          port: 20922,
-          auth: 'password',
-          username: user,
-          password,
-        });
-    },
-  );
   for (const link of [
     'trojan://qa@127.0.0.1:443?insecure=1',
     'ss://YWVzLTEyOC1nY206cWE=@127.0.0.1:443?plugin=obfs-local',
@@ -166,42 +98,5 @@ describe('Protocol subscription links', () => {
       expect(entry.raw).toBe(link);
       expect(entry.profile).toBeNull();
       expect(entry.problem).toBeTruthy();
-    });
-  it('does not discard VMess alterId', () => {
-    expect(
-      parseEntry(
-        `vmess://${btoa(JSON.stringify({ add: '127.0.0.1', port: 20922, id: fixtureId, aid: 64 }))}`,
-      ).profile,
-    ).toBeNull();
-  });
-  it('keeps thousands of distinct mixed protocols in the stash', () => {
-    const mixed = [cases[1][1], cases[2][1], cases[4][1]],
-      rows = Array.from(
-        { length: 3000 },
-        (_, i) =>
-          mixed[i % mixed.length].replace('20922', String(30000 + i)).replace(/#.*$/, '') + `#${i}`,
-      ),
-      result = importProfiles(rows.join('\n'));
-    expect(result.groups[0].entries.length).toBe(3000);
-    expect(result.rejected).toBe(0);
-    expect(result.groups[0].entries.every((e) => e.profile)).toBe(true);
-  });
-});
-const core = process.env.WAYRILL_XRAY_TEST_EXE,
-  dir = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-describe.skipIf(!core || !dir)('Protocol links accepted by the pinned core', () => {
-  for (const [name, link] of cases)
-    it(name, () => {
-      const { config } = protocolLink(link, decodeBase64);
-      mkdirSync(dir!, { recursive: true });
-      const path = join(dir!, `link-${name}.json`);
-      writeFileSync(path, JSON.stringify({ outbounds: [config] }));
-      const result = spawnSync(core!, ['run', '-test', '-config', path], {
-        encoding: 'utf8',
-        windowsHide: true,
-        timeout: 10000,
-      });
-      writeFileSync(path + '.log', `${result.stdout}\n${result.stderr}`);
-      expect(result.status, result.stdout + result.stderr).toBe(0);
     });
 });

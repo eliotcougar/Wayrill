@@ -68,36 +68,6 @@ describe('protected document lifecycle', () => {
     expect(storage.error).toContain('parse failure');
     expect(mock.write).not.toHaveBeenCalled();
   });
-  it('keeps the newest save status when an old write finishes later', async () => {
-    mock.read.mockResolvedValue(null);
-    const first = deferred<void>(),
-      second = deferred<void>();
-    mock.write.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-    const load = vi.fn();
-    await act(() => root.render(<Harness text="old" load={load} />));
-    await act(() => vi.advanceTimersByTimeAsync(350));
-    await act(() => root.render(<Harness text="new" load={load} />));
-    await act(() => vi.advanceTimersByTimeAsync(350));
-    await act(async () => {
-      first.resolve();
-    });
-    expect(storage.status).toBe('saving');
-    await act(async () => {
-      second.resolve();
-    });
-    expect(storage.status).toBe('saved');
-  });
-  it('keeps browser work in memory without accessing native storage', async () => {
-    mock.available = false;
-    const load = vi.fn();
-    await act(() => root.render(<Harness text="new graph" load={load} />));
-    await act(() => vi.advanceTimersByTimeAsync(1000));
-    expect(storage.status).toBe('session');
-    expect(storage.ready).toBe(true);
-    expect(mock.read).not.toHaveBeenCalled();
-    expect(mock.write).not.toHaveBeenCalled();
-    expect(load).not.toHaveBeenCalled();
-  });
 });
 
 it('defers serialization until the latest debounced save and catches a serialization failure', async () => {

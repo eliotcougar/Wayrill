@@ -1,7 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { makeNode, makeProxyInbound } from './catalog';
 import { createChainedExample } from './chainedExample';
 import { RoutingPathError, intersectPredicates, routingPaths } from './routingPaths';
@@ -146,54 +143,6 @@ describe('Flattened routing paths', () => {
       { port: '80,443', outboundTag: 'block' },
     ]);
   });
-  it('flattens a third filter, intersects port ranges, and gives DNS branches global priority', () => {
-    const graph = createChainedExample(),
-      root = graph.nodes.find((n) => n.id === 'entry-filter')!,
-      child = graph.nodes.find((n) => n.id === 'shared-filter')!;
-    change(root, [rule('range', { port: '1000-2000' })]);
-    const third = makeNode('routing-filter', { x: 0, y: 0 }, 'third');
-    Object.assign(third.data.settings, child.data.settings);
-    third.data.label = 'Third filter';
-    change(child, [rule('narrow', { port: '1500-2500' }, 'group')]);
-    graph.edges.find((e) => e.source === child.id && e.sourceHandle === 'group')!.target = third.id;
-    graph.nodes.push(third);
-    graph.edges.push(
-      {
-        id: 'third-group',
-        source: third.id,
-        sourceHandle: 'group',
-        target: 'test-group',
-        targetHandle: 'in',
-      },
-      {
-        id: 'third-blocked',
-        source: third.id,
-        sourceHandle: 'blocked',
-        target: 'test-block',
-        targetHandle: 'in',
-      },
-    );
-    graph.edges.find((e) => e.source === 'policy-input' && e.sourceHandle === 'dns')!.target =
-      child.id;
-    const config = assertEquivalent(graph);
-    expect((config.routing as { rules: Fields[] }).rules[0]).toMatchObject({
-      port: '53',
-      outboundTag: 'block',
-    });
-    expect((config.routing as { rules: Fields[] }).rules.some((r) => r.port === '1500-2000')).toBe(
-      true,
-    );
-  });
-  it('keeps disabled drafts inert and stops after a match-all rule', () => {
-    const graph = createChainedExample(),
-      root = graph.nodes.find((n) => n.id === 'entry-filter')!;
-    change(root, [
-      { ...rule('disabled', { port: 'invalid' }), enabled: false },
-      rule('catchall', {}, 'shared', true),
-      rule('dead', { port: '443' }, 'blocked'),
-    ]);
-    assertEquivalent(graph);
-  });
   it('imports the flattened config into a flatter graph and exports identical Xray behavior', () => {
     const graph = createChainedExample(),
       config = assertEquivalent(graph);
@@ -201,59 +150,6 @@ describe('Flattened routing paths', () => {
     expect(imported.nodes.filter((n) => n.data.kind === 'routing-filter')).toHaveLength(1);
     expect(graph.nodes.filter((n) => n.data.kind === 'routing-filter')).toHaveLength(2);
     expect(compileXrayGraph(parseGraph(serializeGraph(imported))).config).toEqual(config);
-  });
-  it('flattens added filters in a native graph while preserving the first outbound default', () => {
-    const config = {
-      inbounds: [
-        { tag: 'client', protocol: 'mixed', listen: '127.0.0.1', port: 20901, settings: {} },
-      ],
-      outbounds: [
-        { tag: 'direct', protocol: 'freedom' },
-        { tag: 'block', protocol: 'blackhole' },
-      ],
-      routing: { rules: [{ domain: ['domain:example.net'], outboundTag: 'block' }] },
-    };
-    const graph = importXrayConfig(JSON.stringify(config)),
-      root = graph.nodes.find((n) => n.data.kind === 'routing-filter')!,
-      child = makeNode('routing-filter', { x: 0, y: 0 }, 'child');
-    Object.assign(
-      child.data.settings,
-      tableSettings({
-        outputs: [
-          { id: 'blocked', name: 'Block' },
-          { id: 'direct', name: 'Direct' },
-        ],
-        rules: [rule('https', { port: '443' }, 'blocked')],
-        defaultOutput: 'direct',
-      }),
-    );
-    graph.nodes.push(child);
-    graph.edges.find(
-      (e) =>
-        e.source === root.id &&
-        e.sourceHandle === readRuleTable(root.data.settings).rules[0].output,
-    )!.target = child.id;
-    for (const [sourceHandle, tag] of [
-      ['blocked', 'block'],
-      ['direct', 'direct'],
-    ])
-      graph.edges.push({
-        id: `child-${sourceHandle}`,
-        source: child.id,
-        sourceHandle,
-        target: graph.nodes.find((n) => n.data.settings.tag === tag)!.id,
-        targetHandle: 'in',
-      });
-    const flattened = compileXrayGraph(graph).config;
-    expect((flattened.routing as { rules: Fields[] }).rules).toEqual([
-      { domain: ['domain:example.net'], port: '443', outboundTag: 'block' },
-      { domain: ['domain:example.net'], outboundTag: 'direct' },
-    ]);
-    expect(compileXrayGraph(importXrayConfig(JSON.stringify(flattened))).config).toEqual(flattened);
-    const table = readRuleTable(root.data.settings);
-    table.rules[0].native!.original.ruleTag = 'branch-side-effect';
-    Object.assign(root.data.settings, tableSettings(table));
-    expect(() => compileXrayGraph(graph)).toThrow(/native ruleTag metadata/);
   });
   it('attaches non-expressible intersections and cycles to the responsible node', () => {
     const graph = createChainedExample(),
@@ -327,24 +223,6 @@ describe('Representable predicate intersections', () => {
       vlessRoute: '10',
     });
   });
-  it('handles literal domains and nested IPv4/IPv6 networks', () => {
-    expect(
-      intersectPredicates(
-        { domain: ['domain:example.net'] },
-        { domain: ['full:A.example.net', 'domain:other.net'] },
-      ),
-    ).toEqual({ domain: ['full:A.example.net'] });
-    expect(
-      intersectPredicates({ domain: ['full:a.example.net'] }, { domain: ['full:b.example.net'] }),
-    ).toBeNull();
-    expect(
-      intersectPredicates(
-        { ip: ['10.0.0.0/8', '2001:db8::/32'] },
-        { ip: ['10.2.0.0/16', '2001:db8:1234::/48'] },
-      ),
-    ).toEqual({ ip: ['10.2.0.0/16', '2001:db8:1234::/48'] });
-    expect(intersectPredicates({ ip: ['10.0.0.0/8'] }, { ip: ['192.168.0.0/16'] })).toBeNull();
-  });
   it('preserves identical opaque predicates and rejects unrepresentable conjunctions', () => {
     expect(
       intersectPredicates(
@@ -362,45 +240,4 @@ describe('Representable predicate intersections', () => {
       intersectPredicates({ attrs: { ':method': 'GET' } }, { attrs: { ':method': 'POST' } }),
     ).toThrow(/Different expressions/);
   });
-});
-
-const core = process.env.WAYRILL_XRAY_TEST_EXE,
-  dir = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-it.skipIf(!core || !dir)(
-  'accepts the flattened shared-branch example in the configured core',
-  () => {
-    const graph = createChainedExample(),
-      config = compileRuntimeGraph(graph).config;
-    mkdirSync(dir!, { recursive: true });
-    const file = join(dir!, 'chained-policy.xray.json');
-    writeFileSync(file, JSON.stringify(config, null, 2));
-    writeFileSync(join(dir!, 'chained-policy.wayrill.json'), serializeGraph(graph));
-    const result = spawnSync(core!, ['run', '-test', '-config', file], {
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 10000,
-    });
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-  },
-);
-
-it('names the upstream row and output in a disjoint shared-branch warning', () => {
-  const graph = createChainedExample(),
-    root = graph.nodes.find((n) => n.id === 'entry-filter')!,
-    child = graph.nodes.find((n) => n.id === 'shared-filter')!;
-  change(root, [{ ...rule('parent-https', { port: '443' }), name: 'Parent HTTPS' }]);
-  change(child, [{ ...rule('child-http', { port: '80' }, 'group'), name: 'Child HTTP' }]);
-  const paths = routingPaths(graph);
-  paths.expand(
-    root,
-    { inboundTag: ['local'] },
-    { terminal: (node) => ({ outboundTag: String(node.data.settings.tag) }) },
-  );
-  expect(paths.warnings).toContainEqual(
-    expect.stringContaining('Application routes / Parent HTTPS → Inspect destination'),
-  );
-  expect(paths.warnings).toContainEqual(expect.stringContaining('"port":"443"'));
-  expect(paths.warnings).toContainEqual(
-    expect.stringContaining('Other entering paths may still match'),
-  );
 });

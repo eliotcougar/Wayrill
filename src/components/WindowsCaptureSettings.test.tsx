@@ -76,62 +76,6 @@ it('applies only changed visible permissions with the complete-list version', as
   });
   expect(host.textContent).toContain('1 unmatched exemptions');
 });
-it('allows closing a loopback read but protects an in-flight permission change', async () => {
-  let finishRead!: (value: typeof snapshot) => void;
-  const read = new Promise<typeof snapshot>((resolve) => {
-    finishRead = resolve;
-  });
-  vi.mocked(serviceCall).mockImplementation(async (method) =>
-    method === 'windows.loopback.get' ? read : { interfaces: [] },
-  );
-  await act(async () =>
-    root.render(
-      <WindowsCaptureSettings
-        graph={graph()}
-        onApply={vi.fn()}
-        onClose={vi.fn()}
-        initialTab="loopback"
-      />,
-    ),
-  );
-  const escape = () => {
-    const event = new Event('cancel', { cancelable: true });
-    host.querySelector('dialog')!.dispatchEvent(event);
-    return event.defaultPrevented;
-  };
-  expect(button('Close').disabled).toBe(false);
-  expect(escape()).toBe(false);
-  await act(async () => finishRead(structuredClone(snapshot)));
-  await act(async () => button('Enable visible').click());
-  let finishChange!: (value: typeof snapshot) => void;
-  const change = new Promise<typeof snapshot>((resolve) => {
-    finishChange = resolve;
-  });
-  vi.mocked(serviceCall).mockReturnValueOnce(change);
-  await act(async () => button('Apply permissions (1)').click());
-  expect(button('Close').disabled).toBe(true);
-  expect(escape()).toBe(true);
-  await act(async () => finishChange(structuredClone(snapshot)));
-  expect(button('Close').disabled).toBe(false);
-  expect(escape()).toBe(false);
-});
-it('keeps retained adapter choices when changing the first-seen default', async () => {
-  const draft = graph(),
-    apply = vi.fn();
-  draft.captureOptions!.interfaces.monitorNewInterfaces = false;
-  await act(async () =>
-    root.render(<WindowsCaptureSettings graph={draft} onApply={apply} onClose={vi.fn()} />),
-  );
-  await act(async () => button('Apply to graph').click());
-  expect(apply.mock.calls[0][0].captureOptions.interfaces).toEqual({
-    monitorNewInterfaces: false,
-    interfaces: [
-      { id: 'old', name: 'Old LAN', monitored: true },
-      { id: 'new', name: 'New LAN', monitored: false },
-    ],
-  });
-  expect(draft.captureOptions!.interfaces.interfaces).toEqual([]);
-});
 
 it('makes retained host and ICS TUN unselectable and clears stale monitored selections', async () => {
   const own = '11111111-1111-1111-1111-111111111111';

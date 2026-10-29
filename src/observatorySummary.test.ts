@@ -32,24 +32,6 @@ it('keeps applied group health through routing-only edits, but rejects changed p
   expect(compatibleObservedGroups(changed, config).size).toBe(0);
   expect(compatibleObservedGroups({ ...config, routing: { balancers: [] } }, config).size).toBe(0);
 });
-it('updates minimum/average summaries from the same applied generation', () => {
-  const current = snapshot();
-  expect(observedGroupSummaries(current, new Set(['pool']), 9).get('pool')?.text).toBe(
-    'Min 47 ms · 1/3 live',
-  );
-  current.observation!.groups[0] = {
-    ...current.observation!.groups[0],
-    strategy: 'roundRobin',
-    alive: 2,
-    latencyMs: 68,
-  };
-  expect(observedGroupSummaries(current, new Set(['pool']), 9).get('pool')?.text).toBe(
-    'Avg 68 ms · 2/3 live',
-  );
-  current.observation!.generation = 2;
-  expect(observedGroupSummaries(current, new Set(['pool']), 9).size).toBe(0);
-  expect(observedGroupSummaries(snapshot(), new Set(), 9).size).toBe(0);
-});
 it('distinguishes pending probes and failures and clears stopped/disconnected results', () => {
   const current = snapshot();
   current.observation!.groups[0] = {

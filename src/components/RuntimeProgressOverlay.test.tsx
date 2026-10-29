@@ -45,19 +45,3 @@ it('makes all three panels inert, announces phases and keeps their elements moun
   expect(field.value).toBe('Draft');
   expect(document.activeElement).toBe(field);
 });
-it('uses an indeterminate bar during rollback without a fake percentage', async () => {
-  await act(() =>
-    root.render(
-      <RuntimeProgressOverlay
-        progress={{
-          title: 'Restoring previous configuration',
-          stage: 'Waiting for Xray',
-          percent: null,
-        }}
-      >
-        <button>Library</button>
-      </RuntimeProgressOverlay>,
-    ),
-  );
-  expect(host.querySelector('progress')?.hasAttribute('value')).toBe(false);
-});

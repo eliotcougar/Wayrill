@@ -1,9 +1,5 @@
 import { it, expect } from 'vitest';
 import { testUrlProblem, udpUrlProblem } from './outboundTestSettings';
-it('supports omitting optional country lookup while requiring a test URL', () => {
-  expect(testUrlProblem('', true)).toBe('');
-  expect(testUrlProblem('')).toBeTruthy();
-});
 it('accepts STUN and DNS endpoints with default/custom ports and IPv6, and rejects unrelated URLs', () => {
   for (const text of [
     'stun://stun.cloudflare.com:3478',

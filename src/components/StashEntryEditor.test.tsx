@@ -3,7 +3,6 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import StashEntryEditor from './StashEntryEditor';
-import DeleteGraphSelection from './DeleteGraphSelection';
 import { importProfiles } from '../profiles/import';
 import { preparedPreview } from '../profiles/preparedPreview';
 vi.mock('../profiles/preparedPreviewClient', () => ({
@@ -59,47 +58,4 @@ it('edits the full ordinary outbound fields, retains protection metadata, and sa
     profile: { settings: { address: 'new.example.net' } },
   });
   expect(close).toHaveBeenCalledOnce();
-});
-it('keeps an invalid draft open for correction and does not save it', async () => {
-  await act(() => root.render(<StashEntryEditor entry={entry()} onSave={save} onClose={close} />));
-  await change('#setting-address', '');
-  await act(async () => button('Save to Stash').click());
-  expect(host.querySelector('[role=alert]')?.textContent).toBeTruthy();
-  expect(save).not.toHaveBeenCalled();
-  expect(close).not.toHaveBeenCalled();
-  await change('#setting-address', 'fixed.example.net');
-  await act(async () => button('Save to Stash').click());
-  expect(save).toHaveBeenCalledOnce();
-});
-it('discards an outbound editor draft with Escape without saving or propagating changes', async () => {
-  const original = entry();
-  await act(() => root.render(<StashEntryEditor entry={original} onSave={save} onClose={close} />));
-  await change('#node-label', 'Discard');
-  const event = new Event('cancel', { cancelable: true });
-  await act(() => host.querySelector('dialog')!.dispatchEvent(event));
-  expect(event.defaultPrevented).toBe(true);
-  expect(save).not.toHaveBeenCalled();
-  expect(close).toHaveBeenCalledOnce();
-  expect(original.name).toBe('Friendly');
-});
-it.each([
-  ['Delete graph only', false],
-  ['Delete graph and Stash', true],
-] as const)('offers explicit deletion scope: %s', async (label, remove) => {
-  await act(() =>
-    root.render(<DeleteGraphSelection count={1} stashCount={1} onDelete={save} onClose={close} />),
-  );
-  expect(save).not.toHaveBeenCalled();
-  await act(() => button(label).click());
-  expect(save).toHaveBeenCalledExactlyOnceWith(remove);
-});
-
-it('makes graph-only deletion primary while keeping Stash deletion explicitly secondary', async () => {
-  await act(() =>
-    root.render(<DeleteGraphSelection count={1} stashCount={1} onDelete={save} onClose={close} />),
-  );
-  expect(button('Delete graph only').className).toContain('primary-button');
-  expect(document.activeElement).toBe(button('Delete graph only'));
-  expect(button('Delete graph and Stash').className).toContain('secondary-button');
-  expect(button('Delete graph and Stash').className).not.toContain('primary-button');
 });

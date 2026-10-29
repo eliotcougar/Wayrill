@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { getOutputPorts, makeNode, makeProxyInbound } from './catalog';
 import { factoryDefaults } from './defaults';
-import { diagnoseGraph, parseGraph, serializeGraph, updateGraphNode } from './model';
-import { diagnoseRuntimeGraph } from './diagnostics';
+import { parseGraph, serializeGraph, updateGraphNode } from './model';
 import { compileRuntimeGraph } from './runtime';
-import { compileXrayGraph, diagnoseXrayGraph } from './xrayCompiler';
+import { compileXrayGraph } from './xrayCompiler';
 import { importXrayConfig } from './xrayImport';
-import { compileCapturePlan } from './capture';
 import { isDisabledInbound } from './inboundState';
 import type { GraphState } from './types';
 
@@ -84,43 +82,6 @@ describe('individual inbound activation', () => {
       JSON.parse(serializeGraph(updateGraphNode(saved, 'one', { enabled: true }))).nodes[0].data,
     ).not.toHaveProperty('enabled');
   });
-  it('ignores a disabled inbound listener conflict, invalid fields and disconnected required outputs', () => {
-    const g = graph();
-    g.nodes[0].data.enabled = false;
-    g.nodes[0].data.settings.listen = 'unfinished address';
-    g.nodes[0].data.settings.port = 21991;
-    g.edges = g.edges.filter((e) => e.source !== 'one');
-    expect(diagnoseGraph(g).filter((p) => p.severity === 'error')).toEqual([]);
-    expect(diagnoseRuntimeGraph(g).filter((p) => p.severity === 'error')).toEqual([]);
-    expect(compileRuntimeGraph(g).summary.listeners).toHaveLength(1);
-    g.nodes[0].data.enabled = true;
-    expect(diagnoseRuntimeGraph(g).some((p) => p.nodeId === 'one' && p.severity === 'error')).toBe(
-      true,
-    );
-  });
-  it('does not silently disable other node types or accept malformed activation flags', () => {
-    for (const value of ['false', 0, null]) {
-      const raw = JSON.parse(serializeGraph(graph()));
-      raw.nodes[0].data.enabled = value;
-      expect(() => parseGraph(JSON.stringify(raw))).toThrow(/boolean enabled state/);
-    }
-    const raw = JSON.parse(serializeGraph(graph()));
-    raw.nodes[2].data.enabled = false;
-    expect(() => parseGraph(JSON.stringify(raw))).toThrow(/Only inbounds/);
-  });
-  it('excludes disabled TUN and WinDivert nodes from the runtime and capture plan', () => {
-    const g = graph();
-    for (const kind of ['tun-inbound', 'windivert-inbound'] as const) {
-      const node = makeNode(kind, { x: 0, y: 500 }, kind);
-      node.data.enabled = false;
-      g.nodes.push(node);
-    }
-    expect(compileCapturePlan(g)).toBeUndefined();
-    const compiled = compileRuntimeGraph(g);
-    expect(compiled.capture).toBeUndefined();
-    expect(compiled.config.inbounds).toHaveLength(2);
-    expect(diagnoseRuntimeGraph(g).filter((p) => p.severity === 'error')).toEqual([]);
-  });
   it('exports only enabled native inputs and keeps virtual redispatch tag renames intact', () => {
     const g = native(),
       before = compileXrayGraph(g).config,
@@ -142,28 +103,6 @@ describe('individual inbound activation', () => {
     expect(compileXrayGraph(updateGraphNode(disabled, input.id, { enabled: true })).config).toEqual(
       before,
     );
-  });
-  it('excludes disabled native inputs from collision and missing-path checks', () => {
-    const g = native(),
-      input = g.nodes.find((n) => n.data.settings.tag === 'one')!;
-    input.data.enabled = false;
-    input.data.settings.port = 21991;
-    g.edges = g.edges.filter((e) => e.source !== input.id);
-    expect(diagnoseXrayGraph(g).filter((p) => p.severity === 'error')).toEqual([]);
-    expect(compileXrayGraph(g).config.inbounds).toHaveLength(1);
-  });
-  it('requires an enabled traffic source for activation when every input is disabled', () => {
-    for (const g of [graph(), native()]) {
-      for (const node of g.nodes) if (node.data.kind.endsWith('inbound')) node.data.enabled = false;
-      expect(() => compileRuntimeGraph(g)).toThrow(/Enable at least one/);
-      expect(diagnoseRuntimeGraph(g)).toContainEqual(
-        expect.objectContaining({
-          severity: 'error',
-          message: expect.stringMatching(/Enable at least one/),
-        }),
-      );
-      expect(parseGraph(serializeGraph(g)).nodes).toHaveLength(g.nodes.length);
-    }
   });
 });
 

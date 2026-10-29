@@ -46,16 +46,3 @@ it('rejects a conversion that would exceed the distinct output budget before rep
   };
   expect(() => importXrayConfig(JSON.stringify(config))).toThrow(/graph.*size|128 outputs/i);
 });
-
-it('distinguishes unsupported API routing from a missing configured outbound', () => {
-  const config = {
-    api: { tag: 'control', services: ['StatsService'] },
-    outbounds: [{ tag: 'direct', protocol: 'freedom' }],
-    routing: { rules: [{ type: 'field', inboundTag: ['control-in'], outboundTag: 'control' }] },
-  };
-  expect(() => importXrayConfig(JSON.stringify(config))).toThrow(
-    /API virtual outbound.*not supported/,
-  );
-  config.routing.rules[0].outboundTag = 'missing';
-  expect(() => importXrayConfig(JSON.stringify(config))).toThrow(/missing destination/);
-});

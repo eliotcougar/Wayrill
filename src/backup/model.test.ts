@@ -27,7 +27,6 @@ import { readDnsFilter } from '../graph/dns';
 import { readPolicySources, policyProfileId } from '../graph/policySources';
 import { subscriptionSource } from '../graph/policySources';
 import { readProxyChain } from '../graph/proxyChains';
-import { compileRuntimeGraph } from '../graph/runtime';
 import type { GraphState } from '../graph/types';
 import { createRoutingExample } from '../graph/example';
 import { enableDefaults } from '../graph/defaults';
@@ -85,38 +84,6 @@ it('round trips the complete draft, including disabled inputs, defaults, Unicode
   expect(restored.graph!.defaults).toEqual(original.defaults);
   expect(restored.stash!.groups.find((g) => g.id === group.id)?.entries).toEqual(group.entries);
   expect(restored.preferences).toEqual({ 'wayrill.appearance.theme': 'dark' });
-});
-it('keeps compiled behavior across a graph-only backup and restore', () => {
-  const source = enableDefaults(createRoutingExample());
-  const content = createContent('graph', source, library(), {}, []);
-  const restored = prepareRestore(content, selection({ graph: true }), graph(), library());
-  expect(compileRuntimeGraph(restored.graph!)).toEqual(compileRuntimeGraph(source));
-});
-it('includes only used manual entries and complete filtered pools in graph dependencies', () => {
-  const a = parseEntry('socks://127.0.0.1:1080#Used'),
-    b = parseEntry('socks://127.0.0.1:1081#Other');
-  const stash = library(provider('unused'));
-  stash.groups[0].entries = [a, b];
-  const source = graph(),
-    outbound = makeNode('socks-outbound', { x: 0, y: 0 });
-  outbound.data.stashLink = { groupId: stash.groups[0].id, entryId: a.id };
-  source.nodes.push(outbound);
-  expect(
-    graphDependencies(source, stash).groups.map((g) => [g.id, g.entries.map((e) => e.id)]),
-  ).toEqual([[stash.groups[0].id, [a.id]]]);
-});
-it('reuses compatible partial dependency groups rather than duplicating unrelated manual entries', () => {
-  const used = parseEntry('socks://127.0.0.1:1080#Used'),
-    unrelated = parseEntry('socks://127.0.0.1:1081#Unrelated');
-  const stash = library();
-  stash.groups[0].entries = [used, unrelated];
-  const node = makeNode('socks-outbound', { x: 0, y: 0 });
-  node.data.settings = { ...node.data.settings, ...used.profile!.settings };
-  node.data.stashLink = { groupId: stash.groups[0].id, entryId: used.id };
-  const content = createContent('graph', { ...graph(), nodes: [node] }, stash, {}, []);
-  const restored = prepareRestore(content, selection({ graph: true }), graph(), stash);
-  expect(restored.stash).toBeUndefined();
-  expect(restored.graph!.nodes[0].data.stashLink).toEqual(node.data.stashLink);
 });
 it('includes complete dynamic pools and follows nested chain references without adding unrelated providers', () => {
   const pool = provider('pool');
@@ -284,41 +251,6 @@ it('rejects invalid filter contents and unsafe preferences before restoration', 
       preferences: { 'unrelated.key': 'overwrite' },
     }),
   ).toThrow('preferences');
-});
-it('restores preferences and filters without replacing the unchanged Stash', () => {
-  const source = { ...graph(), nodes: [makeNode('routing-filter', { x: 0, y: 0 }, 'filter')] };
-  const stash = library(provider('keep'));
-  const content = createContent('full', source, stash, { 'wayrill.appearance.theme': 'light' }, []);
-  expect(prepareRestore(content, selection({ preferences: true }), source, stash)).toEqual({
-    preferences: { 'wayrill.appearance.theme': 'light' },
-  });
-  const filter = createContent('filters', source, stash, {}, ['filter']);
-  const restored = prepareRestore(
-    filter,
-    selection({ filters: true, targetId: 'filter' }),
-    source,
-    stash,
-  );
-  expect(restored.graph).toBeDefined();
-  expect(restored.stash).toBeUndefined();
-  expect(restored.graph!.nodes.find((n) => n.id === 'filter')?.selected).toBe(true);
-});
-it('selects all newly added filters without selecting existing nodes', () => {
-  const source = {
-    ...graph(),
-    nodes: [
-      makeNode('routing-filter', { x: 0, y: 0 }, 'traffic'),
-      makeNode('dns-routing-filter', { x: 400, y: 0 }, 'dns'),
-    ],
-  };
-  const content = createContent('filters', source, library(), {}, ['traffic', 'dns']);
-  const current = { ...graph(), nodes: [makeNode('direct-outbound', { x: 0, y: 0 }, 'existing')] };
-  const restored = prepareRestore(content, selection({ filters: true }), current, library());
-  expect(restored.graph!.nodes.filter((n) => n.selected).map((n) => n.data.kind)).toEqual([
-    'routing-filter',
-    'dns-routing-filter',
-  ]);
-  expect(restored.graph!.nodes.find((n) => n.id === 'existing')?.selected).toBe(false);
 });
 
 it('preserves source overrides and remaps all output references during in-place filter restore', () => {

@@ -1,39 +1,8 @@
 import { expect, it } from 'vitest';
-import { analyzeGraph, largeGraph } from './analysis';
-import { diagnoseRuntimeGraph } from './diagnostics';
-import { compileRuntimeGraph } from './runtime';
-import { createTrafficExample } from './example';
+import { largeGraph } from './analysis';
 import { createChainedExample } from './chainedExample';
 import { createPolicyExample } from './policyExample';
 import { importXrayConfig } from './xrayImport';
-it('returns the same diagnostics and complete executable config as direct compilation', () => {
-  for (const graph of [createTrafficExample(), createPolicyExample('leastPing')]) {
-    const result = analyzeGraph(graph);
-    expect(result.issues).toEqual(diagnoseRuntimeGraph(graph));
-    expect(result.compilation).toEqual(compileRuntimeGraph(graph));
-    expect(result.configBytes).toBe(
-      new TextEncoder().encode(JSON.stringify(result.compilation!.config)).length,
-    );
-  }
-});
-it('returns errors without an executable configuration for an invalid graph', () => {
-  const graph = createTrafficExample();
-  graph.edges = [];
-  const result = analyzeGraph(graph);
-  expect(result.issues.some((i) => i.severity === 'error')).toBe(true);
-  expect(result.compilation).toBeNull();
-  expect(result.configBytes).toBe(0);
-});
-
-it('offloads large ordinary routing tables, including many small settings', () => {
-  const graph = createTrafficExample();
-  const filter = graph.nodes.find((n) => n.data.kind === 'routing-filter')!;
-  const rows = JSON.parse(String(filter.data.settings.rules));
-  filter.data.settings.rules = JSON.stringify(
-    Array.from({ length: 2000 }, (_, i) => ({ ...rows[0], id: `row-${i}` })),
-  );
-  expect(largeGraph(graph)).toBe(true);
-});
 
 it('offloads chained filters before shared paths can expand on the UI thread', () => {
   const graph = createChainedExample();

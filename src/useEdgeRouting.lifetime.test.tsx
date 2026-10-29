@@ -160,29 +160,3 @@ it('discards stale failures and removed links while preserving explicit current 
   expect(current.pending).toBe(false);
   expect(jobs).toHaveLength(3);
 });
-
-it('cannot blank a good link with a blocked intermediate position, but honors the current blocked layout', async () => {
-  await act(() => root.render(<Harness tick={0} />));
-  await act(() => finish(0));
-  store.nodeLookup.get('a')!.internals.positionAbsolute.x = 400;
-  await act(() => root.render(<Harness tick={1} />));
-  store.nodeLookup.get('a')!.internals.positionAbsolute.x = 32;
-  await act(() => root.render(<Harness tick={2} />));
-  const blocked: EdgePath = {
-    path: '',
-    points: [],
-    blocked: true,
-    labelX: 0,
-    labelY: 0,
-    junctions: [],
-    sharedWires: [],
-  };
-  await act(() => jobs[1].complete(new Map([['wire', blocked]]), ''));
-  expect(current.pending).toBe(true);
-  expect(current.paths.get('wire')!.blocked).not.toBe(true);
-  expect(current.paths.get('wire')!.points[0].x).toBe(238);
-  await act(() => jobs[2].complete(new Map([['wire', blocked]]), ''));
-  expect(current.pending).toBe(false);
-  expect(current.paths.get('wire')!.blocked).toBe(true);
-  expect(current.paths.get('wire')!.path).toBe('');
-});

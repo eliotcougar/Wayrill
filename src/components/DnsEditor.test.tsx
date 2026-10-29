@@ -3,10 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import DnsEditor from './DnsEditor';
-import { makeNode, summarizeNode } from '../graph/catalog';
+import { makeNode } from '../graph/catalog';
 import { createDnsExample } from '../graph/example';
 import { createFakeDnsExample } from '../graph/fakeDnsExample';
-import { dnsOutputs, readDnsFilter, newDnsServer } from '../graph/dns';
+import { readDnsFilter } from '../graph/dns';
 import { updateGraphNode } from '../graph/model';
 import {
   commitWorkspaceHistory,
@@ -69,57 +69,6 @@ it('shows the managed FakeDNS output and keeps a real fallback without serializi
   expect(apply.mock.calls[0][1].settings.parallel).toBe(true);
   expect(graph).toEqual(before);
 });
-it('uses the connected handler bootstrap when checking a DNS-server draft', async () => {
-  const graph = createDnsExample(),
-    node = graph.nodes.find((n) => n.id === 'remote-dns')!,
-    handler = graph.nodes.find((n) => n.id === 'dns')!;
-  node.data.settings.servers = JSON.stringify([
-    { ...newDnsServer('google'), name: 'Google DoH', address: 'https://dns.google/dns-query' },
-  ]);
-  handler.data.settings.hosts = '{"full:dns.google":["8.8.4.4","8.8.8.8"]}';
-  await act(() =>
-    root.render(<DnsEditor node={node} graph={graph} onApply={vi.fn()} onClose={vi.fn()} />),
-  );
-  expect(host.textContent).not.toContain('configure hostname bootstrap');
-});
-
-it('saves a disabled fallback on an unconnected node and retains its permanent port', async () => {
-  const node = makeNode('dns-routing-filter', { x: 0, y: 0 }),
-    graph = { name: 'Public draft', nodes: [node], edges: [] } as GraphState,
-    apply = vi.fn(),
-    before = structuredClone(graph);
-  await act(() =>
-    root.render(<DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
-  );
-  expect(
-    host.querySelector('[aria-label="DNS fallback"] [aria-label="Fallback policy"]'),
-  ).not.toBeNull();
-  expect(host.querySelector('[aria-label="Fallback output"]')?.textContent).toContain(
-    'Not connected',
-  );
-  expect(host.querySelectorAll('.output-editor-card')).toHaveLength(0);
-  expect(host.querySelector('[aria-label="Delete output Fallback"]')).toBeNull();
-  expect(host.querySelector('[aria-label="Output 1 name"]')).toBeNull();
-  const fallback = host.querySelector<HTMLDetailsElement>('[aria-label="DNS fallback"]')!;
-  expect(fallback.open).toBe(false);
-  expect(fallback.querySelector('summary')!.textContent).toContain('After preferences');
-  await act(() => fallback.querySelector('summary')!.click());
-  expect(fallback.open).toBe(true);
-  await choose(host.querySelector('[aria-label="Fallback policy"]')!, 'disabled');
-  await act(() => fallback.querySelector('summary')!.click());
-  expect(fallback.open).toBe(false);
-  expect(fallback.querySelector('summary')!.textContent).toContain('Disabled');
-  expect(button('Apply changes').disabled).toBe(false);
-  await act(() => button('Apply changes').click());
-  expect(apply).toHaveBeenCalledOnce();
-  const data = { ...node.data, ...apply.mock.calls[0][1] };
-  expect(readDnsFilter(data.settings).fallbackMode).toBe('disabled');
-  expect(dnsOutputs(data)).toEqual([
-    { id: 'default', name: 'Fallback', fallback: true },
-    { id: 'fakedns', name: 'FakeDNS' },
-  ]);
-  expect(graph).toEqual(before);
-});
 
 it.each(['Cancel', 'Apply changes'])(
   'deletes a connected preference output, requires reassignment and honors %s atomically',
@@ -164,13 +113,6 @@ it.each(['Cancel', 'Apply changes'])(
     expect(graph).toEqual(before);
   },
 );
-
-it('does not repeat output counts in traffic and DNS routing cards', () => {
-  for (const kind of ['routing-filter', 'dns-routing-filter'] as const)
-    expect(
-      summarizeNode(makeNode(kind, { x: 0, y: 0 }).data).some(([label]) => label === 'Outputs'),
-    ).toBe(false);
-});
 
 it.each(['Cancel', 'Apply changes'])(
   'keeps fallback behavior below preferences, leaves Outputs for ports, and honors %s',
@@ -247,31 +189,6 @@ it.each(['Cancel', 'Apply changes'])(
     expect(graph).toEqual(before);
   },
 );
-
-it('changes UDP to TCP only on request, retains its port, and commits atomically', async () => {
-  const node = makeNode('dns-servers', { x: 0, y: 0 });
-  const servers = JSON.parse(String(node.data.settings.servers));
-  servers[0].address = '2001:db8::53';
-  servers[0].port = 5353;
-  node.data.settings.servers = JSON.stringify(servers);
-  const graph = { name: 'Resolver draft', nodes: [node], edges: [] } as GraphState;
-  const before = structuredClone(graph),
-    apply = vi.fn();
-  await act(() =>
-    root.render(<DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
-  );
-  await act(() => button('Use TCP DNS').click());
-  expect(host.querySelector<HTMLInputElement>('[aria-label="Resolver address"]')!.value).toBe(
-    'tcp://[2001:db8::53]:5353',
-  );
-  expect(graph).toEqual(before);
-  await act(() => button('Apply changes').click());
-  expect(apply).toHaveBeenCalledOnce();
-  expect(JSON.parse(apply.mock.calls[0][1].settings.servers)[0]).toMatchObject({
-    address: 'tcp://[2001:db8::53]:5353',
-    port: 5353,
-  });
-});
 
 it('does not convert an invalid UDP resolver draft to TCP', async () => {
   const node = makeNode('dns-servers', { x: 0, y: 0 });

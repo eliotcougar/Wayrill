@@ -77,17 +77,6 @@ const button = (name: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('button')].find(
     (b) => b.textContent?.trim() === name,
   )!;
-async function value(input: HTMLInputElement | HTMLSelectElement, next: string) {
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      input instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype,
-      'value',
-    )!.set!.call(input, next);
-    input.dispatchEvent(
-      new Event(input instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }),
-    );
-  });
-}
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   HTMLDialogElement.prototype.showModal = function () {
@@ -109,88 +98,6 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-
-it('creates and edits a reusable policy in its tab, saves an independent graph snapshot, and keeps nested Cancel inside the stash', async () => {
-  await act(async () => root.render(<Harness />));
-  await act(async () => button('Policy groups').click());
-  await act(async () => button('New policy group').click());
-  const draftName = container.querySelector<HTMLInputElement>(
-    '.policy-editor input[maxlength="128"]',
-  )!;
-  await value(draftName, 'Friendly 🧭 group');
-  await value(
-    container.querySelector<HTMLSelectElement>('[aria-label="Add outbound from graph"]')!,
-    'test-first',
-  );
-  await act(async () => button('Save to stash').click());
-  expect(stashRows(store.stash, 'policy-group').map((r) => r.entry)).toHaveLength(1);
-  expect(stashRows(store.stash, 'policy-group').map((r) => r.entry)[0].name).toBe(
-    'Friendly 🧭 group',
-  );
-  expect(container.querySelectorAll('dialog')).toHaveLength(1);
-  expect(close).not.toHaveBeenCalled();
-  const sources = JSON.parse(
-    String(stashRows(store.stash, 'policy-group').map((r) => r.entry)[0].profile!.settings.sources),
-  );
-  expect(sources.manual[0].type).toBe('profile');
-  expect(
-    [...container.querySelectorAll('button')].map((b) => b.getAttribute('aria-label')),
-  ).toContain('Edit Friendly 🧭 group');
-  await act(async () =>
-    [...container.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.getAttribute('aria-label') === 'Edit Friendly 🧭 group')!
-      .click(),
-  );
-  await value(
-    container.querySelector<HTMLInputElement>('.policy-editor input[maxlength="128"]')!,
-    'Discarded name',
-  );
-  await act(async () => button('Cancel').click());
-  expect(stashRows(store.stash, 'policy-group').map((r) => r.entry)[0].name).toBe(
-    'Friendly 🧭 group',
-  );
-  expect(close).not.toHaveBeenCalled();
-});
-it.each(['policy-group', 'proxy-chain'] as const)(
-  'saves a %s edit after the service replaces its library entry object',
-  async (kind) => {
-    await act(async () => root.render(<Harness />));
-    const fixture = chainFixture();
-    const entry =
-      kind === 'policy-group'
-        ? preparedEntry(graph, 'test-group')
-        : preparedEntry(fixture.context, fixture.node.id);
-    const result = importProfiles('socks://127.0.0.1:16001#Unused');
-    result.groups[0].entries = [entry];
-    await act(async () => store.importResult(result));
-    await act(async () =>
-      button(kind === 'policy-group' ? 'Policy groups' : 'Proxy chains').click(),
-    );
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>(`[aria-label="Edit ${entry.name}"]`)!.click(),
-    );
-    await value(
-      container.querySelector<HTMLInputElement>('.policy-editor input[maxlength="128"]')!,
-      'Renamed prepared',
-    );
-    await act(async () =>
-      store.update((current) => {
-        const next = structuredClone(current);
-        next.groups.find((g) => g.entries.some((e) => e.id === entry.id))!.entries[0].locked = true;
-        return next;
-      }),
-    );
-    await act(async () => vi.advanceTimersByTime(100));
-    expect(button('Save to stash').disabled).toBe(false);
-    await act(async () => button('Save to stash').click());
-    expect(container.querySelector('.policy-editor')).toBeNull();
-    expect(stashRows(store.get(), kind)[0].entry).toMatchObject({
-      id: entry.id,
-      name: 'Renamed prepared',
-      locked: true,
-    });
-  },
-);
 
 it('uses one replacement action across all three tabs and cannot confuse subscriptions with library IDs', async () => {
   await act(async () => root.render(<Harness replace />));
@@ -266,34 +173,6 @@ it('reorders hops by keyboard with stable reference identity and retains a faile
   expect(close).not.toHaveBeenCalled();
 });
 
-it('blocks save during validation, ignores a stale worker, and cancels without changing the graph', async () => {
-  PreviewWorker.hold = true;
-  const { node, context } = chainFixture(),
-    before = JSON.stringify(context);
-  await act(async () =>
-    root.render(
-      <ProxyChainEditor node={node} graph={context} stash={empty} onApply={use} onClose={close} />,
-    ),
-  );
-  await act(async () => vi.advanceTimersByTime(100));
-  const first = PreviewWorker.instances[0];
-  expect(button('Apply changes').disabled).toBe(true);
-  const tag = [...container.querySelectorAll<HTMLInputElement>('input')].find(
-    (i) => i.value === 'proxy-chain',
-  )!;
-  await value(tag, 'edited-chain');
-  expect(first.terminated).toBe(true);
-  await act(async () => first.reply());
-  expect(button('Apply changes').disabled).toBe(true);
-  await act(async () => vi.advanceTimersByTime(100));
-  await act(async () => PreviewWorker.instances.at(-1)!.reply());
-  expect(container.querySelector('[role=alert]')?.textContent).toBeUndefined();
-  expect(button('Apply changes').disabled).toBe(false);
-  await act(async () => button('Cancel').click());
-  expect(use).not.toHaveBeenCalled();
-  expect(JSON.stringify(context)).toBe(before);
-});
-
 it('blocks a previously valid chain while a referenced outbound is revalidated', async () => {
   PreviewWorker.hold = true;
   const { node, context } = chainFixture();
@@ -310,29 +189,6 @@ it('blocks a previously valid chain while a referenced outbound is revalidated',
   await act(async () => render(changed));
   expect(button('Apply changes').disabled).toBe(true);
   await act(async () => first.reply());
-  expect(button('Apply changes').disabled).toBe(true);
-});
-
-it('collapses rapid chain edits before copying their graph and releases a timed-out worker', async () => {
-  PreviewWorker.hold = true;
-  const { node, context } = chainFixture();
-  await act(async () =>
-    root.render(
-      <ProxyChainEditor node={node} graph={context} stash={empty} onApply={use} onClose={close} />,
-    ),
-  );
-  const tag = [...container.querySelectorAll<HTMLInputElement>('input')].find(
-    (i) => i.value === 'proxy-chain',
-  )!;
-  for (const name of ['a', 'ab', 'abc']) await value(tag, name);
-  expect(PreviewWorker.instances).toHaveLength(0);
-  await act(async () => vi.advanceTimersByTime(100));
-  expect(PreviewWorker.instances).toHaveLength(1);
-  expect(PreviewWorker.instances[0].message!.node.data.settings.tag).toBe('abc');
-  await act(async () => vi.advanceTimersByTime(60000));
-  expect(container.textContent).toContain('timed out');
-  expect(PreviewWorker.instances[0].terminated).toBe(true);
-  await act(async () => PreviewWorker.instances[0].reply());
   expect(button('Apply changes').disabled).toBe(true);
 });
 

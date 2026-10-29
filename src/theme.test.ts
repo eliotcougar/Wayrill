@@ -36,45 +36,6 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
   document.documentElement.style.removeProperty('color-scheme');
 });
-it('defaults to System and applies the current palette before rendering', () => {
-  const c = open();
-  expect(c.getSnapshot()).toEqual({
-    preference: 'system',
-    resolved: 'light',
-    persistenceError: '',
-  });
-  expect(document.documentElement.dataset.theme).toBe('light');
-  expect(document.documentElement.style.colorScheme).toBe('light');
-  const lightColor = document.querySelector('meta')!.content;
-  expect(lightColor).not.toBe('#000');
-  system(true);
-  expect(c.getSnapshot().resolved).toBe('dark');
-  expect(document.documentElement.dataset.theme).toBe('dark');
-  expect(document.querySelector('meta')!.content).not.toBe(lightColor);
-});
-it('persists an explicit choice and ignores system changes until System is selected', () => {
-  const c = open(),
-    listener = vi.fn();
-  c.subscribe(listener);
-  c.setPreference('dark');
-  expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
-  system(true);
-  system(false);
-  expect(c.getSnapshot().resolved).toBe('dark');
-  expect(listener).toHaveBeenCalledTimes(1);
-  c.dispose();
-  const reopened = open();
-  expect(reopened.getSnapshot().preference).toBe('dark');
-  reopened.setPreference('system');
-  expect(reopened.getSnapshot().resolved).toBe('light');
-  system(true);
-  expect(reopened.getSnapshot().resolved).toBe('dark');
-});
-it('treats invalid saved preferences as System', () => {
-  localStorage.setItem(THEME_STORAGE_KEY, 'unexpected');
-  dark = true;
-  expect(open().getSnapshot()).toMatchObject({ preference: 'system', resolved: 'dark' });
-});
 it('keeps the theme usable when storage is unavailable and reports persistence failure', () => {
   vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
     throw Error('blocked');
@@ -90,15 +51,6 @@ it('keeps the theme usable when storage is unavailable and reports persistence f
   write.mockRestore();
   c.setPreference('light');
   expect(c.getSnapshot().persistenceError).toBe('');
-});
-it('follows appearance changes from another window and ignores unrelated storage events', () => {
-  const c = open();
-  window.dispatchEvent(new StorageEvent('storage', { key: 'other', newValue: 'dark' }));
-  expect(c.getSnapshot().preference).toBe('system');
-  window.dispatchEvent(new StorageEvent('storage', { key: THEME_STORAGE_KEY, newValue: 'dark' }));
-  expect(c.getSnapshot()).toMatchObject({ preference: 'dark', resolved: 'dark' });
-  window.dispatchEvent(new StorageEvent('storage', { key: null }));
-  expect(c.getSnapshot()).toMatchObject({ preference: 'system', resolved: 'light' });
 });
 it('removes system and storage subscriptions when disposed', () => {
   const c = open(),

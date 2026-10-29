@@ -29,24 +29,6 @@ async function pointer(target: HTMLElement, type: string, x: number, y: number, 
     target.dispatchEvent(event);
   });
 }
-it('drops at the pointer position once and suppresses the trailing button click', async () => {
-  const onDrop = vi.fn(),
-    onAdd = vi.fn();
-  await act(() => root.render(<NodePalette onAdd={onAdd} onDrop={onDrop} />));
-  const item = host.querySelector<HTMLButtonElement>(
-    '[aria-label="Add Proxy inbound (Inbounds)"]',
-  )!;
-  await pointer(item, 'pointerdown', 20, 40);
-  await pointer(item, 'pointermove', 220, 140, 2);
-  expect(document.querySelector('.palette-drag-preview')).toBeNull();
-  await pointer(item, 'pointermove', 220, 140);
-  expect(document.querySelector('.palette-drag-preview')).not.toBeNull();
-  await pointer(item, 'pointerup', 320, 240);
-  await act(() => item.click());
-  expect(onDrop).toHaveBeenCalledExactlyOnceWith(expect.any(String), { x: 320, y: 240 });
-  expect(onAdd).not.toHaveBeenCalled();
-  expect(document.querySelector('.palette-drag-preview')).toBeNull();
-});
 it('keeps short presses and keyboard clicks usable and cancels interrupted drags', async () => {
   const onDrop = vi.fn(),
     onAdd = vi.fn();

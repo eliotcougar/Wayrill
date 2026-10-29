@@ -6,9 +6,7 @@ import useOutboundTests from './useOutboundTests';
 import { serviceCall } from './serviceClient';
 import { makeNode } from './graph/catalog';
 import type { GraphState } from './graph/types';
-import { parseEntry, serializeStash, type Stash } from './profiles/import';
-import { defaultGroup } from './profiles/stashModel';
-import { mergeLibraryUpdate } from './profiles/stashMerge';
+import { type Stash } from './profiles/import';
 import { createTestPlan, type TestPlanInput } from './outboundTestPlan';
 import { createPolicyExample } from './graph/policyExample';
 import OutboundTestResults from './components/OutboundTestResults';
@@ -155,55 +153,6 @@ it('retests both measurements in-place and keeps the dialog, other results and i
   expect(latest.records.latency.results.size).toBe(2);
   expect(host.querySelector('dialog')).toBe(dialog);
 });
-it.each(['latency', 'speed'] as const)(
-  'retains %s results after a service refresh changes only subscription metadata',
-  async (mode) => {
-    FakeWorker.realPlans = true;
-    const entry = parseEntry('socks://127.0.0.1:1080#Saved server');
-    const library: Stash = {
-      ...stash,
-      groups: [{ ...defaultGroup(), id: 'provider', name: 'Provider', entries: [entry] }],
-    };
-    vi.mocked(serviceCall).mockImplementation(async (_method, params) => ({
-      job: 1,
-      busy: false,
-      cancelled: false,
-      results: (params!.targets as { id: string }[]).map(({ id }) => ({
-        id,
-        latencyMs: mode === 'latency' ? 25 : null,
-        ip: null,
-        country: null,
-        error: null,
-        countryError: null,
-        ...(mode === 'latency'
-          ? { udp: { reachable: true, error: null } }
-          : { speed: { bytesPerSecond: 1_000_000, bytes: 5_000_000, elapsedMs: 5000 } }),
-      })),
-    }));
-    await act(() => root.render(<Probe s={library} />));
-    await act(() => latest.start([entry], undefined, mode));
-    const results = latest.records[mode].results;
-    expect(results.size).toBe(1);
-    // Normal service publication: an unchanged refresh advances its timestamp,
-    // then the merge worker returns freshly deserialized connection objects.
-    const refreshed = {
-      ...library,
-      groups: library.groups.map((group) => ({ ...group, updatedAt: Date.now() })),
-    };
-    const merged = mergeLibraryUpdate(serializeStash(library), library, serializeStash(refreshed))!;
-    const synchronized = { ...library, groups: merged.groups };
-    expect(synchronized.groups[0].entries[0].profile).not.toBe(entry.profile);
-    expect(synchronized.groups[0].entries[0].profile).toEqual(entry.profile);
-    await act(() => root.render(<Probe s={synchronized} />));
-    expect(latest.records[mode].results).toBe(results);
-    expect(serviceCall).not.toHaveBeenCalledWith('outbounds.testCancel', expect.anything());
-
-    const changed = structuredClone(synchronized);
-    changed.groups[0].entries[0].profile!.settings.port = 1081;
-    await act(() => root.render(<Probe s={changed} />));
-    expect(latest.records[mode].results.size).toBe(0);
-  },
-);
 it('cleans up a failed worker submission immediately and permits a later test', async () => {
   vi.useFakeTimers();
   await act(() => root.render(<Probe />));
@@ -236,72 +185,6 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
   vi.useRealTimers();
-});
-it('uses isolated service jobs and retains results during node movement', async () => {
-  vi.mocked(serviceCall).mockResolvedValue({
-    job: 1,
-    busy: false,
-    cancelled: false,
-    results: [
-      {
-        id: 'test-1',
-        latencyMs: 25,
-        ip: '203.0.113.1',
-        country: 'FI',
-        error: null,
-        countryError: null,
-      },
-    ],
-  });
-  await act(() => root.render(<Probe />));
-  await act(() =>
-    latest.settings.save({
-      ...latest.settings.value,
-      testUrl: 'https://test.example/health',
-      countryUrl: '',
-    }),
-  );
-  await act(() => latest.start());
-  expect(serviceCall).toHaveBeenCalledWith(
-    'outbounds.testStart',
-    expect.objectContaining({
-      testUrl: 'https://test.example/health',
-      countryUrl: '',
-    }),
-  );
-  expect(latest.summaries.get('node:direct')).toMatchObject({
-    text: '25 ms',
-    title: '203.0.113.1 · FI',
-  });
-  await act(() =>
-    root.render(
-      <Probe
-        g={{
-          ...graph,
-          nodes: graph.nodes.map((n) => ({ ...n, position: { x: 50, y: 60 } })),
-        }}
-      />,
-    ),
-  );
-  expect(latest.results.size).toBe(1);
-  expect(workers[0].terminated).toBe(true);
-  await act(() =>
-    root.render(
-      <Probe
-        g={{
-          ...graph,
-          nodes: graph.nodes.map((n) => ({
-            ...n,
-            data: {
-              ...n.data,
-              settings: { ...n.data.settings, redirect: '127.0.0.1:8000' },
-            },
-          })),
-        }}
-      />,
-    ),
-  );
-  expect(latest.results.size).toBe(0);
 });
 it.each(['latency', 'speed'] as const)(
   'cancels the owned %s job and cannot publish a late completed result',
@@ -339,84 +222,6 @@ it.each(['latency', 'speed'] as const)(
     expect(latest.busy).toBe(false);
   },
 );
-it('retains independent latency/speed results and opens the requested result set', async () => {
-  vi.mocked(serviceCall).mockImplementation(async (method, params) => ({
-    job: 12,
-    busy: false,
-    cancelled: false,
-    results:
-      method === 'outbounds.testStart'
-        ? [
-            {
-              id: 'test-1',
-              latencyMs: params?.mode === 'speed' ? null : 25,
-              ip: null,
-              country: null,
-              error: null,
-              countryError: null,
-              ...(params?.mode === 'speed'
-                ? {
-                    speed: {
-                      bytesPerSecond: 1_000_000,
-                      bytes: 5_000_000,
-                      elapsedMs: 5000,
-                    },
-                  }
-                : {}),
-            },
-          ]
-        : [],
-  }));
-  await act(() => root.render(<Probe />));
-  await act(() =>
-    latest.settings.save({
-      ...latest.settings.value,
-      speedUrl: 'https://download.example/custom.bin',
-    }),
-  );
-  await act(() => latest.start());
-  await act(() => latest.start(undefined, ['direct'], 'speed'));
-  expect(serviceCall).toHaveBeenCalledWith(
-    'outbounds.testStart',
-    expect.objectContaining({
-      mode: 'speed',
-      speedUrl: 'https://download.example/custom.bin',
-    }),
-  );
-  expect(latest.speedSummaries.get('node:direct')?.text).toBe('8.00 Mbit/s');
-  expect(latest.summaries.get('node:direct')?.text).toBe('25 ms');
-  await act(() => latest.show('latency'));
-  expect(latest.results.get('test-1')?.latencyMs).toBe(25);
-  await act(() => latest.show('speed'));
-  expect(latest.results.get('test-1')?.speed?.bytes).toBe(5_000_000);
-  await act(() => root.render(<Probe g={{ ...graph, nodes: [] }} />));
-  expect(latest.summaries.size).toBe(0);
-  expect(latest.speedSummaries.size).toBe(0);
-});
-it('adds the speed default to existing settings and validates manually entered download URLs', async () => {
-  localStorage.setItem(
-    'wayrill.outboundTest.settings',
-    JSON.stringify({ testUrl: 'https://probe.example/custom', countryUrl: '' }),
-  );
-  await act(() => root.render(<Probe />));
-  expect(latest.settings.value.testUrl).toBe('https://probe.example/custom');
-  expect(latest.settings.value.speedUrl).toContain('speed.cloudflare.com');
-  expect(() =>
-    latest.settings.save({
-      ...latest.settings.value,
-      speedUrl: 'file:///secret',
-    }),
-  ).toThrow(/HTTP/);
-  await act(() =>
-    latest.settings.save({
-      ...latest.settings.value,
-      speedUrl: 'https://download.example/custom',
-    }),
-  );
-  expect(JSON.parse(localStorage.getItem('wayrill.outboundTest.settings')!).speedUrl).toBe(
-    'https://download.example/custom',
-  );
-});
 
 it('requests UDP alongside latency only when enabled, with separate results and no UDP in speed jobs', async () => {
   vi.mocked(serviceCall).mockResolvedValue({

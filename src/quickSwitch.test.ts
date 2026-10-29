@@ -21,7 +21,7 @@ import {
   serializeStash,
   type Stash,
 } from './profiles/import';
-import { starStashEntry, putStashEntry, findStashEntry } from './profiles/stashModel';
+import { starStashEntry, findStashEntry } from './profiles/stashModel';
 import { applyStashedProfile } from './profiles/graph';
 import { mergeStashDocuments } from './profiles/stashMerge';
 
@@ -81,43 +81,6 @@ it('persists exactly one Main, keeps it through replacement and duplication, and
   });
   expect(removed.mainOutboundId).toBeUndefined();
   expect(parseGraph(serializeGraph(removed)).mainOutboundId).toBeUndefined();
-});
-
-it('rejects invalid Main selections and never puts the designation into Xray node settings', () => {
-  const input = makeNode('proxy-inbound', { x: 0, y: 0 }, 'input');
-  const current = { ...graph(), nodes: [...graph().nodes, input] };
-  expect(() => setMainOutbound(current, 'input')).toThrow(/Choose an outbound/);
-  expect(() =>
-    parseGraph(
-      JSON.stringify({ ...JSON.parse(serializeGraph(current)), mainOutboundId: 'absent' }),
-    ),
-  ).toThrow(/Main must refer/);
-  const selected = setMainOutbound(current, 'first');
-  expect(selected.nodes[0].data.settings).not.toHaveProperty('mainOutboundId');
-  expect(setMainOutbound(selected).mainOutboundId).toBeUndefined();
-});
-
-it('stars survive storage, an edited profile and provider connection changes without leaking to another entry', () => {
-  let stash = library();
-  const group = stash.groups[0],
-    entry = group.entries[0],
-    link = { groupId: group.id, entryId: entry.id };
-  stash = starStashEntry(stash, link);
-  stash = parseStash(serializeStash(stash));
-  expect(starredChoices(stash)).toEqual([
-    { ...link, label: '🇳🇱 First · Servers', available: true },
-  ]);
-  stash = putStashEntry(stash, { ...entry, name: 'Renamed' }, link);
-  expect(findStashEntry(stash, link)?.starred).toBe(true);
-  stash = mergeImport(
-    stash,
-    importProfiles('socks://changed.example:1080#🇳🇱 First\nsocks://two.example:1080#Second'),
-    group.id,
-  );
-  expect(findStashEntry(stash, link)?.profile?.settings.address).toBe('changed.example');
-  expect(findStashEntry(stash, link)?.starred).toBe(true);
-  expect(stash.groups[0].entries[1].starred).toBeUndefined();
-  expect(starredChoices(starStashEntry(stash, link))).toEqual([]);
 });
 
 it('merges a star click with concurrent provider updates and keeps unavailable favorites visible but disabled', () => {

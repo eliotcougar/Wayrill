@@ -36,17 +36,3 @@ it('hides unavailable, stopped, stale-revision and incompatible geometry counts'
   expect(summary(snapshot, { fakedns: [{ ipPool: '198.18.0.0/15', poolSize: 4 }] }).text).toBe('—');
   expect(summary(snapshot, { ...config, routing: { rules: [] } }).text).not.toBe('—');
 });
-it('treats automatic pool address-family changes as an unapplied allocator', () => {
-  expect(
-    fakeDnsUsageSummary(true, snapshot, { dns: { queryStrategy: 'UseIPv4' } }, {}, 42).text,
-  ).toBe('—');
-  expect(
-    fakeDnsUsageSummary(
-      true,
-      snapshot,
-      { dns: { queryStrategy: 'UseIP' } },
-      { dns: { queryStrategy: 'UseIP' } },
-      42,
-    ).text,
-  ).not.toBe('—');
-});

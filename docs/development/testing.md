@@ -15,6 +15,21 @@ WAYRILL_XRAY_FIXTURE_DIR. Confirm the executable matches its intended pin.
 Acceptance is not traffic evidence. Tests requiring private endpoints, native
 mutation or a particular Windows state remain opt-in, with a documented reason.
 
+## What deserves a regression test
+
+Protect observable behavior: routing decisions and precedence, lossless imports
+and saves, protected settings, cancellation, recovery, and bounded work with large
+subscriptions. Prefer a complete workflow over several tests of the helpers it
+calls. A test should fail when a supported feature breaks, not when an internal
+representation changes without changing that behavior.
+
+Use representative cases for distinct behaviors instead of exhaustive products
+of equivalent inputs. Keep independent cases when they protect different failure
+modes. Avoid assertions about exact labels, help text, CSS, control placement or
+catalog counts; review presentation visually. Only assert a specific value or
+structure when it is part of the behavior or an external compatibility contract.
+Remove superseded tests and their unused fixtures rather than skipping them.
+
 ## Disposable Windows environment
 
 Use an isolated Windows VM for service installation, proxy scopes, adapters,

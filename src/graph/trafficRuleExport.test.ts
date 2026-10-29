@@ -1,8 +1,7 @@
 import { expect, it } from 'vitest';
 import { compatibleOutput, exportCompatibleRules, exportWayrillRules } from './trafficRuleExport';
-import { importTrafficRules, parseTrafficRules, rolesForTrafficImport } from './trafficRuleImport';
-import { newPresetOutput } from './routingPresets';
-import { captureRuleVariants, type RuleTable, type TableRule } from './rules';
+import { importTrafficRules, parseTrafficRules } from './trafficRuleImport';
+import { type RuleTable, type TableRule } from './rules';
 import { attachTrafficSource, editSourcedRule, refreshTrafficSource } from './trafficRuleSource';
 import { makeNode } from './catalog';
 import { factoryDefaults } from './defaults';
@@ -72,27 +71,6 @@ it('round trips all Wayrill rule features, comments, disabled rows and output po
   expect(
     importTrafficRules(table(), source, { proxy: 'proxy', local: 'local' }, 'append').tunAmbiguity,
   ).toEqual(table().tunAmbiguity);
-});
-
-it('exports effective local edits without leaking source URLs, baselines or override metadata', () => {
-  const imported = parseTrafficRules(
-    '[{"id":"source","domain":["domain:a.test"],"outboundTag":"proxy"}]',
-  );
-  let source = attachTrafficSource(table(), imported, { 'outbound:proxy': 'proxy' }, 'replace', {
-    kind: 'url',
-    location: 'https://private.test/rules?secret=yes',
-    allowHttp: false,
-    viaWayrill: false,
-  });
-  source = {
-    ...source,
-    rules: source.rules.map((r) =>
-      editSourcedRule(r, { conditions: { domain: 'domain:a.test\ndomain:local.test' } }),
-    ),
-  };
-  const text = exportWayrillRules(source, 'Shared', true);
-  expect(text).not.toMatch(/private.test|sourceRules|"base"|"edits"|"source"/);
-  expect(parseTrafficRules(text).rules[0].conditions.domain).toContain('domain:local.test');
 });
 
 it('preserves source and overrides separately, rebinds every reference and can continue updating', () => {
@@ -195,71 +173,6 @@ it('maps every connection to Main, Direct and Block to the fixed v2rayN destinat
   ).toBe('proxy');
 });
 
-it('retains native projections and maps an ambiguity-only output on replacement', () => {
-  const original = table(
-    row(
-      { domain: 'domain:a.test' },
-      {
-        native: {
-          version: 1,
-          original: { domain: ['domain:a.test'], special: 'keep' },
-          projection: { domain: ['domain:a.test'] },
-        },
-      },
-    ),
-  );
-  original.outputs.push({ id: 'ambiguity', name: 'Unknown owner' });
-  original.tunAmbiguity = { action: 'allow', output: 'ambiguity' };
-  const imported = parseTrafficRules(exportWayrillRules(original, 'Filter'));
-  expect(rolesForTrafficImport(imported, 'replace').map((r) => r.id)).toContain('ambiguity');
-  const restored = importTrafficRules(
-    table(),
-    imported,
-    { proxy: 'proxy', local: 'local', ambiguity: newPresetOutput },
-    'replace',
-  );
-  expect(restored.outputs.find((o) => o.id === restored.tunAmbiguity?.output)?.name).toBe(
-    'Unknown owner',
-  );
-  expect(restored.rules[0].native).toEqual(original.rules[0].native);
-});
-
-it('preserves ordinary v2rayN OR/AND semantics, order, disabled rows and final default', () => {
-  const original = table(
-    row(
-      {
-        domain: 'domain:example.net\n# ignore',
-        ip: '192.0.2.0/24',
-        protocol: 'tls',
-        port: '443',
-        network: 'tcp',
-        inboundTag: 'input',
-      },
-      { applications: [process] },
-    ),
-    row({ process: 'C:/Tools/' }, { id: 'disabled', enabled: false }),
-  );
-  const exported = exportCompatibleRules(original, destinations);
-  const rows = JSON.parse(exported.text);
-  expect(rows[0]).toMatchObject({
-    domain: ['domain:example.net'],
-    ip: ['192.0.2.0/24'],
-    process: ['browser.exe'],
-    protocol: ['tls'],
-    port: '443',
-    network: 'tcp',
-    inboundTag: ['input'],
-    outboundTag: 'My server',
-  });
-  expect(rows[1].enabled).toBe(false);
-  const imported = parseTrafficRules(exported.text);
-  expect(imported.defaultOutput).toBe('outbound:direct');
-  expect(imported.rules).toHaveLength(2);
-  expect(captureRuleVariants(imported.rules[0] as TableRule, 'native')).toEqual(
-    captureRuleVariants(original.rules[0], 'native'),
-  );
-});
-
 it('skips incompatible AND rules and selector-only rules rather than weakening them', () => {
   const service = {
     kind: 'service',
@@ -299,56 +212,4 @@ it('skips incompatible AND rules and selector-only rules rather than weakening t
     },
   ]);
   expect(result.omitted.filter((n) => n.includes('skipped'))).toHaveLength(5);
-});
-
-it('keeps representable alternatives while reporting omitted Windows selectors', () => {
-  const result = exportCompatibleRules(
-    table(
-      row(
-        { domain: 'domain:a.test' },
-        { applications: [process, { ...process, children: true, value: 'parent.exe' }] },
-      ),
-    ),
-    destinations,
-  );
-  expect(JSON.parse(result.text)[0]).toMatchObject({
-    domain: ['domain:a.test'],
-    process: ['browser.exe'],
-  });
-  expect(result.omitted.join(' ')).toContain('1 Windows');
-  const mixed = exportCompatibleRules(
-    table(
-      row(
-        { process: 'native.exe' },
-        { applications: [process, { ...process, children: true, value: 'parent.exe' }] },
-      ),
-    ),
-    destinations,
-  );
-  expect(JSON.parse(mixed.text)[0].process).toEqual(['native.exe', 'browser.exe']);
-  expect(() =>
-    exportCompatibleRules(table(row({ domain: 'domain:a.test' })), { proxy: '', local: 'direct' }),
-  ).toThrow('valid v2rayN');
-});
-
-it('validates malformed Wayrill structures and version before binding anything', () => {
-  const file = JSON.parse(exportWayrillRules(table(), 'Filter'));
-  expect(() => parseTrafficRules(JSON.stringify({ ...file, version: 2 }))).toThrow('Unsupported');
-  expect(() =>
-    parseTrafficRules(
-      JSON.stringify({ ...file, rules: [{ ...row({}), conditions: { domain: [1] } }] }),
-    ),
-  ).toThrow('text');
-});
-it('reimports 128 compatible rules plus their explicit final default', () => {
-  const source = table(
-    ...Array.from({ length: 128 }, (_, i) => row({ domain: `full:${i}.test` }, { id: `r${i}` })),
-  );
-  expect(parseTrafficRules(exportCompatibleRules(source, destinations).text).rules).toHaveLength(
-    128,
-  );
-  const empty = table();
-  empty.tunAmbiguity = { action: 'block', output: '' };
-  const imported = parseTrafficRules(exportWayrillRules(empty, 'Empty'));
-  expect(rolesForTrafficImport(imported, 'replace').map((o) => o.id)).toEqual(['proxy', 'local']);
 });

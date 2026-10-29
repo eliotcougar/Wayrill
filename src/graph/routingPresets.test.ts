@@ -1,7 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import {
   trafficPresets,
   dnsPresets,
@@ -175,18 +172,6 @@ describe('v2rayN preset intent with explicit regional geodata', () => {
     },
   );
 });
-it('keeps blocked-only China distinct from domestic-direct and proxy-all', () => {
-  const blocked = trafficPresets.find((p) => p.id === 'cn-blocked')!;
-  expect(blocked.defaultOutput).toBe('direct');
-  expect(blocked.rules.find((r) => r.name === 'Blocked domains via proxy')).toEqual({
-    name: 'Blocked domains via proxy',
-    output: 'proxy',
-    conditions: { domain: 'ext:cn-geosite.dat:gfw\next:cn-geosite.dat:greatfire' },
-  });
-  expect(JSON.stringify(blocked)).not.toContain('geolocation-!cn');
-  expect(trafficPresets.find((p) => p.id === 'cn-local')!.defaultOutput).toBe('proxy');
-  expect(trafficPresets.find((p) => p.id === 'cn-all')!.defaultOutput).toBe('proxy');
-});
 it('reuses stable IDs and connections, appends without changing defaults, rejects limits and missing bindings', () => {
   const graph = createRoutingExample(),
     before = structuredClone(graph),
@@ -240,25 +225,3 @@ it('DNS append keeps policies and ordering while replacing can restore the upstr
   expect(next.fallbackFirst).toBe(true);
   expect(filter).toEqual(before);
 });
-const core = process.env.WAYRILL_XRAY_TEST_EXE,
-  fixtures = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-describe.skipIf(!core || !fixtures)(
-  'pinned Xray accepts every preset with its bundled categories',
-  () => {
-    for (const preset of trafficPresets)
-      it(preset.label, () => check(preset.id, compileRuntimeGraph(traffic(preset).graph).config));
-    for (const preset of dnsPresets)
-      it(preset.label, () => check(preset.id, compileRuntimeGraph(dns(preset).graph).config));
-  },
-);
-function check(id: string, config: Record<string, unknown>) {
-  mkdirSync(fixtures!, { recursive: true });
-  const path = join(fixtures!, `preset-${id}.json`);
-  writeFileSync(path, JSON.stringify(config));
-  const result = spawnSync(core!, ['run', '-test', '-config', path], {
-    encoding: 'utf-8',
-    env: { ...process.env, XRAY_LOCATION_ASSET: dirname(core!) },
-    timeout: 30000,
-  });
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-}

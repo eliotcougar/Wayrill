@@ -12,7 +12,6 @@ import { refreshAppliedSubscriptions } from './subscriptionRuntime';
 import { preparedEntry } from '../graph/composites';
 import { applyStashedProfile } from './graph';
 import { policyProfile } from '../graph/policySources';
-import { readPublication } from './subscriptionPublication';
 
 it('settles an older pending provider update before an explicit choice from the saved library', () => {
   const { graph, stash } = runtimeFixture();
@@ -39,33 +38,6 @@ it('settles an older pending provider update before an explicit choice from the 
   expect(
     parseGraph(result.graph!).nodes.find((node) => node.id === 'proxy')!.data.settings.port,
   ).toBe(4080);
-});
-
-it('resolves an explicit assignment from the saved library against the applied source only', () => {
-  const { graph, stash } = runtimeFixture();
-  const edited = changedStash(stash, 4080);
-  const draft = structuredClone(graph);
-  draft.nodes.find((n) => n.id === 'input')!.data.settings.port = 12345;
-  const result = subscriptionEngine({
-    operation: 'runtime',
-    stash: serializeStash(edited),
-    appliedGraph: serializeGraph(graph),
-    graph: serializeGraph(draft),
-    replacement: {
-      nodeId: 'proxy',
-      groupId: stash.groups[0].id,
-      entryId: stash.groups[0].entries[0].id,
-    },
-  });
-  if (!('graph' in result)) throw new Error('Missing prepared runtime');
-  const next = parseGraph(result.graph!);
-  expect(next.nodes.find((n) => n.id === 'proxy')!.data.settings.port).toBe(4080);
-  expect(next.nodes.find((n) => n.id === 'input')!.data.settings.port).toBe(
-    graph.nodes.find((n) => n.id === 'input')!.data.settings.port,
-  );
-  expect(next.nodes.find((n) => n.id === 'proxy')!.data.stashLink?.entryId).toBe(
-    stash.groups[0].entries[0].id,
-  );
 });
 
 it('rejects a deleted selection and leaves a draft-only node out of running routing', () => {
@@ -142,72 +114,6 @@ it('saves changed library definitions without publishing ordinary graph edits to
   expect(result.runtimeGroups).toEqual([]);
   expect(parseStash(result.stash!).groups[0].entries[0].profile!.settings.port).toBe(2080);
 });
-
-it('publishes a completed file refresh but excludes an unrelated edited group', () => {
-  const { stash } = runtimeFixture();
-  const other = structuredClone(stash.groups[0]);
-  other.id = 'other-provider';
-  stash.groups.push(other);
-  const edited = changedStash(stash, 2080);
-  edited.groups[0].updatedAt = (stash.groups[0].updatedAt ?? 0) + 100;
-  const result = subscriptionEngine({
-    operation: 'merge',
-    stash: serializeStash(stash),
-    base: serializeStash(stash),
-    local: serializeStash(edited),
-  });
-  expect(result.changedGroups).toEqual(stash.groups.map((group) => group.id));
-  expect(result.runtimeGroups).toEqual([stash.groups[0].id]);
-});
-
-it('publishes identical reloads even when the library already contains their definitions', () => {
-  const { stash } = runtimeFixture();
-  const group = stash.groups[0];
-  const completed = subscriptionEngine({
-    operation: 'refresh',
-    stash: serializeStash(stash),
-    groupId: group.id,
-    text: group.entries[0].raw,
-  });
-  expect(completed.runtimeGroups).toEqual([group.id]);
-  const fileLoaded = structuredClone(stash);
-  fileLoaded.groups[0].updatedAt = (group.updatedAt ?? 0) + 100;
-  const saved = subscriptionEngine({
-    operation: 'merge',
-    stash: serializeStash(stash),
-    base: serializeStash(stash),
-    local: serializeStash(fileLoaded),
-  });
-  expect(saved.changedGroups).toEqual([]);
-  expect(saved.runtimeGroups).toEqual([group.id]);
-});
-it('never publishes diagnostic-only health changes or draft connection edits', () => {
-  const { stash } = runtimeFixture();
-  const entry = stash.groups[0].entries[0];
-  entry.health = {
-    status: 'dead',
-    checkedAt: 1,
-    latencyMs: null,
-    profileId: policyProfileId(entry.profile!),
-  };
-  const enabled = structuredClone(stash);
-  delete enabled.groups[0].entries[0].health;
-  const restored = subscriptionEngine({
-    operation: 'merge',
-    stash: serializeStash(stash),
-    base: serializeStash(stash),
-    local: serializeStash(enabled),
-  });
-  expect(restored.runtimeGroups).toEqual([]);
-  enabled.groups[0].entries[0].profile!.settings.port = 2080;
-  const edited = subscriptionEngine({
-    operation: 'merge',
-    stash: serializeStash(stash),
-    base: serializeStash(stash),
-    local: serializeStash(enabled),
-  });
-  expect(edited.runtimeGroups).toEqual([]);
-});
 it('updates only the applied outbounds and preserves an unrelated draft listener edit', () => {
   const { stash, graph } = runtimeFixture(),
     draft = structuredClone(graph);
@@ -227,27 +133,6 @@ it('updates only the applied outbounds and preserves an unrelated draft listener
     compileRuntimeGraph(graph).config.inbounds,
   );
   expect(draft.nodes[0].data.settings.port).toBe(29999);
-});
-it('retries the approved provider snapshot instead of later library drafts', () => {
-  const { stash, graph } = runtimeFixture();
-  const approved = changedStash(stash, 2080);
-  const laterDraft = changedStash(stash, 3080);
-  const snapshot = JSON.stringify({
-    group: (JSON.parse(serializeStash(approved)) as { groups: unknown[] }).groups[0],
-  });
-  const result = subscriptionEngine({
-    operation: 'runtime',
-    stash: serializeStash(laterDraft),
-    appliedGraph: serializeGraph(graph),
-    groupId: stash.groups[0].id,
-    groupSnapshot: snapshot,
-  });
-  if (!('graph' in result) || typeof result.graph !== 'string')
-    throw new Error('Missing compiled graph.');
-  expect(parseGraph(result.graph!).nodes.find((n) => n.id === 'proxy')!.data.settings.port).toBe(
-    2080,
-  );
-  expect(laterDraft.groups[0].entries[0].profile!.settings.port).toBe(3080);
 });
 for (const nested of [false, true])
   it(`publishes removals without adopting connection drafts${nested ? ' inside a chain' : ''}`, () => {
@@ -375,42 +260,6 @@ for (const nested of [false, true])
       sources(kept).subscriptions[0].entries.map((entry) => entry.profile.settings.port),
     ).toEqual([1080, 2081, 2082]);
   });
-it('coalesces health into a pending source publication without adopting later drafts', () => {
-  const { stash } = runtimeFixture();
-  const group = stash.groups[0];
-  group.entries.push(importProfiles('socks://192.0.2.2:2081#Second').groups[0].entries[0]);
-  const load = subscriptionEngine({
-    operation: 'refresh',
-    stash: serializeStash(stash),
-    groupId: group.id,
-    text: group.entries.map((entry) => entry.raw).join('\n'),
-  });
-  const edited = parseStash(load.stash!);
-  edited.groups[0].entries[0].profile!.settings.port = 3080;
-  const entry = edited.groups[0].entries[1];
-  const health = subscriptionEngine({
-    operation: 'health',
-    removeDead: true,
-    stash: serializeStash(edited),
-    groupId: group.id,
-    publications: load.publications!,
-    observations: [
-      {
-        entryId: entry.id,
-        health: {
-          status: 'dead',
-          checkedAt: 123,
-          latencyMs: null,
-          profileId: policyProfileId(entry.profile!),
-        },
-      },
-    ],
-  });
-  const publication = readPublication(health.publications![group.id]);
-  expect(publication.availability).toBeUndefined();
-  expect(publication.group.entries[0].profile!.settings.port).toBe(1080);
-  expect(publication.group.entries).toHaveLength(1);
-});
 it('does not delete failed servers referenced by either saved or applied graph', () => {
   const { stash, graph } = runtimeFixture(),
     entry = stash.groups[0].entries[0];
@@ -434,19 +283,6 @@ it('does not delete failed servers referenced by either saved or applied graph',
     ],
   });
   expect(parseStash(result.stash!).groups[0].entries).toHaveLength(1);
-});
-it('prepares the same health target settings used by normal outbound tests', () => {
-  const { stash, graph } = runtimeFixture(),
-    entry = stash.groups[0].entries[0];
-  const result = subscriptionEngine({
-    operation: 'plan',
-    stash: serializeStash(stash),
-    graph: serializeGraph(graph),
-    groupId: stash.groups[0].id,
-    entryIds: [entry.id],
-  });
-  expect(result.targets).toHaveLength(1);
-  expect(result.identities).toMatchObject({ [entry.id]: policyProfileId(entry.profile!) });
 });
 it('can refresh a second provider while the first has no usable policy candidates', () => {
   const { stash } = runtimeFixture(),

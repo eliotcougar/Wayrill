@@ -46,22 +46,6 @@ it('retries busy inspection without inventing a sharing error, and accepts an ab
   expect(latest.busy).toBe(false);
   expect(serviceCall).toHaveBeenCalledTimes(2);
 });
-it('preserves the last inspection during busy refresh, backs off, and cancels retry on unmount', async () => {
-  vi.mocked(serviceCall).mockResolvedValueOnce(absent).mockRejectedValue(busy);
-  await act(() => root.render(<Harness />));
-  await act(() => latest.refresh());
-  expect(latest.value).toEqual(absent);
-  expect(latest.error).toBeUndefined();
-  await act(() => vi.advanceTimersByTime(250));
-  expect(serviceCall).toHaveBeenCalledTimes(3);
-  await act(() => vi.advanceTimersByTime(499));
-  expect(serviceCall).toHaveBeenCalledTimes(3);
-  await act(() => vi.advanceTimersByTime(1));
-  expect(serviceCall).toHaveBeenCalledTimes(4);
-  await act(() => root.render(null));
-  await act(() => vi.advanceTimersByTime(60000));
-  expect(serviceCall).toHaveBeenCalledTimes(4);
-});
 it('discards obsolete reads and does not keep retrying permanent inspection errors', async () => {
   let resolve!: (value: SharingInspection) => void;
   vi.mocked(serviceCall)

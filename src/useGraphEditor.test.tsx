@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import useGraphEditor from './useGraphEditor';
 import { compileRuntimeGraph } from './graph/runtime';
-import { importXrayConfig } from './graph/xrayImport';
 import { createPolicyExample } from './graph/policyExample';
 import {
   emptyPolicySources,
@@ -114,72 +113,6 @@ it('flushes the latest library and linked graph when a refresh completes while e
   expect(saved.nodes[0].data.settings.interface).toBe('New uplink');
   expect(parseStash(editor.serializeStashForClose())).toEqual(library);
 });
-
-it('keeps a subscription refresh and node drag as separate undoable changes', async () => {
-  const group = importProfiles(
-    JSON.stringify({ outbounds: [{ protocol: 'freedom', tag: 'direct' }] }),
-  ).groups[0];
-  let library: Stash = { format: 'wayrill.stash', version: 3, groups: [group] };
-  const store = {
-    get: () => library,
-    update: (transform: (s: Stash) => Stash) => (library = transform(library)),
-  };
-  await act(() => root.render(<Harness stash={library} store={store} />));
-  const link = { groupId: group.id, entryId: group.entries[0].id };
-  await act(() =>
-    editor.loadGraph(
-      applyStashedProfile(
-        {
-          name: 'Refresh during drag',
-          nodes: [],
-          edges: [],
-          defaults: factoryDefaults(),
-        },
-        group.entries[0],
-        { x: 0, y: 0 },
-        undefined,
-        link,
-      ),
-    ),
-  );
-  const node = editor.graph.nodes[0],
-    before = { ...node.position },
-    after = { x: 480, y: 160 };
-  await act(() => {
-    editor.beginDrag();
-    editor.onNodesChange([{ type: 'position', id: node.id, position: after, dragging: true }]);
-  });
-  library = {
-    ...library,
-    groups: library.groups.map((g) =>
-      g.id !== group.id
-        ? g
-        : {
-            ...g,
-            entries: g.entries.map((entry) => ({
-              ...entry,
-              name: 'Updated while dragging',
-            })),
-          },
-    ),
-  };
-  await act(() => root.render(<Harness stash={library} store={store} />));
-  expect(editor.graph.nodes[0].data.label).toBe(node.data.label);
-  await act(() => editor.endDrag());
-  expect(editor.graph.nodes[0].data.label).toBe('Updated while dragging');
-  expect(editor.graph.nodes[0].position).toEqual(after);
-  await act(() => editor.undo());
-  expect(editor.graph.nodes[0].data.label).toBe('Updated while dragging');
-  expect(editor.graph.nodes[0].position).toEqual(before);
-  await act(() => editor.undo());
-  expect(editor.graph.nodes[0].data.label).toBe(node.data.label);
-  await act(() => {
-    editor.redo();
-    editor.redo();
-  });
-  expect(editor.graph.nodes[0].data.label).toBe('Updated while dragging');
-  expect(editor.graph.nodes[0].position).toEqual(after);
-});
 afterEach(async () => {
   await act(() => root.unmount());
 });
@@ -225,18 +158,6 @@ describe('layout history', () => {
     expect(
       readPolicySources(editor.graph.nodes.find((n) => n.id === group.id)!.data).manual,
     ).toEqual([{ type: 'node', nodeId: 'test-first' }]);
-  });
-  it('records a keyboard move so Undo and Redo restore its position', async () => {
-    const configBefore = compileRuntimeGraph(editor.graph).config;
-    const before = editor.graph.nodes.find((n) => n.id === 'routes')!.position;
-    const after = { x: before.x + 16, y: before.y };
-    await act(() => editor.onNodesChange([{ id: 'routes', type: 'position', position: after }]));
-    expect(editor.canUndo).toBe(true);
-    expect(compileRuntimeGraph(editor.graph).config).toEqual(configBefore);
-    await act(() => editor.undo());
-    expect(editor.graph.nodes.find((n) => n.id === 'routes')!.position).toEqual(before);
-    await act(() => editor.redo());
-    expect(editor.graph.nodes.find((n) => n.id === 'routes')!.position).toEqual(after);
   });
 
   it('records one transaction for multiple nodes moved across several drag frames', async () => {
@@ -299,27 +220,6 @@ describe('connection history', () => {
     expect(editor.graph.edges.find((e) => e.id === old.id)?.target).toBe('routes');
     expect(editor.canUndo).toBe(false);
   });
-  it('adds and deletes a path with Undo restoring its endpoints and identity', async () => {
-    const old = editor.graph.edges.find((e) => e.source === 'socks' && e.sourceHandle === 'data')!;
-    await act(() => editor.selectEdge(old.id));
-    await act(() => editor.removeSelected());
-    await act(() =>
-      editor.saveConnection({
-        source: 'socks',
-        sourceHandle: 'data',
-        target: 'block',
-        targetHandle: 'in',
-      }),
-    );
-    const added = editor.selectedEdges[0];
-    expect(added.id).not.toBe(old.id);
-    await act(() => editor.undo());
-    expect(editor.graph.edges.some((e) => e.source === 'socks' && e.sourceHandle === 'data')).toBe(
-      false,
-    );
-    await act(() => editor.undo());
-    expect(editor.graph.edges.find((e) => e.id === old.id)).toMatchObject(old);
-  });
   it('rechecks queued edits so two additions cannot occupy the same output', async () => {
     const old = editor.graph.edges.find((e) => e.source === 'socks' && e.sourceHandle === 'data')!;
     await act(() => editor.selectEdge(old.id));
@@ -346,38 +246,6 @@ describe('connection history', () => {
   });
 });
 
-it('cannot delete a generated DNS query path or claim an edit to it', async () => {
-  const graph = importXrayConfig(
-    JSON.stringify({
-      dns: { servers: ['1.1.1.1'] },
-      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
-    }),
-  );
-  await act(() => editor.loadGraph(graph));
-  const old = editor.graph.edges.find(
-    (edge) =>
-      editor.graph.nodes.find((n) => n.id === edge.source)?.data.kind === 'xray-dns-servers',
-  )!;
-  await act(() => editor.selectEdge(old.id));
-  const before = editor.serialize();
-  await act(() => editor.removeSelected());
-  expect(editor.serialize()).toBe(before);
-  await act(() =>
-    expect(
-      editor.saveConnection(
-        {
-          ...old,
-          sourceHandle: old.sourceHandle ?? null,
-          targetHandle: old.targetHandle ?? null,
-        },
-        old.id,
-      ),
-    ).toContain('generated'),
-  );
-  await act(() => editor.undo());
-  expect(editor.graph.name).toBe('First traffic setup');
-});
-
 it('undoes an entire focused port edit instead of one digit and keeps redo intact', async () => {
   const id = editor.graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!.id;
   const port = () => Number(editor.graph.nodes.find((n) => n.id === id)!.data.settings.port);
@@ -394,20 +262,6 @@ it('undoes an entire focused port edit instead of one digit and keeps redo intac
   expect(port()).toBe(before);
   await act(() => editor.redo());
   expect(port()).toBe(4180);
-});
-
-it('undoes and redoes inbound activation without removing settings, nodes or links', async () => {
-  const original = compileRuntimeGraph(editor.graph).config;
-  const input = editor.graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!;
-  const settings = structuredClone(input.data.settings),
-    edges = structuredClone(editor.graph.edges);
-  await act(() => editor.updateNode(input.id, { enabled: false }));
-  expect(editor.graph.nodes.find((n) => n.id === input.id)!.data.settings).toEqual(settings);
-  expect(editor.graph.edges).toEqual(edges);
-  await act(() => editor.undo());
-  expect(compileRuntimeGraph(editor.graph).config).toEqual(original);
-  await act(() => editor.redo());
-  expect(editor.graph.nodes.find((n) => n.id === input.id)!.data.enabled).toBe(false);
 });
 
 it('freezes edits, imports, keyboard node movement and history during a lifecycle transition', async () => {

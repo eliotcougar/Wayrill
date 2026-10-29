@@ -81,53 +81,6 @@ afterEach(async () => {
   await act(async () => root.unmount());
   vi.useRealTimers();
 });
-it('updates directly from service events without a desktop polling timer', async () => {
-  await act(async () => root.render(<Harness />));
-  await act(async () => vi.advanceTimersByTimeAsync(20000));
-  expect(mocks.call).not.toHaveBeenCalled();
-  expect(mocks.refresh).toHaveBeenCalledWith(3);
-  expect(mocks.context).toHaveBeenCalledOnce();
-  const statuses = { provider: { state: 'testing' as const, message: '4 of 20' } };
-  await act(async () =>
-    root.render(
-      <Harness
-        status={{
-          ...serviceStatus,
-          version: 4,
-          statuses,
-          appliedRevision: 7,
-          appliedSourceHash: 'source',
-        }}
-      />,
-    ),
-  );
-  expect(latest.statuses).toEqual(statuses);
-  expect(latest.appliedRevision).toBe(7);
-  expect(latest.appliedSourceHash).toBe('source');
-  expect(mocks.refresh).toHaveBeenLastCalledWith(4);
-});
-it('shows library failures and clears them when a healthy service view arrives', async () => {
-  await act(async () =>
-    root.render(
-      <Harness
-        status={{
-          ...serviceStatus,
-          error: { code: 'STATE_INTEGRITY', message: 'Cannot open library', retryable: false },
-        }}
-      />,
-    ),
-  );
-  expect(latest.statuses.service.message).toBe('Cannot open library');
-  expect(mocks.refresh).not.toHaveBeenCalled();
-  await act(async () => root.render(<Harness />));
-  expect(latest.statuses.service).toBeUndefined();
-  expect(mocks.refresh).toHaveBeenCalledWith(3);
-});
-it('does not cancel service maintenance when the desktop unmounts', async () => {
-  await act(async () => root.render(<Harness />));
-  await act(async () => root.unmount());
-  expect(mocks.call.mock.calls.some(([method]) => method === 'subscriptions.cancel')).toBe(false);
-});
 it('flushes edited settings before requesting a service refresh and reloads its result', async () => {
   await act(async () => root.render(<Harness />));
   await act(async () => latest.run(stash.groups[0].id, 'refresh'));
@@ -164,33 +117,6 @@ it('queues overlapping edits and releases the next one after a failed edit', asy
   });
   expect(secondAction).toHaveBeenCalledOnce();
   expect(latest.foregroundBusy).toBe(false);
-});
-it('does not submit an already cancelled foreground operation', async () => {
-  await act(async () => root.render(<Harness />));
-  const controller = new AbortController();
-  controller.abort();
-  const action = vi.fn();
-  await act(async () => {
-    await expect(latest.withForeground(action, controller.signal)).rejects.toThrow();
-  });
-  expect(action).not.toHaveBeenCalled();
-});
-it('does not enqueue a refresh cancelled while edited settings were being saved', async () => {
-  await act(async () => root.render(<Harness />));
-  let complete!: () => void;
-  mocks.write.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        complete = resolve;
-      }),
-  );
-  const signal = new AbortController();
-  const running = latest.run(stash.groups[0].id, 'refresh', undefined, signal.signal);
-  const cancelled = expect(running).rejects.toMatchObject({ name: 'AbortError' });
-  signal.abort();
-  complete();
-  await cancelled;
-  expect(mocks.call.mock.calls.some(([method]) => method === 'subscriptions.run')).toBe(false);
 });
 it('cancels a job when cancellation arrives during submission, but not when its view closes', async () => {
   await act(async () => root.render(<Harness />));

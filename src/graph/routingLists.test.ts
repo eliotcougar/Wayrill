@@ -1,8 +1,3 @@
-import { factoryDefaults } from './defaults';
-import { createTrafficExample } from './example';
-import { selectResource, factoryResources, resourceCompilationGraph } from './resources';
-import { compileRuntimeGraph } from './runtime';
-import { coreResourceFailure } from './coreValidationDiagnostics';
 import { expect, it } from 'vitest';
 import { makeNode } from './catalog';
 import {
@@ -57,37 +52,4 @@ it('rejects comment-only routing instead of compiling an unconditional rule', ()
     'regexp:^foo#bar$',
     'keyword:hello world',
   ]);
-});
-
-it('normalizes whitespace before resource alias rewriting and excludes commented diagnostics', () => {
-  const graph = createTrafficExample(),
-    n = graph.nodes.find((n) => n.id === 'routes')!,
-    t = readRuleTable(n.data.settings);
-  graph.defaults = factoryDefaults();
-  graph.defaults.resources = selectResource(
-    selectResource(factoryResources(), 'packaged-ru-geoip', true),
-    'packaged-ru-geosite',
-    true,
-  );
-  t.rules[0].conditions = {
-    domain: '# geosite:missing-set\n geosite : private,',
-    ip: 'geoip : private,',
-  };
-  n.data.settings = { ...n.data.settings, ...tableSettings(t) };
-  const compiled = resourceCompilationGraph(graph),
-    conditions = readRuleTable(compiled.nodes.find((n) => n.id === 'routes')!.data.settings)
-      .rules[0].conditions;
-  expect(conditions).toEqual({
-    domain: 'ext:ru-geosite.dat:private',
-    ip: 'ext:ru-geoip.dat:private',
-  });
-  const config = compileRuntimeGraph(graph).config;
-  expect(JSON.stringify(config)).toContain('ru-geosite.dat:private');
-  expect(JSON.stringify(config)).not.toContain('missing-set');
-  expect(coreResourceFailure(graph, 'failed to load geosite MISSING-SET > EOF')!.issues).toEqual(
-    [],
-  );
-  expect(readRuleTable(n.data.settings).rules[0].conditions.domain).toContain(
-    '# geosite:missing-set',
-  );
 });

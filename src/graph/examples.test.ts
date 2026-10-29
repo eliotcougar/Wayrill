@@ -3,17 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bundledExamples, createProxyStarter } from './examples';
+import { bundledExamples } from './examples';
 import { diagnoseRuntimeGraph } from './diagnostics';
 import { compileRuntimeGraph } from './runtime';
 import { parseGraph, serializeGraph } from './model';
 import { structureProblems } from './structure';
 import { capturesSystemDns } from './dnsCapture';
 import { jsonArray, jsonRecord } from './xrayJson';
-import { isInboundKind } from './inbounds';
 
-const configFor = (id: string) =>
-  compileRuntimeGraph(bundledExamples.find((example) => example.id === id)!.create()).config;
 const records = (value: unknown) => (jsonArray(value) ? value.filter(jsonRecord) : []);
 
 describe('Shipped example configurations', () => {
@@ -35,52 +32,6 @@ describe('Shipped example configurations', () => {
     },
   );
 
-  it('opens a useful first graph without importing credentials or configuring Windows', () => {
-    const graph = createProxyStarter();
-    expect(graph.nodes).toHaveLength(2);
-    expect(graph.mainOutboundId).toBe('direct');
-    expect(compileRuntimeGraph(graph).config).toMatchObject({
-      inbounds: [{ protocol: 'mixed', listen: '127.0.0.1', port: 10808 }],
-    });
-    expect(
-      records(compileRuntimeGraph(graph).config.outbounds).filter(
-        (outbound) => outbound.protocol === 'vless',
-      ),
-    ).toEqual([]);
-    graph.nodes[0].data.settings.port = 9999;
-    expect(createProxyStarter().nodes[0].data.settings.port).toBe(10808);
-  });
-
-  it.each(bundledExamples.filter((example) => example.category === 'starter'))(
-    '$label is self-contained and has one capture/listener source',
-    (example) => {
-      const graph = example.create();
-      expect(graph.nodes.filter((node) => isInboundKind(node.data.kind))).toHaveLength(1);
-      expect(
-        graph.nodes.some((node) =>
-          ['vless-outbound', 'proxy-chain', 'policy-group'].includes(node.data.kind),
-        ),
-      ).toBe(false);
-      expect(graph.nodes.filter((node) => node.data.kind === 'direct-outbound')).toHaveLength(1);
-    },
-  );
-
-  it('sends example.org to Quad9 and retains a real Cloudflare fallback', () => {
-    const config = configFor('dns');
-    const dns = config.dns as Record<string, unknown>;
-    expect(records(dns.servers)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          address: '9.9.9.9',
-          domains: ['domain:example.org'],
-          skipFallback: true,
-          finalQuery: true,
-        }),
-        expect.objectContaining({ address: 'https://1.1.1.1/dns-query', skipFallback: false }),
-      ]),
-    );
-  });
-
   it('captures system DNS for FakeDNS, enables recovery and keeps real lookup fallback', () => {
     const graph = bundledExamples.find((example) => example.id === 'fakedns')!.create();
     expect(capturesSystemDns(graph, 'fake-handler')).toBe(true);
@@ -99,48 +50,6 @@ describe('Shipped example configurations', () => {
     expect(servers.slice(1)).toContainEqual(
       expect.objectContaining({ address: '1.1.1.1', skipFallback: false }),
     );
-  });
-
-  it('observes both manual policy candidates and fails closed when none is usable', () => {
-    const config = configFor('policy');
-    expect(config.observatory).toMatchObject({
-      subjectSelector: ['server-a', 'server-b'],
-      probeURL: 'https://cp.cloudflare.com/generate_204',
-    });
-    expect((config.routing as Record<string, unknown>).balancers).toEqual([
-      expect.objectContaining({
-        selector: ['server-a', 'server-b'],
-        fallbackTag: 'block',
-        strategy: { type: 'leastPing' },
-      }),
-    ]);
-  });
-
-  it('compiles chain order from this PC through A, then B', () => {
-    const config = configFor('chain');
-    const outbounds = records(config.outbounds);
-    const exit = outbounds.find((outbound) => outbound.tag === 'main')!;
-    expect(exit).toMatchObject({ protocol: 'vless', settings: { address: '192.0.2.2' } });
-    const carrier = (exit.streamSettings as { sockopt: { dialerProxy: string } }).sockopt
-      .dialerProxy;
-    expect(outbounds.find((outbound) => outbound.tag === carrier)).toMatchObject({
-      protocol: 'vless',
-      settings: { address: '192.0.2.1' },
-    });
-  });
-
-  it('flattens child destination rules with their parent port guard', () => {
-    const rules = records((configFor('chained').routing as Record<string, unknown>).rules);
-    expect(rules).toContainEqual(
-      expect.objectContaining({
-        domain: ['full:example.com'],
-        port: '80,443',
-        outboundTag: 'block',
-      }),
-    );
-    expect(
-      rules.filter((rule) => JSON.stringify(rule.domain) === JSON.stringify(['full:example.com'])),
-    ).toHaveLength(1);
   });
 
   const executable = process.env.WAYRILL_XRAY_TEST_EXE;

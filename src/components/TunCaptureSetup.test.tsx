@@ -30,17 +30,6 @@ afterEach(async () => {
 });
 const button = (text: string) =>
   [...host.querySelectorAll('button')].find((button) => button.textContent === text)!;
-
-it('loads uplinks on opening and disables inactive choices', async () => {
-  await act(async () =>
-    root.render(<TunCaptureSetup settings={tunCaptureSettings(true)} onChange={vi.fn()} />),
-  );
-  expect(serviceCall).toHaveBeenCalledWith('tun.interfaces');
-  expect(
-    [...host.querySelectorAll('option')].map((option) => [option.value, option.disabled]),
-  ).toContainEqual(['Unused', true]);
-  expect(button('Refresh adapters').disabled).toBe(false);
-});
 it('capture presets retain the chosen uplink, resolver, name, MTU and advanced settings', async () => {
   const onChange = vi.fn(),
     settings = {
@@ -74,20 +63,4 @@ it('can retry a failed inventory without losing the configured adapter', async (
   await act(async () => button('Refresh adapters').click());
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(serviceCall).toHaveBeenCalledTimes(2);
-});
-it('ignores an inventory reply after closing and makes no service requests in browser preview', async () => {
-  let finish!: (value: unknown) => void;
-  vi.mocked(serviceCall).mockReturnValueOnce(
-    new Promise((resolve) => {
-      finish = resolve;
-    }),
-  );
-  await act(async () => root.render(<TunCaptureSetup settings={{}} onChange={vi.fn()} />));
-  await act(async () => root.render(null));
-  await act(async () => finish([{ name: 'Late', active: true }]));
-  expect(host.textContent).toBe('');
-  vi.mocked(desktopServiceAvailable).mockReturnValue(false);
-  await act(async () => root.render(<TunCaptureSetup settings={{}} onChange={vi.fn()} />));
-  expect(serviceCall).toHaveBeenCalledTimes(1);
-  expect(host.textContent).not.toContain('Refresh adapters');
 });

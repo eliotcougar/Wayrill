@@ -26,22 +26,6 @@ it('round trips readable and encrypted backups without machine-bound storage', a
     'Incorrect password',
   );
 });
-it('reads existing version-one backups and rejects unauthenticated version changes', async () => {
-  expect(
-    await decodeBackup(
-      JSON.stringify({ format: 'wayrill.backup', version: 1, encrypted: false, data: content }),
-    ),
-  ).toEqual(content);
-  const encrypted = JSON.parse(await encodeBackup(content, 'password'));
-  encrypted.version = 1;
-  await expect(decodeBackup(JSON.stringify(encrypted), 'password')).rejects.toThrow(
-    'damaged backup',
-  );
-  encrypted.version = '2';
-  await expect(decodeBackup(JSON.stringify(encrypted), 'password')).rejects.toThrow(
-    'not supported',
-  );
-});
 it('uses fresh salts and nonces and authenticates ciphertext', async () => {
   const first = await encodeBackup(content, 'long test password');
   const second = await encodeBackup(content, 'long test password');

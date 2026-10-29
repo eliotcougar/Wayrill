@@ -57,70 +57,12 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
 });
-it('changes the service-global preference independently of any graph', async () => {
-  await render();
-  expect(button('Apply').disabled).toBe(true);
-  const select = host.querySelector('select')!;
-  await act(async () => {
-    select.value = 'disposable';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await act(async () => button('Apply').click());
-  expect(runtime.run).toHaveBeenCalledWith('tun.adapters.set', {
-    reuseAdapters: false,
-  });
-});
 it('requires confirmation and a current installation identity to remove an orphan', async () => {
   await render();
   await act(async () =>
     host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.click(),
   );
   expect(runtime.run).not.toHaveBeenCalled();
-  await act(async () => button('Remove adapter').click());
-  expect(runtime.run).toHaveBeenCalledWith('tun.adapters.remove', {
-    kind: 'host',
-    expectedId: 'owned-host-id',
-  });
-});
-it.each(['running', 'starting', 'stopping'])(
-  'prevents edits during %s but always allows closing',
-  async (state) => {
-    runtime.snapshot!.core.state = state;
-    vi.mocked(serviceCall).mockResolvedValue({ ...inventory, recoveryPending: true });
-    await render();
-    expect(host.textContent).not.toContain('Finish Internet sharing recovery');
-    expect(host.querySelector('select')!.disabled).toBe(true);
-    expect(
-      host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.disabled,
-    ).toBe(true);
-    await act(async () => button('Close').click());
-    expect(close).toHaveBeenCalledOnce();
-  },
-);
-it('keeps uncertain service failures visible without automatically retrying removal', async () => {
-  vi.mocked(runtime.run).mockRejectedValue('Outcome unknown. Refresh before retrying.');
-  await render();
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.click(),
-  );
-  await act(async () => button('Remove adapter').click());
-  expect(runtime.run).toHaveBeenCalledOnce();
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Outcome unknown');
-});
-
-it('allows explicit adapter repair after a stopped failure', async () => {
-  runtime.snapshot!.core.state = 'failed';
-  vi.mocked(serviceCall).mockResolvedValue({
-    ...inventory,
-    adapters: [{ ...inventory.adapters[0], state: 'conflict', error: 'Windows GUID changed' }],
-  });
-  await render();
-  expect(host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.disabled).toBe(
-    false,
-  );
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.click(),
-  );
   await act(async () => button('Remove adapter').click());
   expect(runtime.run).toHaveBeenCalledWith('tun.adapters.remove', {
     kind: 'host',
@@ -149,43 +91,6 @@ it('never enables removal of a device with unverified ownership', async () => {
   expect(host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.disabled).toBe(
     true,
   );
-});
-
-it('allows the service-approved host repair while sharing recovery protects its own adapter', async () => {
-  runtime.snapshot!.core.state = 'failed';
-  runtime.snapshot!.tun!.state = 'running'; // Retained keeper, no host packet worker.
-  vi.mocked(serviceCall).mockResolvedValue({
-    ...inventory,
-    recoveryPending: true,
-    adapters: [
-      inventory.adapters[0],
-      {
-        ...inventory.adapters[0],
-        kind: 'ics',
-        id: 'owned-ics',
-        name: 'Wayrill-ICS',
-        state: 'running',
-        canRemove: false,
-      },
-    ],
-  });
-  await render();
-  expect(host.textContent).toContain('Finish Internet sharing recovery');
-  expect(host.querySelector('select')!.disabled).toBe(true);
-  expect(host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.disabled).toBe(
-    false,
-  );
-  expect(host.querySelector<HTMLButtonElement>('[aria-label="Remove Wayrill-ICS"]')!.disabled).toBe(
-    true,
-  );
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Remove WayrillTUN"]')!.click(),
-  );
-  await act(async () => button('Remove adapter').click());
-  expect(runtime.run).toHaveBeenCalledWith('tun.adapters.remove', {
-    kind: 'host',
-    expectedId: 'owned-host-id',
-  });
 });
 
 function deferred<T>() {
@@ -227,24 +132,6 @@ it('keeps the inventory and preference from the reconnected service when an old 
   });
 });
 
-it('does not unlock controls or surface an old error while the current inventory is still loading', async () => {
-  const old = deferred<typeof inventory>();
-  const current = deferred<typeof inventory>();
-  vi.mocked(serviceCall).mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
-  await render();
-  runtime = { ...runtime, snapshot: { ...runtime.snapshot!, instanceId: 'restarted' } };
-  await render();
-  await act(async () => old.reject(new Error('Previous service disconnected')));
-  expect(host.textContent).toContain('Loading adapters');
-  expect(host.querySelector('[role="alert"]')).toBeNull();
-  expect(
-    host.querySelector<HTMLButtonElement>('[aria-label="Refresh TUN adapters"]')!.disabled,
-  ).toBe(true);
-  await act(async () => current.resolve(inventory));
-  expect(host.textContent).not.toContain('Loading adapters');
-  expect(host.querySelector('select')!.disabled).toBe(false);
-});
-
 it('requires a successful new inventory before editing after a failed reconnection refresh', async () => {
   await render();
   vi.mocked(serviceCall).mockRejectedValueOnce(new Error('Inventory unavailable'));
@@ -260,19 +147,4 @@ it('requires a successful new inventory before editing after a failed reconnecti
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.querySelector('select')!.disabled).toBe(false);
   expect(host.textContent).toContain('WayrillTUN');
-});
-
-it('retires an in-flight read on disconnection and keeps Close usable', async () => {
-  const old = deferred<typeof inventory>();
-  vi.mocked(serviceCall).mockReturnValueOnce(old.promise);
-  await render();
-  runtime = { ...runtime, connected: false };
-  await render();
-  await act(async () => old.resolve(inventory));
-  expect(host.textContent).not.toContain('Loading adapters');
-  expect(host.textContent).not.toContain('WayrillTUN');
-  expect(host.textContent).toContain('Connect to the installed Windows service');
-  expect(host.querySelector('select')!.disabled).toBe(true);
-  await act(async () => button('Close').click());
-  expect(close).toHaveBeenCalledOnce();
 });

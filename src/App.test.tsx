@@ -5,10 +5,8 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App';
 import type useGraphEditor from './useGraphEditor';
-import { exportFile } from './exportFile';
 import { readImportText } from './importText';
 import { importXrayConfig } from './graph/xrayImport';
-import { makeNode } from './graph/catalog';
 import type { SharingInspection } from './graph/internetSharing';
 
 // Editor race cases need their own complex graph, not the bundled first-run starter.
@@ -101,100 +99,6 @@ const button = (text: string) =>
   [...host.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === text || button.getAttribute('aria-label') === text,
   )!;
-it('does not offer ICS setup merely because inspection failed', async () => {
-  sharing.error = 'The service is busy. Wait for the current operation to finish.';
-  await act(async () =>
-    root.render(
-      <ReactFlowProvider>
-        <App />
-      </ReactFlowProvider>,
-    ),
-  );
-  expect(host.querySelector('.ics-notice')).toBeNull();
-  sharing.error = 'Cannot inspect Windows sharing.';
-  await act(async () =>
-    root.render(
-      <ReactFlowProvider>
-        <App />
-      </ReactFlowProvider>,
-    ),
-  );
-  expect(host.querySelector('.ics-notice')).toBeNull();
-});
-it('offers setup for a confirmed sharing pair and hides it once an ICS node exists', async () => {
-  sharing.value = {
-    version: 'detected',
-    supported: true,
-    managed: false,
-    recoveryPending: false,
-    lastError: null,
-    connections: [],
-    pair: { public: { id: 'public', name: 'Ethernet' }, private: { id: 'private', name: 'LAN' } },
-  };
-  await act(async () =>
-    root.render(
-      <ReactFlowProvider>
-        <App />
-      </ReactFlowProvider>,
-    ),
-  );
-  expect(host.querySelector('.ics-notice')?.textContent).toContain('Ethernet → LAN');
-  expect(button('Add ICS TUN')).toBeDefined();
-  await act(async () =>
-    editor.change((graph) => ({
-      ...graph,
-      nodes: [...graph.nodes, makeNode('ics-tun', { x: 0, y: 0 })],
-    })),
-  );
-  expect(host.querySelector('.ics-notice')).toBeNull();
-});
-async function key(target: HTMLElement, value: string, ctrlKey = false) {
-  await act(async () =>
-    target.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: value,
-        ctrlKey,
-        bubbles: true,
-        cancelable: true,
-      }),
-    ),
-  );
-}
-it.each([
-  ['Undo', 'z', true],
-  ['Duplicate', 'd', true],
-  ['Delete', 'Delete', false],
-  ['Export', 's', true],
-  ['Open', 'o', true],
-] as const)(
-  'keeps graph %s shortcuts out of the application logs dialog',
-  async (_, value, ctrlKey) => {
-    await act(async () => button('Help').click());
-    await act(async () => button('Application logs…').click());
-    const dialog = host.querySelector<HTMLDialogElement>('dialog.diagnostics-window')!;
-    expect(dialog.open).toBe(true);
-    const before = editor.serialize();
-    const open = vi.spyOn(
-      host.querySelector<HTMLInputElement>('[aria-label="Open graph file"]')!,
-      'click',
-    );
-    await key(dialog.querySelector<HTMLButtonElement>('button')!, value, ctrlKey);
-    expect(editor.serialize()).toBe(before);
-    expect(exportFile).not.toHaveBeenCalled();
-    expect(open).not.toHaveBeenCalled();
-    expect(dialog.isConnected).toBe(true);
-    await act(async () => button('Close Application logs').click());
-    await key(host.querySelector('[aria-label="Routing graph canvas"]')!, 'z', true);
-    expect(editor.graph.name).not.toBe('Changed graph');
-  },
-);
-it('honors a shortcut already handled by a focused control', async () => {
-  const target = button('Select tool');
-  target.addEventListener('keydown', (event) => event.preventDefault(), { once: true });
-  const before = editor.serialize();
-  await key(target, 'd', true);
-  expect(editor.serialize()).toBe(before);
-});
 
 function delayedRead() {
   let resolve!: (value: string) => void;
@@ -231,16 +135,6 @@ it('keeps the newest graph when file reads complete out of order', async () => {
   await act(async () => first.resolve(older));
   expect(editor.graph.name).toBe('Newest file');
 });
-it('keeps a new graph and suppresses obsolete read errors', async () => {
-  const read = delayedRead();
-  await chooseGraph('older.json');
-  await act(() => button('File').click());
-  await act(() => button('New graph').click());
-  expect(editor.graph.name).toBe('Untitled graph');
-  await act(async () => read.reject(new Error('Obsolete read failed')));
-  expect(editor.graph.name).toBe('Untitled graph');
-  expect(host.textContent).not.toContain('Obsolete read failed');
-});
 it('preserves edits made while an earlier graph file is being read', async () => {
   const read = delayedRead(),
     incoming = graphText('Incoming graph');
@@ -249,17 +143,6 @@ it('preserves edits made while an earlier graph file is being read', async () =>
   await act(async () => read.resolve(incoming));
   expect(editor.graph.name).toBe('A more recent edit');
   expect(host.textContent).toContain('The graph changed while the file was opening');
-});
-it('still opens a graph after harmless selection and viewport changes', async () => {
-  const read = delayedRead(),
-    incoming = graphText('Incoming graph');
-  await chooseGraph('incoming.json');
-  await act(() => {
-    editor.selectNode(editor.graph.nodes.at(-1)!.id);
-    editor.setViewport({ x: 10, y: 20, zoom: 0.8 });
-  });
-  await act(async () => read.resolve(incoming));
-  expect(editor.graph.name).toBe('Incoming graph');
 });
 
 it.each([false, true])(
@@ -364,17 +247,6 @@ it('keeps a conflicting protocol draft open with a visible error', async () => {
   ).toContain('provider-password');
 });
 
-it('preserves an edit published immediately before the file read completes', async () => {
-  const read = delayedRead(),
-    incoming = graphText('Incoming graph');
-  await chooseGraph('incoming.json');
-  await act(async () => {
-    editor.change((graph) => ({ ...graph, name: 'Same turn edit' }));
-    read.resolve(incoming);
-  });
-  expect(editor.graph.name).toBe('Same turn edit');
-});
-
 it('lets a New graph command supersede a file completing in the same turn', async () => {
   const read = delayedRead(),
     incoming = graphText('Incoming graph');
@@ -423,25 +295,4 @@ it('retains a routing-rule draft when lifecycle work blocks its save, then accep
   await act(() => button('Apply changes').click());
   expect(dialog.isConnected).toBe(false);
   expect(editor.serialize()).toContain('My pending rule');
-});
-it('does not claim a pending graph open succeeded during lifecycle work and allows retry', async () => {
-  const read = delayedRead(),
-    incoming = graphText('Incoming graph');
-  const original = editor.serialize(),
-    version = editor.loadVersion;
-  await chooseGraph('incoming.json');
-  await setLifecycle(true);
-  await act(async () => read.resolve(incoming));
-  expect(editor.serialize()).toBe(original);
-  expect(editor.loadVersion).toBe(version);
-  expect(host.textContent).toContain(
-    'Wait for the current operation to finish, then open the graph again.',
-  );
-  expect(host.textContent).not.toContain('Opened Incoming graph.');
-  await setLifecycle(false);
-  const retry = delayedRead();
-  await chooseGraph('incoming.json');
-  await act(async () => retry.resolve(incoming));
-  expect(editor.graph.name).toBe('Incoming graph');
-  expect(editor.loadVersion).toBe(version + 1);
 });

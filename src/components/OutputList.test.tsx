@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { act, useState } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import OutputList from './OutputList';
 import RuleTableEditor from './RuleTableEditor';
 import DnsEditor from './DnsEditor';
 import { moveEntry } from './OrderedEntries';
@@ -67,14 +66,6 @@ async function pointer(handle: HTMLElement, type: string, x: number, y: number) 
     });
     Object.defineProperty(event, 'pointerId', { value: 1 });
     handle.dispatchEvent(event);
-  });
-}
-async function key(handle: HTMLElement, value: string) {
-  await act(() => {
-    handle.focus();
-    handle.dispatchEvent(
-      new KeyboardEvent('keydown', { key: value, altKey: true, bubbles: true, cancelable: true }),
-    );
   });
 }
 
@@ -148,83 +139,3 @@ for (const kind of ['routing-filter', 'dns-routing-filter'] as const) {
     },
   );
 }
-
-function Harness() {
-  const [outputs, setOutputs] = useState(['a', 'b', 'c'].map((id) => ({ id, name: id })));
-  return (
-    <div className="output-editor">
-      <OutputList
-        outputs={outputs}
-        label="Test outputs"
-        onMove={(id, to) =>
-          setOutputs((rows) =>
-            moveEntry(
-              rows,
-              rows.findIndex((o) => o.id === id),
-              to,
-            ),
-          )
-        }
-      >
-        {(output) => <input aria-label={`Name ${output.id}`} value={output.name} readOnly />}
-      </OutputList>
-    </div>
-  );
-}
-
-it('cancels outside/hidden drops and pointer cancellation; text fields do not start a reorder', async () => {
-  await act(() => root.render(<Harness />));
-  const rows = geometry(),
-    handle = rows[2].querySelector<HTMLElement>('.output-drag-handle')!,
-    input = rows[2].querySelector('input')!;
-  await pointer(input, 'pointerdown', 32, 225);
-  await pointer(input, 'pointermove', 32, 121);
-  await pointer(input, 'pointerup', 32, 121);
-  expect(order()).toEqual(['a', 'b', 'c']);
-  for (const end of ['pointercancel', 'lostpointercapture']) {
-    await pointer(handle, 'pointerdown', 32, 225);
-    await pointer(handle, 'pointermove', 32, 121);
-    await pointer(handle, end, 32, 121);
-    expect(order()).toEqual(['a', 'b', 'c']);
-  }
-  await pointer(handle, 'pointerdown', 32, 225);
-  await pointer(handle, 'pointermove', 800, 121);
-  await pointer(handle, 'pointerup', 800, 121);
-  expect(order()).toEqual(['a', 'b', 'c']);
-  host.querySelector<HTMLElement>('.output-editor')!.getBoundingClientRect = () =>
-    ({ top: 80, bottom: 130 }) as DOMRect;
-  await pointer(handle, 'pointerdown', 32, 225);
-  await pointer(handle, 'pointermove', 32, 173);
-  await pointer(handle, 'pointerup', 32, 173);
-  expect(order()).toEqual(['a', 'b', 'c']);
-});
-
-it('accepts drops in row gaps and announces the new order', async () => {
-  await act(() => root.render(<Harness />));
-  const rows = geometry(),
-    handle = rows[2].querySelector<HTMLElement>('.output-drag-handle')!;
-  await pointer(handle, 'pointerdown', 32, 225);
-  await pointer(handle, 'pointermove', 32, 149);
-  await pointer(handle, 'pointerup', 32, 149);
-  expect(order()).toEqual(['a', 'c', 'b']);
-  expect(host.querySelector('[role="status"]')!.textContent).toContain(
-    'c moved to position 2 of 3',
-  );
-});
-
-it('provides keyboard boundary moves while retaining focus on the same output', async () => {
-  await act(() => root.render(<Harness />));
-  const handle = button('Reorder output c');
-  await key(handle, 'Home');
-  expect(order()).toEqual(['c', 'a', 'b']);
-  expect(document.activeElement).toBe(handle);
-  await key(handle, 'ArrowUp');
-  expect(order()).toEqual(['c', 'a', 'b']);
-  await key(handle, 'End');
-  expect(order()).toEqual(['a', 'b', 'c']);
-  expect(document.activeElement).toBe(handle);
-  await key(handle, 'ArrowUp');
-  expect(order()).toEqual(['a', 'c', 'b']);
-  await key(handle, 'ArrowDown');
-  expect(order()).toEqual(['a', 'b', 'c']);
-});

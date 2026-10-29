@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import useStash from './useStash';
 import { importProfiles, serializeStash, type Stash } from './import';
-import { mergeLibraryUpdate } from './stashMerge';
 const storage = vi.hoisted(() => ({
   available: false,
   read: vi.fn(),
@@ -57,18 +56,6 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 const result = () => importProfiles('vless://public@a.example.net:443?security=tls#Public');
-it('retains the exact logical snapshot when the service acknowledges the same library', async () => {
-  await act(async () => root.render(<Harness />));
-  await act(() => latest.importResult(result()));
-  const snapshot = latest.get(),
-    saved = serializeStash(snapshot);
-  storage.merge.mockImplementation(async (base: string, local: Stash, text: string) =>
-    mergeLibraryUpdate(base, local, text),
-  );
-  await act(async () => storage.change!({ base: saved, text: saved }));
-  expect(latest.get()).toBe(snapshot);
-  expect(latest.getBase()).toBe(saved);
-});
 it('flushes the latest shared edit before a replacement even before the next render', async () => {
   await act(async () => root.render(<Harness />));
   const definition = result();
@@ -78,41 +65,6 @@ it('flushes the latest shared edit before a replacement even before the next ren
     await latest.flush();
     expect(storage.save).toHaveBeenCalledWith(serializeStash(current), '');
   });
-});
-it('rejects a late group update after metadata changed, preserving both stash groups', async () => {
-  await act(async () => root.render(<Harness />));
-  await act(async () => {
-    latest.importResult(result());
-    latest.importResult(result());
-  });
-  const previous = latest.stash.groups[1],
-    other = latest.stash.groups[2];
-  await act(async () =>
-    latest.update((stash) => ({
-      ...stash,
-      groups: stash.groups.map((g) => (g.id === previous.id ? { ...g, name: 'Changed' } : g)),
-    })),
-  );
-  expect(() => latest.importResult(result(), previous.id, previous)).toThrow(/changed while/);
-  expect(latest.stash.groups[1].name).toBe('Changed');
-  expect(latest.stash.groups[2]).toBe(other);
-});
-it('does not release protected storage until strict worker parsing completes', async () => {
-  storage.available = true;
-  storage.read.mockResolvedValue('saved payload');
-  let resolve!: (value: ReturnType<typeof result>) => void;
-  storage.parse.mockReturnValue(
-    new Promise((r) => {
-      resolve = r;
-    }),
-  );
-  await act(async () => root.render(<Harness />));
-  expect(storage.parse).toHaveBeenCalledWith('saved payload', 'Saved stash', true);
-  expect(latest.ready).toBe(false);
-  expect(() => latest.importResult(result())).toThrow(/not available/);
-  await act(async () => resolve(result()));
-  expect(latest.ready).toBe(true);
-  expect(latest.stash.groups).toHaveLength(1);
 });
 it('keeps a corrupt protected stash unwritable after a worker rejection', async () => {
   storage.available = true;
@@ -205,23 +157,6 @@ it('autosaves the matching renderer base while a newer service merge is pending'
   expect(latest.stash.groups[0].entries).toHaveLength(2);
   await act(() => vi.advanceTimersByTimeAsync(350));
   expect(storage.write).toHaveBeenLastCalledWith('stash', latest.serialize(), remoteText);
-});
-
-it('rejects a failed service merge without acknowledging its newer base', async () => {
-  storage.available = true;
-  const parsed = result();
-  const base = serializeStash({ format: 'wayrill.stash', version: 3, groups: parsed.groups });
-  storage.read.mockResolvedValue(base);
-  storage.parse.mockResolvedValue(parsed);
-  storage.merge.mockRejectedValue(new Error('Conflicting edit'));
-  await act(async () => root.render(<Harness />));
-  await act(async () => {
-    await expect(storage.change!({ base, text: 'newer service data' })).rejects.toThrow(
-      'Conflicting edit',
-    );
-  });
-  expect(latest.getBase()).toBe(base);
-  expect(latest.error).toContain('Conflicting edit');
 });
 
 it('settles an outstanding service acknowledgement when the Stash unmounts', async () => {

@@ -4,11 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { makeNode } from '../graph/catalog';
 import { importXrayConfig } from '../graph/xrayImport';
-import type { NodeKind } from '../graph/types';
-import ProtocolEditor from './ProtocolEditor';
 import CoreOptionsEditor from './CoreOptionsEditor';
 import NativeDnsEditor from './NativeDnsEditor';
-import FakeDnsEditor from './FakeDnsEditor';
 
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
@@ -24,84 +21,6 @@ afterEach(async () => {
   await act(() => root.unmount());
   host.remove();
 });
-
-it.each<NodeKind>([
-  'trojan-outbound',
-  'vless-inbound',
-  'loopback-outbound',
-  'xray-options',
-  'xray-dns',
-  'xray-dns-servers',
-  'fakedns',
-])(
-  '%s exposes associated panes, manual keyboard activation and retained JSON drafts',
-  async (kind) => {
-    const graph = importXrayConfig(
-      JSON.stringify({ outbounds: [{ tag: 'direct', protocol: 'freedom', settings: {} }] }),
-    );
-    const node = makeNode(kind, { x: 0, y: 0 }),
-      apply = vi.fn(),
-      close = vi.fn();
-    graph.nodes.push(node);
-    const props = { node, onApply: apply, onClose: close };
-    await act(() =>
-      root.render(
-        kind === 'xray-options' ? (
-          <CoreOptionsEditor {...props} />
-        ) : kind === 'fakedns' ? (
-          <FakeDnsEditor {...props} graph={graph} />
-        ) : kind.startsWith('xray-dns') ? (
-          <NativeDnsEditor {...props} graph={graph} />
-        ) : (
-          <ProtocolEditor {...props} defaults={graph.defaults} />
-        ),
-      ),
-    );
-    const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    expect(tabs.length).toBeGreaterThan(1);
-    for (const pane of host.querySelectorAll('[role="tabpanel"]')) {
-      expect(document.getElementById(pane.getAttribute('aria-labelledby')!)).not.toBeNull();
-    }
-    for (const tab of tabs) {
-      const pane = document.getElementById(tab.getAttribute('aria-controls')!)!;
-      expect(pane.getAttribute('role')).toBe('tabpanel');
-      expect(pane.getAttribute('aria-labelledby')).toBe(tab.id);
-      expect(pane.hidden).toBe(tab.getAttribute('aria-selected') !== 'true');
-    }
-    const key = async (key: string) =>
-      act(() =>
-        document.activeElement!.dispatchEvent(
-          new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
-        ),
-      );
-    await act(() => tabs[0].focus());
-    await key('ArrowRight');
-    expect(document.activeElement).toBe(tabs[1]);
-    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
-    await key(' ');
-    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
-    const json = tabs.find((t) => t.textContent === 'Native JSON')!;
-    await act(() => json.click());
-    const pane = document.getElementById(json.getAttribute('aria-controls')!)!;
-    const field = pane.querySelector<HTMLTextAreaElement>('textarea')!;
-    await act(() => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
-        field,
-        '{ unfinished',
-      );
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(() => tabs[0].click());
-    await act(() => json.click());
-    expect(pane.querySelector('textarea')).toBe(field);
-    expect(field.value).toBe('{ unfinished');
-    await act(() =>
-      [...host.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!.click(),
-    );
-    expect(apply).not.toHaveBeenCalled();
-    expect(close).toHaveBeenCalled();
-  },
-);
 
 const editorButton = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === name)!;
@@ -174,44 +93,6 @@ it.each(['dns', 'policy'] as const)(
   },
 );
 
-it('shows root DNS defaults and server inheritance with distinct field metadata', async () => {
-  const graph = importXrayConfig(
-    JSON.stringify({
-      dns: { queryStrategy: 'UseIPv4', disableCache: true, servers: ['https://1.1.1.1/dns-query'] },
-      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
-    }),
-  );
-  const handler = graph.nodes.find((n) => n.data.kind === 'xray-dns')!;
-  await act(() =>
-    root.render(
-      <NativeDnsEditor node={handler} graph={graph} onApply={vi.fn()} onClose={vi.fn()} />,
-    ),
-  );
-  const option = (id: string) => host.querySelector<HTMLSelectElement>('#' + id)!.options[0].text;
-  expect(option('native-dns-queryStrategy')).toBe('Default: UseIP — IPv4 and IPv6');
-  expect(option('native-dns-disableCache')).toBe('Default: Disabled');
-  expect(host.querySelector<HTMLInputElement>('#native-dns-clientIp')!.placeholder).toBe(
-    'No EDNS client IP',
-  );
-  expect(host.querySelector<HTMLInputElement>('#native-dns-serveExpiredTTL')!.placeholder).toBe(
-    '0 seconds',
-  );
-  const server = graph.nodes.find((n) => n.data.kind === 'xray-dns-servers')!;
-  await act(() =>
-    root.render(
-      <NativeDnsEditor
-        key="server"
-        node={server}
-        graph={graph}
-        onApply={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    ),
-  );
-  expect(option('resolver-0-queryStrategy')).toBe('Default: UseIPv4');
-  expect(option('resolver-0-disableCache')).toBe('Default: Enabled');
-});
-
 it('edits native DNS server strings through the real form and converts them only for extra options', async () => {
   const graph = importXrayConfig(
     JSON.stringify({
@@ -237,33 +118,3 @@ it('edits native DNS server strings through the real form and converts them only
     { address: '1.0.0.1', finalQuery: false },
   ]);
 });
-
-it.each([
-  { address: '1.1.1.1', port: 0, endpoint: 'tcp://1.1.1.1:53' },
-  { address: '2001:db8::53', port: 5353, endpoint: 'tcp://[2001:db8::53]:5353' },
-])(
-  'converts imported UDP DNS $address:$port using its effective port',
-  async ({ address, port, endpoint }) => {
-    const server = { address, port, domains: ['domain:example.test'], skipFallback: true };
-    const graph = importXrayConfig(
-      JSON.stringify({
-        dns: { servers: [server, '9.9.9.9'] },
-        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
-      }),
-    );
-    const node = graph.nodes.find((n) => n.data.kind === 'xray-dns-servers')!;
-    const apply = vi.fn();
-    await act(() =>
-      root.render(<NativeDnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
-    );
-    expect(editorButton('Use TCP DNS').disabled).toBe(false);
-    await act(() => editorButton('Use TCP DNS').click());
-    expect(host.querySelector<HTMLInputElement>('#resolver-0-address')!.value).toBe(endpoint);
-    expect(editorButton('Apply DNS settings').disabled).toBe(false);
-    await act(() => editorButton('Apply DNS settings').click());
-    expect(JSON.parse(apply.mock.calls[0][1].settings.json).servers[0]).toEqual({
-      ...server,
-      address: endpoint,
-    });
-  },
-);

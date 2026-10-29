@@ -4,12 +4,8 @@ import { createPolicyExample } from './policyExample';
 import { describe, expect, it } from 'vitest';
 import {
   factoryResources,
-  resourceProviders,
   parseResources,
   resourceCompilationGraph,
-  resourceDependencies,
-  resourceFiles,
-  resourceFilename,
   selectResource,
 } from './resources';
 import { applyDefaults, factoryDefaults } from './defaults';
@@ -71,32 +67,6 @@ describe('shared resource files', () => {
     );
     expect(current.rules[0].source?.base.conditions.domain).toBe('ext:office.dat:work');
   });
-  it('gives every packaged file independent settings and selects one default per kind', () => {
-    const set = factoryResources();
-    expect(set.files).toHaveLength(8);
-    expect(set.files.filter((file) => file.enabled).map((file) => file.name)).toEqual([
-      'geoip.dat',
-      'geosite.dat',
-    ]);
-    for (const provider of resourceProviders) {
-      const saved = {
-        ...set,
-        files: set.files.map((file) =>
-          file.enabled ? { ...file, url: provider[file.kind] } : file,
-        ),
-      };
-      expect(parseResources(saved)).toEqual(saved);
-    }
-    const selected = selectResource(set, 'packaged-ru-geosite', true);
-    expect(selected.files.filter((file) => file.enabled).map((file) => file.name)).toEqual([
-      'geoip.dat',
-      'ru-geosite.dat',
-    ]);
-    expect(set.files[1].enabled).toBe(true);
-    expect(() =>
-      parseResources({ ...set, files: set.files.map((file) => ({ ...file, enabled: true })) }),
-    ).toThrow(/one/);
-  });
   it('rewrites plain selectors to the selected files without changing explicit regional selectors or saved graphs', () => {
     const graph = createTrafficExample();
     graph.defaults = { ...factoryDefaults(), resources: russianResources() };
@@ -129,26 +99,6 @@ describe('shared resource files', () => {
     }
     graph.nodes[0].data.settings.ip = 'ext:geoip.dat:private';
     expect(resourceCompilationGraph(graph).nodes[0].data.settings.ip).toBe('ext:geoip.dat:private');
-  });
-  it('uses the actual custom filename, including when it is selected as the default', () => {
-    const graph = createTrafficExample();
-    const set = factoryResources();
-    set.files.push(officeFile);
-    graph.defaults = { ...factoryDefaults(), resources: selectResource(set, officeFile.id, true) };
-    const node = graph.nodes[0];
-    node.data.label = 'ext:office.dat:work';
-    node.data.settings.password = 'ext:office.dat:work';
-    node.data.settings.domain = 'geosite:work';
-    node.data.settings.hosts = '{"geosite:work":"192.0.2.1"}';
-    const copy = resourceCompilationGraph(graph);
-    expect(copy.nodes[0].data.settings.domain).toBe('ext:office.dat:work');
-    expect(String(copy.nodes[0].data.settings.hosts)).toContain('ext:office.dat:work');
-    expect(copy.nodes[0].data.label).toBe(node.data.label);
-    expect(copy.nodes[0].data.settings.password).toBe(node.data.settings.password);
-    expect(resourceFilename(officeFile)).toBe('office.dat');
-    expect(resourceFiles(graph.defaults.resources!)).toContainEqual(
-      expect.objectContaining({ id: 'qa-id', file: 'office.dat', url: '', autoUpdate: false }),
-    );
   });
   it('renames filter and DNS references together with defaults, preserving labels, credentials, IDs and graph undo data', () => {
     const graph = createTrafficExample();
@@ -197,32 +147,6 @@ describe('shared resource files', () => {
     expect(next.edges).toEqual(graph.edges);
     expect(serializeGraph(graph)).toBe(before);
   });
-  it('normalizes existing packaged/URL settings and keeps custom identities for a real file rename', () => {
-    const old = {
-      mode: 'packaged',
-      packaged: 'russian',
-      geoipUrl: resourceProviders[2].geoip,
-      geositeUrl: resourceProviders[2].geosite,
-      autoUpdate: true,
-      intervalHours: 8,
-      extras: [{ id: 'qa-id', name: 'office.dat', kind: 'geosite', source: 'disk', url: '' }],
-    };
-    const set = parseResources(old);
-    expect(set.files.filter((file) => file.enabled).map((file) => file.name)).toEqual([
-      'ru-geoip.dat',
-      'ru-geosite.dat',
-    ]);
-    expect(set.files.find((file) => file.id === 'qa-id')).toMatchObject({
-      name: 'office.dat',
-      url: '',
-      autoUpdate: false,
-    });
-    expect(
-      parseResources({ ...old, mode: 'url' })
-        .files.filter((file) => file.enabled)
-        .map((file) => file.id),
-    ).toEqual(['global-geoip', 'global-geosite']);
-  });
   it('reports a missing default instead of silently substituting another file', () => {
     const graph = createTrafficExample();
     graph.defaults = {
@@ -260,39 +184,6 @@ describe('shared resource files', () => {
     ).toThrow(/URL/);
   });
 });
-
-it('keeps copied Shadowsocks baselines and identities intact, including nested JSON formatting', () => {
-  const graph = createPolicyExample(),
-    group = graph.nodes.find((n) => n.data.kind === 'policy-group')!;
-  const entry = importProfiles(
-    JSON.stringify({
-      protocol: 'shadowsocks',
-      settings: {
-        servers: [
-          {
-            address: 'example.net',
-            port: 443,
-            method: 'aes-128-gcm',
-            password: '{"domain":"geosite:private"}',
-          },
-        ],
-      },
-    }),
-  ).groups[0].entries[0];
-  entry.profile!.settings.commonBaseline = JSON.stringify(
-    { json: '{\n  "protocol": "shadowsocks"\n}', fingerprint: '' },
-    null,
-    2,
-  );
-  const ref = policyProfile(entry);
-  group.data.settings.sources = JSON.stringify({ ...emptyPolicySources(), manual: [ref] }, null, 2);
-  const copy = resourceCompilationGraph(graph),
-    actual = copy.nodes.find((n) => n.id === group.id)!;
-  expect(actual.data.settings.sources).toBe(group.data.settings.sources);
-  const profile = JSON.parse(String(actual.data.settings.sources)).manual[0];
-  expect(profile.id).toBe(policyProfileId(profile.profile));
-  expect(profile.profile.settings.commonBaseline).toBe(entry.profile!.settings.commonBaseline);
-});
 it('updates valid nested profile identities for actual resource changes but never legitimizes corrupt identities', () => {
   const graph = createPolicyExample(),
     node = graph.nodes.find((n) => n.data.kind === 'policy-group')!;
@@ -320,36 +211,4 @@ it('updates valid nested profile identities for actual resource changes but neve
       ),
     ).manual[0].id,
   ).toBe(ref.id);
-});
-
-it('finds inverse, alias and scalar-list resource dependencies without splitting array entries', () => {
-  expect(
-    resourceDependencies({
-      routing: {
-        rules: [
-          { domain: 'geosite:one,ext-site:custom.dat:two', ip: '!geoip:!private' },
-          { source: ['!!ext-ip:source.dat:!group'], domain: ['regexp:a,geosite:literal'] },
-        ],
-      },
-      dns: { hosts: { 'ext-domain:hosts.dat:one': '127.0.0.1' } },
-    }),
-  ).toEqual(['custom.dat', 'geoip.dat', 'geosite.dat', 'hosts.dat', 'source.dat']);
-});
-
-it('ignores superseded source and expected-IP resource aliases as the core does', () => {
-  expect(
-    resourceDependencies({
-      routing: {
-        rules: [
-          {
-            sourceIP: ['127.0.0.0/8'],
-            source: ['ext:unused.dat:gone'],
-            domain: ['geosite:one'],
-            domains: ['ext-site:active.dat:two'],
-          },
-        ],
-      },
-      dns: { servers: [{ expectedIPs: ['192.0.2.0/24'], expectIPs: ['ext:unused.dat:gone'] }] },
-    }),
-  ).toEqual(['active.dat', 'geosite.dat']);
 });

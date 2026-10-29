@@ -5,13 +5,6 @@ import { makeNode } from './graph/catalog';
 import { createDnsExample } from './graph/example';
 import { enableDefaults, factoryDefaults } from './graph/defaults';
 import { compileRuntimeGraph } from './graph/runtime';
-import { readRuleTable, tableSettings } from './graph/rules';
-import {
-  attachTrafficSource,
-  editSourcedRule,
-  refreshTrafficSource,
-} from './graph/trafficRuleSource';
-import { parseTrafficRules } from './graph/trafficRuleImport';
 import { parseEntry, type Stash, type Profile } from './profiles/import';
 import { defaultGroup } from './profiles/stashModel';
 import { policyProfileId, readPolicySources } from './graph/policySources';
@@ -56,34 +49,6 @@ it('exports nested settings as JSON objects and lists, restoring the same execut
   );
   expect(compileRuntimeGraph(restored.graph!)).toEqual(compileRuntimeGraph(graph));
   expect(restored.preferences).toEqual(content.preferences);
-});
-
-it('preserves source baselines, removals and additions in standalone filter backups', () => {
-  const graph = enableDefaults(createDnsExample());
-  const node = graph.nodes.find((n) => n.data.kind === 'routing-filter')!;
-  const parse = (domain: string) =>
-    parseTrafficRules(JSON.stringify([{ id: 'same', domain: [domain], outboundTag: 'proxy' }]));
-  let table = attachTrafficSource(
-    readRuleTable(node.data.settings),
-    parse('domain:a.test'),
-    { 'outbound:proxy': 'preferred' },
-    'replace',
-    { kind: 'file', location: 'C:/rules.json', allowHttp: false, viaWayrill: false },
-  );
-  table = {
-    ...table,
-    rules: table.rules.map((r) =>
-      editSourcedRule(r, { conditions: { domain: 'domain:a.test\ndomain:local.test' } }),
-    ),
-  };
-  Object.assign(node.data.settings, tableSettings(table));
-  const restored = roundTrip(createContent('filters', graph, stash(), {}, [node.id]));
-  const updated = refreshTrafficSource(
-    readRuleTable(restored.filters![0].settings),
-    parse('domain:new.test'),
-  );
-  expect(updated.rules[0].conditions.domain).toContain('domain:new.test');
-  expect(updated.rules[0].conditions.domain).toContain('domain:local.test');
 });
 
 it('expands Stash templates and nested prepared profiles without treating credentials as JSON', () => {

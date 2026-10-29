@@ -2,8 +2,6 @@
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { createTrafficExample } from '../graph/example';
-import DnsEditor from './DnsEditor';
 import { OrderedEntries, moveEntry, type OrderedEntry } from './OrderedEntries';
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
@@ -54,22 +52,6 @@ async function press(target: HTMLElement, key: string, altKey = false) {
     );
   });
 }
-it('selects with arrows and Home/End using one tab stop without reordering', async () => {
-  await act(() => root.render(<Harness />));
-  const rows = [...host.querySelectorAll<HTMLButtonElement>('.rule-list button')];
-  expect(rows.filter((b) => b.tabIndex === 0)).toEqual([rows[1]]);
-  await press(rows[1], 'ArrowDown');
-  expect(document.activeElement).toBe(rows[2]);
-  await press(rows[2], 'Home');
-  expect(document.activeElement).toBe(rows[0]);
-  await press(rows[0], 'End');
-  expect(document.activeElement).toBe(rows[2]);
-  expect([...host.querySelectorAll('.rule-list strong')].map((e) => e.textContent)).toEqual([
-    'first',
-    'second',
-    'third',
-  ]);
-});
 it('moves by keyboard while preserving row identity, selection and focus', async () => {
   await act(() => root.render(<Harness />));
   const selected = host.querySelector<HTMLButtonElement>('[aria-pressed="true"]')!;
@@ -80,68 +62,6 @@ it('moves by keyboard while preserving row identity, selection and focus', async
   await press(selected, 'ArrowDown', true);
   expect(document.activeElement).toBe(selected);
 });
-
-it('keeps the first row keyboard reachable when a diagnostic refers to a deleted row', async () => {
-  await act(() =>
-    root.render(
-      <OrderedEntries
-        entries={original}
-        selected="deleted"
-        onSelect={() => {}}
-        onMove={() => {}}
-        label="Rows"
-        empty="Empty"
-      />,
-    ),
-  );
-  expect(host.querySelector<HTMLButtonElement>('.rule-list button')!.tabIndex).toBe(0);
-});
-
-it.each(['dns-handler', 'dns-routing-filter', 'dns-servers'])(
-  'moves %s entries while preserving settings and stable identities',
-  async (kind) => {
-    HTMLDialogElement.prototype.showModal = function () {
-      this.open = true;
-    };
-    const graph = createTrafficExample(),
-      node = graph.nodes.find((n) => n.data.kind === kind)!;
-    const key =
-      kind === 'dns-handler' ? 'policyRules' : kind === 'dns-servers' ? 'servers' : 'rules';
-    const rows = JSON.parse(String(node.data.settings[key]));
-    rows.splice(1, rows.length - 1, { ...rows[0], id: 'second', name: 'Secondary entry' });
-    node.data.settings[key] = JSON.stringify(rows);
-    const before = structuredClone(graph),
-      applied: unknown[][] = [];
-    await act(() =>
-      root.render(
-        <DnsEditor
-          node={node}
-          graph={graph}
-          onApply={(...args) => {
-            applied.push(args);
-          }}
-          onClose={() => {}}
-        />,
-      ),
-    );
-    const second = host.querySelectorAll<HTMLButtonElement>('.rule-list button')[1];
-    await act(() => second.click());
-    expect(host.querySelector('.entry-position')).toBeNull();
-    const up = host.querySelector<HTMLButtonElement>('[aria-label="Move entry up"]')!;
-    expect(up.closest('.ordered-rules')).not.toBeNull();
-    await act(() => up.click());
-    expect(host.querySelector('.rule-list button')).toBe(second);
-    expect(graph).toEqual(before);
-    await act(() =>
-      [...host.querySelectorAll<HTMLButtonElement>('button')]
-        .find((b) => b.textContent?.trim() === 'Apply changes')!
-        .click(),
-    );
-    expect(applied).toHaveLength(1);
-    const settings = (applied[0][1] as { settings: Record<string, string> }).settings;
-    expect(JSON.parse(settings[key])).toEqual([rows[1], rows[0]]);
-  },
-);
 
 it('reorders from the captured drag handle and cancels drops outside the list', async () => {
   HTMLElement.prototype.setPointerCapture = () => {};

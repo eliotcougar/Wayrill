@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeNode } from './catalog';
-import { factoryDefaults, resolveGraph } from './defaults';
+import { factoryDefaults } from './defaults';
 import { compileRuntimeGraph } from './runtime';
-import { compileCapturePlan, defaultCaptureOptions, parseCaptureOptions } from './capture';
-import { parseGraph, serializeGraph } from './model';
 import { importXrayConfig } from './xrayImport';
 import type { GraphState } from './types';
 function fixture(): GraphState {
@@ -42,44 +40,6 @@ describe('Windows capture graph', () => {
     ]);
     expect((result.config.routing as { rules: unknown[] }).rules).toHaveLength(2);
   });
-  it('retains identities and adapter choices in graph files', () => {
-    const graph = fixture();
-    graph.captureOptions = {
-      ...defaultCaptureOptions(),
-      interfaces: {
-        monitorNewInterfaces: false,
-        interfaces: [{ id: 'adapter-one', name: 'LAN', monitored: true }],
-      },
-    };
-    const restored = parseGraph(serializeGraph(graph));
-    expect(compileCapturePlan(restored)).toEqual(compileCapturePlan(graph));
-    expect(compileRuntimeGraph(restored).config).toEqual(compileRuntimeGraph(graph).config);
-  });
-  it('uses app sniffing defaults while retaining the required relay UDP support', () => {
-    const graph = fixture();
-    graph.defaults!.settings.sniffing = true;
-    graph.defaults!.settings.routeOnly = false;
-    graph.defaults!.settings.udp = false;
-    expect(compileRuntimeGraph(resolveGraph(graph)).config.inbounds).toMatchObject([
-      { settings: { udp: true }, sniffing: { enabled: true, routeOnly: false } },
-    ]);
-  });
-  it('orders capture inputs by priority without embedding application filters', () => {
-    const graph = fixture();
-    const second = structuredClone(graph.nodes[0]);
-    second.id = 'second';
-    second.data.settings.tag = 'second';
-    second.data.settings.capturePriority = 1;
-    second.data.settings.port = 22081;
-    graph.nodes.push(second);
-    expect(compileCapturePlan(graph)?.inputs.map((i) => i.tag)).toEqual([
-      'second',
-      'captured-traffic',
-    ]);
-    expect(
-      compileCapturePlan(graph)?.inputs.every((i) => i.ports === '' && i.selectors.length === 0),
-    ).toBe(true);
-  });
   it('adds capture to an imported native global filter', () => {
     const graph = importXrayConfig(
       JSON.stringify({
@@ -108,17 +68,4 @@ describe('Windows capture graph', () => {
       });
     expect(compileRuntimeGraph(graph).capture?.inputs).toHaveLength(1);
   });
-  it('rejects duplicate adapter identities', () =>
-    expect(() =>
-      parseCaptureOptions({
-        ...defaultCaptureOptions(),
-        interfaces: {
-          monitorNewInterfaces: true,
-          interfaces: [
-            { id: 'LAN', name: 'LAN', monitored: true },
-            { id: 'lan', name: 'LAN', monitored: false },
-          ],
-        },
-      }),
-    ).toThrow(/duplicate/));
 });

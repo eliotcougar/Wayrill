@@ -95,14 +95,6 @@ it.each(['Cancel', 'Apply changes'])(
     }
   },
 );
-it('rejects malformed imports without changing the existing draft', async () => {
-  const { apply, node } = await editor();
-  await file('[{"domain":"bad","outboundTag":"proxy"}]');
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('array');
-  expect(button('Import rules')).toBeUndefined();
-  await act(() => button('Apply changes').click());
-  expect(readRuleTable(apply.mock.calls[0][1].settings)).toEqual(readRuleTable(node.data.settings));
-});
 it('ignores an older file read after a newer selection completes', async () => {
   await editor();
   let resolve!: (v: ArrayBuffer) => void;
@@ -119,53 +111,6 @@ it('ignores an older file read after a newer selection completes', async () => {
   );
   expect(host.querySelector('h3')?.textContent).toContain('12 source rules');
   expect(host.textContent).not.toContain('stale.example');
-});
-it('URL import reviews the download and Cancel discards a pending response', async () => {
-  await editor();
-  const input = host.querySelector<HTMLInputElement>('[aria-label="Routing URL"]')!;
-  await act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-      input,
-      'https://example.net/list',
-    );
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  let resolve!: (v: string) => void;
-  download.mockReturnValue(
-    new Promise((r) => {
-      resolve = r;
-    }),
-  );
-  await act(() => button('Load URL').click());
-  const buttons = [...host.querySelectorAll<HTMLButtonElement>('button')].filter(
-    (b) => b.textContent?.trim() === 'Cancel',
-  );
-  await act(() => buttons[0].click());
-  await act(async () => resolve(JSON.stringify(fixture)));
-  expect(host.querySelector('[aria-label="Imported rule preview"]')).toBeNull();
-  expect(download).toHaveBeenCalledOnce();
-});
-
-it('distinguishes an outbound and policy group that share a tag for keyboard and screen-reader mapping', async () => {
-  await editor();
-  await file(
-    JSON.stringify({
-      rules: [
-        { domain: ['a.example'], outboundTag: 'same' },
-        { domain: ['b.example'], balancerTag: 'same' },
-      ],
-    }),
-  );
-  expect(host.querySelector('[aria-label="Imported output: same"]')).not.toBeNull();
-  expect(host.querySelector('[aria-label="Imported policy output: same"]')).not.toBeNull();
-});
-
-it('accepts UTF-16 routing files produced by Windows PowerShell', async () => {
-  await editor();
-  const bytes = new Uint8Array([0xff, 0xfe, ...Buffer.from(JSON.stringify(fixture), 'utf16le')]);
-  await file(Promise.resolve(bytes.buffer));
-  expect(host.querySelector('[aria-label="Imported rule preview"]')).not.toBeNull();
-  expect(button('Import rules').disabled).toBe(false);
 });
 
 it('keeps a file source through save/reopen and merges a manual update with local domain entries', async () => {

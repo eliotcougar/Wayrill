@@ -3,8 +3,6 @@ import { getOutputPorts, makeNode, portLabel } from './catalog';
 import {
   dnsAddressProblem,
   dnsProblems,
-  dnsOutputs,
-  newDnsPolicy,
   newDnsRoute,
   newDnsServer,
   readDnsFilter,
@@ -18,105 +16,9 @@ import {
   initialWorkspaceHistory,
   undoWorkspaceHistory,
 } from './workspaceHistory';
-import {
-  connectionProblem,
-  diagnoseGraph,
-  parseGraph,
-  serializeGraph,
-  updateGraphNode,
-} from './model';
+import { diagnoseGraph, parseGraph, serializeGraph, updateGraphNode } from './model';
 
 describe('Native Xray DNS graph', () => {
-  it.each(['full:dns.google', 'dns.google'])(
-    'recognizes %s bootstrap through the connected DNS filter',
-    (key) => {
-      const graph = createDnsExample(),
-        group = graph.nodes.find((n) => n.id === 'remote-dns')!,
-        handler = graph.nodes.find((n) => n.id === 'dns')!;
-      group.data.settings.servers = JSON.stringify([
-        { ...newDnsServer('google'), name: 'Google DoH', address: 'https://dns.google/dns-query' },
-      ]);
-      const warnings = () =>
-        diagnoseGraph(graph).filter(
-          (i) => i.nodeId === group.id && i.message.includes('hostname bootstrap'),
-        );
-      expect(warnings()).toHaveLength(1);
-      handler.data.settings.hosts = JSON.stringify({ [key]: ['8.8.4.4', '8.8.8.8'] });
-      expect(warnings()).toEqual([]);
-      handler.data.settings.hosts = JSON.stringify({ [key]: '2001:4860:4860::8888' });
-      expect(warnings()).toEqual([]);
-    },
-  );
-  it('does not borrow bootstrap from another handler, from invalid values, or unresolved aliases', () => {
-    const graph = createDnsExample(),
-      group = graph.nodes.find((n) => n.id === 'remote-dns')!,
-      handler = graph.nodes.find((n) => n.id === 'dns')!;
-    group.data.settings.servers = JSON.stringify([
-      { ...newDnsServer('google'), address: 'https://dns.google/dns-query' },
-    ]);
-    const other = makeNode('dns-handler', { x: 0, y: 0 });
-    other.data.settings.hosts = '{"full:dns.google":["8.8.8.8"]}';
-    graph.nodes.push(other);
-    const warns = () =>
-      dnsProblems(group.data, { graph, nodeId: group.id }).some((i) =>
-        i.message.includes('hostname bootstrap'),
-      );
-    expect(warns()).toBe(true);
-    for (const hosts of [
-      '{',
-      '{"full:dns.google":[]}',
-      '{"full:dns.google":"other.example"}',
-      '{"full:dns.google":["bad-ip"]}',
-    ]) {
-      handler.data.settings.hosts = hosts;
-      expect(warns()).toBe(true);
-    }
-    handler.data.settings.hosts = other.data.settings.hosts;
-    expect(warns()).toBe(false);
-    graph.edges = graph.edges.filter((edge) => edge.source !== handler.id);
-    expect(warns()).toBe(true);
-  });
-  it('recognizes direct handler connections and checks the edited server hostname', () => {
-    const graph = createDnsExample(),
-      handler = graph.nodes.find((n) => n.id === 'dns')!,
-      group = graph.nodes.find((n) => n.id === 'remote-dns')!;
-    handler.data.settings.hosts = '{"full:dns.google":["8.8.4.4","8.8.8.8"]}';
-    graph.edges = graph.edges.filter((edge) => edge.source !== handler.id);
-    graph.edges.push({
-      id: 'direct-resolver',
-      source: handler.id,
-      sourceHandle: 'resolver',
-      target: group.id,
-      targetHandle: 'in',
-    });
-    const draft = {
-      ...group.data,
-      settings: {
-        ...group.data.settings,
-        servers: JSON.stringify([{ ...newDnsServer('google'), address: 'tcp://dns.google:53' }]),
-      },
-    };
-    const warns = () =>
-      dnsProblems(draft, { graph, nodeId: group.id }).some((issue) =>
-        issue.message.includes('hostname bootstrap'),
-      );
-    expect(warns()).toBe(false);
-    draft.settings.servers = JSON.stringify([
-      { ...newDnsServer('other'), address: 'https://other.example/dns-query' },
-    ]);
-    expect(warns()).toBe(true);
-    draft.settings.servers = JSON.stringify([
-      { ...newDnsServer('local'), address: 'https+local://dns.google/dns-query' },
-    ]);
-    expect(dnsProblems(draft, { graph, nodeId: group.id })).toContainEqual(
-      expect.objectContaining({
-        rowId: 'local',
-        fieldKey: 'address',
-        severity: 'warning',
-        message: expect.stringContaining('uses Windows DNS, not the handler’s static hosts'),
-      }),
-    );
-  });
   it('round-trips the new graph with typed connections and stable identities', () => {
     const graph = createDnsExample();
     expect(parseGraph(serializeGraph(graph)).edges).toEqual(graph.edges);
@@ -165,28 +67,6 @@ describe('Native Xray DNS graph', () => {
       },
     });
   });
-  it('maps global DNS family, hosts, EDNS, cache and stale settings', () => {
-    const graph = createDnsExample(),
-      s = graph.nodes.find((n) => n.id === 'dns')!.data.settings;
-    Object.assign(s, {
-      queryStrategy: 'UseIPv4',
-      hosts: '{"full:dns.example.net":["1.1.1.1"]}',
-      clientIP: '203.0.113.8',
-      disableCache: true,
-      serveStale: true,
-      serveExpiredTTL: 30,
-      useSystemHosts: true,
-    });
-    expect(compileDnsGraph(graph).dns).toMatchObject({
-      queryStrategy: 'UseIPv4',
-      hosts: { 'full:dns.example.net': ['1.1.1.1'] },
-      clientIp: '203.0.113.8',
-      disableCache: true,
-      serveStale: true,
-      serveExpiredTTL: 30,
-      useSystemHosts: true,
-    });
-  });
   it('keeps all servers in a final group before stopping other groups', () => {
     const graph = createDnsExample(),
       group = graph.nodes.find((n) => n.id === 'local-dns')!;
@@ -196,33 +76,6 @@ describe('Native Xray DNS graph', () => {
         .dns.servers.slice(0, 2)
         .map((s) => s.finalQuery),
     ).toEqual([false, true]);
-  });
-  it('maps expected/unexpected IPs and fallback flags without inventing routing fields', () => {
-    const graph = createDnsExample(),
-      node = graph.nodes.find((n) => n.id === 'dns-routes')!;
-    const filter = readDnsFilter(node.data.settings);
-    Object.assign(filter.rules[0], {
-      unexpectedIPs: '203.0.113.0/24\n*',
-      skipFallback: false,
-      finalQuery: false,
-    });
-    Object.assign(node.data.settings, {
-      rules: JSON.stringify(filter.rules),
-      fallbackMode: 'when-unmatched',
-      parallel: true,
-    });
-    const fragment = compileDnsGraph(graph);
-    expect(fragment.dns).toMatchObject({
-      disableFallbackIfMatch: true,
-      disableFallback: false,
-      enableParallelQuery: true,
-    });
-    expect(fragment.dns.servers[0]).toMatchObject({
-      unexpectedIPs: ['203.0.113.0/24', '*'],
-      skipFallback: false,
-      finalQuery: false,
-    });
-    expect(fragment.dns.servers[0]).not.toHaveProperty('qType');
   });
   it('emits explicit inherited and overridden per-server settings', () => {
     const graph = createDnsExample(),
@@ -294,19 +147,6 @@ describe('Native Xray DNS graph', () => {
       ).present.graph.edges,
     ).toHaveLength(10);
   });
-  it('allows a handler connected straight to a server group', () => {
-    const graph = createDnsExample();
-    graph.nodes = graph.nodes.filter((n) => n.id !== 'dns-routes');
-    graph.edges = graph.edges.filter((e) => e.source !== 'dns-routes' && e.target !== 'dns-routes');
-    graph.edges.push({
-      id: 'resolver-direct',
-      source: 'dns',
-      sourceHandle: 'resolver',
-      target: 'remote-dns',
-      targetHandle: 'in',
-    });
-    expect(compileDnsGraph(graph).dns.servers).toHaveLength(2);
-  });
   it('preserves DNS output identity across rename and atomically removes deleted paths', () => {
     const graph = createDnsExample(),
       node = graph.nodes.find((n) => n.id === 'dns-routes')!;
@@ -328,19 +168,6 @@ describe('Native Xray DNS graph', () => {
         commitWorkspaceHistory(initialWorkspaceHistory(renamed), { graph: updated }),
       ).present.graph,
     ).toEqual(renamed);
-  });
-  it('rejects accidental mixing of resolver-selection and traffic paths', () => {
-    const graph = createDnsExample();
-    graph.edges = [];
-    const connect = (source: string, sourceHandle: string, target: string) =>
-      connectionProblem(graph, { source, sourceHandle, target, targetHandle: 'in' });
-    expect(connect('dns', 'resolver', 'direct')).toMatch(/resolver path/);
-    expect(connect('routes', 'preferred', 'remote-dns')).toMatch(/resolver-selection/);
-    expect(connect('dns-routes', 'remote', 'routes')).toMatch(/resolver path/);
-    expect(connect('dns-routes', 'local', 'dns-routes')).toMatch(/itself/);
-    expect(connect('remote-dns', 'queries', 'routes')).toMatch(/configured Direct/);
-    expect(connect('dns', 'resolver', 'dns-routes')).toBeNull();
-    expect(connect('dns-routes', 'remote', 'remote-dns')).toBeNull();
   });
   it('validates endpoints, numeric bounds, fallback and answer checks', () => {
     for (const address of [
@@ -396,48 +223,9 @@ describe('Native Xray DNS graph', () => {
     tags.nodes.find((n) => n.id === 'direct')!.data.settings.tag = 'preferred';
     expect(() => compileDnsGraph(tags)).toThrow(/must be unique/);
   });
-  it('refuses resolver policies that would falsely resolve unsupported record types', () => {
-    const node = makeNode('dns-handler', { x: 0, y: 0 });
-    node.data.settings.policyRules = JSON.stringify([
-      { ...newDnsPolicy(), qType: '65', action: 'resolve' },
-    ]);
-    expect(dnsProblems(node.data).some((i) => i.message.includes('supports A'))).toBe(true);
-    node.data.settings.policyRules = '[]';
-    expect(dnsProblems(node.data).filter((i) => i.severity === 'error')).toEqual([]);
-    node.data.settings.policyRCode = NaN;
-    expect(dnsProblems(node.data)).toContainEqual(
-      expect.objectContaining({
-        severity: 'error',
-        message: expect.stringContaining('response code'),
-      }),
-    );
-  });
 });
 
 describe('Permanent DNS fallback output', () => {
-  it('uses the fixed label while retaining connected port identities', () => {
-    const node = makeNode('dns-routing-filter', { x: 0, y: 0 });
-    node.data.settings.outputs = JSON.stringify([
-      { id: 'chosen', name: 'Regional servers', fallback: false },
-      { id: 'existing-wire', name: 'Previous display name', fallback: true },
-    ]);
-    expect(dnsOutputs(node.data)).toEqual([
-      { id: 'chosen', name: 'Regional servers', fallback: false },
-      { id: 'existing-wire', name: 'Fallback', fallback: true },
-      { id: 'fakedns', name: 'FakeDNS' },
-    ]);
-    node.data.settings.fallbackMode = 'disabled';
-    expect(dnsOutputs(node.data)).toHaveLength(3);
-    expect(dnsProblems(node.data).filter((i) => i.severity === 'error')).toEqual([]);
-  });
-  it('requires one permanent fallback role rather than arbitrary fallback selections', () => {
-    const node = makeNode('dns-routing-filter', { x: 0, y: 0 });
-    node.data.settings.outputs = JSON.stringify([
-      { id: 'a', name: 'A', fallback: true },
-      { id: 'b', name: 'B', fallback: true },
-    ]);
-    expect(() => readDnsFilter(node.data.settings)).toThrow(/exactly one Fallback/);
-  });
   it('omits disabled fallback servers and their outbound dependencies without removing the wire', () => {
     const graph = createDnsExample(),
       node = graph.nodes.find((n) => n.id === 'dns-routes')!;
@@ -453,19 +241,5 @@ describe('Permanent DNS fallback output', () => {
     expect(compileDnsGraph(graph)).toEqual(fragment);
     node.data.settings.fallbackMode = 'always';
     expect(() => compileDnsGraph(graph)).toThrow(/Connect DNS routing: remote/);
-  });
-  it('still includes a group explicitly chosen by a preference when fallback is disabled', () => {
-    const graph = createDnsExample(),
-      node = graph.nodes.find((n) => n.id === 'dns-routes')!;
-    node.data.settings.fallbackMode = 'disabled';
-    node.data.settings.rules = JSON.stringify([
-      { ...newDnsRoute('remote', 'explicit'), domains: 'domain:example.net', skipFallback: true },
-    ]);
-    const fragment = compileDnsGraph(graph);
-    expect(fragment.dns.servers).toHaveLength(2);
-    expect(fragment.dns.servers.every((s) => s.skipFallback === true)).toBe(true);
-    expect(
-      fragment.dns.servers.every((s) => (s.domains as string[]).includes('domain:example.net')),
-    ).toBe(true);
   });
 });

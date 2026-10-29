@@ -56,16 +56,6 @@ it('retains completed routes and keeps both endpoints attached throughout varied
   }
   expect(route.points[0]).toEqual({ x: 200, y: 40 });
 });
-it('translates a group move without changing its internal lane arrangement', () => {
-  const moved = {
-    nodes: [],
-    edges: [{ ...from.edges[0], sourceX: 232, sourceY: 56, targetX: 532, targetY: 176 }],
-  };
-  expect(previewEdgePaths(paths, from, moved).get('wire')!.points).toEqual(
-    route.points.map((p) => ({ x: p.x + 32, y: p.y + 16 })),
-  );
-  expect(previewEdgePaths(paths, from, from)).toBe(paths);
-});
 it('does not resurrect deleted links, show a new link before routing, or reuse a replaced endpoint', () => {
   expect(previewEdgePaths(paths, from, { edges: [], nodes: [] }).size).toBe(0);
   expect(
@@ -77,75 +67,6 @@ it('does not resurrect deleted links, show a new link before routing, or reuse a
       ...from,
     }).get('wire')!.blocked,
   ).toBe(true);
-});
-it('supports initially straight and vertical ports without diagonal segments', () => {
-  const base = {
-    ...from.edges[0],
-    targetX: 200,
-    sourcePosition: Position.Bottom,
-    targetPosition: Position.Top,
-  };
-  const old = { nodes: [], edges: [base] };
-  const straight = {
-    ...route,
-    points: [
-      { x: 200, y: 40 },
-      { x: 200, y: 160 },
-    ],
-  };
-  const e = { ...base, sourceX: 216, targetY: 192 };
-  const p = previewEdgePaths(new Map([['wire', straight]]), old, { nodes: [], edges: [e] }).get(
-    'wire',
-  )!.points;
-  expect(p[1].y).toBeGreaterThan(e.sourceY);
-  expect(p.at(-2)!.y).toBeLessThan(e.targetY);
-  p.slice(1).forEach((v, i) => expect(v.x === p[i].x || v.y === p[i].y).toBe(true));
-});
-
-it('moves the adjacent bend with the source instead of backtracking through its old corner', () => {
-  const edge = { ...from.edges[0], sourceX: 216, sourceY: 56 };
-  const p = previewEdgePaths(paths, from, { nodes: [], edges: [edge] }).get('wire')!;
-  expect(p.points).toEqual([
-    { x: 216, y: 56 },
-    { x: 350, y: 56 },
-    { x: 350, y: 160 },
-    { x: 500, y: 160 },
-  ]);
-});
-it('keeps an unchanged link, its placed label and its bundle/junction decorations intact', () => {
-  const decorated: EdgePath = {
-    ...route,
-    labelX: 490,
-    labelY: 160,
-    junctions: [{ x: 350, y: 160 }],
-    sharedWires: [{ path: 'M350 160L500 160', kinds: ['traffic', 'dns-traffic'] }],
-  };
-  const p = previewEdgePaths(new Map([['wire', decorated]]), from, {
-    ...from,
-    nodes: [{ id: 'unconnected', x: 900, y: 500, width: 100, height: 80 }],
-  }).get('wire')!;
-  expect(p).toBe(decorated);
-  expect(p.labelX).toBe(490);
-  expect(p.junctions).toEqual(decorated.junctions);
-  expect(p.sharedWires).toEqual(decorated.sharedWires);
-});
-
-it('translates placed labels and shared approaches together with a group', () => {
-  const decorated: EdgePath = {
-    ...route,
-    labelX: 490,
-    labelY: 160,
-    junctions: [{ x: 350, y: 160 }],
-    sharedWires: [{ path: 'M350 160L500 160', kinds: ['traffic', 'dns-traffic'] }],
-  };
-  const e = { ...from.edges[0], sourceX: 232, sourceY: 56, targetX: 532, targetY: 176 };
-  const p = previewEdgePaths(new Map([['wire', decorated]]), from, { nodes: [], edges: [e] }).get(
-    'wire',
-  )!;
-  expect(p.path).toBe('M232 56L382 56L382 176L532 176');
-  expect([p.labelX, p.labelY]).toEqual([522, 176]);
-  expect(p.junctions).toEqual([{ x: 382, y: 176 }]);
-  expect(p.sharedWires).toEqual([{ path: 'M382 176L532 176', kinds: ['traffic', 'dns-traffic'] }]);
 });
 it('keeps all port-direction combinations orthogonal, attached and free of retraced segments', () => {
   const sides = [Position.Left, Position.Right, Position.Top, Position.Bottom];

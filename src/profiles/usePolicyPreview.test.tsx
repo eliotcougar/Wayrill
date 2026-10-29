@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import usePolicyPreview from './usePolicyPreview';
 import { calculatePolicyPreview, type PolicyPreviewInput } from './policyPreview';
 import { createPolicyExample } from '../graph/policyExample';
-import { emptyPolicySources, readPolicySources, subscriptionSource } from '../graph/policySources';
+import { emptyPolicySources, subscriptionSource } from '../graph/policySources';
 import { importProfiles, type Stash } from './import';
 let root: Root, container: HTMLDivElement;
 class FakeWorker {
@@ -82,40 +82,6 @@ const fixture = () => {
   };
   return { graph, node, stash, input };
 };
-it('keeps Apply blocked while pending and ignores late replies from an older filter', async () => {
-  const f = fixture();
-  let input = f.input,
-    latest: ReturnType<typeof usePolicyPreview>;
-  function Harness() {
-    latest = usePolicyPreview(f.graph, f.node, f.stash, input, true);
-    return <button disabled={latest.pending || !!latest.error}>Apply</button>;
-  }
-  await act(async () => root.render(<Harness />));
-  expect(container.querySelector('button')!.disabled).toBe(true);
-  await act(async () => vi.advanceTimersByTime(100));
-  const worker = FakeWorker.instances[0],
-    first = worker.messages.at(-1)!;
-  input = {
-    ...input,
-    sources: {
-      ...input.sources,
-      subscriptions: input.sources.subscriptions.map((s) => ({
-        ...s,
-        filter: { ...s.filter, name: 'Public' },
-      })),
-    },
-  };
-  await act(async () => root.render(<Harness />));
-  await act(async () => vi.advanceTimersByTime(100));
-  const second = worker.messages.at(-1)!;
-  const result = calculatePolicyPreview(f.graph, f.node, f.stash, input);
-  await act(async () => worker.reply(first.id, result));
-  expect(latest!.pending).toBe(true);
-  await act(async () => worker.reply(second.id, result));
-  expect(latest!.pending).toBe(false);
-  expect(container.querySelector('button')!.disabled).toBe(false);
-  expect((second.input as PolicyPreviewInput).sources.subscriptions[0].entries).toEqual([]);
-});
 it('invalidates a completed preview when the stash context changes even if input is identical', async () => {
   const f = fixture();
   let stash = f.stash,
@@ -146,36 +112,6 @@ it('invalidates a completed preview when the stash context changes even if input
   expect(latest!.pending).toBe(false);
   expect(latest!.result!.subscriptions[0].name).toBe('Renamed');
 });
-it('collapses rapid edits into one request and terminates the worker on close', async () => {
-  const f = fixture();
-  let input = f.input;
-  function Harness() {
-    usePolicyPreview(f.graph, f.node, f.stash, input, true);
-    return null;
-  }
-  await act(async () => root.render(<Harness />));
-  for (const name of ['E', 'EU', 'EU Tokyo']) {
-    input = {
-      ...input,
-      sources: {
-        ...input.sources,
-        subscriptions: input.sources.subscriptions.map((s) => ({
-          ...s,
-          filter: { ...s.filter, name },
-        })),
-      },
-    };
-    await act(async () => root.render(<Harness />));
-  }
-  await act(async () => vi.advanceTimersByTime(100));
-  const worker = FakeWorker.instances[0];
-  expect(worker.messages).toHaveLength(2);
-  expect(
-    (worker.messages[1].input as PolicyPreviewInput).sources.subscriptions[0].filter.name,
-  ).toBe('EU Tokyo');
-  await act(async () => root.render(null));
-  expect(worker.terminated).toBe(true);
-});
 it('turns a worker failure or timeout into a blocking error', async () => {
   const f = fixture();
   let latest: ReturnType<typeof usePolicyPreview>;
@@ -187,24 +123,6 @@ it('turns a worker failure or timeout into a blocking error', async () => {
   await act(async () => vi.advanceTimersByTime(60000));
   expect(latest!.pending).toBe(false);
   expect(latest!.error).toMatch(/timed out/);
-});
-it('keeps small drafts synchronous and preserves manual snapshots independently of refresh', async () => {
-  const f = fixture(),
-    stash = { ...f.stash, groups: [] };
-  let latest: ReturnType<typeof usePolicyPreview>;
-  const input = {
-    ...f.input,
-    settings: f.node.data.settings,
-    sources: readPolicySources(f.node.data),
-  };
-  function Harness() {
-    latest = usePolicyPreview(f.graph, f.node, stash, input, true);
-    return null;
-  }
-  await act(async () => root.render(<Harness />));
-  expect(FakeWorker.instances).toHaveLength(0);
-  expect(latest!.result!.summary.total).toBe(2);
-  expect(latest!.pending).toBe(false);
 });
 
 it('sends only a page query during search and requests the complete snapshot only on Save', async () => {

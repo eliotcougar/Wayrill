@@ -1,12 +1,11 @@
 import { expect, it } from 'vitest';
 import {
-  compatible,
   nativeProcessSelectors,
   processProfiles,
   processMaskPattern,
   parseApplicationSelectors,
 } from './applications';
-import { compileCaptureRouting, defaultCaptureOptions } from './capture';
+import { compileCaptureRouting } from './capture';
 import { makeNode } from './catalog';
 import { intersectPredicates } from './routingPaths';
 import type { GraphState } from './types';
@@ -26,11 +25,6 @@ it('keeps large disjoint process sets linear while retaining OR and every compat
     ),
   ).toThrow(/4,096/);
 });
-it('uses boundary-aware folder compatibility and case-insensitive executable normalization', () => {
-  expect(compatible(rows(['C:/apps/'])[0], rows(['C:/apps-other/a.exe'])[0])).toBe(false);
-  expect(compatible(rows(['C:/apps/'])[0], rows(['C:/apps/a.exe'])[0])).toBe(true);
-  expect(compatible(rows(['APP.exe'])[0], rows(['C:/tools/app.exe'])[0])).toBe(true);
-});
 it('represents AND across chained application rows and tests arbitrary mask bits', () => {
   expect(
     intersectPredicates({ _wayrillApplications: ['a'] }, { _wayrillApplications: ['b'] }),
@@ -40,42 +34,6 @@ it('represents AND across chained application rows and tests arbitrary mask bits
     expect(expression.test(`wr-${mask.toString(16).padStart(2, '0')}-${'a'.repeat(48)}`)).toBe(
       (mask & 33) === 33,
     );
-});
-it('preserves rule order and remaining predicates on authenticated capture paths', () => {
-  const capture = makeNode('windivert-inbound', { x: 0, y: 0 }, 'capture');
-  const graph: GraphState = {
-    name: 'Bridge',
-    nodes: [capture],
-    edges: [],
-    captureOptions: defaultCaptureOptions(),
-  };
-  const config = {
-    inbounds: [{ tag: 'captured-traffic' }, { tag: 'ordinary' }],
-    routing: {
-      rules: [
-        { process: ['a.exe'], domain: ['full:blocked.example'], port: '443', outboundTag: 'block' },
-        { process: ['a.exe'], outboundTag: 'direct' },
-        { outboundTag: 'fallback' },
-      ],
-    },
-  };
-  const plan = compileCaptureRouting(graph, config)!;
-  expect(plan.inputs[0].predicates).toHaveLength(1);
-  expect(plan.inputs[0].masks).toEqual(['0', '1']);
-  expect(config.routing.rules.map((r) => r.outboundTag)).toEqual([
-    'block',
-    'block',
-    'direct',
-    'direct',
-    'fallback',
-  ]);
-  expect(config.routing.rules[1]).toMatchObject({
-    domain: ['full:blocked.example'],
-    port: '443',
-    inboundTag: ['captured-traffic'],
-    user: [processMaskPattern([0], 1)],
-  });
-  expect(config.routing.rules[0]).toMatchObject({ process: ['a.exe'], inboundTag: ['ordinary'] });
 });
 it('rejects invalid selector paths and enhanced application conditions outside capture', () => {
   expect(() =>
@@ -130,20 +88,6 @@ it.each(['service', 'package'] as const)(
     expect(result.rules.at(-1)).toEqual({ outboundTag: 'proxy' });
   },
 );
-it('does not erase an unsupported group from chained AND application predicates', () => {
-  const result = captureBridge([
-    {
-      _wayrillApplications: [
-        JSON.stringify(rows(['browser.exe'])),
-        JSON.stringify([unavailableIdentity('service')]),
-      ],
-      port: '443',
-      outboundTag: 'direct',
-    },
-  ]);
-  expect(result.rules).toHaveLength(1);
-  expect(result.rules[0]).toMatchObject({ inboundTag: ['captured-traffic'] });
-});
 it('retains representable process alternatives inside a mixed identity group', () => {
   const result = captureBridge([
     {

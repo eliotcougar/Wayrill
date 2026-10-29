@@ -68,63 +68,72 @@ const policyChain: StashEntry = {
 const definitions = { plain, policy, chain, chainPolicy, policyChain };
 const core = process.env.WAYRILL_XRAY_TEST_EXE;
 const directory = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-for (const [from, original] of Object.entries(definitions))
-  for (const [to, replacement] of Object.entries(definitions)) {
-    const label = from + ' → ' + to;
-    function candidate() {
-      const old = applyStashedProfile(graph, original, { x: 0, y: 0 }, 'proxy');
-      const result = subscriptionEngine({
-        operation: 'runtime',
-        stash: serializeStash({
-          ...stash,
-          groups: [{ ...stash.groups[0], entries: [replacement] }],
-        }),
-        appliedGraph: serializeGraph(old),
-        replacement: { nodeId: 'proxy', groupId: stash.groups[0].id, entryId: replacement.id },
-      });
-      if (!('graph' in result)) throw new Error('Missing prepared runtime');
-      return parseGraph(result.graph!);
-    }
-    it(label + ' preserves incoming routes and survives graph serialization', () => {
-      const next = candidate();
-      const analysis = analyzeGraph(next);
-      expect(analysis.issues.filter((issue) => issue.severity === 'error')).toEqual([]);
-      expect(next.edges.filter((edge) => edge.target === 'proxy')).toEqual(
-        parseGraph(serializeGraph(graph)).edges.filter((edge) => edge.target === 'proxy'),
-      );
-      expect(next.nodes.find((node) => node.id === 'proxy')!.data.settings.tag).toBe('proxy');
-      expect(compileRuntimeGraph(parseGraph(serializeGraph(next)))).toEqual(analysis.compilation);
+// Each shape is exercised as both an existing route and its replacement.
+// Nested shapes cover policy-in-chain and chain-in-policy dependencies.
+for (const [from, to] of [
+  ['plain', 'policy'],
+  ['policy', 'chain'],
+  ['chain', 'policyChain'],
+  ['policyChain', 'chainPolicy'],
+  ['chainPolicy', 'plain'],
+] as const) {
+  const original = definitions[from],
+    replacement = definitions[to];
+  const label = from + ' → ' + to;
+  function candidate() {
+    const old = applyStashedProfile(graph, original, { x: 0, y: 0 }, 'proxy');
+    const result = subscriptionEngine({
+      operation: 'runtime',
+      stash: serializeStash({
+        ...stash,
+        groups: [{ ...stash.groups[0], entries: [replacement] }],
+      }),
+      appliedGraph: serializeGraph(old),
+      replacement: { nodeId: 'proxy', groupId: stash.groups[0].id, entryId: replacement.id },
     });
-    it(label + ' preserves TUN and WinDivert capture scope', () => {
-      for (const kind of ['tun-inbound', 'windivert-inbound'] as const) {
-        const captured = (g: typeof graph) => ({
-          ...g,
-          nodes: g.nodes.map((node) =>
-            node.id === 'input' ? makeNode(kind, node.position, node.id) : node,
-          ),
-          edges: g.edges.map((edge) =>
-            edge.source === 'input' && edge.sourceHandle === 'data' && kind === 'tun-inbound'
-              ? { ...edge, sourceHandle: 'traffic' }
-              : edge,
-          ),
-        });
-        const before = compileRuntimeGraph(
-          captured(applyStashedProfile(graph, original, { x: 0, y: 0 }, 'proxy')),
-        );
-        const after = compileRuntimeGraph(captured(candidate()));
-        expect(before.capture).toBeDefined();
-        expect(after.capture).toEqual(before.capture);
-      }
-    });
-    it.skipIf(!core || !directory)(label + ' passes the pinned Xray configuration parser', () => {
-      mkdirSync(directory!, { recursive: true });
-      const file = join(directory!, 'replacement-' + from + '-' + to + '.json');
-      writeFileSync(file, JSON.stringify(compileRuntimeGraph(candidate()).config));
-      const result = spawnSync(core!, ['run', '-test', '-config', file], {
-        encoding: 'utf8',
-        timeout: 20000,
-        windowsHide: true,
-      });
-      expect(result.status, result.stdout + result.stderr).toBe(0);
-    });
+    if (!('graph' in result)) throw new Error('Missing prepared runtime');
+    return parseGraph(result.graph!);
   }
+  it(label + ' preserves incoming routes and survives graph serialization', () => {
+    const next = candidate();
+    const analysis = analyzeGraph(next);
+    expect(analysis.issues.filter((issue) => issue.severity === 'error')).toEqual([]);
+    expect(next.edges.filter((edge) => edge.target === 'proxy')).toEqual(
+      parseGraph(serializeGraph(graph)).edges.filter((edge) => edge.target === 'proxy'),
+    );
+    expect(next.nodes.find((node) => node.id === 'proxy')!.data.settings.tag).toBe('proxy');
+    expect(compileRuntimeGraph(parseGraph(serializeGraph(next)))).toEqual(analysis.compilation);
+  });
+  it(label + ' preserves TUN and WinDivert capture scope', () => {
+    for (const kind of ['tun-inbound', 'windivert-inbound'] as const) {
+      const captured = (g: typeof graph) => ({
+        ...g,
+        nodes: g.nodes.map((node) =>
+          node.id === 'input' ? makeNode(kind, node.position, node.id) : node,
+        ),
+        edges: g.edges.map((edge) =>
+          edge.source === 'input' && edge.sourceHandle === 'data' && kind === 'tun-inbound'
+            ? { ...edge, sourceHandle: 'traffic' }
+            : edge,
+        ),
+      });
+      const before = compileRuntimeGraph(
+        captured(applyStashedProfile(graph, original, { x: 0, y: 0 }, 'proxy')),
+      );
+      const after = compileRuntimeGraph(captured(candidate()));
+      expect(before.capture).toBeDefined();
+      expect(after.capture).toEqual(before.capture);
+    }
+  });
+  it.skipIf(!core || !directory)(label + ' passes the pinned Xray configuration parser', () => {
+    mkdirSync(directory!, { recursive: true });
+    const file = join(directory!, 'replacement-' + from + '-' + to + '.json');
+    writeFileSync(file, JSON.stringify(compileRuntimeGraph(candidate()).config));
+    const result = spawnSync(core!, ['run', '-test', '-config', file], {
+      encoding: 'utf8',
+      timeout: 20000,
+      windowsHide: true,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  });
+}

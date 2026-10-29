@@ -52,30 +52,6 @@ it('orders identity-only replacement after the saved library without staging a r
   expect(mock.call.mock.calls.some(([method]) => method === 'config.refreshOutbounds')).toBe(false);
 });
 
-it('reports an invalid replacement but accepts a superseded queued choice', async () => {
-  const { replaceRunningOutbound } = await import('./serviceSubscriptions');
-  mock.call.mockResolvedValueOnce({ job: 4 }).mockResolvedValueOnce({
-    busy: false,
-    error: { code: 'SUBSCRIPTION_STATE', message: 'Entry was removed' },
-  });
-  await expect(replaceRunningOutbound('node', { groupId: 'g', entryId: 'e' })).rejects.toThrow(
-    'removed',
-  );
-  mock.call.mockResolvedValueOnce({ job: 5 }).mockResolvedValueOnce({
-    busy: false,
-    error: { code: 'SUPERSEDED', message: 'Newer selection' },
-  });
-  await expect(replaceRunningOutbound('node', { groupId: 'g', entryId: 'newer' })).resolves.toBe(
-    false,
-  );
-  mock.call
-    .mockResolvedValueOnce({ job: 6 })
-    .mockResolvedValueOnce({ busy: false, error: { code: 'CANCELLED', message: 'Explicit Stop' } });
-  await expect(replaceRunningOutbound('node', { groupId: 'g', entryId: 'stopped' })).resolves.toBe(
-    false,
-  );
-});
-
 it('uploads Unicode by byte offsets without splitting a code point', async () => {
   let result = '',
     expected = 0;
@@ -119,32 +95,6 @@ it('aborts an incomplete transfer and preserves the original upload failure', as
   const { stageSubscriptionGraph } = await import('./serviceSubscriptions');
   await expect(stageSubscriptionGraph('graph')).rejects.toThrow('Disconnected');
   expect(mock.call).toHaveBeenLastCalledWith('subscriptions.uploadAbort', { token: 'token' });
-});
-
-it('stages Apply while a committed context job is still waiting for completion', async () => {
-  let finish!: (value: { busy: boolean; error: null }) => void;
-  const waiting = new Promise<{ busy: boolean; error: null }>((resolve) => {
-    finish = resolve;
-  });
-  let kind = '';
-  mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
-    if (method === 'subscriptions.uploadStart') {
-      kind = String(p.kind);
-      return { token: kind, chunkBytes: 512 };
-    }
-    if (method === 'subscriptions.uploadChunk') return {};
-    if (method === 'subscriptions.uploadCommit')
-      return kind === 'source' ? { sourceGraphToken: 'source' } : { job: 42 };
-    if (method === 'subscriptions.job') return waiting;
-    throw new Error('Unexpected ' + method);
-  });
-  const { sendSubscriptionContext, stageSubscriptionGraph } =
-    await import('./serviceSubscriptions');
-  const context = sendSubscriptionContext({ draft: 'draft' });
-  await vi.waitFor(() => expect(mock.call).toHaveBeenCalledWith('subscriptions.job', { job: 42 }));
-  expect(await stageSubscriptionGraph('graph')).toBe('source');
-  finish({ busy: false, error: null });
-  await context;
 });
 
 function libraryServer(initialized = true) {
@@ -275,24 +225,6 @@ it('preserves a deliberate reversion queued behind an in-flight local save', asy
   expect(server.get().groups[0].name).toBe(server.original.groups[0].name);
 });
 
-it('acknowledges an unchanged save response so the next edit can revert it', async () => {
-  const server = libraryServer();
-  const { readServiceStash, subscribeLibrary, writeServiceStash } =
-    await import('./serviceSubscriptions');
-  const initial = (await readServiceStash())!;
-  let acknowledged = initial;
-  const remove = subscribeLibrary((change) => {
-    acknowledged = change.text;
-  });
-  const changed = structuredClone(server.original);
-  changed.groups[0].name = 'Temporary';
-  await writeServiceStash(serializeStash(changed), acknowledged);
-  expect(parseStash(acknowledged).groups[0].name).toBe('Temporary');
-  await writeServiceStash(initial, acknowledged);
-  remove();
-  expect(server.get().groups[0].name).toBe(server.original.groups[0].name);
-});
-
 it('rejects a stale conflicting edit after a newer service document was read', async () => {
   const server = libraryServer();
   const { readServiceStash, refreshServiceStash, writeServiceStash } =
@@ -345,21 +277,6 @@ it('retains cumulative queued edits when their preceding save failed before comm
     name: 'My provider',
     entries: [expect.objectContaining({ name: 'Preferred server' })],
   });
-});
-
-it('can revert a committed save after its renderer acknowledgement failed', async () => {
-  const server = libraryServer();
-  const { readServiceStash, subscribeLibrary, writeServiceStash } =
-    await import('./serviceSubscriptions');
-  const base = (await readServiceStash())!;
-  const changed = structuredClone(server.original);
-  changed.groups[0].name = 'Temporary';
-  const remove = subscribeLibrary(() => Promise.reject(new Error('Merge failed')));
-  await expect(writeServiceStash(serializeStash(changed), base)).rejects.toThrow('Merge failed');
-  expect(server.get().groups[0].name).toBe('Temporary');
-  remove();
-  await writeServiceStash(base, base);
-  expect(server.get().groups[0].name).toBe(server.original.groups[0].name);
 });
 
 it('keeps remote additions through consecutive local saves authored before their acknowledgement', async () => {

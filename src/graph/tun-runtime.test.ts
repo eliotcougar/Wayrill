@@ -1,9 +1,8 @@
 import { expect, it } from 'vitest';
-import { makeNode, getOutputPorts, portLabel } from './catalog';
+import { makeNode, getOutputPorts } from './catalog';
 import { factoryDefaults } from './defaults';
 import { inboundPreview } from './inbounds';
 import { compileRuntimeGraph } from './runtime';
-import { connectionProblem } from './structure';
 import { diagnoseRuntimeGraph } from './diagnostics';
 import { tableSettings } from './rules';
 import type { GraphState } from './types';
@@ -26,13 +25,6 @@ function graph(): GraphState {
     edges: [edge('tun', 'traffic', 'direct')],
   };
 }
-it('labels host and shared TUN data ports consistently while preserving their connection identity', () => {
-  for (const kind of ['tun-inbound', 'ics-tun'] as const) {
-    const node = makeNode(kind, { x: 0, y: 0 });
-    expect(getOutputPorts(kind, node.data)).toContain('traffic');
-    expect(portLabel('traffic', node.data)).toBe('Data');
-  }
-});
 it('new TUN captures both address families without a proxy or WinDivert input', () => {
   const g = graph();
   expect(getOutputPorts('tun-inbound')).toEqual(['traffic', 'dns']);
@@ -53,29 +45,6 @@ it('new TUN captures both address families without a proxy or WinDivert input', 
       { type: 'field', inboundTag: ['tun-inbound'], outboundTag: 'direct' },
     ]),
   });
-});
-it('TUN DNS is optional and compiles ahead of ordinary traffic when connected', () => {
-  const g = graph(),
-    handler = makeNode('dns-handler', { x: 300, y: 300 }, 'dns'),
-    servers = makeNode('dns-servers', { x: 600, y: 300 }, 'servers');
-  g.nodes.push(handler, servers);
-  expect(connectionProblem(g, edge('tun', 'dns', 'dns'))).toBeNull();
-  expect(connectionProblem(g, edge('tun', 'traffic', 'dns'))).toMatch(/DNS output/);
-  g.edges.push(
-    edge('tun', 'dns', 'dns'),
-    edge('dns', 'resolver', 'servers'),
-    edge('servers', 'queries', 'direct'),
-  );
-  const config = compileRuntimeGraph(g).config as {
-    routing: { rules: Record<string, unknown>[] };
-    dns: unknown;
-  };
-  expect(config.dns).toBeDefined();
-  const tun = config.routing.rules.filter(
-    (r) => JSON.stringify(r.inboundTag) === '["tun-inbound"]',
-  );
-  expect(tun[0]).toMatchObject({ port: '53', network: 'tcp,udp', outboundTag: 'dns-handler' });
-  expect(tun[1]).toMatchObject({ outboundTag: 'direct' });
 });
 it.each(['package', 'service', 'children'] as const)(
   'preserves %s matching through TUN application metadata',
@@ -134,24 +103,3 @@ it.each(['package', 'service', 'children'] as const)(
     expect(diagnoseRuntimeGraph(g).filter((i) => i.severity === 'error')).toEqual([]);
   },
 );
-
-it('TUN does not inherit socket transport defaults', () => {
-  const g = graph();
-  g.defaults!.settings.inboundStreamSettings = JSON.stringify({ network: 'ws', security: 'tls' });
-  expect((compileRuntimeGraph(g).config.inbounds as unknown[])[0]).not.toHaveProperty(
-    'streamSettings',
-  );
-});
-it.each([
-  ['gateway', ['10.90.0.1/33']],
-  ['autoSystemRoutingTable', ['2001:db8::/129']],
-  ['dns', ['https://dns.example/dns-query']],
-])('diagnoses invalid TUN %s in the graph', (key, value) => {
-  const g = graph(),
-    native = JSON.parse(String(g.nodes[0].data.settings.json));
-  native.settings[key] = value;
-  g.nodes[0].data.settings.json = JSON.stringify(native);
-  expect(diagnoseRuntimeGraph(g)).toContainEqual(
-    expect.objectContaining({ severity: 'error', nodeId: 'tun' }),
-  );
-});

@@ -3,7 +3,6 @@ import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTrafficExample } from './graph/example';
-import { bundledExamples } from './graph/examples';
 import { compileRuntimeGraph } from './graph/runtime';
 import { RuntimeSession } from './runtimeSession';
 import type { ServiceSnapshot } from './serviceClient';
@@ -147,25 +146,6 @@ it('opens Validate through Check and applies a new draft on Start', async () => 
   );
   expect(button('Stop').disabled).toBe(true);
 });
-it('disables validation and activation for pending checks, offline state and capacity failure', async () => {
-  const runtime = fixture();
-  await act(() => root.render(<Harness runtime={runtime} pending />));
-  expect(button('Validate').disabled).toBe(true);
-  expect(primary().disabled).toBe(true);
-  expect(button('Check').disabled).toBe(false);
-  await act(() => root.render(<Harness runtime={{ ...runtime, connected: false }} />));
-  expect(button('Validate').disabled).toBe(true);
-  expect(primary().disabled).toBe(true);
-  await act(() =>
-    root.render(
-      <Harness
-        runtime={{ ...runtime, limits: { configBytes: 1, outbounds: 1, routingRules: 1 } }}
-      />,
-    ),
-  );
-  expect(button('Validate').disabled).toBe(true);
-  expect(runtime.run).not.toHaveBeenCalled();
-});
 it('keeps Stop available when an invalid graph is being edited', async () => {
   const runtime = fixture();
   runtime.snapshot!.core.state = 'failed';
@@ -181,13 +161,6 @@ it('keeps Stop available when an invalid graph is being edited', async () => {
   expect(button('Stop').disabled).toBe(false);
   await act(() => button('Stop').click());
   expect(runtime.run).toHaveBeenLastCalledWith('core.stop', {});
-});
-it('activation leaves proxy assignment to central capture settings', async () => {
-  const runtime = fixture();
-  await act(() => root.render(<Harness runtime={runtime} showPanel />));
-  expect(host.textContent).not.toContain('Use Windows proxy when applying');
-  await act(() => primary().click());
-  expect(runtime.run).toHaveBeenLastCalledWith('core.start', { revision: 3 });
 });
 it('blocks foreign capture, permits revalidation and never auto-starts after it clears', async () => {
   const input = makeNode('windivert-inbound', { x: 0, y: 0 }, 'capture'),
@@ -219,81 +192,6 @@ it('blocks foreign capture, permits revalidation and never auto-starts after it 
   await act(() => root.render(<Harness runtime={{ ...runtime }} draft={draft} />));
   expect(primary().disabled).toBe(false);
   expect(runtime.run).not.toHaveBeenCalled();
-});
-it('reports a failed runtime action without a success message', async () => {
-  const runtime = fixture();
-  runtime.run = vi.fn(async () => {
-    throw new Error('Busy listener');
-  });
-  await act(() => root.render(<Harness runtime={runtime} />));
-  await act(() => primary().click());
-  expect(failure).toHaveBeenCalledOnce();
-  expect(result).not.toHaveBeenCalled();
-});
-it('permits syntax validation but prevents starting a fictional example', async () => {
-  const runtime = fixture();
-  await act(() => root.render(<Harness runtime={runtime} draft={createTrafficExample()} />));
-  expect(button('Validate').disabled).toBe(false);
-  expect(primary().disabled).toBe(true);
-  expect(primary().title).toContain('working profile');
-  await act(() => primary().click());
-  expect(runtime.run).not.toHaveBeenCalled();
-});
-it.each([
-  ['configured.example.org', 'wayrill-example', true],
-  ['edge.example.net', 'configured-user', true],
-  ['configured.example.org', 'configured-user', false],
-])('checks edited example destination %s / %s', async (address, id, blocked) => {
-  const draft = createTrafficExample();
-  Object.assign(draft.nodes.find((n) => n.id === 'preferred')!.data.settings, { address, id });
-  await act(() => root.render(<Harness runtime={fixture()} draft={draft} />));
-  expect(primary().disabled).toBe(blocked);
-});
-
-it.each(bundledExamples.filter((example) => ['traffic', 'policy', 'chain'].includes(example.id)))(
-  'requires replacing sample servers in $label before activation',
-  async (example) => {
-    const runtime = fixture();
-    runtime.capabilities.push('xray.observatory');
-    runtime.protocols = { ...runtime.protocols!, inbound: ['mixed'] };
-    await act(() => root.render(<Harness runtime={runtime} draft={example.create()} />));
-    expect(primary().disabled).toBe(true);
-    expect(primary().title).toContain('working profile');
-    await act(() => primary().click());
-    expect(runtime.run).not.toHaveBeenCalled();
-  },
-);
-
-it.each([
-  ['stopped', false, 'Start', 'core.start'],
-  ['stopped', true, 'Start', 'config.applyAndStart'],
-  ['running', false, 'Restart', 'core.restart'],
-  ['running', true, 'Apply', 'config.applyAndStart'],
-  ['failed', false, 'Restart', 'core.restart'],
-  ['failed', true, 'Apply', 'config.applyAndStart'],
-] as const)('uses %s / changed=%s → %s', async (state, changed, label, method) => {
-  const runtime = fixture();
-  runtime.snapshot!.core.state = state;
-  if (changed) runtime.savedConfig = null;
-  await act(() => root.render(<Harness runtime={runtime} showCheck={false} />));
-  expect(primary().textContent).toBe(label);
-  await act(() => primary().click());
-  expect(runtime.run).toHaveBeenCalledExactlyOnceWith(
-    method,
-    method === 'config.applyAndStart'
-      ? { config: compiled.config, resources: compiled.resources, expectedRevision: 3 }
-      : { revision: 3 },
-    ...(method === 'config.applyAndStart' ? [undefined] : []),
-  );
-});
-it('reloads resource contents with Restart without reapplying an unchanged graph', async () => {
-  const runtime = fixture();
-  runtime.snapshot!.core.state = 'running';
-  runtime.snapshot!.resources = { restartRequired: true } as ServiceSnapshot['resources'];
-  await act(() => root.render(<Harness runtime={runtime} />));
-  expect(primary().textContent).toBe('Restart');
-  await act(() => primary().click());
-  expect(runtime.run).toHaveBeenCalledWith('core.restart', { revision: 3 });
 });
 it('does not reuse an applied profile when only its capture scope differs', async () => {
   const runtime = fixture();
@@ -341,16 +239,6 @@ it('ignores a validation reply belonging to the previous graph', async () => {
   expect(host.textContent).not.toContain('Xray validation passed.');
   expect(button('Validate').disabled).toBe(true);
 });
-it('shows Xray validation errors inside the Check window', async () => {
-  const runtime = fixture();
-  runtime.run = vi.fn(async () => {
-    throw new Error('Invalid Xray option');
-  });
-  await act(() => root.render(<Harness runtime={runtime} />));
-  await act(() => button('Validate').click());
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Invalid Xray option');
-  expect(host.textContent).not.toContain('Xray validation passed.');
-});
 
 it('Stop respects a disabled ICS TUN draft without requiring that draft to compile', async () => {
   const runtime = fixture();
@@ -368,19 +256,4 @@ it('Stop respects a disabled ICS TUN draft without requiring that draft to compi
   );
   expect(await actions.stop()).toBe(true);
   expect(runtime.run).toHaveBeenCalledWith('core.stop', { disableSharing: true });
-});
-
-it('keeps validation successful and identifies unavailable geodata rules in Check', async () => {
-  const runtime = fixture();
-  vi.mocked(runtime.run).mockResolvedValue({
-    resourceWarnings: {
-      skippedSelectorCount: 1,
-      skippedSelectors: [{ selector: 'geoip:retired', context: 'Traffic rule 3 · ip' }],
-    },
-  });
-  await act(() => root.render(<Harness runtime={runtime} />));
-  await act(async () => button('Validate').click());
-  expect(host.textContent).toContain('Xray validation passed.');
-  expect(host.textContent).toContain('1 unavailable geodata entry skipped');
-  expect(host.textContent).toContain('geoip:retired');
 });

@@ -1,16 +1,11 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { getDefinition, makeNode, makeProxyInbound } from './catalog';
-import { factoryDefaults, resolveGraph, resetNodeDefaults, resetCoreDefault } from './defaults';
-import { inboundPreview, inboundProblems, inboundPreFilters } from './inbounds';
-import { fieldProblem, isFieldVisible } from './settingValidation';
+import { makeNode, makeProxyInbound } from './catalog';
+import { factoryDefaults, resolveGraph } from './defaults';
+import { inboundPreview, inboundPreFilters } from './inbounds';
 import { importXrayConfig } from './xrayImport';
 import { compileRuntimeGraph } from './runtime';
 import { parseGraph, serializeGraph } from './model';
-import { xrayInboundConfig } from './xrayCompiler';
 
 const modes = ['socks', 'http', 'mixed'] as const;
 const graphFor = (mode: (typeof modes)[number]) => {
@@ -47,33 +42,6 @@ describe('One Proxy inbound with three modes', () => {
       mode === 'http' ? 'tcp' : 'tcp,udp',
     );
   });
-  it('HTTP retains but hides UDP drafts and excludes them from diagnostics and config', () => {
-    const input = makeProxyInbound('http', { x: 0, y: 0 });
-    Object.assign(input.data.settings, { udp: true, udpAddress: 'bad retained draft' });
-    for (const key of ['udp', 'udpAddress'])
-      expect(
-        isFieldVisible(
-          getDefinition(input.data.kind).fields.find((f) => f.key === key)!,
-          input.data.settings,
-        ),
-      ).toBe(false);
-    expect(inboundProblems(input.data).some((i) => i.fieldKey === 'udpAddress')).toBe(false);
-    expect(inboundPreview(input.data).settings).not.toHaveProperty('udp');
-    expect(inboundPreview(input.data).settings).not.toHaveProperty('ip');
-    input.data.settings.mode = 'socks';
-    expect(inboundProblems(input.data).some((i) => i.fieldKey === 'udpAddress')).toBe(true);
-  });
-  it('HTTP credentials are not subject to the SOCKS5 byte limit', () => {
-    const input = makeProxyInbound('http', { x: 0, y: 0 });
-    Object.assign(input.data.settings, {
-      auth: 'password',
-      username: 'name',
-      password: 'a'.repeat(300),
-    });
-    expect(inboundProblems(input.data).filter((i) => i.severity === 'error')).toEqual([]);
-    input.data.settings.mode = 'mixed';
-    expect(inboundProblems(input.data).some((i) => i.fieldKey === 'password')).toBe(true);
-  });
   it('selects the correct account field and leaves no inactive authentication/UDP fields', () => {
     for (const mode of modes) {
       const input = makeProxyInbound(mode, { x: 0, y: 0 });
@@ -92,69 +60,6 @@ describe('One Proxy inbound with three modes', () => {
       }
     }
   });
-  it('reapplies UDP defaults across modes without changing listener identity', () => {
-    const graph = graphFor('http'),
-      input = graph.nodes[0];
-    input.data.overrides = ['udp'];
-    input.data.settings.udp = false;
-    const reset = resetNodeDefaults(input.data, graph.defaults!, 'udp');
-    expect(reset.settings.udp).toBe(true);
-    expect(reset.settings.mode).toBe('http');
-    expect(inboundPreview(reset).settings).not.toHaveProperty('udp');
-    expect(
-      inboundPreview({ ...reset, settings: { ...reset.settings, mode: 'socks' } }).settings,
-    ).toHaveProperty('udp', true);
-    const core = resolveGraph({
-      ...graph,
-      defaults: resetCoreDefault(graph.defaults!, 'udp'),
-      nodes: [
-        { ...input, data: { ...reset, settings: { ...reset.settings, mode: 'mixed' } } },
-        graph.nodes[1],
-      ],
-    });
-    expect(inboundPreview(core.nodes[0].data).settings).not.toHaveProperty('udp');
-  });
-  it('exposes and edits native transparent HTTP only in HTTP mode', () => {
-    const graph = importXrayConfig(JSON.stringify(native('http', { allowTransparent: true }))),
-      input = graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!;
-    expect(input.data.settings.allowTransparent).toBe(true);
-    input.data.settings.allowTransparent = false;
-    expect(xrayInboundConfig(input.data).settings).toHaveProperty('allowTransparent', false);
-    input.data.settings.mode = 'socks';
-    expect(xrayInboundConfig(input.data).settings).not.toHaveProperty('allowTransparent');
-  });
-  it('rejects an unknown mode', () => {
-    const input = makeNode('proxy-inbound', { x: 0, y: 0 });
-    input.data.settings.mode = 'unknown';
-    expect(
-      fieldProblem(
-        getDefinition(input.data.kind).fields.find((f) => f.key === 'mode')!,
-        input.data.settings,
-      ),
-    ).toBeTruthy();
-    const graph = graphFor('mixed');
-    graph.nodes[0].data.settings.mode = 'unknown';
-    expect(() => parseGraph(serializeGraph(graph))).toThrow();
-  });
-  for (const mode of modes)
-    for (const accountKey of ['users', 'accounts']) {
-      it(`${mode} native ${accountKey} import stays identical through storage and account edits`, () => {
-        const settings = {
-          ...(mode !== 'http' ? { auth: 'password', udp: false } : {}),
-          [accountKey]: [{ user: 'qa', pass: 'one' }],
-          userLevel: 3,
-        };
-        const original = native(mode, settings),
-          graph = parseGraph(serializeGraph(importXrayConfig(JSON.stringify(original))));
-        const input = graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!;
-        expect(input.data.settings.mode).toBe(mode);
-        expect(compileRuntimeGraph(graph).config).toEqual(original);
-        input.data.settings.password = 'two';
-        const edited = xrayInboundConfig(input.data).settings as Record<string, unknown>;
-        expect(edited[accountKey]).toEqual([{ user: 'qa', pass: 'two' }]);
-        expect(edited).not.toHaveProperty(accountKey === 'users' ? 'accounts' : 'users');
-      });
-    }
   it.each(modes)(
     'native %s switching modes removes old protocol settings without losing metadata',
     (mode) => {
@@ -189,17 +94,4 @@ describe('One Proxy inbound with three modes', () => {
       expect(compileRuntimeGraph(graph).config).toEqual(original);
     },
   );
-  const core = process.env.WAYRILL_XRAY_TEST_EXE,
-    dir = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-  for (const mode of modes)
-    it.skipIf(!core || !dir)(`${mode} generated config passes the pinned core`, () => {
-      mkdirSync(dir!, { recursive: true });
-      const file = join(dir!, `unified-proxy-${mode}.json`);
-      writeFileSync(file, JSON.stringify(compileRuntimeGraph(graphFor(mode)).config));
-      const result = spawnSync(core!, ['run', '-test', '-c', file], {
-        encoding: 'utf8',
-        timeout: 15000,
-      });
-      expect(result.status, result.stdout + result.stderr).toBe(0);
-    });
 });

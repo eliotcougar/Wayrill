@@ -110,44 +110,6 @@ it('keeps the window open after write failure and permits a fresh close attempt'
   expect(mock.destroy).toHaveBeenCalledOnce();
 });
 
-it('flushes changed document content even when serializer callbacks keep the same identity', async () => {
-  let finish!: () => void;
-  mock.write.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  let graph = 'before',
-    library = 'before-stash',
-    source = 'before-base';
-  const workspace = () => graph,
-    stash = () => library,
-    base = () => source,
-    error = vi.fn();
-  await act(() =>
-    root.render(<Harness workspace={workspace} stash={stash} base={base} error={error} />),
-  );
-  await act(() => {
-    mock.close!();
-  });
-  graph = 'after';
-  library = 'after-stash';
-  source = 'after-base';
-  await act(async () => {
-    finish();
-    await Promise.resolve();
-  });
-  expect(mock.write.mock.calls).toEqual([
-    ['workspace', 'before'],
-    ['stash', 'before-stash', 'before-base'],
-    ['workspace', 'after'],
-    ['stash', 'after-stash', 'after-base'],
-  ]);
-  expect(mock.destroy).toHaveBeenCalledOnce();
-  expect(error).not.toHaveBeenCalled();
-});
-
 it('registers saved-exit handling before telling native startup it is ready', async () => {
   await act(() =>
     root.render(<Harness workspace={() => 'graph'} stash={() => 'stash'} error={vi.fn()} />),

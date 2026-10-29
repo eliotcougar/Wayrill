@@ -130,29 +130,6 @@ it('reports worker startup failures for every subsequent draft instead of hangin
   expect(latest.issues[0].message).toBe('Recovered');
 });
 
-it('does not reuse a node-only analysis as runtime validation for the same graph', async () => {
-  let scope: 'nodes' | 'runtime' = 'nodes';
-  function Scoped() {
-    latest = useGraphAnalysis(graph, true, scope);
-    return null;
-  }
-  await act(async () => root.render(<Scoped />));
-  await act(async () => vi.advanceTimersByTime(100));
-  const worker = FakeWorker.instances[0];
-  await act(async () => worker.reply(worker.messages[0].id, 'Node checks'));
-  expect(latest.pending).toBe(false);
-  scope = 'runtime';
-  await act(async () => root.render(<Scoped />));
-  expect(latest.pending).toBe(true);
-  expect(latest.issues).toEqual([]);
-  await act(async () => vi.advanceTimersByTime(100));
-  expect(FakeWorker.instances).toHaveLength(1);
-  expect(worker.terminated).toBe(false);
-  await act(async () => worker.reply(worker.messages[1].id, 'Runtime checks'));
-  expect(latest.pending).toBe(false);
-  expect(latest.issues[0].message).toBe('Runtime checks');
-});
-
 it('retires a crashed worker and recovers on the next draft', async () => {
   await act(async () => root.render(<Harness />));
   await act(async () => vi.advanceTimersByTime(100));

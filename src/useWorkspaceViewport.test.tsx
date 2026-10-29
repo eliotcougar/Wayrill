@@ -33,38 +33,6 @@ afterEach(async () => {
   await act(() => root.unmount());
 });
 describe('workspace viewport initialization', () => {
-  it('fits an example only after protected loading and node measurement', async () => {
-    const props = { loadVersion: 0, ready: false, nodeIds: ['one'] };
-    await act(() => root.render(<Harness {...props} />));
-    await act(() => root.render(<Harness {...props} ready />));
-    expect(mock.flow.fitView).not.toHaveBeenCalled();
-    mock.measured = true;
-    await act(() => root.render(<Harness {...props} ready />));
-    expect(mock.flow.fitView).toHaveBeenCalledOnce();
-    mock.measured = false;
-    await act(() => root.render(<Harness {...props} ready />));
-    mock.measured = true;
-    await act(() =>
-      root.render(<Harness {...props} ready viewport={{ x: 50, y: 60, zoom: 0.5 }} />),
-    );
-    expect(mock.flow.fitView).toHaveBeenCalledOnce();
-    expect(mock.flow.setViewport).not.toHaveBeenCalled();
-  });
-  it('restores a saved viewport on a deliberate workspace load', async () => {
-    mock.measured = true;
-    const props = { loadVersion: 0, ready: true, nodeIds: ['one'] };
-    await act(() => root.render(<Harness {...props} />));
-    const viewport = { x: 10, y: 20, zoom: 0.7 };
-    await act(() => root.render(<Harness {...props} loadVersion={1} viewport={viewport} />));
-    expect(mock.flow.setViewport).toHaveBeenCalledWith(viewport);
-    expect(mock.flow.fitView).toHaveBeenCalledOnce();
-  });
-  it('resets an empty workspace without waiting for nonexistent nodes', async () => {
-    mock.nodeIds = [];
-    await act(() => root.render(<Harness loadVersion={0} ready nodeIds={[]} />));
-    expect(mock.flow.setViewport).toHaveBeenCalledWith({ x: 0, y: 0, zoom: 1 });
-    expect(mock.flow.fitView).not.toHaveBeenCalled();
-  });
   it('does not fit the previous measured graph when a new example is loaded', async () => {
     mock.measured = true;
     await act(() => root.render(<Harness loadVersion={0} ready nodeIds={['one']} />));

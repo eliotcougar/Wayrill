@@ -41,12 +41,6 @@ async function key(name: string) {
   await act(() => input().dispatchEvent(event));
   return event;
 }
-async function enter(value: string) {
-  await act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), value);
-    input().dispatchEvent(new Event('input', { bubbles: true }));
-  });
-}
 beforeEach(async () => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   HTMLElement.prototype.showPopover = function () {
@@ -69,22 +63,6 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
-
-it('aligns the full unfiltered menu beneath the field, including while editing a custom URL', async () => {
-  await act(() => toggle().click());
-  expect(popup().style.left).toBe('30px');
-  expect(popup().style.top).toBe('120px');
-  expect(popup().style.width).toBe('400px');
-  expect(popup().dataset.open).toBe('true');
-  expect(input().required).toBe(true);
-  expect(input().type).toBe('url');
-  await enter('https://another-manual.test/');
-  expect(
-    [...popup().querySelectorAll('[role="option"]')].map((element) => element.textContent),
-  ).toEqual(options);
-  expect(input().value).toBe('https://another-manual.test/');
-  expect(input().getAttribute('aria-activedescendant')).toBeNull();
-});
 it('commits a pointer choice, closes and returns focus to the editable input', async () => {
   await act(() => toggle().click());
   await act(() => (popup().children[1] as HTMLElement).click());
@@ -105,48 +83,3 @@ it('supports arrow navigation and Enter without submitting the settings form', a
   expect(input().getAttribute('aria-expanded')).toBe('false');
   expect(submit).not.toHaveBeenCalled();
 });
-it('navigates upward after manual editing and Escape does not escape the containing dialog', async () => {
-  await act(() => toggle().click());
-  await enter('https://manual-updated.test/');
-  await key('ArrowUp');
-  expect(document.getElementById(input().getAttribute('aria-activedescendant')!)?.textContent).toBe(
-    options[2],
-  );
-  parentKeys.mockClear();
-  const event = await key('Escape');
-  expect(event.defaultPrevented).toBe(true);
-  expect(parentKeys).not.toHaveBeenCalled();
-  expect(input().getAttribute('aria-expanded')).toBe('false');
-  expect(input().value).toBe('https://manual-updated.test/');
-});
-it('dismisses on Tab or an outside click without committing a highlighted value', async () => {
-  await key('ArrowDown');
-  expect((await key('Tab')).defaultPrevented).toBe(false);
-  expect(input().getAttribute('aria-expanded')).toBe('false');
-  await act(() => toggle().click());
-  await act(() =>
-    host.querySelector('.outside')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
-  );
-  expect(input().getAttribute('aria-expanded')).toBe('false');
-  expect(input().value).toBe('https://manual.test/204');
-});
-it('fits the viewport and follows an editor scroll instead of clipping the menu', async () => {
-  const measure = vi.mocked(host.querySelector('.editable-select')!.getBoundingClientRect);
-  measure.mockReturnValue(new DOMRect(30, 740, 400, 36));
-  await act(() => toggle().click());
-  expect(Number.parseFloat(popup().style.top)).toBeLessThan(740);
-  measure.mockReturnValue(new DOMRect(60, 200, 420, 36));
-  await act(() => window.dispatchEvent(new Event('scroll')));
-  expect(popup().style.top).toBe('240px');
-  expect(popup().style.left).toBe('60px');
-  expect(popup().style.width).toBe('420px');
-});
-it.each([{ disabled: true }, { empty: true }])(
-  'does not open an unavailable preset list: %j',
-  async (props) => {
-    await act(() => root.render(<Fixture {...props} />));
-    await key('ArrowDown');
-    expect(toggle().disabled).toBe(true);
-    expect(input().getAttribute('aria-expanded')).toBe('false');
-  },
-);

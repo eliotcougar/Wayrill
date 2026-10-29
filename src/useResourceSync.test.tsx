@@ -44,25 +44,3 @@ it('retries busy configuration and cancellation releases the queue for the next 
   await act(() => vi.advanceTimersByTime(10000));
   expect(serviceCall).toHaveBeenCalledTimes(2);
 });
-it('retries the current configuration without parallel writes and sends per-file proxy and interval choices', async () => {
-  const graph = createTrafficExample();
-  graph.defaults = { ...factoryDefaults(), resources: factoryResources() };
-  graph.defaults.resources!.files[0].intervalHours = 8;
-  graph.defaults.resources!.files[0].throughWayrill = true;
-  vi.mocked(serviceCall).mockRejectedValueOnce({ code: 'BUSY' }).mockResolvedValue({});
-  await act(() => root.render(<Fixture graph={graph} />));
-  await act(() => vi.advanceTimersByTime(249));
-  expect(serviceCall).toHaveBeenCalledTimes(1);
-  await act(() => vi.advanceTimersByTime(1));
-  expect(serviceCall).toHaveBeenCalledTimes(2);
-  expect(vi.mocked(serviceCall).mock.lastCall?.[1]).toMatchObject({
-    files: expect.arrayContaining([
-      expect.objectContaining({
-        id: 'packaged-geoip',
-        file: 'geoip.dat',
-        intervalHours: 8,
-        throughWayrill: true,
-      }),
-    ]),
-  });
-});

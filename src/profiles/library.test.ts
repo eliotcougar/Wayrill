@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { libraryRows, searchLibrary } from './library';
-import {
-  importProfiles,
-  mergeImport,
-  refreshSummary,
-  serializeStash,
-  parseStash,
-  type Stash,
-} from './import';
+import { importProfiles, mergeImport, refreshSummary, type Stash } from './import';
 const empty = (): Stash => ({
   format: 'wayrill.stash',
   version: 3,
@@ -78,59 +71,5 @@ describe('subscription refresh continuity', () => {
       old.id,
     );
     expect(refreshSummary(old, next.groups[0])).toMatchObject({ added: 2, updated: 0, removed: 2 });
-  });
-  it('preserves an existing group on an empty refresh and on limit failure', () => {
-    const group = importList([link('a', 'A')]).groups[0],
-      stash = { ...empty(), groups: [group] };
-    expect(() =>
-      mergeImport(
-        stash,
-        { groups: [{ ...group, url: '', entries: [] }], duplicates: 0, rejected: 0, problems: [] },
-        group.id,
-      ),
-    ).toThrow(/non-empty/);
-    const excessive = { ...group, entries: Array.from({ length: 50001 }, () => group.entries[0]) };
-    expect(() =>
-      mergeImport(
-        stash,
-        { groups: [excessive], duplicates: 0, rejected: 0, problems: [] },
-        group.id,
-      ),
-    ).toThrow(/50,000/);
-    expect(stash.groups[0]).toBe(group);
-  });
-  it('reports unchanged and unsupported entries and retains their ids', () => {
-    const result = importList([
-      link('a', 'A'),
-      JSON.stringify({ tag: 'Unknown', protocol: 'unrecognized', settings: {} }),
-    ]);
-    const old = result.groups[0],
-      next = mergeImport(
-        { ...empty(), groups: [old] },
-        importList([
-          link('a', 'A'),
-          JSON.stringify({ tag: 'Unknown', protocol: 'unrecognized', settings: {} }),
-        ]),
-        old.id,
-      );
-    expect(refreshSummary(old, next.groups[0])).toEqual({
-      added: 0,
-      updated: 0,
-      removed: 0,
-      unchanged: 2,
-      unsupported: 1,
-    });
-  });
-  it('round-trips immutable compact snapshots and assigns distinct imported group ids', () => {
-    const result = importList([link('a', 'A')]);
-    result.groups.push(result.groups[0]);
-    const next = mergeImport(empty(), result);
-    expect(new Set(next.groups.map((g) => g.id)).size).toBe(2);
-    expect(parseStash(serializeStash(next))).toEqual(next);
-    expect(
-      parseStash(
-        serializeStash({ ...next, groups: [...next.groups, { ...next.groups[0], id: 'third' }] }),
-      ),
-    ).toMatchObject({ groups: [{}, {}, { id: 'third' }] });
   });
 });

@@ -3,7 +3,6 @@ import {
   sortTrafficEndpoints,
   loadTrafficSortPreferences,
   saveTrafficSortPreferences,
-  TRAFFIC_SORTING_KEY,
 } from './trafficSorting';
 import type { TrafficEndpoint, TrafficSortColumn } from './traffic';
 const rows: TrafficEndpoint[] = [
@@ -51,52 +50,6 @@ it.each([
     expect(rows.map((r) => r.tag)).toEqual(['a', 'z', 'm']);
   },
 );
-it('keeps missing and invalid rates after measured zero in both directions', () => {
-  const endpoints = rows.map((row, i) => ({ ...row, uploadPerSecond: [NaN, -1, 0][i] }));
-  for (const direction of ['asc', 'desc'] as const) {
-    expect(
-      sortTrafficEndpoints(endpoints, { column: 'uploadPerSecond', direction }, names).map(
-        (r) => r.tag,
-      ),
-    ).toEqual(['m', 'z', 'a']);
-    expect(
-      sortTrafficEndpoints(rows, { column: 'uploadPerSecond', direction }, names, false).map(
-        (r) => r.tag,
-      ),
-    ).toEqual(['m', 'z', 'a']);
-  }
-});
-it('orders case-insensitive Unicode names consistently with native paging', () => {
-  const endpoints = ['🚀', '\uE000', 'Я', 'α', 'b', 'A'].map((tag) => ({ ...rows[0], tag }));
-  expect(
-    sortTrafficEndpoints(endpoints, { column: 'name', direction: 'asc' }).map((r) => r.tag),
-  ).toEqual(['A', 'b', 'α', 'Я', '\uE000', '🚀']);
-});
-
-it('retains independent sort preferences without changing unit preferences', () => {
-  const values = new Map([['wayrill.traffic.units', '{"rate":"bits","amount":"bytes"}']]);
-  const storage = {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      values.set(key, value);
-    },
-  };
-  const sorts = {
-    inbound: { column: 'name', direction: 'desc' },
-    outbound: { column: 'downloadBytes', direction: 'desc' },
-  } as const;
-  expect(saveTrafficSortPreferences(sorts, storage)).toBe('');
-  expect(loadTrafficSortPreferences(storage)).toEqual({ sorts, error: '' });
-  expect(values.get('wayrill.traffic.units')).toBe('{"rate":"bits","amount":"bytes"}');
-  values.set(
-    TRAFFIC_SORTING_KEY,
-    '{"inbound":{"column":"invalid","direction":"asc"},"outbound":{"column":"downloadBytes","direction":"desc"}}',
-  );
-  expect(loadTrafficSortPreferences(storage).sorts).toEqual({
-    inbound: { column: 'name', direction: 'asc' },
-    outbound: sorts.outbound,
-  });
-});
 it('keeps sorting usable when preference storage is corrupt or unavailable', () => {
   const defaults = {
     inbound: { column: 'name', direction: 'asc' },

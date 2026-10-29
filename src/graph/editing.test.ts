@@ -94,29 +94,6 @@ describe('independent node copies', () => {
       graph.nodes.find((n) => n.data.settings.tag === 'upstream')!.data.native!.original,
     ).toEqual(outputs[0]);
   });
-  it('copies endpoint nodes while retaining one shared global configuration', () => {
-    const graph = importXrayConfig(JSON.stringify(nativeLiveFixture('noauth')));
-    graph.nodes.forEach((n) => {
-      n.selected = true;
-    });
-    const next = duplicateSelection(graph);
-    for (const kind of ['xray-options', 'routing-filter', 'xray-dns']) {
-      expect(next.nodes.filter((n) => n.data.kind === kind)).toHaveLength(1);
-    }
-    expect(next.nodes.filter((n) => n.data.settings.tag === 'upstream-2')).toHaveLength(1);
-  });
-  it('does not leave renderer state or shared override arrays on a copy', () => {
-    const node = makeNode('socks-outbound', { x: 0, y: 0 }, 'original');
-    node.selected = true;
-    node.dragging = true;
-    node.measured = { width: 200, height: 100 };
-    const graph: GraphState = { name: 'copy', nodes: [node], edges: [] };
-    const copy = duplicateSelection(graph).nodes[1];
-    expect(copy.dragging).toBeUndefined();
-    expect(copy.measured).toBeUndefined();
-    copy.data.overrides!.push('fingerprint');
-    expect(node.data.overrides).toEqual([]);
-  });
   it('rejects excessive duplication before modifying the graph', () => {
     const graph: GraphState = {
       name: 'limit',

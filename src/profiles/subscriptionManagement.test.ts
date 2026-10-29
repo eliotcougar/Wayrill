@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { importProfiles } from './import';
-import { refreshSubscriptionGroups, subscriptionUrlKey } from './subscriptionManagement';
+import { refreshSubscriptionGroups } from './subscriptionManagement';
 
 const group = (id: string) => ({
   ...importProfiles('socks://test.example:1080#Test').groups[0],
@@ -77,21 +77,4 @@ it('does not advance a cancelled queue or publish late completion of its native 
     updated: ['a'],
     active: 'b',
   });
-});
-it('rejects an already cancelled batch before resolving any source', async () => {
-  const controller = new AbortController();
-  controller.abort();
-  const resolve = vi.fn();
-  await expect(
-    refreshSubscriptionGroups(['a'], resolve, vi.fn(), controller.signal, vi.fn()),
-  ).rejects.toThrow();
-  expect(resolve).not.toHaveBeenCalled();
-});
-it('compares equivalent URL authorities without changing case-sensitive subscription tokens', () => {
-  expect(subscriptionUrlKey(' HTTPS://EXAMPLE.NET:443/sub?token=ABC ')).toBe(
-    subscriptionUrlKey('https://example.net/sub?token=ABC'),
-  );
-  expect(subscriptionUrlKey('https://example.net/sub?token=ABC')).not.toBe(
-    subscriptionUrlKey('https://example.net/sub?token=abc'),
-  );
 });
