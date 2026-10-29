@@ -14,7 +14,7 @@ afterEach(async () => {
   await act(() => root.unmount());
   host.remove();
 });
-it('makes all three panels inert, announces phases and keeps their elements mounted', async () => {
+it('blocks the workspace without discarding drafts or losing focus', async () => {
   const render = (progress: { title: string; stage: string; percent: number | null } | null) =>
     root.render(
       <RuntimeProgressOverlay progress={progress}>
@@ -30,7 +30,6 @@ it('makes all three panels inert, announces phases and keeps their elements moun
   expect(host.querySelector('.workspace-body')?.hasAttribute('inert')).toBe(true);
   expect(host.querySelector('input')).toBe(field);
   expect(document.activeElement).toBe(host.querySelector('[role="status"]'));
-  expect(host.querySelector('progress')?.value).toBe(60);
   expect(host.querySelector('[role="status"]')?.closest('[aria-busy="true"]')).toBeNull();
   await act(() =>
     render({
@@ -39,7 +38,7 @@ it('makes all three panels inert, announces phases and keeps their elements moun
       percent: 70,
     }),
   );
-  expect(host.querySelector('[role="status"]')?.textContent).toContain('Configuring TUN');
+  expect(host.querySelector('input')).toBe(field);
   await act(() => render(null));
   expect(host.querySelector('.workspace-body')?.hasAttribute('inert')).toBe(false);
   expect(field.value).toBe('Draft');

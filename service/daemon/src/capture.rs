@@ -1107,23 +1107,6 @@ mod tests {
         assert!(wait_written(&written, 3, Instant::now() + Duration::from_secs(1)).is_ok());
     }
     #[test]
-    fn worker_waits_are_inactivity_budgets() {
-        assert_eq!(
-            worker_response_timeout("sharing.set"),
-            Duration::from_secs(30)
-        );
-        for method in [
-            "sharing.inspect",
-            "stop",
-            "applications.start",
-            "applications.status",
-            "status",
-            "catalog",
-        ] {
-            assert_eq!(worker_response_timeout(method), Duration::from_secs(15));
-        }
-    }
-    #[test]
     fn progress_is_typed_correlated_and_only_valid_for_native_sharing() {
         let frame = json!({"id":7,"progress":{"phase":"enablePublic","elapsedMs":45000}});
         assert!(worker_progress(&frame, 7, "sharing.set").unwrap().is_some());

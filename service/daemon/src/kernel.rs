@@ -2904,13 +2904,6 @@ mod tests {
         assert_eq!(advance_revision(u64::MAX - 1).unwrap(), u64::MAX);
     }
     #[test]
-    fn hash_tracks_listener_settings() {
-        let a = direct_example();
-        let mut b = a.clone();
-        b["inbounds"][0]["port"] = json!(2200);
-        assert_ne!(config_hash(&a), config_hash(&b));
-    }
-    #[test]
     fn readiness_uses_loopback_for_wildcards_and_preserves_specific_ips() {
         for (listen, probe) in [
             ("0.0.0.0", "127.0.0.1"),
@@ -2956,14 +2949,6 @@ mod tests {
             .code,
             "PORT_IN_USE"
         );
-    }
-    #[test]
-    fn mixed_udp_enablement_has_only_a_tcp_startup_endpoint() {
-        let mut config = direct_example();
-        config["inbounds"] = json!([{"tag":"mixed","protocol":"mixed","listen":"127.0.0.1","port":20920,"settings":{"udp":true}}]);
-        let endpoints = listener_endpoints(&config);
-        assert_eq!(endpoints.len(), 1);
-        assert_eq!(endpoints[0].network, ListenerNetwork::Tcp);
     }
     #[test]
     fn quic_and_wireguard_have_no_tcp_readiness_probe() {

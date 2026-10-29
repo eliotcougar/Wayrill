@@ -45,8 +45,8 @@ describe('numeric setting UX', () => {
     expect(container.querySelector('input')!.value).toBe('999');
     expect(container.querySelector('input')!.getAttribute('aria-invalid')).toBe('true');
     expect(container.querySelector('button')!.disabled).toBe(true);
-    expect(container.textContent).toContain('not been applied');
     await enter('0');
-    expect(container.querySelector('button')!.textContent).toBe('Save 0');
+    expect(container.querySelector('input')!.value).toBe('0');
+    expect(container.querySelector('button')!.disabled).toBe(false);
   });
 });

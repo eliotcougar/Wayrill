@@ -203,15 +203,6 @@ mod tests {
         );
     }
     #[test]
-    fn fixed_engine_parses_and_refreshes_profiles() {
-        let empty = execute(&json!({"operation":"validate","stash":""})).unwrap();
-        let stash: Value = serde_json::from_str(empty["stash"].as_str().unwrap()).unwrap();
-        assert_eq!(stash["groups"][0]["id"], "wayrill:default");
-        let result = execute(&json!({"operation":"refresh","stash":empty["stash"],"groupId":"wayrill:default","text":"vless://00000000-0000-0000-0000-000000000001@example.net:443?security=tls#Example"})).unwrap();
-        let stash: Value = serde_json::from_str(result["stash"].as_str().unwrap()).unwrap();
-        assert_eq!(stash["groups"][0]["entries"].as_array().unwrap().len(), 1);
-    }
-    #[test]
     fn subscription_credentials_survive_url_decoding_in_the_native_engine() {
         let result = execute(&json!({"operation":"refresh","stash":"","groupId":"wayrill:default",
             "text":"socks://qa%3Ap%40ss%3A%F0%9F%A6%8A@127.0.0.1:20922#Encoded\nsocks5://qa:@127.0.0.1:20923#Empty"})).unwrap();

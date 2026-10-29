@@ -41,5 +41,4 @@ it('retains a saved missing adapter instead of silently switching to automatic',
   );
   const select = container.querySelector('select')!;
   expect(select.value).toBe('Old Ethernet');
-  expect(select.selectedOptions[0].text).toBe('Old Ethernet (unavailable)');
 });

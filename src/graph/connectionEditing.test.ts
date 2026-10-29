@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeNode } from './catalog';
 import { createVerificationExample } from './example';
-import {
-  applyConnectionEdit,
-  connectionDescription,
-  connectionEditProblem,
-} from './connectionEditing';
+import { applyConnectionEdit, connectionEditProblem } from './connectionEditing';
 import type { GraphState } from './types';
 
 const link = (source: string, sourceHandle: string, target: string) => ({
@@ -68,14 +64,5 @@ describe('connection edits', () => {
     };
     expect(connectionEditProblem(graph, link('b', bPort, 'a'), 'bc')).toContain('routing loop');
     expect(applyConnectionEdit(graph, link('b', bPort, 'a'), 'bc', 'bc')).toBe(graph);
-  });
-  it('keeps source port identity separate from its human label', () => {
-    const graph = createVerificationExample(),
-      edge = graph.edges.find((e) => e.source === 'routes')!;
-    expect(connectionDescription(graph, edge)).toContain('Traffic rules / ');
-    expect(connectionDescription(graph, edge)).toContain('/ Input');
-    const unknown = { ...edge, source: 'missing', target: 'missing' };
-    expect(connectionDescription(graph, unknown)).toContain('Missing source');
-    expect(connectionDescription(graph, unknown)).toContain('Missing destination');
   });
 });

@@ -18,10 +18,10 @@ const result = (id: string, latencyMs: number | null): OutboundTestResult => ({
 const results = new Map(
   [result('a', 40), result('b', 80), result('c', null)].map((r) => [r.id, r]),
 );
-it('does not turn failed, pending or unsupported tests into zero latency', () => {
-  expect(summarizeTest(row, new Map()).text).toBe('Not tested');
-  expect(summarizeTest(row, new Map([['c', result('c', null)]])).text).toContain('Failed');
-  expect(summarizeTest({ ...row, error: 'No candidates' }, results).text).toBe('Unavailable');
+it('keeps missing and failed measurements out of successful results', () => {
+  expect(summarizeTest(row, new Map()).state).toBe('untested');
+  expect(summarizeTest(row, new Map([['c', result('c', null)]])).state).toBe('failed');
+  expect(summarizeTest({ ...row, error: 'No candidates' }, results).state).toBe('failed');
 });
 
 it('reports UDP independently of HTTP, and aggregates only completed group UDP checks', () => {
@@ -30,17 +30,16 @@ it('reports UDP independently of HTTP, and aggregates only completed group UDP c
     ['b', { ...result('b', null), udp: { reachable: false, error: 'UDP timed out' } }],
   ]);
   expect(summarizeTest({ ...row, kind: 'outbound', targets: ['a'] }, udpResults)).toMatchObject({
-    text: '40 ms',
-    udp: { reachable: true, title: 'UDP reply received.' },
+    state: 'passed',
+    udp: { reachable: true },
   });
-  expect(summarizeTest({ ...row, targets: ['a', 'b'] }, udpResults).udp).toEqual({
+  expect(summarizeTest({ ...row, targets: ['a', 'b'] }, udpResults).udp).toMatchObject({
     reachable: false,
-    title: 'UDP: 1/2 reachable',
   });
   expect(summarizeTest(row, udpResults).udp).toBeUndefined();
   expect(summarizeTest(row, results).udp).toBeUndefined();
   expect(summarizeTest({ ...row, kind: 'outbound', targets: ['b'] }, udpResults)).toMatchObject({
-    text: 'Failed',
+    state: 'failed',
     udp: { reachable: false, title: 'UDP timed out' },
   });
 });

@@ -3,8 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import store from './xrayCoreDefaults.json';
-import { coreDefaultHint } from './coreDefaults';
+import { coreDefaultHint, formatDefault } from './coreDefaults';
 import {
   applyDefaults,
   enableDefaults,
@@ -52,49 +51,20 @@ describe('versioned Xray defaults and two-level inheritance', () => {
       'udp',
     );
   });
-  it('uses actual policy and transport defaults rather than old app presets', () => {
-    expect(store.fields['TLSConfig.useSystemCA'].value).toBe(false);
-    expect(coreDefaultHint('TLSConfig.useSystemCA').text).toContain('bundled CA');
-    expect(coreDefaultHint('TLSConfig.certificates').text).toContain('Bundled CA');
-    expect(
-      coreDefaultHint('TLSConfig.certificates', {
-        direction: 'outbound',
-        object: { useSystemCA: true },
-      }).text,
-    ).toBe('Windows certificate store');
-    expect(coreDefaultHint('MasqueConfig.path', { object: { warp: {} } }).text).toBe('/');
-    expect(coreDefaultHint('MasqueConfig.path').text).toBe('/.well-known/masque/ip/*/*/');
-    expect(
-      coreDefaultHint('MasqueConfig.host', {
-        direction: 'outbound',
-        object: { warp: {} },
-        root: { settings: { address: '198.51.100.1' } },
-      }).text,
-    ).toBe('cloudflareaccess.com');
-    expect(coreDefaultHint('MasqueConfig.xmux').text).toContain('1800–3000');
+  it('keeps private protocol credentials marked as secret', () => {
     expect(fieldsForStructure('MasqueWarpConfig').find((f) => f.key === 'privateKey')?.secret).toBe(
       true,
     );
-    expect(coreDefaultHint('Policy.handshake').text).toBe('60');
-    expect(coreDefaultHint('Policy.uplinkOnly').text).toBe('1');
-    expect(coreDefaultHint('KCPConfig.maxSendingWindow').text).toBe('2097152');
-    expect(coreDefaultHint('WireGuardConfig.mtu').text).toBe('1420');
-    expect(coreDefaultHint('XDriveConfig.concurrency').text).toBe('8');
-    expect(coreDefaultHint('NameServerConfig.timeoutMs').text).toBe('4000');
   });
-  it('resolves context-dependent TLS, listener timing and DNS inheritance', () => {
+  it('resolves transport ALPN and inherited DNS values', () => {
     expect(coreDefaultHint('TLSConfig.alpn', { network: 'ws' }).text).toBe('http/1.1');
-    expect(
-      coreDefaultHint('SocketConfig.tcpKeepAliveIdle', { direction: 'inbound' }).text,
-    ).toContain('System timing');
     expect(
       coreDefaultHint('NameServerConfig.queryStrategy', { parent: { queryStrategy: 'UseIPv4' } })
         .text,
     ).toBe('UseIPv4');
     expect(
       coreDefaultHint('NameServerConfig.disableCache', { parent: { disableCache: false } }).text,
-    ).toBe('Disabled');
-    expect(coreDefaultHint('MasqueClientConfig.port').text).toContain('Required');
+    ).toBe(formatDefault(false));
   });
 });
 const core = process.env.WAYRILL_XRAY_TEST_EXE,

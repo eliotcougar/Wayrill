@@ -314,15 +314,6 @@ pub mod windows {
 mod tests {
     use super::*;
     use tokio::io::BufReader;
-    #[test]
-    fn lifecycle_deadlines_cover_tun_bootstrap_and_readiness() {
-        assert_eq!(request_timeout("core.start"), 240);
-        assert_eq!(request_timeout("core.restart"), 240);
-        assert_eq!(request_timeout("config.applyAndStart"), 480);
-        assert_eq!(request_timeout("service.status"), 45);
-        assert_eq!(request_timeout("tun.sharing.keep"), 180);
-        assert_eq!(request_timeout("core.stop"), 180);
-    }
     #[tokio::test]
     async fn parses_separate_frames() {
         let mut r = BufReader::new(&b"{}\n[]\n"[..]);

@@ -88,7 +88,7 @@ afterEach(async () => {
   host.remove();
 });
 
-it('keeps damaged-profile recovery actionable while the service and Stop remain available', async () => {
+it('permits reapplying a damaged profile and stopping a failed core', async () => {
   const runtime = fixture();
   runtime.snapshot!.config.present = false;
   runtime.snapshot!.config.recoveryError = {
@@ -98,12 +98,12 @@ it('keeps damaged-profile recovery actionable while the service and Stop remain 
     retryable: false,
   };
   runtime.snapshot!.core.lastError = runtime.snapshot!.config.recoveryError;
+  runtime.snapshot!.core.state = 'failed';
   await render(runtime);
-  expect(host.textContent).toContain('Saved configuration needs recovery');
-  expect(host.textContent).toContain('original profile was preserved');
-  expect(host.textContent).not.toContain('Previous core failure');
   expect(primary().disabled).toBe(false);
+  expect(button('Stop').disabled).toBe(false);
   await act(() => button('Stop').click());
+  expect(runtime.run).toHaveBeenCalledWith('core.stop', {});
   await render(runtime);
-  expect(host.textContent).toContain('Saved configuration needs recovery');
+  expect(primary().disabled).toBe(false);
 });

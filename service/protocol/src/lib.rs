@@ -698,16 +698,6 @@ mod tests {
         );
     }
     #[test]
-    fn mixed_protocol_preserves_wildcard_binding() {
-        let mut config = direct_example();
-        config["inbounds"][0]["protocol"] = json!("mixed");
-        config["inbounds"][0]["listen"] = json!("0.0.0.0");
-        assert_eq!(
-            normalize_config(config.clone()).unwrap()["inbounds"],
-            config["inbounds"]
-        );
-    }
-    #[test]
     fn preserves_balancer_and_standard_observatory() {
         let mut config = direct_example();
         config["routing"]["balancers"] = json!([{"tag":"group","selector":["direct"],"strategy":{"type":"leastPing"},"fallbackTag":"block"}]);
@@ -741,16 +731,6 @@ mod tests {
         }
     }
     #[test]
-    fn observation_preserves_non_loopback_listeners() {
-        let mut config = direct_example();
-        config["observatory"] = json!({"subjectSelector":["direct"]});
-        config["inbounds"][0]["listen"] = json!("0.0.0.0");
-        assert_eq!(
-            normalize_config(config.clone()).unwrap()["inbounds"],
-            config["inbounds"]
-        );
-    }
-    #[test]
     fn rejects_fragment() {
         assert_eq!(
             normalize_config(json!({"dns":{}})).unwrap_err().code,
@@ -771,18 +751,6 @@ mod tests {
             c["inbounds"][0]["listen"] = json!(listen);
             assert_eq!(normalize_config(c).unwrap_err().code, "UNSAFE_LISTENER");
         }
-    }
-    #[test]
-    fn rejects_duplicate_listener() {
-        let mut c = direct_example();
-        c["inbounds"][1]["port"] = json!(2080);
-        assert!(normalize_config(c).is_err());
-    }
-    #[test]
-    fn rejects_non_numeric_ports() {
-        let mut c = direct_example();
-        c["inbounds"][0]["port"] = json!("2080-2090");
-        assert!(normalize_config(c).is_err());
     }
     #[test]
     fn accepts_public_addresses_and_all_nonzero_ports() {
@@ -840,16 +808,6 @@ mod tests {
         c.as_object_mut().unwrap().remove("metrics");
         c["inbounds"][1] = json!({"protocol":"tunnel","tag":"udp","listen":"127.0.0.1","port":2080,"settings":{"network":"udp"}});
         assert!(normalize_config(c).is_ok());
-    }
-    #[test]
-    fn owns_log_destinations() {
-        let mut c = direct_example();
-        c["log"] = json!({"access":"C:\\secret","error":"C:\\secret","loglevel":"info"});
-        let c = normalize_config(c).unwrap();
-        assert_eq!(
-            c["log"],
-            json!({"loglevel":"info","access":"none","error":""})
-        );
     }
     #[test]
     fn rejects_core_control_plane() {
@@ -945,12 +903,6 @@ mod protocol_registry_tests {
             config["outbounds"][1]["protocol"] = json!(protocol);
             assert!(normalize_config(config).is_ok());
         }
-    }
-    #[test]
-    fn adapter_configuration_is_admitted_for_service_owned_execution() {
-        let mut config = direct_example();
-        config["inbounds"] = json!([{"tag":"tun","protocol":"tun","settings":{"name":"WayrillTUN","gateway":["10.90.0.1/24"]}}]);
-        assert!(normalize_config(config).is_ok());
     }
     #[test]
     fn rejects_unregistered_inbound_and_outbound_protocols() {

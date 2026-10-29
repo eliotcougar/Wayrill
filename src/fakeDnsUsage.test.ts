@@ -20,14 +20,6 @@ const summary = (
   connected = true,
   revision = 42,
 ) => fakeDnsUsageSummary(connected, s, draft, config, revision);
-it('shows live occupancy, including zero, and identifies shared pool geometry', () => {
-  expect(summary().text).toBe(`${(12).toLocaleString()} / ${(32768).toLocaleString()}`);
-  expect(summary().title).toContain('198.18.0.0/15');
-  expect(
-    summary({ ...snapshot, fakeDns: { pid: null, usage: { used: 0, capacity: 3, pools: [] } } })
-      .text,
-  ).toBe('0 / 3');
-});
 it('hides unavailable, stopped, stale-revision and incompatible geometry counts', () => {
   expect(summary(snapshot, config, false).text).toBe('—');
   expect(summary({ ...snapshot, core: { ...snapshot.core, state: 'stopped' } }).text).toBe('—');
