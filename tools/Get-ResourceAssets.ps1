@@ -1,11 +1,13 @@
-param([string]$CurlPath)
+param([string]$CurlPath,[switch]$IncludeRegional)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $pins = Get-Content -LiteralPath (Join-Path $root 'service\dependencies.json') -Raw | ConvertFrom-Json
 $cache = Join-Path $root '.tools\downloads\resources'
 $downloaded = 0
 $curl = $null
-foreach ($set in @(@{ pin = $pins.resourceData; folder = 'resource-assets' }, @{ pin = $pins.routingData; folder = 'routing-assets' })) {
+$sets = @(@{ pin = $pins.resourceData; folder = 'resource-assets' })
+if ($IncludeRegional) { $sets += @{ pin = $pins.routingData; folder = 'routing-assets' } }
+foreach ($set in $sets) {
     foreach ($file in $set.pin.files) {
         if ($file.path -notmatch '^[a-z0-9-]+\.dat$' -or $file.sourceUrl -notmatch '^https://') { throw 'Unsafe resource manifest entry.' }
         $folder = Join-Path $root ('service\' + $set.folder)

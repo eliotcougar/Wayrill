@@ -17,8 +17,9 @@ connection. Wayrill does not supply servers or subscriptions.
 2. Run setup and approve the administrator prompt. The installer is unsigned,
    so Windows may display a publisher or reputation warning. The desktop itself
    runs under your normal Windows account.
-3. Choose your resource files. **Original** is a reasonable starting choice;
-   regional sets are useful for the corresponding routing presets. You can
+3. On a fresh or clean installation, choose any additional resource files.
+   **Original (XTLS)** is included and works offline; regional sets download from
+   the Internet if selected. Upgrades keep your files and skip this step. You can
    [manage resources](resources-defaults.md) later.
 4. Open Wayrill. On a new workspace, the graph contains **Local proxy** connected
    to **Direct**. It is a starting configuration, not an active remote connection.

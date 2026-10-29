@@ -11,6 +11,7 @@ try {
     & npm.cmd run lint 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'lint.log')
     if ($LASTEXITCODE -ne 0) { throw 'Frontend lint failed' }
     if (-not $SkipTests) {
+        & (Join-Path $PSScriptRoot 'Test-InstallerResources.ps1')
         & npm.cmd run test 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'tests.log')
         if ($LASTEXITCODE -ne 0) { throw 'Graph tests failed' }
     }

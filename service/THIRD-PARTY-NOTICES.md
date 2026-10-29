@@ -16,10 +16,11 @@ the v2rayN application-routing work identified in service/capture/provenance.jso
 Their corresponding source, locked/vendored dependencies, notices and rebuild
 instructions are in capture-source.zip. Neither .NET nor TraceEvent ships.
 
-Original, Russian, Iranian and Chinese DATs retain the GPL notices in routing-assets.
-They are byte-identical to immutable upstream assets selected by the manifest.
-No subset extraction is performed. Sources include XTLS, RunetFreedom, Chocolate4U
-and Loyalsoldier; URLs/licenses belong to the dependency manifest.
+Original XTLS DATs are bundled. Optional Russian, Iranian and Chinese DATs are
+downloaded when selected during fresh/clean installation. Their GPL notices are
+in routing-assets. All are byte-identical to immutable upstream assets selected
+by the manifest; no subset extraction is performed. Sources include XTLS,
+RunetFreedom, Chocolate4U and Loyalsoldier; URLs/licenses belong to the manifest.
 
 The adapted Tauri NSIS template retains its MIT license in
 [installer notices](../docs/licenses/tauri-installer.md). gRPC dependency licenses

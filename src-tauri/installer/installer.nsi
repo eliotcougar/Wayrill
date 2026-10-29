@@ -187,7 +187,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 ; 4. Custom page to ask user if he wants to reinstall/uninstall
 ;    only if a previous installation was detected
 Var ReinstallPageCheck
-Page custom PageReinstall PageLeaveReinstall
+Page custom PageReinstall
 Function PageReinstall
   ; Uninstall previous WiX installation if exists.
   ;
@@ -256,7 +256,7 @@ Function PageReinstall
   ; related to current installed version if detected and whether
   ; we are downgrading or not.
   ${If} $PassiveMode = 1
-    Call PageLeaveReinstall
+    Abort
   ${Else}
     nsDialogs::Create 1018
     Pop $R4
@@ -294,7 +294,7 @@ Function PageReinstallUpdateSelection
     StrCpy $ReinstallPageCheck 2
   ${EndIf}
 FunctionEnd
-Function PageLeaveReinstall
+Function WayrillUninstallPreviousVersion
   ; Passive and update mode always keep the existing installation/data.
   ${If} $WixMode = 1
     Goto reinst_uninstall
@@ -621,19 +621,17 @@ Section Install
     ${GetFileExt} "{{this.[1]}}" $R0
     ; SetOverwrite is a compiler directive: each branch needs its own File instruction.
     ${If} $R0 == "dat"
-      Push "{{this.[1]}}"
-      Call WayrillShouldInstallDat
-      Pop $R1
-      ${If} $R1 != 0
-        SetOverwrite ifnewer
-        File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
-      ${EndIf}
+      ; Resources are mutable user data. Upgrades never overwrite their contents.
+      SetOverwrite off
+      File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
     ${Else}
       SetOverwrite on
       File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
     ${EndIf}
   {{/each}}
   SetOverwrite on
+
+  Call WayrillInstallDownloadedResources
 
   ; Copy external binaries
   {{#each binaries}}

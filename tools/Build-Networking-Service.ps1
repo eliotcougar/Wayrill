@@ -72,6 +72,7 @@ foreach ($taskFile in $taskDependencyCache.xray.Files) {
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.officialExecutableSha256) { throw 'Official Xray base executable SHA-256 mismatch.' }
 & (Join-Path $PSScriptRoot 'Build-Capture.ps1') -SkipTests:$SkipTests -OutputDirectory (Join-Path $OutputDirectory 'capture')
 & (Join-Path $PSScriptRoot "Build-XrayCores.ps1") -SkipTests:$SkipTests -CurlPath $CurlPath -TunOutputDirectory (Join-Path $OutputDirectory "tun-core") -MainOutputDirectory (Join-Path $OutputDirectory "xray")
+& (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -CurlPath $CurlPath -IncludeRegional:(-not $SkipTests)
 $taskPreviousRustFlags=$env:RUSTFLAGS
 try {
     $env:RUSTFLAGS=($env:RUSTFLAGS+' -C target-feature=+crt-static').Trim()
@@ -83,12 +84,6 @@ Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc\
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.executableSha256) { throw 'Patched Xray executable SHA-256 mismatch.' }
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\wintun.dll')).Hash -ne $taskDependencies.xray.wintunDllSha256) { throw 'Wintun DLL SHA-256 mismatch.' }
 $taskRoutingAssets=Join-Path $taskService 'routing-assets'
-& (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -CurlPath $CurlPath
-foreach($taskAsset in $taskDependencies.routingData.files) {
-    $taskAssetFile=Join-Path $taskRoutingAssets $taskAsset.path
-    if((Get-FileHash -LiteralPath $taskAssetFile -Algorithm SHA256).Hash -ne $taskAsset.sha256 -or (Get-Item -LiteralPath $taskAssetFile).Length -ne $taskAsset.bytes) { throw 'Regional routing data integrity check failed.' }
-    Copy-Item -LiteralPath $taskAssetFile -Destination (Join-Path $OutputDirectory 'xray') -Force
-}
 foreach($taskResource in $taskDependencies.resourceData.files) {
     $taskResourceFile=Join-Path (Join-Path $taskService 'resource-assets') $taskResource.path
     if((Get-FileHash -LiteralPath $taskResourceFile -Algorithm SHA256).Hash -ne $taskResource.sha256 -or (Get-Item -LiteralPath $taskResourceFile).Length -ne $taskResource.bytes) { throw 'Full resource data integrity check failed.' }

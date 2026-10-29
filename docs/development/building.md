@@ -43,10 +43,13 @@ frontend/native/core checks, builds the separate capture/attribution binaries,
 rebuilds pinned custom Xray cores, stages the service, verifies resource mappings
 and builds the Tauri/NSIS installer. `-SkipTests` skips tests, not integrity/lint.
 
-Missing packaged DATs are downloaded from immutable manifest URLs and checked
-against size/SHA-256. Existing mismatched files fail rather than being replaced
-silently. Full regional datasets are large; Internet downloads are expected on
-the first build. Resource versions are independent from the core version.
+Only the two XTLS DATs are bundled. Missing build inputs are downloaded from
+immutable manifest URLs and checked against size/SHA-256; mismatched files fail
+rather than being replaced silently. Normal service tests also download the
+regional datasets as fixtures; `-SkipTests` needs only XTLS. Regional files are
+downloaded during fresh/clean installation when selected, before the existing
+app or service is stopped. Upgrades preserve installed resource files and skip
+resource selection/downloads. Resource versions are independent from the core.
 If an upstream removes an old asset, use a hash-matching copy from the matching
 release materials; do not change the pin merely to accept a different dataset.
 

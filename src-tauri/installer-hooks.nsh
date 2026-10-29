@@ -1,10 +1,10 @@
 !include TextFunc.nsh
 !define WAYRILL_HOOK_DIR "${__FILEDIR__}"
-!macro WayrillCheckExit Action
+!macro WayrillReadInstallerLog Action LogPath
   Pop $0
   StrCpy $1 ""
   ClearErrors
-  FileOpen $2 "$PLUGINSDIR\Wayrill-Service.log" r
+  FileOpen $2 "${LogPath}" r
   IfErrors wayrill_log_${Action}_missing
   wayrill_log_${Action}_next:
     ClearErrors
@@ -18,10 +18,13 @@
     FileClose $2
     Goto wayrill_log_${Action}_check
   wayrill_log_${Action}_missing:
-    StrCpy $1 "The service setup command did not return its diagnostic log."
+    StrCpy $1 "Setup did not return its diagnostic log."
     DetailPrint $1
     StrCpy $0 1
   wayrill_log_${Action}_check:
+!macroend
+!macro WayrillCheckExit Action
+  !insertmacro WayrillReadInstallerLog ${Action} "$PLUGINSDIR\Wayrill-Service.log"
   ${If} $0 != 0
     IfSilent +2
     MessageBox MB_ICONSTOP|MB_OK "Wayrill service setup failed:$\r$\n$1"
@@ -36,6 +39,8 @@
     SetErrorLevel 1
     Abort
   ${EndIf}
+  Call WayrillPrepareResources
+  Call WayrillUninstallPreviousVersion
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
   File /oname=Installer-Service.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Installer-Service.ps1"
@@ -61,7 +66,9 @@
   nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Service\scripts\Installer-Service.ps1" -Action Install -PreviousManifest "$PLUGINSDIR\previous-manifest.json" -LogPath "$PLUGINSDIR\Wayrill-Service.log"'
   ${EnableX64FSRedirection}
   !insertmacro WayrillCheckExit Install
-  WriteRegDWORD HKLM "SOFTWARE\Wayrill" "ResourceFiles" $WayrillResourcesMask
+  ${If} $WayrillResourcesRequested = 1
+    WriteRegDWORD HKLM "SOFTWARE\Wayrill" "ResourceFiles" $WayrillResourcesMask
+  ${EndIf}
   IfFileExists "$INSTDIR\Service\Installation-Recovery.txt" 0 wayrill_profile_recovery_done
     DetailPrint "Installation completed. Previous routing needs attention; see Installation-Recovery.txt."
     IfSilent wayrill_profile_recovery_done

@@ -19,10 +19,12 @@ It does not replace the Original row's contents. Other files remain available
 for explicit references. The runtime aliases point ordinary rules to the
 selected file without requiring you to rename every rule.
 
-The installer offers Original, Russian, Iranian and Chinese sets. They use XTLS,
-RunetFreedom, Chocolate4U and Loyalsoldier sources respectively. Choose files that
-contain the groups used by your presets; a group present in one source may be
-absent from another.
+The installer includes Original (XTLS). Fresh and clean installations also offer
+Russian (RunetFreedom), Iranian (Chocolate4U) and Chinese (Loyalsoldier) sets as
+optional downloads. Upgrades keep installed files and skip this selection.
+Choose files that contain the groups used by your presets; a group present in
+one source may be absent from another. Additional files remain available from
+the resource editor after installation.
 
 ## Add, edit and update files
 
