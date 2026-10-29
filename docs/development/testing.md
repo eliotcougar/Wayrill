@@ -6,7 +6,7 @@ subscriptions, VM addresses or private files.
 
 | What you changed | Command | Requirements |
 | --- | --- | --- |
-| Editor, graph compiler or shared TypeScript | `npm run check`, `npm test`, `npm run build` | Node.js 24 and `npm ci` |
+| Editor, graph compiler or shared TypeScript | `npm run check`, `npm test`, `npm run build` | Node.js 26 LTS and `npm ci` |
 | Windows service, desktop shell or capture | `pwsh -NoProfile -File tools/Check-Native.ps1` | Pinned Rust, MSVC/SDK; Node dependencies for service/desktop |
 | Xray configuration compatibility or service transformations | `npm run test:core` | Public core/service package built from this checkout |
 | Complete package | `pwsh -NoProfile -File tools/Build-Windows.ps1` | Windows build prerequisites and public downloads |
