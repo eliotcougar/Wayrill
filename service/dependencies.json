@@ -25,7 +25,7 @@
   },
   "winDivert": {
     "version": "2.2.2-A",
-    "url": "https://reqrypt.org/download/WinDivert-2.2.2-A.zip",
+    "url": "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip",
     "archiveSha256": "63CB41763BB4B20F600B6DE04E991A9C2BE73279E317D4D82F237B150C5F3F15",
     "dllSha256": "C1E060EE19444A259B2162F8AF0F3FE8C4428A1C6F694DCE20DE194AC8D7D9A2",
     "driverSha256": "8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2",
