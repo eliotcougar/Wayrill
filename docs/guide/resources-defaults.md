@@ -21,7 +21,9 @@ selected file without requiring you to rename every rule.
 
 The installer includes Original (XTLS). Fresh and clean installations also offer
 Russian (RunetFreedom), Iranian (Chocolate4U) and Chinese (Loyalsoldier) sets as
-optional downloads. Upgrades keep installed files and skip this selection.
+optional downloads from their latest upstream releases. Setup verifies the
+matching upstream checksums; its build-time fixture hashes do not restrict these
+downloads. Upgrades keep installed files and skip this selection.
 Choose files that contain the groups used by your presets; a group present in
 one source may be absent from another. Additional files remain available from
 the resource editor after installation.
@@ -42,7 +44,9 @@ you also maintain copies outside Wayrill.
 
 **Update now** updates every URL-backed row, including files that are not the
 default and rows whose Auto-update switch is off. It does not replace a disk-only
-file from the Internet. Progress and errors are reported per file.
+file from the Internet. The built-in source URLs follow the latest upstream
+files for both manual and automatic updates. A custom URL is used as entered.
+Progress and errors are reported per file.
 
 The service owns the schedule. With **Reload core after auto-updates** enabled,
 changed resources used by the running configuration trigger the supported reload

@@ -1,8 +1,8 @@
 # Getting started
 
 This guide takes you from installation to a working connection, then shows how
-to capture apps that do not use a proxy. It describes **Wayrill 0.31.22**, the
-current public beta for Windows 10 and 11 on x64.
+to capture apps that do not use a proxy. It describes the **Wayrill beta for
+Windows 10 and 11 on x64**.
 
 Have a working server profile or subscription URL ready if you want to use a
 remote proxy. You can also try the Direct examples using your existing Internet
@@ -10,8 +10,8 @@ connection. Wayrill does not supply servers or subscriptions.
 
 ## Install Wayrill
 
-1. Download **Wayrill_0.31.22_x64-setup.exe** from the
-   [beta release](https://github.com/eliotcougar/Wayrill/releases/tag/v0.31.22).
+1. Download the **Windows x64 setup executable** from
+   [Releases](https://github.com/eliotcougar/Wayrill/releases).
    Use the complete installer: it includes the desktop app, networking service
    and matching core components.
 2. Run setup and approve the administrator prompt. The installer is unsigned,

@@ -1,7 +1,7 @@
 {
   "name": "wayrill",
   "private": true,
-  "version": "0.31.22",
+  "version": "0.31.23",
   "type": "module",
   "scripts": {
     "format": "prettier --write src vite.config.ts package.json vitest.config.ts eslint.config.js stylelint.config.js",

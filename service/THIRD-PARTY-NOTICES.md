@@ -17,9 +17,10 @@ Their corresponding source, locked/vendored dependencies, notices and rebuild
 instructions are in capture-source.zip. Neither .NET nor TraceEvent ships.
 
 Original XTLS DATs are bundled. Optional Russian, Iranian and Chinese DATs are
-downloaded when selected during fresh/clean installation. Their GPL notices are
-in routing-assets. All are byte-identical to immutable upstream assets selected
-by the manifest; no subset extraction is performed. Sources include XTLS,
+downloaded from the latest upstream release when selected during fresh/clean
+installation. Their GPL notices are in routing-assets. The manifest records the
+bundled XTLS assets and pinned regional test fixtures; installer and app updates
+follow the current upstream files. No subset extraction is performed. Sources include XTLS,
 RunetFreedom, Chocolate4U and Loyalsoldier; URLs/licenses belong to the manifest.
 
 The adapted Tauri NSIS template retains its MIT license in

@@ -96,7 +96,18 @@ pub fn fetch(text: &str, stop: &AtomicBool, proxy_port: Option<u16>) -> Result<V
         {
             return Err(failure("Cannot set resource redirect policy."));
         }
-        if unsafe { WinHttpSendRequest(request.0, ptr::null(), 0, ptr::null(), 0, 0, 0) } == 0
+        let headers = wide("Cache-Control: no-cache\r\nPragma: no-cache\r\n");
+        if unsafe {
+            WinHttpSendRequest(
+                request.0,
+                headers.as_ptr(),
+                (headers.len() - 1) as u32,
+                ptr::null(),
+                0,
+                0,
+                0,
+            )
+        } == 0
             || unsafe { WinHttpReceiveResponse(request.0, ptr::null_mut()) } == 0
         {
             return Err(failure(

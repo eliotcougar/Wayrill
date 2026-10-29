@@ -1,7 +1,7 @@
 # First beta: scope and limitations
 
-**Wayrill 0.31.22** is a public beta for Windows 10 and 11 on x64.
-Download the [complete installer](https://github.com/eliotcougar/Wayrill/releases/tag/v0.31.22)
+**Wayrill** is a public beta for Windows 10 and 11 on x64.
+Download the [complete installer](https://github.com/eliotcougar/Wayrill/releases)
 and follow [Getting started](guide/getting-started.md) for a first connection.
 Servers and subscriptions must be supplied by you.
 
