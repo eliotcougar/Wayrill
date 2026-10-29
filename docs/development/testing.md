@@ -17,6 +17,12 @@ subscriptions, VM addresses or private files.
 discover the executable-backed integration files. `npm run check` also checks
 their types and style, so separating execution does not hide broken source.
 
+Type checking runs the native TypeScript 7 compiler through `npm run typecheck`.
+Oxlint handles syntax and type-aware lint rules, retaining the React JavaScript
+plugins for lifecycle and resource-cleanup checks. Production-only rules remain
+separate from test fixtures and build configuration. The TypeScript 6 API is a
+plugin compatibility dependency, not the compiler used by the check/build scripts.
+
 `tools/Check-Native.ps1` runs formatting, strict all-target Clippy and locked tests.
 Use `-Component service`, `desktop` or `capture` to select a workspace. Capture
 always covers default and attribution-only features. Service checks also run the
