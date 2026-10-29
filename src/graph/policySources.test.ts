@@ -8,6 +8,7 @@ import type { Stash, StashEntry, StashGroup } from '../profiles/import';
 import {
   emptyPolicySources,
   policyProfile,
+  policyCandidates,
   policyReferenceSet,
   readPolicySources,
   refreshPolicyGraph,
@@ -48,6 +49,25 @@ const selectors = (config: Record<string, unknown>) =>
   (config.routing as { balancers: { selector: string[] }[] }).balancers[0].selector;
 
 describe('internal outbound sources', () => {
+  it('preserves policy weights for imported node IDs that coincide with object property names', () => {
+    const graph = createPolicyExample('leastLoad', 'burst'),
+      group = groupNode(graph),
+      first = graph.nodes.find((node) => node.id === 'test-first')!;
+    group.data.settings.costs = JSON.stringify([{ match: 'test-', regexp: true, value: 1 }]);
+    group.data.preparedWeightTags = {};
+    const original = compileRuntimeGraph(graph).config;
+    for (const id of ['constructor', '__proto__', 'toString']) {
+      first.id = id;
+      const sources = structuredClone(readPolicySources(group.data));
+      sources.manual[0] = { type: 'node', nodeId: id };
+      group.data.settings.sources = JSON.stringify(sources);
+      expect(policyCandidates(graph, group)[0].weightTag).toBe('test-a');
+      expect(compileRuntimeGraph(graph).config).toEqual(original);
+      group.data.preparedWeightTags = Object.fromEntries([[id, 'original-tag']]);
+      expect(policyCandidates(graph, group)[0].weightTag).toBe('original-tag');
+      group.data.preparedWeightTags = {};
+    }
+  });
   it('rejects ambiguous, missing and cyclic dial-through dependencies in internal pools', () => {
     const sub = subscription();
     sub.entries[0].profile!.settings.dialerProxy = 'source-b';

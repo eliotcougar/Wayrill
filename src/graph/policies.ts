@@ -488,7 +488,7 @@ export function compilePolicies(
 ): PolicyCompilation {
   const groups = graph.nodes.filter((n) => n.data.kind === 'policy-group'),
     observers = graph.nodes.filter((n) => n.data.kind === 'observatory');
-  const displayNames: Record<string, string> = {};
+  const displayNames = new Map<string, string>();
   const extraOutbounds: Record<string, unknown>[] = [],
     usedTags = new Set(available.map((o) => String(o.tag))),
     aliases = new Map<string, string>(),
@@ -595,8 +595,10 @@ export function compilePolicies(
         throw new Error('Generated policy destination conflicts with an existing tag.');
       usedTags.add(String(item.tag));
       extraOutbounds.push(item);
-      displayNames[String(item.tag)] =
-        item.tag === tag ? node.data.label : `${node.data.label} (transport)`;
+      displayNames.set(
+        String(item.tag),
+        item.tag === tag ? node.data.label : `${node.data.label} (transport)`,
+      );
     }
   };
   for (const node of profileNodes.values()) rewriteBundle(node, String(node.data.settings.tag));
@@ -693,7 +695,9 @@ export function compilePolicies(
     if (s.strategy === 'leastLoad' && costs.length) {
       const remapped = candidates.filter(
         ({ node: n }) =>
-          aliases.has(n.id) || profileNodes.has(n.id) || !!data.preparedWeightTags?.[n.id],
+          aliases.has(n.id) ||
+          profileNodes.has(n.id) ||
+          (data.preparedWeightTags && Object.hasOwn(data.preparedWeightTags, n.id)),
       );
       if (remapped.length && costs.some((w) => w.regexp))
         throw new Error(
@@ -861,7 +865,7 @@ export function compilePolicies(
   return {
     balancers,
     outbounds: extraOutbounds,
-    displayNames,
+    displayNames: Object.fromEntries(displayNames),
     observation,
     warnings: [...new Set(warnings)],
   };

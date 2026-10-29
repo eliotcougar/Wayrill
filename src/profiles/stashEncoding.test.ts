@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { importProfiles, parseStash, serializeStash, stashByteLength, type Stash } from './import';
 import { policyProfileId } from '../graph/policySources';
 import { getDefinition } from '../graph/catalog';
+import { decodeStashGroups } from './stashEncoding';
 
 it('compacts repeated defaults without losing omissions, explicit values, native baselines or identities', () => {
   const groups = importProfiles(
@@ -40,4 +41,26 @@ it('compacts repeated defaults without losing omissions, explicit values, native
   } finally {
     defaults.fingerprint = original;
   }
+});
+
+it('rejects unknown settings templates and conflicting omissions instead of changing saved profiles', () => {
+  expect(() =>
+    decodeStashGroups([{ settingsDefaults: { 'unknown-outbound': {} }, entries: [] }]),
+  ).toThrow(/settings template/);
+  expect(() =>
+    decodeStashGroups([
+      {
+        settingsDefaults: { 'socks-outbound': { address: 'example.net' } },
+        entries: [
+          {
+            profile: {
+              kind: 'socks-outbound',
+              settings: { address: 'other.example.net' },
+              omitted: ['address'],
+            },
+          },
+        ],
+      },
+    ]),
+  ).toThrow(/Conflicting Stash setting omission/);
 });

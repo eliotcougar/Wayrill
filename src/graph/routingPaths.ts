@@ -123,28 +123,29 @@ export function intersectPredicates(a: Fields, b: Fields): Fields | null {
       delete fields.source;
     }
   }
-  const result = { ...a };
+  const result = new Map(Object.entries(a));
   const empty = (v: unknown) => v === null || (jsonArray(v) && !v.length);
   for (const [key, value] of Object.entries(b)) {
     if (value === undefined) continue;
-    if (!Object.hasOwn(result, key)) {
-      result[key] = value;
+    if (!result.has(key)) {
+      result.set(key, value);
       continue;
     }
     // Empty native matcher lists add no condition in Xray. Their conjunction is
     // the other predicate, rather than an empty intersection that drops a path.
     if (predicates.has(key) && empty(value)) continue;
-    const old = result[key];
+    const old = result.get(key);
     if (predicates.has(key) && empty(old)) {
-      result[key] = value;
+      result.set(key, value);
       continue;
     }
     if (jsonEqual(old, value)) continue;
+    let intersection: unknown;
     if (key === '_wayrillApplications')
-      result[key] = [...new Set([...array(old), ...array(value)])];
-    else if (ports.has(key)) result[key] = intersectRanges(old, value);
-    else if (key === 'process') result[key] = intersectNativeProcesses(array(old), array(value));
-    else if (key === 'protocol') result[key] = intersectProtocolPrefixes(array(old), array(value));
+      intersection = [...new Set([...array(old), ...array(value)])];
+    else if (ports.has(key)) intersection = intersectRanges(old, value);
+    else if (key === 'process') intersection = intersectNativeProcesses(array(old), array(value));
+    else if (key === 'protocol') intersection = intersectProtocolPrefixes(array(old), array(value));
     else if (sets.has(key) || key === 'network') {
       const lhs =
           key === 'network'
@@ -161,21 +162,22 @@ export function intersectPredicates(a: Fields, b: Fields): Fields | null {
         overlap = lhs.filter((v) =>
           rhs.some((r) => (key === 'localOS' ? r.toLowerCase() === v.toLowerCase() : r === v)),
         );
-      result[key] = overlap.length ? (key === 'network' ? overlap.join(',') : overlap) : null;
+      intersection = overlap.length ? (key === 'network' ? overlap.join(',') : overlap) : null;
     } else if (ips.has(key) || key === 'domain')
-      result[key] = intersectLists(array(old), array(value), key);
+      intersection = intersectLists(array(old), array(value), key);
     else if (key === 'attrs') {
-      const attributes = { ...(old as Fields) };
+      const attributes = new Map(Object.entries(old as Fields));
       for (const [name, pattern] of Object.entries(value as Fields)) {
-        if (Object.hasOwn(attributes, name) && !jsonEqual(attributes[name], pattern))
+        if (attributes.has(name) && !jsonEqual(attributes.get(name), pattern))
           throw new Error(`Different expressions for HTTP attribute ${name}`);
-        attributes[name] = pattern;
+        attributes.set(name, pattern);
       }
-      result[key] = attributes;
+      intersection = Object.fromEntries(attributes);
     } else throw new Error(`Different native ${key} values`);
-    if (result[key] === null) return null;
+    if (intersection === null) return null;
+    result.set(key, intersection);
   }
-  return result;
+  return Object.fromEntries(result);
 }
 
 export function routingPaths(graph: GraphState, initialRules = 0) {

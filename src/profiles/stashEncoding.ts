@@ -6,11 +6,12 @@ import type { SettingValue } from '../graph/types';
 // File-local templates freeze the exact values being saved. Reading never fills
 // omitted fields from a newer core/app's defaults, or changes profile identities.
 export function encodeStashGroup(group: StashGroup): string {
-  const settingsDefaults: Record<string, Record<string, SettingValue>> = {};
+  const settingsDefaults = new Map<string, Record<string, SettingValue>>();
   const entries = group.entries.map((entry) => {
     const profile = entry.profile;
     if (!profile || ['policy-group', 'proxy-chain'].includes(profile.kind)) return entry;
-    const defaults = (settingsDefaults[profile.kind] ??= profile.settings);
+    const defaults = settingsDefaults.get(profile.kind) ?? profile.settings;
+    settingsDefaults.set(profile.kind, defaults);
     const settings = Object.fromEntries(
       Object.entries(profile.settings).filter(([key, value]) => defaults[key] !== value),
     );
@@ -20,7 +21,11 @@ export function encodeStashGroup(group: StashGroup): string {
       profile: { kind: profile.kind, settings, ...(omitted.length ? { omitted } : {}) },
     };
   });
-  return JSON.stringify({ ...group, settingsDefaults, entries });
+  return JSON.stringify({
+    ...group,
+    settingsDefaults: Object.fromEntries(settingsDefaults),
+    entries,
+  });
 }
 
 export function decodeStashGroups(groups: unknown[]): void {
@@ -30,21 +35,21 @@ export function decodeStashGroups(groups: unknown[]): void {
   for (const group of groups) {
     if (!jsonRecord(group) || !jsonRecord(group.settingsDefaults) || !jsonArray(group.entries))
       throw new Error('Invalid compact Stash group.');
-    const defaults = group.settingsDefaults;
-    for (const [kind, value] of Object.entries(defaults)) {
+    const defaults = new Map(Object.entries(group.settingsDefaults));
+    for (const [kind, value] of defaults) {
       if (
+        !getDefinition(kind as Profile['kind']) ||
         !jsonRecord(value) ||
         ['policy-group', 'proxy-chain'].includes(kind) ||
         !Object.values(value).every((v) => ['string', 'boolean', 'number'].includes(typeof v))
       )
         throw new Error('Invalid Stash settings template.');
-      getDefinition(kind as Profile['kind']);
     }
     for (const entry of group.entries) {
       if (++count > 50000) throw new Error('The stash supports 50,000 entries total.');
       if (!jsonRecord(entry) || !jsonRecord(entry.profile)) continue;
       const profile = entry.profile,
-        template = defaults[String(profile.kind)];
+        template = defaults.get(String(profile.kind));
       if (!template) continue;
       if (
         !jsonRecord(profile.settings) ||

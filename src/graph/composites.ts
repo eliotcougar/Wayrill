@@ -427,15 +427,18 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
       const group = { ...structuredClone(node), id: groupAllocation.id };
       group.data.settings.tag = groupAllocation.tag;
       const sources: PolicySources = structuredClone(readPolicySources(group.data));
-      group.data.preparedWeightTags = {};
+      const weightTags = new Map<string, string>();
       const transform = (ref: PolicyReference): PolicyReference => {
         const destination = nodeFor(ref, owner);
         if (!underlay && !isCompositeKind(destination.data.kind)) return ref;
         const prepared = emit(destination, owner, underlay, next);
-        group.data.preparedWeightTags![prepared.id] = String(
-          ref.type === 'profile'
-            ? ref.profile.settings.tag || ref.name
-            : destination.data.settings.tag,
+        weightTags.set(
+          prepared.id,
+          String(
+            ref.type === 'profile'
+              ? ref.profile.settings.tag || ref.name
+              : destination.data.settings.tag,
+          ),
         );
         return { type: 'node', nodeId: prepared.id };
       };
@@ -446,6 +449,7 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
       group.data.settings.selection = 'manual';
       if (group.data.native) delete group.data.native;
       if (sources.fallback) sources.fallback = transform(sources.fallback);
+      group.data.preparedWeightTags = Object.fromEntries(weightTags);
       group.data.settings.sources = JSON.stringify(sources);
       if (publicRoot && !underlay) nodes[nodes.findIndex((n) => n.id === node.id)] = group;
       else nodes.push(group);

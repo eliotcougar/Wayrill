@@ -612,7 +612,9 @@ export function policyCandidates(graph: GraphState, group: RuleNode): PolicyCand
       reference,
       origin,
       weightTag:
-        group.data.preparedWeightTags?.[node.id] ??
+        (group.data.preparedWeightTags && Object.hasOwn(group.data.preparedWeightTags, node.id)
+          ? group.data.preparedWeightTags[node.id]
+          : undefined) ??
         (reference.type === 'profile'
           ? String(reference.profile.settings.tag || reference.name)
           : String(node.data.settings.tag)),
