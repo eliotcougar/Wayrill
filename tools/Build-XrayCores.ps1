@@ -18,6 +18,12 @@ function Invoke-MaintainedCoreTests([string]$Source, [string[]]$Files, [hashtabl
     }) | Sort-Object -Unique)
     $taskPattern='^('+($taskNames -join '|')+')$'
     Write-Host "Checking $(@($taskNames).Count) maintained Xray regressions in $($taskPackages.Count) packages."
+    # Compile test packages explicitly so build tracing sees them without the
+    # test-runner flags used below. Keep binaries outside corresponding source.
+    $taskTestOutput=Join-Path $taskCacheRoot 'core-test-binaries'
+    New-Item -ItemType Directory -Path $taskTestOutput -Force | Out-Null
+    & $taskGo test -c -mod=readonly -o ($taskTestOutput+[IO.Path]::DirectorySeparatorChar) @taskPackages
+    if($LASTEXITCODE -ne 0){throw 'Maintained Xray test compilation failed.'}
     & $taskGo test -mod=readonly @taskPackages -run $taskPattern -count=1
     if($LASTEXITCODE -ne 0){throw 'Maintained Xray regression tests failed.'}
 }
