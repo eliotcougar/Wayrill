@@ -83,8 +83,11 @@ jobs:
       - name: Prepare geodata fixtures
         if: matrix.component == 'service'
         run: |
-          # Git for Windows supplies OpenSSL curl; the Windows bundled curl is not used.
-          & ./tools/Get-ResourceAssets.ps1 -IncludeRegional -CurlPath 'C:\Program Files\Git\mingw64\bin\curl.exe'
+          # The hosted Windows image includes MSYS2, outside PATH, with OpenSSL curl.
+          $resourceCurl = 'C:\msys64\usr\bin\curl.exe'
+          & $resourceCurl --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & ./tools/Get-ResourceAssets.ps1 -IncludeRegional -CurlPath $resourceCurl
       - name: Format, lint and test native code
         run: |
           $ErrorActionPreference = 'Stop'
