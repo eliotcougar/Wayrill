@@ -23,7 +23,7 @@ and [beta boundaries](docs/BETA.md).
 
 CodeQL scans maintained sources on pull requests, main changes and a weekly
 schedule. The contributor PR policy blocks new high/critical security findings and
-CodeQL errors. Dependency review blocks newly introduced high/critical advisories
+CodeQL quality errors/warnings. Dependency review blocks newly introduced high/critical advisories
 in runtime, development and unknown scopes. Secret scanning and push protection
 are enabled; remove any actual leaked credential even if a scan has not found it.
 

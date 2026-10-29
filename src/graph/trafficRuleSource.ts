@@ -21,17 +21,11 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const unique = <T>(rows: T[], key: (row: T) => string) => [
   ...new Map(rows.map((row) => [key(row), row])).values(),
 ];
-export const applicationIdentity = (row: ApplicationSelector) =>
-  JSON.stringify([
-    row.kind,
-    row.mode,
-    row.children,
-    row.value
-      .trim()
-      .replaceAll('\\', '/')
-      .replace(row.mode === 'folder' ? /\/+$/ : /$^/, '')
-      .toLowerCase(),
-  ]);
+export function applicationIdentity(row: ApplicationSelector) {
+  let value = row.value.trim().replaceAll('\\', '/');
+  if (row.mode === 'folder') value = value.replace(/\/+$/, '');
+  return JSON.stringify([row.kind, row.mode, row.children, value.toLowerCase()]);
+}
 export function ruleApplications(rule: Pick<SourceRule, 'conditions' | 'applications'>) {
   const rows = new Map<string, ApplicationSelector>();
   for (const row of [

@@ -23,6 +23,7 @@
         "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
+        "require_extra_approval_for_unattributed_changes": false,
         "required_review_thread_resolution": true
       }
     },
@@ -51,7 +52,7 @@
         "code_scanning_tools": [
           {
             "tool": "CodeQL",
-            "alerts_threshold": "errors",
+            "alerts_threshold": "errors_and_warnings",
             "security_alerts_threshold": "high_or_higher"
           }
         ]
