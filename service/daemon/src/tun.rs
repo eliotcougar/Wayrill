@@ -473,29 +473,31 @@ pub(crate) fn loopback_interface() -> Result<String> {
             std::io::Error::from_raw_os_error(code as i32),
         ));
     }
-    let result = if table.is_null() {
-        Err(ApiError::new(
+    // SAFETY: the successful query transferred this allocation to us.
+    let table = unsafe { native::MibTable::from_raw(table) }.ok_or_else(|| {
+        ApiError::new(
             "LOOPBACK_INTERFACE",
             "Windows did not return an interface table.",
-        ))
-    } else {
-        let rows = unsafe {
-            std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
-        };
-        rows.iter()
-            .find(|row| row.Type == IF_TYPE_SOFTWARE_LOOPBACK)
-            .map(|row| alias(&row.InterfaceLuid))
-            .unwrap_or_else(|| {
-                Err(ApiError::new(
-                    "LOOPBACK_INTERFACE",
-                    "Windows loopback interface is unavailable.",
-                ))
-            })
+        )
+    })?;
+    let pointer = table.as_ptr();
+    // SAFETY: the live allocation contains NumEntries rows. Do not form a
+    // reference to the nominal one-row field before accessing the whole tail.
+    let rows = unsafe {
+        std::slice::from_raw_parts(
+            ptr::addr_of!((*pointer).Table).cast::<MIB_IF_ROW2>(),
+            (*pointer).NumEntries as usize,
+        )
     };
-    if !table.is_null() {
-        unsafe { FreeMibTable(table.cast()) };
-    }
-    result
+    rows.iter()
+        .find(|row| row.Type == IF_TYPE_SOFTWARE_LOOPBACK)
+        .map(|row| alias(&row.InterfaceLuid))
+        .unwrap_or_else(|| {
+            Err(ApiError::new(
+                "LOOPBACK_INTERFACE",
+                "Windows loopback interface is unavailable.",
+            ))
+        })
 }
 fn route_interface(ip: IpAddr) -> Result<NET_LUID_LH> {
     let destination = socket_address(ip);
@@ -578,9 +580,17 @@ fn default_uplink(family: u16, excluded: Option<u32>) -> Result<Option<String>> 
         ));
     }
     let mut candidates = Vec::new();
+    // SAFETY: the successful query transferred this allocation to us.
+    let rows = unsafe { native::MibTable::from_raw(rows) }
+        .ok_or_else(|| invalid("Windows returned no default-route table."))?;
+    let pointer = rows.as_ptr();
+    // SAFETY: the owned snapshot contains NumEntries rows; interface lookups
+    // only borrow copied LUIDs and do not alter that snapshot.
     unsafe {
-        let table = &*rows;
-        for row in std::slice::from_raw_parts(table.Table.as_ptr(), table.NumEntries as usize) {
+        for row in std::slice::from_raw_parts(
+            ptr::addr_of!((*pointer).Table).cast::<MIB_IPFORWARD_ROW2>(),
+            (*pointer).NumEntries as usize,
+        ) {
             if row.DestinationPrefix.PrefixLength != 0 || Some(row.InterfaceIndex) == excluded {
                 continue;
             }
@@ -596,7 +606,6 @@ fn default_uplink(family: u16, excluded: Option<u32>) -> Result<Option<String>> 
                 ));
             }
         }
-        FreeMibTable(rows.cast());
     }
     candidates.sort_by_key(|(key, _)| *key);
     Ok(candidates
@@ -803,11 +812,19 @@ fn routes_ready(index: u32, expected: &BTreeSet<Prefix>) -> Result<bool> {
         ));
     }
     let mut present = BTreeSet::new();
+    // SAFETY: the successful query transferred this allocation to us.
+    let rows = unsafe { native::MibTable::from_raw(rows) }
+        .ok_or_else(|| invalid("Windows returned no route table."))?;
+    let pointer = rows.as_ptr();
+    // SAFETY: the owned snapshot contains NumEntries rows and their initialized
+    // SOCKADDR_INET unions are read only after checking the address family.
     unsafe {
-        let table = &*rows;
-        for row in std::slice::from_raw_parts(table.Table.as_ptr(), table.NumEntries as usize)
-            .iter()
-            .filter(|row| row.InterfaceIndex == index)
+        for row in std::slice::from_raw_parts(
+            ptr::addr_of!((*pointer).Table).cast::<MIB_IPFORWARD_ROW2>(),
+            (*pointer).NumEntries as usize,
+        )
+        .iter()
+        .filter(|row| row.InterfaceIndex == index)
         {
             let address = &row.DestinationPrefix.Prefix;
             let ip = match address.si_family {
@@ -819,7 +836,6 @@ fn routes_ready(index: u32, expected: &BTreeSet<Prefix>) -> Result<bool> {
             };
             present.insert((ip, row.DestinationPrefix.PrefixLength));
         }
-        FreeMibTable(rows.cast());
     }
     Ok(expected.is_subset(&present))
 }
@@ -1042,28 +1058,33 @@ fn shared_gateway() -> Result<Ipv4Addr> {
             std::io::Error::from_raw_os_error(code as i32),
         ));
     }
+    // SAFETY: the successful query transferred this allocation to us.
+    let rows = unsafe { native::MibTable::from_raw(rows) }
+        .ok_or_else(|| invalid("Windows returned no shared-transit route table."))?;
+    let pointer = rows.as_ptr();
+    // SAFETY: the owned IPv4 snapshot contains NumEntries initialized rows.
     let used: Vec<_> = unsafe {
-        let table = &*rows;
-        let used = std::slice::from_raw_parts(table.Table.as_ptr(), table.NumEntries as usize)
-            .iter()
-            .filter(|r| r.DestinationPrefix.PrefixLength > 1)
-            .map(|r| {
-                (
-                    u32::from(Ipv4Addr::from(
-                        r.DestinationPrefix
-                            .Prefix
-                            .Ipv4
-                            .sin_addr
-                            .S_un
-                            .S_addr
-                            .to_ne_bytes(),
-                    )),
-                    r.DestinationPrefix.PrefixLength,
-                )
-            })
-            .collect();
-        FreeMibTable(rows.cast());
-        used
+        std::slice::from_raw_parts(
+            ptr::addr_of!((*pointer).Table).cast::<MIB_IPFORWARD_ROW2>(),
+            (*pointer).NumEntries as usize,
+        )
+        .iter()
+        .filter(|r| r.DestinationPrefix.PrefixLength > 1)
+        .map(|r| {
+            (
+                u32::from(Ipv4Addr::from(
+                    r.DestinationPrefix
+                        .Prefix
+                        .Ipv4
+                        .sin_addr
+                        .S_un
+                        .S_addr
+                        .to_ne_bytes(),
+                )),
+                r.DestinationPrefix.PrefixLength,
+            )
+        })
+        .collect()
     };
     for _ in 0..64 {
         let ip = u32::from(Ipv4Addr::new(198, 18, 0, 0))
@@ -2436,6 +2457,22 @@ impl Drop for Manager {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn native_loopback_selection_resolves_to_the_software_loopback_interface() {
+        use super::*;
+        let name = loopback_interface().unwrap();
+        let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let mut row = MIB_IF_ROW2::default();
+        // SAFETY: the name is NUL-terminated and row owns writable output storage.
+        assert_eq!(
+            unsafe { ConvertInterfaceAliasToLuid(name.as_ptr(), &mut row.InterfaceLuid) },
+            0
+        );
+        // SAFETY: the resolved LUID identifies the row to retrieve.
+        assert_eq!(unsafe { GetIfEntry2(&mut row) }, 0);
+        assert_eq!(row.Type, IF_TYPE_SOFTWARE_LOOPBACK);
+    }
 
     #[test]
     fn adapter_aliases_validate_before_native_mutation_and_keep_custom_unicode() {

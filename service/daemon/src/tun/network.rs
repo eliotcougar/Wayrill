@@ -235,16 +235,22 @@ fn link(value: NET_LUID_LH) -> Result<Link> {
             std::io::Error::from_raw_os_error(code as i32),
         ));
     }
+    // SAFETY: the successful query transferred this allocation to us.
+    let table = unsafe { crate::native::MibTable::from_raw(table) }
+        .ok_or_else(|| unavailable_uplink("Windows returned no uplink route table."))?;
+    let pointer = table.as_ptr();
+    // SAFETY: the owned snapshot contains NumEntries initialized route rows.
     unsafe {
-        for row in std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
-        {
+        for row in std::slice::from_raw_parts(
+            ptr::addr_of!((*pointer).Table).cast::<MIB_IPFORWARD_ROW2>(),
+            (*pointer).NumEntries as usize,
+        ) {
             if row.InterfaceLuid.Value == value.Value && row.DestinationPrefix.PrefixLength == 0 {
                 if let Some(next) = ip(&row.NextHop) {
                     result.defaults.insert(format!("{next}/{}", row.Metric));
                 }
             }
         }
-        FreeMibTable(table.cast());
     }
     Ok(result)
 }

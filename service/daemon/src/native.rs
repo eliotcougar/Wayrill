@@ -38,6 +38,27 @@ impl Drop for Handle {
         }
     }
 }
+/// Owns a table allocated by the Windows IP Helper APIs.
+pub(crate) struct MibTable<T>(ptr::NonNull<T>);
+impl<T> MibTable<T> {
+    /// # Safety
+    /// A non-null pointer must be a uniquely owned allocation returned by an IP
+    /// Helper table query and must not be freed or adopted elsewhere.
+    pub(crate) unsafe fn from_raw(pointer: *mut T) -> Option<Self> {
+        ptr::NonNull::new(pointer).map(Self)
+    }
+    pub(crate) fn as_ptr(&self) -> *mut T {
+        self.0.as_ptr()
+    }
+}
+impl<T> Drop for MibTable<T> {
+    fn drop(&mut self) {
+        // SAFETY: from_raw transfers exactly one live IP Helper allocation.
+        unsafe {
+            windows_sys::Win32::NetworkManagement::IpHelper::FreeMibTable(self.0.as_ptr().cast());
+        }
+    }
+}
 pub fn verify_hash(path: &Path, expected: &str) -> Result<()> {
     let mut f = File::open(path).map_err(|e| ApiError::io("Open bundled dependency", e))?;
     let mut hash = Sha256::new();

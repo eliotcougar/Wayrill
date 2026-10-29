@@ -4,6 +4,7 @@ use crate::{interfaces::InterfaceInfo, Error, Result};
 use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    ptr::NonNull,
 };
 use windows_sys::{
     core::GUID,
@@ -114,12 +115,12 @@ fn guid(value: GUID) -> String {
     )
 }
 fn filters() -> Result<HashSet<String>> {
-    struct Table(*mut MIB_IF_TABLE2);
+    struct Table(NonNull<MIB_IF_TABLE2>);
     impl Drop for Table {
         fn drop(&mut self) {
             // SAFETY: this is the one allocation returned by GetIfTable2.
             unsafe {
-                FreeMibTable(self.0.cast());
+                FreeMibTable(self.0.as_ptr().cast());
             }
         }
     }
@@ -130,12 +131,12 @@ fn filters() -> Result<HashSet<String>> {
     if error != 0 {
         return Err(from_win32(error));
     }
-    if pointer.is_null() {
-        return Err(Error::invalid("Missing Windows interface table."));
-    }
-    let table = Table(pointer);
+    let table = Table(
+        NonNull::new(pointer).ok_or_else(|| Error::invalid("Missing Windows interface table."))?,
+    );
+    let pointer = table.0.as_ptr();
     // SAFETY: GetIfTable2 succeeded and table retains its live allocation.
-    let count = unsafe { (*table.0).NumEntries } as usize;
+    let count = unsafe { (*pointer).NumEntries } as usize;
     if count > 65536 {
         return Err(Error::invalid(
             "Windows interface table exceeds its capacity.",
@@ -144,7 +145,7 @@ fn filters() -> Result<HashSet<String>> {
     // SAFETY: NumEntries describes the native flexible array allocated by this
     // API. addr_of avoids creating a reference to its nominal one-element field.
     let rows =
-        unsafe { std::slice::from_raw_parts(std::ptr::addr_of!((*table.0).Table).cast(), count) };
+        unsafe { std::slice::from_raw_parts(std::ptr::addr_of!((*pointer).Table).cast(), count) };
     Ok(rows
         .iter()
         .filter(

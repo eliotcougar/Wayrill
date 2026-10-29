@@ -94,17 +94,17 @@ fn addresses() -> Result<Vec<MIB_UNICASTIPADDRESS_ROW>> {
     if code != 0 {
         return Err(failure(format!("Inspect IPv6 addresses failed ({code}).")));
     }
-    struct Table(*mut MIB_UNICASTIPADDRESS_TABLE);
-    impl Drop for Table {
-        fn drop(&mut self) {
-            unsafe {
-                FreeMibTable(self.0.cast());
-            }
-        }
-    }
-    let table = Table(table);
+    // SAFETY: the successful query transferred this allocation to us.
+    let table = unsafe { crate::native::MibTable::from_raw(table) }
+        .ok_or_else(|| failure("Windows returned no IPv6 address table."))?;
+    let pointer = table.as_ptr();
+    // SAFETY: the owned snapshot contains NumEntries rows. A raw field address
+    // avoids borrowing the nominal one-element array before viewing its tail.
     Ok(unsafe {
-        std::slice::from_raw_parts((*table.0).Table.as_ptr(), (*table.0).NumEntries as usize)
+        std::slice::from_raw_parts(
+            std::ptr::addr_of!((*pointer).Table).cast::<MIB_UNICASTIPADDRESS_ROW>(),
+            (*pointer).NumEntries as usize,
+        )
     }
     .to_vec())
 }

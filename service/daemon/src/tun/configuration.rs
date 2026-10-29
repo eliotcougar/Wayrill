@@ -169,21 +169,21 @@ pub(super) fn ready(index: u32, settings: &Value) -> Result<bool> {
         unsafe { GetUnicastIpAddressTable(AF_UNSPEC, &mut table) },
         "Read owned TUN addresses",
     )?;
-    if table.is_null() {
+    // SAFETY: the query returned this allocation; the guard owns its release.
+    let Some(table) = (unsafe { crate::native::MibTable::from_raw(table) }) else {
         return Ok(false);
-    }
+    };
+    let pointer = table.as_ptr();
+    // SAFETY: the owned snapshot contains NumEntries initialized address rows.
     let addresses = unsafe {
-        let rows =
-            std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
-        let result = rows
-            .iter()
-            .filter(|r| {
-                r.InterfaceIndex == index && [AF_INET, AF_INET6].contains(&r.Address.si_family)
-            })
-            .map(|r| (ip(&r.Address), r.OnLinkPrefixLength))
-            .collect::<BTreeSet<_>>();
-        FreeMibTable(table.cast());
-        result
+        std::slice::from_raw_parts(
+            ptr::addr_of!((*pointer).Table).cast::<MIB_UNICASTIPADDRESS_ROW>(),
+            (*pointer).NumEntries as usize,
+        )
+        .iter()
+        .filter(|r| r.InterfaceIndex == index && [AF_INET, AF_INET6].contains(&r.Address.si_family))
+        .map(|r| (ip(&r.Address), r.OnLinkPrefixLength))
+        .collect::<BTreeSet<_>>()
     };
     if !gateways.is_subset(&addresses) {
         return Ok(false);
@@ -308,21 +308,23 @@ pub(super) fn retire_unused(index: u32, settings: &Value) -> Result<()> {
             unsafe { GetIpForwardTable2(family, &mut table) },
             "Read stale TUN routes",
         )?;
-        let rows = if table.is_null() {
-            Vec::new()
-        } else {
+        // SAFETY: a non-null output is the allocation returned by this query.
+        let rows = if let Some(table) = unsafe { crate::native::MibTable::from_raw(table) } {
+            let pointer = table.as_ptr();
+            // SAFETY: the owned snapshot contains NumEntries route rows. Copy
+            // selected rows before releasing it and mutating the native table.
             unsafe {
-                let rows = std::slice::from_raw_parts(
-                    (*table).Table.as_ptr(),
-                    (*table).NumEntries as usize,
+                std::slice::from_raw_parts(
+                    ptr::addr_of!((*pointer).Table).cast::<MIB_IPFORWARD_ROW2>(),
+                    (*pointer).NumEntries as usize,
                 )
                 .iter()
                 .filter(|r| r.InterfaceIndex == index)
                 .copied()
-                .collect::<Vec<_>>();
-                FreeMibTable(table.cast());
-                rows
+                .collect::<Vec<_>>()
             }
+        } else {
+            Vec::new()
         };
         for row in rows {
             checked(
@@ -335,21 +337,22 @@ pub(super) fn retire_unused(index: u32, settings: &Value) -> Result<()> {
             unsafe { GetUnicastIpAddressTable(family, &mut table) },
             "Read stale TUN addresses",
         )?;
-        let rows = if table.is_null() {
-            Vec::new()
-        } else {
+        // SAFETY: a non-null output is the allocation returned by this query.
+        let rows = if let Some(table) = unsafe { crate::native::MibTable::from_raw(table) } {
+            let pointer = table.as_ptr();
+            // SAFETY: the owned snapshot contains NumEntries initialized rows.
             unsafe {
-                let rows = std::slice::from_raw_parts(
-                    (*table).Table.as_ptr(),
-                    (*table).NumEntries as usize,
+                std::slice::from_raw_parts(
+                    ptr::addr_of!((*pointer).Table).cast::<MIB_UNICASTIPADDRESS_ROW>(),
+                    (*pointer).NumEntries as usize,
                 )
                 .iter()
                 .filter(|r| r.InterfaceIndex == index && r.PrefixOrigin == IpPrefixOriginManual)
                 .copied()
-                .collect::<Vec<_>>();
-                FreeMibTable(table.cast());
-                rows
+                .collect::<Vec<_>>()
             }
+        } else {
+            Vec::new()
         };
         for row in rows {
             checked(
