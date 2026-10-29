@@ -2926,9 +2926,12 @@ mod tests {
     }
     #[test]
     fn reports_unassigned_addresses_as_bind_failures() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
         assert_eq!(
             check_endpoint(ListenerEndpoint {
-                address: "192.0.2.254:80".parse().unwrap(),
+                address: std::net::SocketAddr::from(([192, 0, 2, 254], port)),
                 network: ListenerNetwork::Tcp
             })
             .unwrap_err()

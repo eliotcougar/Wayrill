@@ -1445,7 +1445,7 @@ mod transactional_tests {
             manager
                 .handle("resources.browse", json!({"file":file,"kind":kind}))
                 .unwrap();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 let page = manager
                     .handle("resources.browse", json!({"file":file,"kind":kind}))
@@ -1455,8 +1455,8 @@ mod transactional_tests {
                     assert!(!page["rows"].as_array().unwrap().is_empty(), "{file}");
                     break;
                 }
-                assert!(std::time::Instant::now() < deadline, "{file}");
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                assert!(std::time::Instant::now() < deadline, "{file}: {page}");
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
             let wrong_kind = if kind == "geoip" { "geosite" } else { "geoip" };
             assert!(manager

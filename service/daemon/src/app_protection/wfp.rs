@@ -16,7 +16,7 @@ use windows_sys::{
         NetworkManagement::WindowsFilteringPlatform::*,
         Security::{FreeSid, Isolation::DeriveAppContainerSidFromAppContainerName},
         Storage::FileSystem::{
-            GetFinalPathNameByHandleW, FILE_FLAG_BACKUP_SEMANTICS, VOLUME_NAME_NT,
+            GetFinalPathNameByHandleW, FILE_FLAG_BACKUP_SEMANTICS, FILE_NAME_OPENED, VOLUME_NAME_NT,
         },
     },
 };
@@ -181,7 +181,9 @@ fn missing_executable_id(path: &Path) -> Result<Vec<u16>> {
             directory.as_raw_handle(),
             native.as_mut_ptr(),
             native.len() as u32,
-            VOLUME_NAME_NT,
+            // WFP preserves the opened spelling, including 8.3 aliases. Expanding
+            // an ancestor's short name would change the ID after the file is removed.
+            VOLUME_NAME_NT | FILE_NAME_OPENED,
         )
     } as usize;
     if length == 0 {
@@ -433,6 +435,19 @@ mod tests {
     #[test]
     fn removed_executable_and_version_folder_keep_the_same_identity() {
         let root = std::env::temp_dir().join(format!("wayrill-app-id-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut short = vec![0; 32768];
+        // SAFETY: terminated existing path and an initialized WCHAR output buffer.
+        let length = unsafe {
+            windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(
+                wide(root.to_str().unwrap()).as_ptr(),
+                short.as_mut_ptr(),
+                short.len() as u32,
+            )
+        } as usize;
+        assert!(length > 0 && length < short.len());
+        use std::os::windows::ffi::OsStringExt;
+        let root = std::path::PathBuf::from(std::ffi::OsString::from_wide(&short[..length]));
         let directory = root.join("VÉRSION-中文");
         std::fs::create_dir_all(&directory).unwrap();
         let executable = directory.join("BROWSER.exe");
