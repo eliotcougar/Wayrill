@@ -255,48 +255,4 @@ mod tests {
         assert!(Reader::new(cancellation.clone()).is_err());
         assert!(cancellation.0.lock().unwrap().thread.is_none());
     }
-    /// Read-only native integration probe. The optional witness is a complete
-    /// translated flow whose original source is independently known by QA.
-    #[test]
-    #[ignore = "requires a live Windows NAT witness supplied by QA"]
-    fn reads_live_windows_nat_witness() {
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Witness {
-            protocol: u8,
-            source: String,
-            source_port: u16,
-            destination: String,
-            destination_port: u16,
-            original_source: String,
-            original_port: u16,
-        }
-        let witness: Witness = serde_json::from_str(
-            &std::env::var("WAYRILL_NAT_WITNESS").expect("QA witness missing"),
-        )
-        .unwrap();
-        let index = Reader::new(Cancellation::default())
-            .unwrap()
-            .read()
-            .unwrap();
-        let flow = Flow {
-            protocol: witness.protocol,
-            local: Address {
-                ip: witness.source.parse().unwrap(),
-                scope: 0,
-            },
-            local_port: witness.source_port,
-            remote: Address {
-                ip: witness.destination.parse().unwrap(),
-                scope: 0,
-            },
-            remote_port: witness.destination_port,
-        };
-        let origin = index
-            .find(flow)
-            .unwrap()
-            .expect("NAT witness was not found");
-        assert_eq!(origin.source, witness.original_source);
-        assert_eq!(origin.source_port, witness.original_port);
-    }
 }

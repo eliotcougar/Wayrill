@@ -466,37 +466,4 @@ mod tests {
         assert_eq!(app_id(&Identity::new(&target).unwrap()), before);
         std::fs::remove_dir_all(root).unwrap();
     }
-
-    #[test]
-    #[ignore = "changes the owned WFP barrier; isolated guest only"]
-    fn native_barrier_accepts_removed_apps_and_preserves_it_on_invalid_volume() {
-        assert_eq!(
-            std::env::var("WAYRILL_APP_PROTECTION_VM_TEST").as_deref(),
-            Ok("authorized-guest")
-        );
-        let engine = Engine::open().unwrap();
-        assert!(
-            owned_filters(&engine).unwrap().is_empty(),
-            "guest already has an armed barrier"
-        );
-        let target = Target::Executable {
-            value: std::env::temp_dir()
-                .join("removed-wayrill-version")
-                .join("app.exe")
-                .to_string_lossy()
-                .into_owned(),
-        };
-        replace(&[target]).unwrap();
-        let before = owned_filters(&engine).unwrap();
-        assert_eq!(before.len(), 4);
-        let failed = replace(&[Target::Executable {
-            value: "Z:\\absent-volume\\app.exe".into(),
-        }]);
-        let after = owned_filters(&engine).unwrap();
-        let cleanup = replace(&[]);
-        assert!(failed.is_err());
-        assert_eq!(before, after);
-        cleanup.unwrap();
-        assert!(owned_filters(&engine).unwrap().is_empty());
-    }
 }

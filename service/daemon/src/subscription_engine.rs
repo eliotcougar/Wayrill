@@ -143,66 +143,6 @@ mod tests {
         );
     }
     #[test]
-    #[ignore = "Explicit synthetic subscription capacity measurement, no networking"]
-    fn synthetic_subscription_capacity() {
-        let count = std::env::var("WAYRILL_SUBSCRIPTION_CAPACITY")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(5000);
-        assert!(count <= 50000);
-        let empty = execute(&json!({"operation":"validate","stash":""})).unwrap();
-        let text = (0..count)
-            .map(|i| {
-                format!(
-                    "socks://user:password@192.0.2.1:{}#Synthetic-{i}",
-                    10000 + i
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let start = Instant::now();
-        let result=execute(&json!({"operation":"refresh","stash":empty["stash"],"groupId":"wayrill:default","text":text})).unwrap();
-        let import_ms = start.elapsed().as_millis();
-        assert_eq!(
-            result["catalog"][0]["entries"].as_array().unwrap().len(),
-            count
-        );
-        assert!(result["catalog"][0]["entries"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|e| e["kind"] == "socks-outbound"));
-        let start = Instant::now();
-        let validated = execute(&json!({"operation":"validate","stash":result["stash"]})).unwrap();
-        let validate_ms = start.elapsed().as_millis();
-        assert_eq!(
-            validated["catalog"][0]["entries"].as_array().unwrap().len(),
-            count
-        );
-        let ids: Vec<_> = result["catalog"][0]["entries"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .take(128)
-            .map(|e| e["id"].clone())
-            .collect();
-        let start = Instant::now();
-        let plan = execute(&json!({"operation":"plan","trusted":true,"stash":result["stash"],"groupId":"wayrill:default","entryIds":ids})).unwrap();
-        let plan_ms = start.elapsed().as_millis();
-        let observations: Vec<_> = ids.iter().map(|id|json!({"entryId":id,"health":{"profileId":plan["identities"][id.as_str().unwrap()],"checkedAt":1,"status":"alive","latencyMs":42}})).collect();
-        let start = Instant::now();
-        let health = execute(&json!({"operation":"health","trusted":true,"stash":result["stash"],"groupId":"wayrill:default","observations":observations})).unwrap();
-        let health_ms = start.elapsed().as_millis();
-        assert_eq!(
-            health["catalog"][0]["entries"].as_array().unwrap().len(),
-            count
-        );
-        println!(
-            "{}",
-            json!({"syntheticEntries":count,"importMs":import_ms,"validateMs":validate_ms,"plan128Ms":plan_ms,"health128Ms":health_ms,"stashBytes":result["stash"].as_str().unwrap().len(),"networking":false})
-        );
-    }
-    #[test]
     fn subscription_credentials_survive_url_decoding_in_the_native_engine() {
         let result = execute(&json!({"operation":"refresh","stash":"","groupId":"wayrill:default",
             "text":"socks://qa%3Ap%40ss%3A%F0%9F%A6%8A@127.0.0.1:20922#Encoded\nsocks5://qa:@127.0.0.1:20923#Empty"})).unwrap();

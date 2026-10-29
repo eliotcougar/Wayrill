@@ -20,13 +20,19 @@ try {
         try {
             if ($taskComponent -eq 'desktop') {
                 # Unit tests do not package the installer or its service payload.
-                $env:TAURI_CONFIG = '{"bundle":{"active":false,"resources":[]}}'
+                $env:TAURI_CONFIG = [IO.File]::ReadAllText((Join-Path $taskProject 'src-tauri/tauri.dev.conf.json'))
             } else {
                 # Match the service and capture release builds' static CRT.
                 $env:RUSTFLAGS = ($env:RUSTFLAGS + ' -C target-feature=+crt-static').Trim()
             }
             if ($taskComponent -eq 'service') {
                 & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -IncludeRegional:(-not $SkipTests) -CurlPath $CurlPath
+                if (-not $SkipTests) {
+                    # Synthetic installer contracts; no installation or system changes.
+                    foreach ($taskScript in @('Test-PackageCleanup.ps1', 'Test-InstallerResources.ps1', 'Test-InstallerRetirement.ps1')) {
+                        & (Join-Path $PSScriptRoot $taskScript)
+                    }
+                }
             }
             Write-Host "Checking native $taskComponent"
             & cargo fmt --manifest-path $taskManifest --all -- --check

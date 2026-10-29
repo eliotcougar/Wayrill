@@ -30,7 +30,7 @@ QUIC values also depend on the locked [apernet/quic-go configuration](https://gi
    python tools/Generate-CoreDefaults.py --source $XraySource --check
    ```
 
-4. Set `WAYRILL_XRAY_SOURCE` to that main-core checkout for source-integrity checks. Set `WAYRILL_XRAY_TEST_EXE` to the matching packaged main executable and `WAYRILL_XRAY_FIXTURE_DIR` to an isolated fixture directory. Verify the executable against `service/dependencies.json`, then run `npm run check`, `npm run test`, `npm run build` and affected editor/runtime checks. Upstream-release comparisons are separate controls, not substitutes for testing the shipped build. Add meaningful regression cases for changed defaults.
+4. Build the public core/service package, then run `npm run check`, `npm test`, `npm run test:core`, `npm run build` and affected editor/runtime checks. The core test runner verifies the executable pin and prepares its source/resource inputs; there is no private fixture to configure. Upstream-release comparisons are separate controls, not substitutes for testing the shipped build. Add meaningful regression cases for changed defaults.
 
 `npm` pretest/prebuild and the service packaging script run `tools/Check-CoreDefaults.mjs`. It rejects mismatched binary/version/commit pins, audit/catalogue changes, edited generated fields or bindings, and changed audited source files when the source path is supplied. Routine builds do not need a source checkout. An upgrade is deliberately blocked until its defaults audit and generated store agree; this is a review gate, not an automated claim to understand upstream semantic changes.
 

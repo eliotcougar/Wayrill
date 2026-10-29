@@ -282,7 +282,7 @@ test binaries.
 | `service/tun-core/wayrill_windows_test.go` | `proxy/tun/wayrill_windows_test.go` | X09, X10 tests |
 | `service/tun-core/wayrill_icmp_windows.go` | `proxy/tun/wayrill_icmp_windows.go` | X11 |
 | `service/tun-core/wayrill_icmp_stack_windows.go` | `proxy/tun/wayrill_icmp_stack_windows.go` | X11 |
-| `service/tun-core/wayrill_icmp_test.go` | `proxy/tun/wayrill_icmp_test.go` | X11 tests |
+| `service/tun-core/wayrill_icmp_test.go` | `proxy/tun/wayrill_icmp_test.go` | X11 deterministic packet/lifecycle tests; native uplink probes are maintained privately |
 
 | Additional upstream file edited by the builder | IDs |
 | --- | --- |

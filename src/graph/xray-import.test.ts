@@ -1,15 +1,12 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { diagnoseGraph, parseGraph, serializeGraph } from './model';
-import { importXrayConfig } from './xrayImport';
-import { compileXrayGraph, syncXrayConnections } from './xrayCompiler';
-import { compileRuntimeGraph } from './runtime';
-import { readRuleTable, tableSettings } from './rules';
-import { cloneJson, jsonDifferences, jsonEqual, parseXrayJson } from './xrayJson';
 import { LIMITS } from '../limits';
+import { diagnoseGraph, parseGraph, serializeGraph } from './model';
+import { readRuleTable, tableSettings } from './rules';
+import { compileRuntimeGraph } from './runtime';
+import { compileXrayGraph, syncXrayConnections } from './xrayCompiler';
+import { importXrayConfig } from './xrayImport';
+import { cloneJson, jsonDifferences, parseXrayJson } from './xrayJson';
 import { nativeOutputs } from './xrayNodes';
 
 // Deliberately fictional; public fixtures and UI QA must never contain host credentials.
@@ -207,47 +204,5 @@ describe('Complete native Xray graph conversion', () => {
         }),
       ),
     ).toThrow('16384');
-  });
-});
-
-const core = process.env.WAYRILL_XRAY_TEST_EXE;
-
-// The host snapshot and output directory must be private, outside synced artifacts.
-// Failures report booleans/status only so Vitest never prints actual credentials.
-const host = process.env.WAYRILL_PRIVATE_XRAY_IMPORT_CONFIG,
-  privateDir = process.env.WAYRILL_PRIVATE_XRAY_ROUNDTRIP_DIR;
-describe.skipIf(!host || !privateDir || !core)('Private host config equivalence', () => {
-  it('exports a structurally identical config after graph save/open and passes the pinned core', () => {
-    const original = parseXrayJson(readFileSync(host!, 'utf8')),
-      graph = importXrayConfig(JSON.stringify(original), 'Imported host config');
-    const saved = serializeGraph(graph),
-      restored = parseGraph(saved),
-      config = compileRuntimeGraph(restored).config;
-    expect(jsonEqual(original, config)).toBe(true);
-    mkdirSync(privateDir!, { recursive: true });
-    writeFileSync(join(privateDir!, 'host-import.graph.json'), saved);
-    const path = join(privateDir!, 'host-roundtrip.json');
-    writeFileSync(path, JSON.stringify(config, null, 2));
-    const result = spawnSync(core!, ['run', '-test', '-config', path], {
-      encoding: 'utf8',
-      timeout: 20000,
-      windowsHide: true,
-      env: { ...process.env, XRAY_LOCATION_ASSET: privateDir! },
-    });
-    writeFileSync(
-      join(privateDir!, 'roundtrip-core-validation.log'),
-      `${result.stdout}\n${result.stderr}`,
-    );
-    expect(result.status).toBe(0);
-    const summary = {
-      identical: jsonEqual(original, config),
-      changedPaths: jsonDifferences(original, config),
-      nodes: graph.nodes.length,
-      edges: graph.edges.length,
-      inbounds: (config.inbounds as unknown[]).length,
-      outbounds: (config.outbounds as unknown[]).length,
-      coreStatus: result.status,
-    };
-    writeFileSync(join(privateDir!, 'roundtrip-summary.json'), JSON.stringify(summary, null, 2));
   });
 });

@@ -20,13 +20,9 @@ use windows_sys::Win32::Security::Cryptography::{
 };
 
 const MAX_BATCH: usize = 8;
-#[cfg(test)]
-mod integration;
 mod policy;
 mod speed;
 mod udp;
-#[cfg(test)]
-mod udp_integration;
 #[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 enum Mode {

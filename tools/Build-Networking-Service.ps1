@@ -7,7 +7,6 @@ $CurlPath=& (Join-Path $PSScriptRoot 'Get-Curl.ps1') -Path $CurlPath
 . (Join-Path $PSScriptRoot 'Enter-BuildEnvironment.ps1')
 & node (Join-Path $PSScriptRoot 'Check-CoreDefaults.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Embedded Xray defaults audit is stale.' }
-if (-not $SkipTests) { & (Join-Path $PSScriptRoot 'Test-PackageCleanup.ps1') }
 $taskService=Join-Path $taskProject 'service'
 $taskDependencies=Get-Content -LiteralPath (Join-Path $taskService 'dependencies.json') -Raw | ConvertFrom-Json
 $taskVersion=(Get-Content -LiteralPath (Join-Path $taskProject 'package.json') -Raw | ConvertFrom-Json).version

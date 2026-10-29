@@ -479,57 +479,6 @@ mod tests {
         }
     }
     #[test]
-    #[ignore = "disposable Windows VM only; select this native scenario explicitly"]
-    fn native_unactivated_ipv6_lease_preserves_external_flags() {
-        assert_eq!(
-            std::env::var("WAYRILL_TUN_ADAPTER_VM_TEST").as_deref(),
-            Ok("1"),
-            "This native scenario requires explicit VM opt-in"
-        );
-        let data = std::path::PathBuf::from("C:\\Wayrill-QA\\adapter-test-ipv6-captured");
-        std::fs::create_dir_all(&data).unwrap();
-        let store = super::super::adapters::Store::new(&data);
-        let exe = std::path::PathBuf::from("C:\\Program Files\\Wayrill\\Service\\xray\\xray.exe");
-        let mut adapter = store
-            .acquire(
-                &exe,
-                super::super::adapters::Kind::Host,
-                "Wayrill QA IPv6 captured",
-            )
-            .unwrap();
-        let id = adapter.guid.clone();
-        set_flags(
-            &id,
-            Flags {
-                forwarding: false,
-                advertising: false,
-            },
-        )
-        .unwrap();
-        let lease = Lease {
-            original: flags(&interface(&id).unwrap()),
-            phase: Phase::Captured,
-        };
-        let external = Flags {
-            forwarding: true,
-            advertising: true,
-        };
-        set_flags(&id, external).unwrap();
-        let result = lease.restore(&id);
-        let after = flags(&interface(&id).unwrap());
-        // This is a dedicated fixture vNIC; removing it cannot affect the
-        // installed service or the real private sharing interface.
-        adapter.disable().unwrap();
-        drop(adapter);
-        store.remove_all().unwrap();
-        std::fs::remove_dir_all(data).unwrap();
-        assert!(
-            result.is_err(),
-            "An unactivated lease overwrote an external setting"
-        );
-        assert_eq!(after, external);
-    }
-    #[test]
     fn generated_prefix_is_stable_adapter_specific_ula() {
         let id = "22944640-3598-4b5d-aa13-06ea38f26fb0";
         assert_eq!(prefix(id), "fdd8:3e4a:2e07::".parse::<Ipv6Addr>().unwrap());

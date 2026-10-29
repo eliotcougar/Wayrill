@@ -11,7 +11,7 @@ Rust service, separate capture/attribution workers and custom pinned Xray cores.
   Use recovery snapshots when version history is unavailable.
 - Never use a workstation's active VPN/remote-access connection as a mutation
   test target. Native networking tests belong in a disposable Windows environment.
-  An optional ignored `.local/VM-CONTROL.md` may describe a local fixture.
+  Keep machine access, private profiles and test-lab probes outside published source.
 - The editor owns drafts and user intent; the service owns activation, privileged
   settings and recovery. Follow [architecture](docs/development/architecture.md),
   [lifecycle](docs/development/lifecycle.md) and [reliability](docs/development/reliability.md).
@@ -51,7 +51,8 @@ curl-mingw with OpenSSL/LibreSSL for HTTPS. For native builds, load
   builds and CI share this entry point and `rust-toolchain.toml`; keep check
   commands there rather than duplicating them in workflows or packaging scripts.
 - Core changes: affected Go regressions, source/default guards and executable
-  configuration acceptance; acceptance is not live traffic evidence.
+  configuration acceptance via `npm run test:core`; acceptance is not live
+  traffic evidence. Integration inputs are prepared by `tools/Check-Core.ps1`.
 - Installer/system changes: affected disposable-VM scenarios and restoration.
   Do not run broad ignored/mutating suites against the host.
 - Documentation changes: link, command, source/pin and publication-content checks.
@@ -59,3 +60,6 @@ curl-mingw with OpenSSL/LibreSSL for HTTPS. For native builds, load
 
 Keep useful independent regressions. Do not replace straightforward logic with
 ad-hoc workarounds or add weak tests that only mirror the implementation.
+Ordinary checks must run from a clean clone without private fixtures, installed
+Wayrill or a test VM. Keep executable-backed checks in the explicit core suite;
+missing prerequisites must fail with instructions rather than silently skip.

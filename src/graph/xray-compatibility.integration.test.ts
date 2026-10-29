@@ -10,11 +10,10 @@ import { newDnsRoute, newDnsServer, readDnsServers } from './dns';
 import { compileDnsGraph } from './dnsCompilation';
 import type { NodeKind, SettingValue } from './types';
 
-// Optional source-pinned integration check. -test builds configuration only; it never starts listeners or routing.
-const core = process.env.WAYRILL_XRAY_TEST_EXE;
-const fixtureDir = process.env.WAYRILL_XRAY_FIXTURE_DIR;
+// Source-pinned integration check. -test builds configuration only; it never starts listeners or routing.
+import { core, fixtureDir } from '../test/coreIntegration';
 
-describe.skipIf(!core || !fixtureDir)('Generated native DNS graph offline compatibility', () => {
+describe('Generated native DNS graph offline compatibility', () => {
   for (const name of [
     'dns-graph-default',
     'dns-graph-answer-checks',
@@ -207,7 +206,7 @@ const cases: { name: string; kind?: NodeKind; settings: Record<string, SettingVa
     settings: { response: 'custom', customResponseData: 'SGVsbG8=' },
   },
 ];
-describe.skipIf(!core || !fixtureDir)('Xray source-pinned offline compatibility', () => {
+describe('Xray source-pinned offline compatibility', () => {
   for (const fixture of cases)
     it(fixture.name, () => {
       mkdirSync(fixtureDir!, { recursive: true });

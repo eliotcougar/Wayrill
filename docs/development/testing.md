@@ -1,63 +1,77 @@
 # Testing
 
-Run checks appropriate to the affected layer. `npm run check`, `npm test` and
-`npm run build` cover frontend types/lint/default pins, regressions and production
-bundling. Tests and synthetic fixtures are source for contributors, not shipped
-user examples. Public examples have a separate catalog and acceptance tests.
+Routine checks must work from a clean clone using documented tools and public
+inputs. They must not depend on an installed Wayrill, a maintainer's profiles,
+subscriptions, VM addresses or private files.
 
-Run `tools/Check-Native.ps1` for native work, optionally with `-Component service`,
-`desktop` or `capture`. This is the shared entry point for local work, CI and
-installer builds. It runs Rust format, strict all-target Clippy and locked tests.
-Capture is a separate leaf workspace; both WinDivert-enabled and attribution-only
-features are always checked. The complete [installer build](building.md) also
-exercises its packaging guards and pinned core regressions.
+| What you changed | Command | Requirements |
+| --- | --- | --- |
+| Editor, graph compiler or shared TypeScript | `npm run check`, `npm test`, `npm run build` | Node.js 24 and `npm ci` |
+| Windows service, desktop shell or capture | `pwsh -NoProfile -File tools/Check-Native.ps1` | Pinned Rust, MSVC/SDK; Node dependencies for service/desktop |
+| Xray configuration compatibility or service transformations | `npm run test:core` | Public core/service package built from this checkout |
+| Complete package | `pwsh -NoProfile -File tools/Build-Windows.ps1` | Windows build prerequisites and public downloads |
 
-CI runs frontend checks and separate Windows Rust jobs for the service, desktop
-and capture workspaces. `rust-toolchain.toml` defines the compiler and components
-for every environment. The shared script downloads and verifies pinned service
-geodata and uses the static CRT for service/capture checks, matching their release
-builds. Desktop native tests temporarily disable installer resources through a
-Tauri configuration override; the prior configuration is restored before returning.
-Installer payload validation remains part of the complete release build. Ignored
-system-mutation tests are never enabled by the shared checks.
+## Ordinary checks
 
-Core configuration tests use WAYRILL_XRAY_TEST_EXE and an isolated
-WAYRILL_XRAY_FIXTURE_DIR. Confirm the executable matches its intended pin.
-Acceptance is not traffic evidence. Tests requiring private endpoints, native
-mutation or a particular Windows state remain opt-in, with a documented reason.
+`npm test` runs the self-contained suite. It uses synthetic fixtures and does not
+discover the executable-backed integration files. `npm run check` also checks
+their types and style, so separating execution does not hide broken source.
 
-## What deserves a regression test
+`tools/Check-Native.ps1` runs formatting, strict all-target Clippy and locked tests.
+Use `-Component service`, `desktop` or `capture` to select a workspace. Capture
+always covers default and attribution-only features. Service checks also run the
+self-contained installer PowerShell contracts with temporary files and mocked
+system calls. No service installation, routing activation or elevation is needed.
 
-Protect observable behavior: routing decisions and precedence, lossless imports
-and saves, protected settings, cancellation, recovery, and bounded work with large
-subscriptions. Prefer a complete workflow over several tests of the helpers it
-calls. A test should fail when a supported feature breaks, not when an internal
-representation changes without changing that behavior.
+Local builds and GitHub **Checks** invoke these same commands. The Rust pin,
+capture features, static CRT settings, fixture verification and desktop test
+configuration are shared. `-SkipTests` retains formatting and Clippy; CI does not
+use it. Desktop tests use the same resource-free configuration as desktop dev,
+restoring the caller's environment afterwards.
 
-Use representative cases for distinct behaviors instead of exhaustive products
-of equivalent inputs. Keep independent cases when they protect different failure
-modes. Avoid assertions about exact labels, help text, CSS, control placement or
-catalog counts; review presentation visually. Only assert a specific value or
-structure when it is part of the behavior or an external compatibility contract.
-Remove superseded tests and their unused fixtures rather than skipping them.
+## Core integration
 
-## Disposable Windows environment
+Build the public service/core package with `tools/Build-Networking-Service.ps1`,
+then run `npm run test:core`. The command verifies the executable's pin, prepares
+its own resource/configuration directory and runs both TypeScript and Rust
+acceptance tests. Xray is invoked with `run -test`; it validates configurations
+without activating traffic capture or system proxy settings.
 
-Use an isolated Windows VM for service installation, proxy scopes, adapters,
-sharing, WFP/WinDivert and restart/recovery cases. Never run the whole ignored
-suite against a contributor's live workstation. No VM address, account, key or
-remote-control endpoint is required by the public repository.
+There are no optional private inputs and no success-by-early-return cases. If
+the executable or source is missing, the command explains what to build. Generated
+configurations and core output are under `.tools/core-tests/`. The complete
+installer build invokes this suite after building its payload. The manual GitHub
+**Windows installer** workflow exercises the same path on an independent runner.
 
-Record build hashes, initial graph/runtime and owned Windows settings. Back up
-the authoritative Stash and workspace before modifying them. Validate expected
-traffic separately from service/process health, then restore the initial fixture.
-Include failure, rollback, service restart, interrupted shutdown, network change,
-and explicit Stop where relevant. Do not claim physical-network or Internet
-performance from a local relay measurement.
+## What deserves a regression
 
-## Evidence
+Protect observable behavior: routing precedence, lossless import/save,
+subscription updates, settings ownership, cancellation, recovery and bounded work.
+Prefer a complete representative workflow over multiple tests of its helpers.
+A test should fail when supported behavior breaks, not because an internal
+representation, label, CSS rule, control placement or catalogue count changes.
 
-Keep logs, screenshots and private test graphs outside Git, such as `.local/`.
-Summarize exact scenarios and limitations in a release report, with sanitized
-attachments only. A passing older release is not current evidence. Do not add
-timing sleeps or implementation-mirroring assertions solely to raise a test count.
+Use synthetic profiles and local fake peers. Do not add a dependency on a real
+subscription, personal configuration, commercial server or public speed-test
+endpoint. Remove superseded tests and unused fixtures instead of leaving them
+permanently skipped. A new integration test needs a reproducible setup and an
+explicit command, not an undocumented environment-variable switch.
+
+## Testing actual Windows networking
+
+Changes to adapters, sharing, process attribution, protection or installer
+lifecycle still require hands-on testing on an isolated Windows machine. This is
+separate from ordinary checks. Contributors can use their own disposable setup;
+no particular hypervisor or maintainer VM is required.
+
+Record the initial settings and exercise the affected user workflows: activation,
+Apply, explicit Stop/restoration, upgrade, service failure or reboot as relevant.
+Use synthetic/local traffic to verify routing independently of process health.
+Performance measurements should record the graph, peer, packet sizes, offered
+rate and machine characteristics; a fixed throughput threshold is not a portable
+regression assertion.
+
+Keep machine access, personal profiles, one-off traffic probes, benchmark results
+and diagnostic captures outside published source. A contribution should state
+which ordinary checks, core tests and installed-system scenarios were actually
+run. Passing CI is not a claim that every Windows networking combination was tested.

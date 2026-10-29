@@ -147,6 +147,9 @@ source and build inputs available for review.
 The desktop uses React, TypeScript and Tauri; the service and workers use Rust,
 with Go integrations for Xray. See the [Windows build guide](docs/development/building.md),
 [architecture](docs/development/architecture.md) and [contribution guide](CONTRIBUTING.md).
+Editor development starts with Node.js and `npm ci`; an installed service or
+test VM is not required. The manual **Windows installer** Actions workflow can
+build the complete package in a fork using public inputs.
 
 Bug reports are most useful when they include the intended route, what happened
 instead, and steps to reproduce it. See [troubleshooting](docs/guide/troubleshooting.md)

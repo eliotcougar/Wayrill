@@ -1,14 +1,11 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { bundledExamples } from './examples';
 import { diagnoseRuntimeGraph } from './diagnostics';
-import { compileRuntimeGraph } from './runtime';
-import { parseGraph, serializeGraph } from './model';
-import { structureProblems } from './structure';
 import { capturesSystemDns } from './dnsCapture';
+import { bundledExamples } from './examples';
+import { parseGraph, serializeGraph } from './model';
+import { compileRuntimeGraph } from './runtime';
+import { structureProblems } from './structure';
 import { jsonArray, jsonRecord } from './xrayJson';
 
 const records = (value: unknown) => (jsonArray(value) ? value.filter(jsonRecord) : []);
@@ -51,22 +48,4 @@ describe('Shipped example configurations', () => {
       expect.objectContaining({ address: '1.1.1.1', skipFallback: false }),
     );
   });
-
-  const executable = process.env.WAYRILL_XRAY_TEST_EXE;
-  const directory = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-  it.skipIf(!executable || !directory).each(bundledExamples)(
-    '$label is accepted by the packaged Xray core',
-    (example) => {
-      mkdirSync(directory!, { recursive: true });
-      const path = join(directory!, `${example.id}.json`);
-      writeFileSync(path, JSON.stringify(compileRuntimeGraph(example.create()).config, null, 2));
-      const result = spawnSync(executable!, ['run', '-test', '-format', 'json', '-config', path], {
-        encoding: 'utf8',
-        timeout: 20000,
-        windowsHide: true,
-      });
-      expect(result.error).toBeUndefined();
-      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    },
-  );
 });

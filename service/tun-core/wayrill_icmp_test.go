@@ -9,7 +9,6 @@ import (
 	"fmt"
 	stdnet "net"
 	"net/netip"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -276,65 +275,6 @@ func TestWayrillICMPRequiresServiceUplink(t *testing.T) {
 		t.Error("reply without a service-selected uplink")
 	})
 	w.close()
-}
-
-func TestWayrillICMPNativeLocalEcho(t *testing.T) {
-	uplink := os.Getenv("WAYRILL_ICMP_NATIVE_TEST_UPLINK")
-	if uplink == "" {
-		t.Skip("requires the disposable VM uplink")
-	}
-	iface, err := stdnet.InterfaceByName(uplink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	addresses, err := iface.Addrs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, family := range []byte{4, 6} {
-		t.Run(fmt.Sprint(family), func(t *testing.T) {
-			var destination stdnet.IP
-			for _, address := range addresses {
-				ip, _, err := stdnet.ParseCIDR(address.String())
-				if err != nil {
-					continue
-				}
-				if family == 4 && ip.To4() != nil {
-					destination = ip.To4()
-					break
-				}
-				if family == 6 && ip.To4() == nil {
-					destination = ip.To16()
-					break
-				}
-			}
-			if destination == nil {
-				t.Fatal("VM uplink has no address for test family")
-			}
-			r := testWayrillEcho(family)
-			r.dst = testWayrillAddress(destination)
-			reply, err := wayrillWindowsEcho(uplink, r)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if reply.status != 0 || reply.address != r.dst || !bytes.Equal(reply.payload, r.message[8:]) {
-				t.Fatalf("native reply mismatch: %+v", reply)
-			}
-			source, _, err := wayrillUplinkSource(uplink, r.dst)
-			if err != nil {
-				t.Fatal(err)
-			}
-			release, ok := wayrillReserveEcho(r, source)
-			if !ok {
-				t.Fatal("native echo was not released")
-			}
-			defer release()
-			r.src = testWayrillAddress(source)
-			if _, err := wayrillWindowsEcho(uplink, r); err == nil {
-				t.Fatal("recaptured native echo was reissued")
-			}
-		})
-	}
 }
 
 // A WireGuard/MASQUE handler must retain upstream's stack behavior rather than

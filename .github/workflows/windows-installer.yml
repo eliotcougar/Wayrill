@@ -1,0 +1,64 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: Build and verify installer
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      WAYRILL_CURL: C:\msys64\usr\bin\curl.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install --no-self-update
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Cache build dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .tools/target
+            .tools/downloads
+            .tools/service-deps
+            .tools/go-sdk
+            .tools/go-cache
+            .tools/go-modules
+          key: installer-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'service/dependencies.json') }}
+      - name: Build and test from source
+        run: ./tools/Build-Windows.ps1
+      - name: Save installer and build logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-installer-${{ github.run_number }}
+          path: |
+            .tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            .tools/logs/
+            .tools/core-tests/
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: true

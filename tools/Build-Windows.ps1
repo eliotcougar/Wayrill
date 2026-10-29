@@ -11,13 +11,13 @@ try {
     & npm.cmd run check 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'check.log')
     if ($LASTEXITCODE -ne 0) { throw 'Frontend checks failed' }
     if (-not $SkipTests) {
-        & (Join-Path $PSScriptRoot 'Test-InstallerResources.ps1')
         & npm.cmd run test 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'tests.log')
         if ($LASTEXITCODE -ne 0) { throw 'Graph tests failed' }
     }
     & (Join-Path $PSScriptRoot 'Check-Native.ps1') -Component desktop -SkipTests:$SkipTests
     & (Join-Path $PSScriptRoot 'Build-Networking-Service.ps1') -SkipTests:$SkipTests -OutputDirectory (Join-Path $taskProject '.tools\installer-service')
     if ($LASTEXITCODE -ne 0) { throw 'Bundled service build failed' }
+    if (-not $SkipTests) { & (Join-Path $PSScriptRoot 'Check-Core.ps1') }
     & (Join-Path $PSScriptRoot 'Check-InstallerPayload.ps1')
     & npm.cmd run desktop:build -- --target x86_64-pc-windows-msvc --ci -- --locked 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'desktop-build.log')
     if ($LASTEXITCODE -ne 0) { throw "Desktop build failed; see $taskLogRoot" }

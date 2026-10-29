@@ -1,13 +1,11 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { makeNode, makeProxyInbound } from './catalog';
 import { applyDefaults, factoryDefaults, resetNodeDefaults } from './defaults';
-import { diagnoseGraph, parseGraph, serializeGraph } from './model';
 import { diagnoseRuntimeGraph } from './diagnostics';
-import { importXrayConfig } from './xrayImport';
-import { compileXrayGraph } from './xrayCompiler';
+import { diagnoseGraph, parseGraph, serializeGraph } from './model';
+import { fieldsForStructure, structureProblems } from './protocolFields';
+import { fixtureId, protocolFixture } from './protocolFixtures';
 import {
   loopbackProblems,
   protocolConfig,
@@ -15,9 +13,8 @@ import {
   protocolOutboundKinds,
   specForKind,
 } from './protocols';
-import { fieldsForStructure, structureProblems } from './protocolFields';
-import { protocolSource } from './protocolSource';
-import { fixtureId, protocolFixture } from './protocolFixtures';
+import { compileXrayGraph } from './xrayCompiler';
+import { importXrayConfig } from './xrayImport';
 const wrap = (outbound: Record<string, unknown>) => ({
   inbounds: [
     {
@@ -181,17 +178,3 @@ describe('Every pinned Xray protocol family', () => {
     expect(loopbackProblems(config)[0].severity).toBe('warning');
   });
 });
-
-it.skipIf(!process.env.WAYRILL_XRAY_SOURCE)(
-  'keeps the generated source field catalogue in sync with configured Go structures',
-  () => {
-    const reference = process.env.WAYRILL_XRAY_SOURCE!;
-    for (const [name, spec] of Object.entries(protocolSource)) {
-      if (spec.file.includes('+')) continue;
-      const source = readFileSync(join(reference, 'infra', 'conf', spec.file), 'utf8');
-      const text = new RegExp(`type ${name} struct \\{([\\s\\S]*?)\\n\\}`).exec(source)![1],
-        fields = [...text.matchAll(/json:"([^",]+)(?:,[^"]*)?"/g)].map((m) => m[1]);
-      expect(spec.fields.map((f) => f.key)).toEqual(fields);
-    }
-  },
-);

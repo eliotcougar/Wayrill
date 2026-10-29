@@ -32,7 +32,7 @@ try {
  # Ship exact corresponding source and dependency sources so this leaf worker
  # can be rebuilt offline without the coordinator, .NET SDK or mutable registry.
  New-Item -ItemType Directory -Path $taskSource|Out-Null
- foreach($taskName in @('Cargo.toml','Cargo.lock','LICENSE','provenance.json','README.md','src','tests','examples')){
+ foreach($taskName in @('Cargo.toml','Cargo.lock','LICENSE','provenance.json','README.md','src','tests')){
   Copy-Item -LiteralPath (Join-Path $taskCapture $taskName) -Destination $taskSource -Recurse -Force
  }
  New-Item -ItemType Directory -Path (Join-Path $taskSource 'build')|Out-Null

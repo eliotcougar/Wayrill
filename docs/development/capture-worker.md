@@ -73,5 +73,6 @@ The coordinator owns settings journals, sharing intent and transition ordering;
 see the authoritative [lifecycle contract](lifecycle.md).
 
 Worker/service death may release packet handles; capture is not an atomic firewall
-kill switch. Native traffic/mutation checks belong in the authorized Hyper-V VM,
-without changing the host's running configuration.
+kill switch. Validate native traffic and system changes on an isolated Windows
+test machine, using synthetic traffic and recorded initial settings. Routine
+repository checks do not install the worker, open capture handles or change routing.

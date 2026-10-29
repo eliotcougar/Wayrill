@@ -383,14 +383,14 @@ mod tests {
         assert_eq!(config["routing"]["balancers"][0]["selector"], json!(["p"]));
     }
     #[test]
-    fn pinned_core_accepts_the_expanded_policy_and_chained_handlers() {
+    #[cfg(feature = "core-integration")]
+    fn core_integration_accepts_the_expanded_policy_and_chained_handlers() {
         use std::{
             io::Write,
             process::{Command, Stdio},
         };
-        let Some(exe) = std::env::var_os("WAYRILL_XRAY_TEST_EXE") else {
-            return;
-        };
+        let exe = std::env::var_os("WAYRILL_XRAY_TEST_EXE")
+            .expect("Run tools/Check-Core.ps1 to prepare core integration tests");
         let mut config = json!({"inbounds":[],"outbounds":[
             {"tag":"direct","protocol":"freedom"},
             {"tag":"proxy","protocol":"socks","settings":{"servers":[{"address":"127.0.0.2","port":12345}]},"streamSettings":{"sockopt":{"dialerProxy":"direct"}}},

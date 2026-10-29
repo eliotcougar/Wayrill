@@ -763,8 +763,8 @@ mod tests {
         assert!(uses_resources(&config, &["geosite.dat".into()]));
     }
     #[test]
-    #[ignore = "requires WAYRILL_XRAY_TEST_EXE matching the pinned core"]
-    fn pinned_core_accepts_inactive_rules_and_rejects_the_missing_group_control() {
+    #[cfg(feature = "core-integration")]
+    fn core_integration_accepts_inactive_rules_and_rejects_the_missing_group_control() {
         use std::{
             io::Write,
             process::{Command, Stdio},

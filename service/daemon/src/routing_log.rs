@@ -584,14 +584,14 @@ mod tests {
         assert_eq!(config["routing"]["rules"][1]["ruleTag"], "wr-route-1-1-0");
     }
     #[test]
-    fn pinned_core_accepts_instrumented_implicit_fallback() {
+    #[cfg(feature = "core-integration")]
+    fn core_integration_accepts_instrumented_implicit_fallback() {
         use std::{
             io::Write,
             process::{Command, Stdio},
         };
-        let Some(exe) = std::env::var_os("WAYRILL_XRAY_TEST_EXE") else {
-            return;
-        };
+        let exe = std::env::var_os("WAYRILL_XRAY_TEST_EXE")
+            .expect("Run tools/Check-Core.ps1 to prepare core integration tests");
         let mut config = json!({"inbounds":[{"tag":"test","protocol":"socks","listen":"127.0.0.1","port":22981,"settings":{}}],"outbounds":[{"tag":"direct","protocol":"freedom","settings":{}},{"tag":"block","protocol":"blackhole","settings":{}}],"routing":{"rules":[{"type":"field","domain":["full:blocked.example"],"outboundTag":"block"}]}});
         let mut names = names();
         names.routing_default = names.routing.get("0").cloned();

@@ -3,6 +3,10 @@ name = "wayrill-service"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Enables executable-backed tests only; it does not change production behavior.
+[features]
+core-integration = []
+
 [dependencies]
 wayrill-diagnostics = { path = "../diagnostics" }
 wayrill-protocol = { path = "../protocol" }

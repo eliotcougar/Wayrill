@@ -2438,32 +2438,6 @@ impl Drop for Manager {
 mod tests {
 
     #[test]
-    #[ignore = "disposable Windows VM only; loads the real Wintun DLL"]
-    fn native_wintun_module_outlives_scoped_handles() {
-        use super::*;
-        assert_eq!(
-            std::env::var("WAYRILL_TUN_ADAPTER_VM_TEST").as_deref(),
-            Ok("1")
-        );
-        let exe = Path::new("C:\\Program Files\\Wayrill\\Service\\xray\\xray.exe");
-        let path = native::wide(&exe.with_file_name("wintun.dll").to_string_lossy());
-        // Run this exact case in a fresh process; ordinary tests never load it.
-        assert!(unsafe { GetModuleHandleW(path.as_ptr()) }.is_null());
-        let library = Adapter::library(exe).unwrap();
-        let expected = library.0;
-        drop(library);
-        assert_eq!(
-            unsafe { GetModuleHandleW(path.as_ptr()) },
-            expected,
-            "Wintun must remain mapped while its asynchronous cleanup can still run"
-        );
-        for _ in 0..8 {
-            let library = Adapter::library(exe).unwrap();
-            assert_eq!(library.0, expected);
-        }
-        assert_eq!(unsafe { GetModuleHandleW(path.as_ptr()) }, expected);
-    }
-    #[test]
     fn adapter_aliases_validate_before_native_mutation_and_keep_custom_unicode() {
         use super::*;
         assert_eq!(adapter_name(&json!({}), false).unwrap(), "Wayrill-TUN");

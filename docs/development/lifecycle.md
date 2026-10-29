@@ -265,11 +265,6 @@ success, and a still-armed boot window does not authorize repeatedly replaying a
 failed native sharing mutation.
 
 
-All 24 intent/adapter lifecycle checks, the exact partial-native-role reproducer
-and four graceful/crash recovery controls passed in Hyper-V. The host running
-configuration was unchanged. See that report for the native Windows recovery
-experiment, preserved graph data and limits of the final UI recompile comparison.
-
 ## Outbound updates
 
 Changed outbound definitions use the common guarded activation/recovery

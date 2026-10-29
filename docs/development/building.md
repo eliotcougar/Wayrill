@@ -1,95 +1,119 @@
-# Building on Windows
+# Building Wayrill
 
-## Prerequisites
+Start with the part you want to change. Working on the graph editor does not
+require a Windows service, driver, subscription, test VM or installed copy of
+Wayrill. The complete installer is a separate build that includes the networking
+components and their corresponding sources.
 
-- Windows x64 and PowerShell 7.
-- Node.js 24/npm; dependencies are locked by package-lock.json.
-- The Rust MSVC toolchain pinned in `rust-toolchain.toml`, Visual Studio 2022 C++
-  Build Tools and a Windows SDK. Rustup installs the pinned compiler/components;
-  the build environment discovers installed Visual Studio or uses the optional
-  portable toolchain.
-- Git and curl-mingw with OpenSSL or LibreSSL. Set WAYRILL_CURL when it
-  is not detected. The scripts deliberately avoid Windows' bundled curl.
-- Python 3 only for regenerating audited protocol/default catalogues, not normal
-  frontend, native or installer builds.
+## Graph editor
 
-Local builds and Windows native CI use `tools/Check-Native.ps1`, the same Rust pin
-and locked Cargo workspaces. Checks run independently of installer packaging;
-see [tests](testing.md) for their fixtures and desktop configuration.
-
-No .NET runtime/SDK is required. Go is downloaded from its pinned vendor archive
-for core builds; build inputs are recorded in service/dependencies.json.
-
-## Frontend
+Install Node.js 24 and Git, then clone your fork or this repository:
 
 ```powershell
+git clone https://github.com/eliotcougar/Wayrill.git
+cd Wayrill
 npm ci
 npm run check
 npm test
-npm run build
 npm run dev
 ```
 
-The browser preview is an editor, not a Windows networking runtime. It does not
-install/start the service. Generated `dist/` is ignored.
+Open the local URL printed by Vite. The browser runs the editor without starting
+Windows routing. Use the bundled synthetic examples to work on graph behavior.
+`npm run build` produces the frontend in `dist/`.
+
+## Windows desktop and native components
+
+For Tauri or Rust work, also install:
+
+- Windows x64 and PowerShell 7 (`pwsh`).
+- Rustup. The repository's `rust-toolchain.toml` selects the compiler, rustfmt and
+  Clippy; do not substitute a floating compiler version.
+- Visual Studio 2022 Build Tools with **Desktop development with C++** and a
+  Windows SDK. The scripts discover this installation automatically. An existing
+  x64 Developer PowerShell also works.
+
+Run the same native checks used by GitHub:
+
+```powershell
+pwsh -NoProfile -File tools/Check-Native.ps1
+# Or select one workspace:
+pwsh -NoProfile -File tools/Check-Native.ps1 -Component capture
+```
+
+Run `npm ci` first for the service or desktop workspace. Capture is a separate
+Rust workspace and does not need Node. The service checks obtain public geodata
+fixtures; see the download requirement below. Native checks do not install a
+service or driver, change adapters, or alter Windows proxy/sharing settings.
+
+To work on the desktop shell without building networking payloads:
+
+```powershell
+npm run desktop:dev
+```
+
+This uses a development configuration without installer resources and a separate
+application-data identity. An absent networking service is expected in this mode;
+use an isolated Windows test machine when testing privileged routing behavior.
 
 ## Complete installer
 
-From the repository root, in Developer PowerShell:
+In addition to the tools above, provide curl built with OpenSSL or LibreSSL.
+The scripts deliberately avoid Windows' bundled curl. Set its path if automatic
+discovery does not find it:
 
 ```powershell
-npm ci
 $env:WAYRILL_CURL = 'C:\path\to\curl-mingw\curl.exe'
-& .\tools\Build-Windows.ps1
+pwsh -NoProfile -File tools/Build-Windows.ps1
 ```
 
-The script uses standard installed tools, or an optional existing project-local
-toolchain under `.tools/`. It changes only this shell's environment. It runs
-frontend/native/core checks, builds the separate capture/attribution binaries,
-rebuilds pinned custom Xray cores, stages the service, verifies resource mappings
-and builds the Tauri/NSIS installer. `-SkipTests` skips tests, not integrity/lint.
+The first build downloads public, pinned Xray/Go/WinDivert inputs and geodata.
+It verifies their hashes, builds both custom cores and capture workers, runs
+ordinary checks and executable-backed core tests, then packages the service and
+desktop installer. No running Wayrill, credentials or VM is required. Building
+does not install the result or change the machine's networking.
 
-Only the two XTLS DATs are bundled. Missing build inputs are downloaded from
-immutable manifest URLs and checked against size/SHA-256; mismatched files fail
-rather than being replaced silently. Normal service tests also download the
-regional datasets as fixtures; `-SkipTests` needs only XTLS. These fixture pins
-do not govern installation or app updates. When selected during fresh/clean
-installation, regional files come from the provider's latest release, resolved
-at setup time. Setup checks the matching upstream SHA-256 files and bounds the
-download size before the existing app or service is stopped. Upgrades preserve
-installed resource files and skip
-resource selection/downloads. Resource versions are independent from the core.
-If an upstream removes an old asset, use a hash-matching copy from the matching
-release materials; do not change the pin merely to accept a different dataset.
+The installer is written under
+`.tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Build logs are under
+`.tools/logs/`. `-SkipTests` is available for a build iteration; it still runs lint
+and integrity checks, but is not a substitute for verification before submitting.
 
-Generated locations:
+Only XTLS geodata is bundled. Regional data used by tests is not installer
+payload. Fresh/clean installation downloads any selected regional sources from
+their latest upstream release; upgrades preserve existing resource files.
 
-| Path                                                           | Contents                                        |
-| -------------------------------------------------------------- | ----------------------------------------------- |
-| `.tools/target/`                                               | Cargo/Tauri output                              |
-| `.tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/`    | Installer                                       |
-| `.tools/installer-service/`                                    | Matching staged service payload                 |
-| `.tools/downloads/`, `service-deps/`, `go-sdk/`, `tun-source/` | Verified/generated build caches under `.tools/` |
-| `.tools/logs/`                                                 | Build logs                                      |
+You can also build remotely in your fork: open **Actions → Windows installer →
+Run workflow**. It executes this same build script on a fresh Windows runner.
+The installer and logs are retained as workflow artifacts, without creating a
+GitHub release. No repository secrets or maintainer test infrastructure are used.
 
-Do not upload caches or installer binaries as repository source. Release assets
-are published separately after review. A reproducibility claim requires comparing
-actual results; matching source pins alone is not proof of an identical binary.
-
-## Focused native work
+## Core integration without rebuilding the desktop
 
 ```powershell
-& .\tools\Check-Native.ps1
-# Or select just the affected workspace:
-& .\tools\Check-Native.ps1 -Component capture
+pwsh -NoProfile -File tools/Build-Networking-Service.ps1
+npm run test:core
 ```
 
-The shared entry point prepares the build environment, verifies service geodata
-when needed, and runs formatting, strict all-target Clippy and locked tests.
-Capture always covers both default and attribution-only features. `-SkipTests`
-retains formatting and Clippy. The installer build calls the same entry point
-once per workspace and validates the production payload separately.
+The service-package build prepares the pinned executable and source; it does not
+install the service. The test command creates its own synthetic configurations
+and resource directory, then asks Xray to validate them. It also exercises the
+service's loopback, logging and missing-resource transformations against that
+executable. Missing or mismatched inputs are errors, not skipped tests.
 
-See [tests](testing.md), [core integration](xray-integration.md) and
-[default/schema regeneration](core-defaults.md). Never disable hash checks to
-accept an unreviewed core or use private-TUN source as the main-core audit input.
+## Generated files and integrity
+
+`.tools/` is disposable build output/cache. It is never a required checked-in
+toolchain. The optional portable MSVC cache is supported for local development;
+standard Visual Studio installations are the public build path. No .NET SDK is
+needed. Python is needed only when regenerating source/default catalogues, not
+for normal checks or installer builds.
+
+Core and capture builds regenerate worker-integrity manifests in
+`service/daemon/src/`. Review these changes when altering those components; never
+disable hash checks to make an unrelated executable pass. Pinned build inputs
+are distinct from the latest geodata downloaded by installed apps. If a pinned
+asset disappears upstream, report the unavailable input rather than changing its
+hash to accept different content.
+
+See [testing](testing.md), [core integration](xray-integration.md) and
+[catalogue regeneration](core-defaults.md) for the corresponding contracts.

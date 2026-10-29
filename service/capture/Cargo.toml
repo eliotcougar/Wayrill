@@ -20,10 +20,6 @@ name = "wayrill-attribution"
 path = "src/bin/attribution.rs"
 
 # These targets exercise modules deliberately absent from the attribution-only build.
-[[example]]
-name = "native_probe"
-required-features = ["windivert"]
-
 [[test]]
 name = "divert_monitor"
 required-features = ["windivert"]

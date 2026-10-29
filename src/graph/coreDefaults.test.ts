@@ -1,7 +1,4 @@
 /// <reference types="node" />
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { coreDefaultHint, formatDefault } from './coreDefaults';
 import {
@@ -12,10 +9,9 @@ import {
   resetCoreDefault,
 } from './defaults';
 import { createTrafficExample } from './example';
-import { outboundPreview } from './outbounds';
 import { inboundPreview } from './inbounds';
-import { compileRuntimeGraph } from './runtime';
 import { parseGraph, serializeGraph } from './model';
+import { outboundPreview } from './outbounds';
 import { fieldsForStructure } from './protocolFields';
 
 const sample = () => enableDefaults(createTrafficExample());
@@ -66,28 +62,4 @@ describe('versioned Xray defaults and two-level inheritance', () => {
       coreDefaultHint('NameServerConfig.disableCache', { parent: { disableCache: false } }).text,
     ).toBe(formatDefault(false));
   });
-});
-const core = process.env.WAYRILL_XRAY_TEST_EXE,
-  fixtures = process.env.WAYRILL_XRAY_FIXTURE_DIR;
-describe.skipIf(!core || !fixtures)('configured core accepts inherited core defaults', () => {
-  for (const transport of ['raw', 'xhttp', 'ws', 'grpc', 'kcp'])
-    it(
-      transport,
-      () => {
-        const g = applyDefaults(sample(), resetCoreDefault(factoryDefaults()));
-        preferred(g).data.settings.network = transport;
-        const config = compileRuntimeGraph(g).config;
-        mkdirSync(fixtures!, { recursive: true });
-        const file = join(fixtures!, `core-defaults-${transport}.json`);
-        writeFileSync(file, JSON.stringify(config, null, 2));
-        const result = spawnSync(core!, ['run', '-test', '-config', file], {
-          encoding: 'utf8',
-          timeout: 10000,
-          windowsHide: true,
-        });
-        writeFileSync(file + '.log', String(result.stdout ?? '') + String(result.stderr ?? ''));
-        expect(result.status, result.stdout + result.stderr).toBe(0);
-      },
-      15000,
-    );
 });

@@ -44,7 +44,7 @@ export default defineConfig(
     'src-tauri/**',
   ]),
   {
-    files: ['src/**/*.{ts,tsx}', 'vite.config.ts', 'vitest.config.ts'],
+    files: ['src/**/*.{ts,tsx}', 'vite.config.ts', 'vitest*.config.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: { parserOptions: { projectService: true } },
     rules: {
@@ -61,7 +61,7 @@ export default defineConfig(
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ['vite.config.ts', 'vitest.config.ts', 'eslint.config.js'],
+    files: ['vite.config.ts', 'vitest*.config.ts', 'eslint.config.js'],
     languageOptions: { globals: globals.node },
   },
   {
