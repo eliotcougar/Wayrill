@@ -4,16 +4,18 @@
 
 - Windows x64 and PowerShell 7.
 - Node.js 24/npm; dependencies are locked by package-lock.json.
-- Rust MSVC toolchain (tested with 1.99), Visual Studio 2022 C++ Build Tools and
-  a Windows SDK. Use x64 Developer PowerShell with cl/link/rc available.
+- The Rust MSVC toolchain pinned in `rust-toolchain.toml`, Visual Studio 2022 C++
+  Build Tools and a Windows SDK. Rustup installs the pinned compiler/components;
+  the build environment discovers installed Visual Studio or uses the optional
+  portable toolchain.
 - Git and curl-mingw with OpenSSL or LibreSSL. Set WAYRILL_CURL when it
   is not detected. The scripts deliberately avoid Windows' bundled curl.
 - Python 3 only for regenerating audited protocol/default catalogues, not normal
   frontend, native or installer builds.
 
-The Windows native CI jobs pin Rust 1.99.0 and use the same locked Cargo
-workspaces. They run independently of installer packaging; see [tests](testing.md)
-for their fixtures and desktop configuration.
+Local builds and Windows native CI use `tools/Check-Native.ps1`, the same Rust pin
+and locked Cargo workspaces. Checks run independently of installer packaging;
+see [tests](testing.md) for their fixtures and desktop configuration.
 
 No .NET runtime/SDK is required. Go is downloaded from its pinned vendor archive
 for core builds; build inputs are recorded in service/dependencies.json.
@@ -77,12 +79,16 @@ actual results; matching source pins alone is not proof of an identical binary.
 ## Focused native work
 
 ```powershell
-. .\tools\Enter-BuildEnvironment.ps1
-cargo test --manifest-path service/Cargo.toml --workspace --locked
-cargo test --manifest-path src-tauri/Cargo.toml --locked
-cargo test --manifest-path service/capture/Cargo.toml --locked
-cargo test --manifest-path service/capture/Cargo.toml --locked --no-default-features
+& .\tools\Check-Native.ps1
+# Or select just the affected workspace:
+& .\tools\Check-Native.ps1 -Component capture
 ```
+
+The shared entry point prepares the build environment, verifies service geodata
+when needed, and runs formatting, strict all-target Clippy and locked tests.
+Capture always covers both default and attribution-only features. `-SkipTests`
+retains formatting and Clippy. The installer build calls the same entry point
+once per workspace and validates the production payload separately.
 
 See [tests](testing.md), [core integration](xray-integration.md) and
 [default/schema regeneration](core-defaults.md). Never disable hash checks to

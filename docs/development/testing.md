@@ -5,18 +5,21 @@ Run checks appropriate to the affected layer. `npm run check`, `npm test` and
 bundling. Tests and synthetic fixtures are source for contributors, not shipped
 user examples. Public examples have a separate catalog and acceptance tests.
 
-Native work uses Rust format, strict Clippy and tests for the affected workspace.
-Capture is a separate leaf workspace; check both WinDivert-enabled and
-attribution-only features. The complete [installer build](building.md) exercises
-its packaging guards and pinned core regressions.
+Run `tools/Check-Native.ps1` for native work, optionally with `-Component service`,
+`desktop` or `capture`. This is the shared entry point for local work, CI and
+installer builds. It runs Rust format, strict all-target Clippy and locked tests.
+Capture is a separate leaf workspace; both WinDivert-enabled and attribution-only
+features are always checked. The complete [installer build](building.md) also
+exercises its packaging guards and pinned core regressions.
 
 CI runs frontend checks and separate Windows Rust jobs for the service, desktop
-and capture workspaces. Native jobs use Rust 1.99.0, formatting, strict Clippy and
-locked tests. Capture is checked with both default and attribution-only features.
-The service job downloads and verifies the pinned geodata fixtures. Desktop
-native tests use a Tauri configuration override with installer resources disabled;
-installer payload validation remains part of the complete release build.
-Ignored system-mutation tests are never enabled by these jobs.
+and capture workspaces. `rust-toolchain.toml` defines the compiler and components
+for every environment. The shared script downloads and verifies pinned service
+geodata and uses the static CRT for service/capture checks, matching their release
+builds. Desktop native tests temporarily disable installer resources through a
+Tauri configuration override; the prior configuration is restored before returning.
+Installer payload validation remains part of the complete release build. Ignored
+system-mutation tests are never enabled by the shared checks.
 
 Core configuration tests use WAYRILL_XRAY_TEST_EXE and an isolated
 WAYRILL_XRAY_FIXTURE_DIR. Confirm the executable matches its intended pin.

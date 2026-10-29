@@ -72,11 +72,10 @@ foreach ($taskFile in $taskDependencyCache.xray.Files) {
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.officialExecutableSha256) { throw 'Official Xray base executable SHA-256 mismatch.' }
 & (Join-Path $PSScriptRoot 'Build-Capture.ps1') -SkipTests:$SkipTests -OutputDirectory (Join-Path $OutputDirectory 'capture')
 & (Join-Path $PSScriptRoot "Build-XrayCores.ps1") -SkipTests:$SkipTests -CurlPath $CurlPath -TunOutputDirectory (Join-Path $OutputDirectory "tun-core") -MainOutputDirectory (Join-Path $OutputDirectory "xray")
-& (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -CurlPath $CurlPath -IncludeRegional:(-not $SkipTests)
+& (Join-Path $PSScriptRoot 'Check-Native.ps1') -Component service -SkipTests:$SkipTests -CurlPath $CurlPath
 $taskPreviousRustFlags=$env:RUSTFLAGS
 try {
     $env:RUSTFLAGS=($env:RUSTFLAGS+' -C target-feature=+crt-static').Trim()
-    if (-not $SkipTests) { & cargo test --manifest-path (Join-Path $taskService 'Cargo.toml') --workspace --locked; if ($LASTEXITCODE -ne 0) { throw 'Service tests failed' } }
     & cargo build --manifest-path (Join-Path $taskService 'Cargo.toml') --workspace --release --locked --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw 'Service release build failed' }
 } finally { $env:RUSTFLAGS=$taskPreviousRustFlags }

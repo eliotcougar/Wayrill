@@ -8,13 +8,14 @@ Push-Location $taskProject
 try {
     & rustc --version --verbose | Tee-Object -FilePath (Join-Path $taskLogRoot 'rustc.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain is unavailable' }
-    & npm.cmd run lint 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'lint.log')
-    if ($LASTEXITCODE -ne 0) { throw 'Frontend lint failed' }
+    & npm.cmd run check 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'check.log')
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend checks failed' }
     if (-not $SkipTests) {
         & (Join-Path $PSScriptRoot 'Test-InstallerResources.ps1')
         & npm.cmd run test 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'tests.log')
         if ($LASTEXITCODE -ne 0) { throw 'Graph tests failed' }
     }
+    & (Join-Path $PSScriptRoot 'Check-Native.ps1') -Component desktop -SkipTests:$SkipTests
     & (Join-Path $PSScriptRoot 'Build-Networking-Service.ps1') -SkipTests:$SkipTests -OutputDirectory (Join-Path $taskProject '.tools\installer-service')
     if ($LASTEXITCODE -ne 0) { throw 'Bundled service build failed' }
     & (Join-Path $PSScriptRoot 'Check-InstallerPayload.ps1')

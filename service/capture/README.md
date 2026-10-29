@@ -6,7 +6,7 @@ The worker owns its WinDivert handles, installation-scoped ETW observation and s
 
 ## Rebuild the source archive
 
-Use Rust/Cargo 1.99 or newer, an x64 MSVC compiler and Windows SDK. From the extracted archive root in PowerShell:
+Use the Rust/Cargo version pinned in `rust-toolchain.toml`, an x64 MSVC compiler and Windows SDK. From the extracted archive root in PowerShell:
 
 ```powershell
 $env:RUSTFLAGS='-C target-feature=+crt-static'

@@ -47,8 +47,9 @@ curl-mingw with OpenSSL/LibreSSL for HTTPS. For native builds, load
 
 - Frontend/graph changes: `npm run check`, `npm test`, `npm run build` and affected
   browser/desktop interactions.
-- Native changes: formatting, strict Clippy and tests for affected workspaces;
-  check capture with default and attribution-only features.
+- Native changes: run `tools/Check-Native.ps1` for the affected workspaces. Local
+  builds and CI share this entry point and `rust-toolchain.toml`; keep check
+  commands there rather than duplicating them in workflows or packaging scripts.
 - Core changes: affected Go regressions, source/default guards and executable
   configuration acceptance; acceptance is not live traffic evidence.
 - Installer/system changes: affected disposable-VM scenarios and restoration.

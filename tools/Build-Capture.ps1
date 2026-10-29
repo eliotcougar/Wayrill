@@ -1,7 +1,6 @@
 param([switch]$SkipTests,[Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSVersion.Major -lt 7){throw 'Use PowerShell 7 for the build scripts.'}
-if(-not(Get-Command cargo -ErrorAction SilentlyContinue)){throw 'Load tools/Enter-BuildEnvironment.ps1 before building capture.'}
 $taskProject=Split-Path $PSScriptRoot -Parent
 $taskCapture=Join-Path $taskProject 'service\capture'
 $taskManifest=Join-Path $taskCapture 'Cargo.toml'
@@ -10,6 +9,7 @@ if($taskOutput -eq [IO.Path]::GetPathRoot($taskOutput) -or $taskOutput -eq [IO.P
 if(Test-Path -LiteralPath $taskOutput){
  if((Get-Item -LiteralPath $taskOutput -Force).Attributes -band [IO.FileAttributes]::ReparsePoint -or @(Get-ChildItem -LiteralPath $taskOutput -Force).Count){throw 'Capture output must be an empty directory without reparse points.'}
 }
+& (Join-Path $PSScriptRoot 'Check-Native.ps1') -Component capture -SkipTests:$SkipTests
 New-Item -ItemType Directory -Path $taskOutput -Force|Out-Null
 $taskParent=Split-Path $taskOutput -Parent
 $taskSourceId='.capture-source-'+[Guid]::NewGuid().ToString('N')
@@ -17,23 +17,9 @@ $taskSource=Join-Path $taskParent $taskSourceId
 $taskFlags=$env:RUSTFLAGS
 try {
  $env:RUSTFLAGS=($env:RUSTFLAGS+' -C target-feature=+crt-static').Trim()
- & cargo fmt --manifest-path $taskManifest --check
- if($LASTEXITCODE -ne 0){throw 'Capture formatting failed.'}
- & cargo clippy --manifest-path $taskManifest --all-targets --locked -- -D warnings
- if($LASTEXITCODE -ne 0){throw 'Capture lint failed.'}
- if(-not $SkipTests){
-  & cargo test --manifest-path $taskManifest --locked
-  if($LASTEXITCODE -ne 0){throw 'Capture tests failed.'}
- }
  & cargo build --manifest-path $taskManifest --release --locked --target x86_64-pc-windows-msvc --bin wayrill-capture
  if($LASTEXITCODE -ne 0){throw 'Capture release build failed.'}
  # Build the observation companion without the WinDivert native API or engine.
- & cargo clippy --manifest-path $taskManifest --locked --no-default-features --lib --bin wayrill-attribution -- -D warnings
- if($LASTEXITCODE -ne 0){throw 'Attribution lint failed.'}
- if(-not $SkipTests){
-  & cargo test --manifest-path $taskManifest --locked --no-default-features --lib --bin wayrill-attribution
-  if($LASTEXITCODE -ne 0){throw 'Attribution tests failed.'}
- }
  & cargo build --manifest-path $taskManifest --release --locked --target x86_64-pc-windows-msvc --no-default-features --bin wayrill-attribution
  if($LASTEXITCODE -ne 0){throw 'Attribution release build failed.'}
 
@@ -50,7 +36,8 @@ try {
   Copy-Item -LiteralPath (Join-Path $taskCapture $taskName) -Destination $taskSource -Recurse -Force
  }
  New-Item -ItemType Directory -Path (Join-Path $taskSource 'build')|Out-Null
- Copy-Item -LiteralPath $PSCommandPath -Destination (Join-Path $taskSource 'build\Build-Capture.ps1')
+ Copy-Item -LiteralPath $PSCommandPath,(Join-Path $PSScriptRoot 'Check-Native.ps1'),(Join-Path $PSScriptRoot 'Enter-BuildEnvironment.ps1') -Destination (Join-Path $taskSource 'build')
+ Copy-Item -LiteralPath (Join-Path $taskProject 'rust-toolchain.toml') -Destination $taskSource
  $taskVendor=Join-Path $taskSource 'vendor'
  $null=& cargo vendor --manifest-path $taskManifest --locked $taskVendor
  if($LASTEXITCODE -ne 0){throw 'Capture dependency source collection failed.'}
