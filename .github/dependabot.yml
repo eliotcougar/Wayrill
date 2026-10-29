@@ -8,6 +8,13 @@ updates:
       time: '08:00'
       timezone: Etc/UTC
     open-pull-requests-limit: 3
+    ignore:
+      # Keep the declarations aligned with the Node 24 build runtime.
+      - dependency-name: '@types/node'
+        versions: ['>=25']
+      # Compiler migrations must preserve typescript-eslint compatibility.
+      - dependency-name: typescript
+        versions: ['>=7']
     groups:
       security-updates:
         applies-to: security-updates
