@@ -47,7 +47,6 @@ try {
                 & cargo clippy @taskCheckArgs @taskFeatureArgs --all-targets -- -D warnings
                 if ($LASTEXITCODE) { throw "$taskComponent ($taskVariant) lint failed." }
                 if (-not $SkipTests) {
-                    # Ignored system-mutation tests require a separately authorized VM.
                     & cargo test @taskCheckArgs @taskFeatureArgs
                     if ($LASTEXITCODE) { throw "$taskComponent ($taskVariant) tests failed." }
                 }
