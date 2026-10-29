@@ -2,6 +2,23 @@ param([switch]$SkipTests,[string]$CurlPath,[Parameter(Mandatory)][string]$TunOut
 $ErrorActionPreference='Stop'
 $taskProject=Split-Path $PSScriptRoot -Parent
 $taskCacheRoot=Join-Path $taskProject '.tools'
+function Invoke-MaintainedCoreTests([string[]]$Files, [hashtable]$Controls = @{}) {
+    # Discover cases from the extension's maintained test files. Do not make an
+    # app build depend on unrelated vendor timing/throughput assertions.
+    $taskNames=@($Controls.Keys)+@(foreach($taskFile in $Files) {
+        foreach($taskMatch in [regex]::Matches([IO.File]::ReadAllText($taskFile), '(?m)^func ((?:Test|Fuzz)[A-Za-z0-9_]+)\(')) {
+            $taskMatch.Groups[1].Value
+        }
+    }) | Sort-Object -Unique
+    if(-not $taskNames){throw 'No maintained Xray regression tests were discovered.'}
+    $taskPackages=@(@($Controls.Values)+@($Files | ForEach-Object {
+        './'+[IO.Path]::GetRelativePath($taskSource,(Split-Path $_ -Parent)).Replace('\','/')
+    }) | Sort-Object -Unique)
+    $taskPattern='^('+($taskNames -join '|')+')$'
+    Write-Host "Checking $(@($taskNames).Count) maintained Xray regressions in $($taskPackages.Count) packages."
+    & $taskGo test -mod=readonly @taskPackages -run $taskPattern -count=1
+    if($LASTEXITCODE -ne 0){throw 'Maintained Xray regression tests failed.'}
+}
 New-Item -ItemType Directory -Path $taskCacheRoot -Force | Out-Null
 # Serialize the shared source cache and generated worker-integrity manifest.
 $taskBuildLease=[IO.File]::Open((Join-Path $taskCacheRoot 'tun-core-build.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -66,13 +83,17 @@ try {
         if((Get-FileHash -LiteralPath $taskInitializer.FullName).Hash -ne $taskPin.build.initializerFiles.($taskInitializer.Name)){throw 'Xray initializer source integrity failure.'}
         Copy-Item -LiteralPath $taskInitializer.FullName -Destination (Join-Path $taskSource ('main\wayrill_init_'+$taskInitializer.Name))
     }
+    $taskInitializerTests=@($taskInitializers | Where-Object Name -like '*_test.go' | ForEach-Object {Join-Path $taskSource ('main/wayrill_init_'+$_.Name)})
+    $taskMainTests=@(foreach($taskMatch in [regex]::Matches([IO.File]::ReadAllText($taskFakePatch), '(?m)^\+\+\+ b/([^\r\n]+_test\.go)\r?$')) {
+        Join-Path $taskSource $taskMatch.Groups[1].Value
+    })+$taskInitializerTests
     $env:GOCACHE=Join-Path $taskCacheRoot 'go-cache';$env:GOMODCACHE=Join-Path $taskCacheRoot 'go-modules';$env:CGO_ENABLED='0';$env:GOMAXPROCS='8'
     if((& $taskGo version) -notmatch ('^go version go'+[regex]::Escape($taskPin.build.goVersion)+' windows/amd64$')){throw 'Pinned Xray Go toolchain mismatch.'}
     New-Item -ItemType Directory -Path $MainOutputDirectory -Force | Out-Null
     Push-Location $taskSource
     try {
-        if(-not $SkipTests){& $taskGo test -mod=readonly ./main ./proxy/socks ./app/dns/fakedns ./app/dispatcher ./app/commander ./app/proxyman/outbound ./app/proxyman/command ./common/mux ./common/cache ./app/metrics -count=1; if($LASTEXITCODE -ne 0){throw 'Xray listener, telemetry and control API regression tests failed.'}}
-        if(-not $SkipTests){& $taskGo test -mod=readonly ./app/dns -run '^(TestWayrillNativeLookupCancellation|TestWayrillSharedDNSWaiterCancellation|TestDNSScriptQuery|TestSharedQuery.*)$' -count=1; if($LASTEXITCODE -ne 0){throw 'Native DNS cancellation regression failed.'}}
+        # Preserve the upstream Lua DNS query contract for our context changes.
+        if(-not $SkipTests){Invoke-MaintainedCoreTests $taskMainTests -Controls @{TestDNSScriptQuery='./app/dns'}}
         & $taskGo build -mod=readonly -trimpath -buildvcs=false -ldflags ('-s -w -X github.com/xtls/xray-core/core.build='+$taskPin.build.tag) -o (Join-Path $MainOutputDirectory 'xray.exe') ./main
         if($LASTEXITCODE -ne 0){throw 'Patched Xray main core build failed.'}
     }finally{Pop-Location}
@@ -136,7 +157,11 @@ try {
         $taskRuntimePackages=@(& $taskGo list -mod=readonly -deps ./main)
         if($LASTEXITCODE -ne 0){throw 'Cannot verify TUN runtime dependencies.'}
         if(@($taskRuntimePackages | Where-Object { $_ -match '^gvisor\.dev/gvisor(?:/|$)' }).Count){throw 'Obsolete gVisor code is linked into the TUN runtime.'}
-        if(-not $SkipTests){& $taskGo test -mod=readonly ./proxy/socks ./proxy/tun ./proxy/wireguard ./proxy/masque ./infra/conf ./app/router ./main; if($LASTEXITCODE -ne 0){throw 'TUN core integration tests failed.'}}
+        if(-not $SkipTests){
+            $taskTunTests=@(Get-ChildItem (Join-Path $taskProject 'service/tun-core') -Filter '*_test.go' | ForEach-Object {Join-Path $taskSource ('proxy/tun/'+$_.Name)})
+            $taskTunTests+=@(Get-ChildItem (Join-Path $taskProject 'service/core-control') -Filter '*_test.go' | ForEach-Object {Join-Path $taskSource ('main/wayrill_control_'+$_.Name)})
+            Invoke-MaintainedCoreTests ($taskTunTests+$taskInitializerTests)
+        }
         & $taskGo build -mod=readonly -trimpath -buildvcs=false -ldflags '-s -w' -o (Join-Path $TunOutputDirectory 'wayrill-tun.exe') ./main
         if($LASTEXITCODE -ne 0){throw 'TUN worker build failed.'}
     }finally{Pop-Location}

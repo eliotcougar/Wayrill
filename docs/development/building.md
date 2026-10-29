@@ -67,9 +67,14 @@ $env:WAYRILL_CURL = 'C:\path\to\curl-mingw\curl.exe'
 pwsh -NoProfile -File tools/Build-Windows.ps1
 ```
 
+Some security policies quarantine capture-driver archives. Review any detection
+against the official release under your machine's policy, or use the isolated
+GitHub build workflow. The scripts do not change antivirus exclusions.
+
 The first build downloads public, pinned Xray/Go/WinDivert inputs and geodata.
 It verifies their hashes, builds both custom cores and capture workers, runs
-ordinary checks and executable-backed core tests, then packages the service and
+ordinary checks, maintained core-extension regressions and executable-backed
+compatibility tests, then packages the service and
 desktop installer. No running Wayrill, credentials or VM is required. Building
 does not install the result or change the machine's networking.
 
@@ -82,8 +87,9 @@ Only XTLS geodata is bundled. Regional data used by tests is not installer
 payload. Fresh/clean installation downloads any selected regional sources from
 their latest upstream release; upgrades preserve existing resource files.
 
-You can also build remotely in your fork: open **Actions → Windows installer →
-Run workflow**. It executes this same build script on a fresh Windows runner.
+You can also build remotely in your fork: enable Actions, open **Actions → Windows
+installer → Run workflow**, and select your branch. It executes this same build
+script on a fresh Windows runner.
 The installer and logs are retained as workflow artifacts, without creating a
 GitHub release. No repository secrets or maintainer test infrastructure are used.
 

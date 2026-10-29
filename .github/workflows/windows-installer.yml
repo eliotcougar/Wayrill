@@ -22,6 +22,12 @@ jobs:
       CARGO_BUILD_JOBS: 2
       CARGO_INCREMENTAL: 0
       WAYRILL_CURL: C:\msys64\usr\bin\curl.exe
+      BUILD_CACHE_PATHS: |
+        ~/.cargo/registry
+        ~/.cargo/git
+        .tools/target
+        .tools/go-cache
+        .tools/go-modules
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,17 +42,10 @@ jobs:
           rustup toolchain install --no-self-update
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Cache build dependencies
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        id: build-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            .tools/target
-            .tools/downloads
-            .tools/service-deps
-            .tools/go-sdk
-            .tools/go-cache
-            .tools/go-modules
+          path: ${{ env.BUILD_CACHE_PATHS }}
           key: installer-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock', 'service/dependencies.json') }}
       - name: Build and test from source
         run: ./tools/Build-Windows.ps1
@@ -62,3 +61,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           include-hidden-files: true
+      - name: Save reusable dependencies after a failed build too
+        if: always() && steps.build-cache.outputs.cache-primary-key != '' && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.BUILD_CACHE_PATHS }}
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}

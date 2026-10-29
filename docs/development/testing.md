@@ -43,6 +43,11 @@ configurations and core output are under `.tools/core-tests/`. The complete
 installer build invokes this suite after building its payload. The manual GitHub
 **Windows installer** workflow exercises the same path on an independent runner.
 
+Core builds also run the Go regressions declared in Wayrill's copied/patch test
+files and the Lua DNS compatibility control. Cases are discovered from those files
+automatically. Broad upstream test-suite and performance audits are separate
+maintainer work; unrelated vendor timing assertions do not gate an app build.
+
 ## What deserves a regression
 
 Protect observable behavior: routing precedence, lossless import/save,

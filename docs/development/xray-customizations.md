@@ -268,7 +268,9 @@ file containing more than one responsibility.
 | `proxy/dns/dns.go` | X06 |
 
 The remaining core additions are stored in Wayrill. Tests are compiled only into
-test binaries.
+test binaries. Core builds discover regression cases from these maintained test
+files and the patch's test files, plus the upstream Lua DNS compatibility control.
+Broad upstream test audits remain separate from the contributor build gate.
 
 | Wayrill source | Upstream destination | IDs |
 | --- | --- | --- |
