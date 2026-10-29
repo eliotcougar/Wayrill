@@ -224,14 +224,29 @@ func TestWayrillICMPBoundedStopAndInvalidReplies(t *testing.T) {
 
 func TestWayrillICMPErrorsQuoteOriginalRequest(t *testing.T) {
 	for _, family := range []byte{4, 6} {
-		r := testWayrillEcho(family)
-		for _, status := range []uint32{11002, 11003, 11004, 11005, 11013, 11014} {
-			message := wayrillICMPMessage(r, wayrillEchoResponse{status: status})
-			if len(message) < 8 || !bytes.Equal(message[8:], r.quote[:len(message)-8]) {
-				t.Fatal("error lost original request")
+		original := testWayrillEcho(family)
+		cases := []struct{ size, want int }{
+			{len(original.quote), len(original.quote) + 8},
+			{1500, 1240},
+			{65535, 1240},
+		}
+		for _, tc := range cases {
+			r := original
+			r.quote = make([]byte, tc.size)
+			copy(r.quote, original.quote)
+			want := tc.want
+			if family == 4 {
+				want = 36 // ICMP header, original IPv4 header and eight data bytes.
+			}
+			for _, status := range []uint32{11002, 11003, 11004, 11005, 11013, 11014} {
+				message := wayrillICMPMessage(r, wayrillEchoResponse{status: status})
+				// IPv6 errors, including the outer 40-byte header, fit the 1280-byte minimum MTU.
+				if len(message) != want || !bytes.Equal(message[8:], r.quote[:want-8]) {
+					t.Fatalf("family=%d quote=%d status=%d: incorrect error size or original request", family, tc.size, status)
+				}
 			}
 		}
-		if wayrillICMPMessage(r, wayrillEchoResponse{status: 11010}) != nil {
+		if wayrillICMPMessage(original, wayrillEchoResponse{status: 11010}) != nil {
 			t.Fatal("timeout produced response")
 		}
 	}

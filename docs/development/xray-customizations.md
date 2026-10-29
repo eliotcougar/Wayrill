@@ -210,6 +210,12 @@ Direct-upstream ICMP policy, not ICMP carried through every proxy protocol.
 
 Added by the builder to `proxy/tun/stack.go` and the two ICMP Go additions.
 
+Error replies preserve a bounded quote of the original request: the IPv4 header
+and eight payload bytes for IPv4, and at most 1,232 quoted bytes for IPv6. The
+IPv6 reply, including its outer header, fits the 1,280-byte minimum MTU. The
+maintained ICMP regression checks short, Ethernet-sized and maximum-sized request
+quotes for both address families.
+
 ### X12 — Private executable commands
 
 - `wayrill-control` is a bounded client of upstream `RoutingService`, reached
