@@ -7,7 +7,7 @@ components and their corresponding sources.
 
 ## Graph editor
 
-Install Node.js 24 and Git, then clone your fork or this repository:
+Install Node.js 26 LTS and Git, then clone your fork or this repository:
 
 ```powershell
 git clone https://github.com/eliotcougar/Wayrill.git
@@ -21,6 +21,10 @@ npm run dev
 Open the local URL printed by Vite. The browser runs the editor without starting
 Windows routing. Use the bundled synthetic examples to work on graph behavior.
 `npm run build` produces the frontend in `dist/`.
+
+The `.node-version` file selects the supported Node major for version managers
+and CI. Use its latest LTS patch release; the installed application does not
+require Node.js.
 
 ## Windows desktop and native components
 
