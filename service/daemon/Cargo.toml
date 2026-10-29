@@ -20,7 +20,7 @@ sha2 = "0.10"
 url = "2"
 idna = "=1.1.0"
 rquickjs = { version = "=0.14.0", default-features = false, features = ["array-buffer"] }
-base64 = "0.22.1"
+base64 = "0.23.1"
 unicode-segmentation = "1.13"
 prost = "0.14"
 ipnet = "2"
