@@ -12,7 +12,7 @@ updates:
       # Keep the declarations aligned with the Node 26 build runtime.
       - dependency-name: '@types/node'
         versions: ['>=27']
-      # Compiler migrations must preserve typescript-eslint compatibility.
+      # React JS plugins require the TS6 API; @typescript/native supplies TS7.
       - dependency-name: typescript
         versions: ['>=7']
     groups:

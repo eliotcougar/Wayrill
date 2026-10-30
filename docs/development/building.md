@@ -26,6 +26,13 @@ The `.node-version` file selects the supported Node major for version managers
 and CI. Use its latest LTS patch release; the installed application does not
 require Node.js.
 
+`npm run typecheck` uses the native TypeScript 7 compiler through the
+`@typescript/native` package alias. Linting uses Oxlint with its native type-aware
+backend. The `typescript` 6.x library and ESLint peer dependency remain for the
+React JavaScript plugins that check component lifecycles and resource cleanup;
+routine checks do not invoke the TypeScript 6 compiler or the ESLint CLI.
+Use the npm scripts so compiler selection is explicit.
+
 ## Windows desktop and native components
 
 For Tauri or Rust work, also install:
