@@ -69,10 +69,7 @@ pub struct Keep {
     pub expected_version: String,
 }
 fn version(snapshot: &Snapshot) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(snapshot).unwrap())
-    )
+    crate::system_native::hex(&Sha256::digest(serde_json::to_vec(snapshot).unwrap()))
 }
 fn valid(j: &Journal) -> bool {
     let ids = [

@@ -38,7 +38,7 @@ serde_json = "1"
 windows-sys = { version = "0.61", features = ["Win32_Globalization", "Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_SystemInformation", "Win32_System_Services", "Win32_System_Performance", "Win32_System_Diagnostics_Etw", "Win32_System_Time", "Win32_System_ProcessStatus", "Win32_System_Environment", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_WindowsFirewall", "Win32_Networking_WinSock"] }
 tokio = { version = "1.53", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
 windows = { version = "0.62.2", features = ["ApplicationModel", "Management_Deployment", "Win32_System_WinRT", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_Wmi", "Win32_NetworkManagement_WindowsFirewall"] }
-sha2 = "0.10"
+sha2 = "0.11"
 socket2 = "0.6"
 bytemuck = { version = "1.25.2", features = ["must_cast"] }
 getrandom = "0.4.3"

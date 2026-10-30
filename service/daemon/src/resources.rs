@@ -34,7 +34,12 @@ fn plan_id(file: &str) -> String {
     file.strip_prefix("wayrill-")
         .and_then(|name| name.strip_suffix(".dat"))
         .map(str::to_owned)
-        .unwrap_or_else(|| format!("file-{:x}", Sha256::digest(file.as_bytes())))
+        .unwrap_or_else(|| {
+            format!(
+                "file-{}",
+                crate::system_native::hex(&Sha256::digest(file.as_bytes()))
+            )
+        })
 }
 fn now() -> u64 {
     SystemTime::now()
@@ -458,7 +463,7 @@ fn commit(
         for (plan, bytes) in items {
             validate_dat(bytes, &plan.kind)?;
             let target = assets.join(&plan.file);
-            let hash = format!("{:x}", Sha256::digest(bytes));
+            let hash = crate::system_native::hex(&Sha256::digest(bytes));
             let unchanged = crate::native::verify_hash(&target, &hash).is_ok();
             metadata.push((
                 plan.file.clone(),
@@ -720,7 +725,7 @@ impl Manager {
                         renames.push(Rename {
                             from: previous.file.clone(),
                             to: p.file.clone(),
-                            sha256: format!("{:x}", Sha256::digest(&bytes)),
+                            sha256: crate::system_native::hex(&Sha256::digest(&bytes)),
                         });
                     }
                     if let Some(metadata) = next.metadata.remove(&previous.file) {
@@ -1596,7 +1601,7 @@ mod transactional_tests {
                 renames: vec![Rename {
                     from: "qa.dat".into(),
                     to: "office.dat".into(),
-                    sha256: format!("{:x}", Sha256::digest(dat())),
+                    sha256: crate::system_native::hex(&Sha256::digest(dat())),
                 }],
             },
         )
@@ -1944,7 +1949,7 @@ mod transactional_tests {
         fs::write(assets.join("qa.dat"), &replacement).unwrap();
         fs::write(stage.join("qa.dat.old"), &original).unwrap();
         let journal_path = data.join("resources-transaction.json");
-        let original_hash = format!("{:x}", Sha256::digest(&original));
+        let original_hash = crate::system_native::hex(&Sha256::digest(&original));
         let previous = Stored {
             generation: 7,
             metadata: BTreeMap::from([(

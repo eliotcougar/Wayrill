@@ -10,6 +10,16 @@ use wayrill_capture::{
     Error,
 };
 
+#[test]
+fn loopback_versions_preserve_the_existing_lowercase_hex_encoding() {
+    let entries =
+        std::collections::BTreeMap::from([("S-1-15-2-456".into(), 0), ("S-1-15-2-123".into(), 4)]);
+    assert_eq!(
+        wayrill_capture::native::loopback::version(&entries).unwrap(),
+        "05c51f375844a661f4c7ef29bbb15ef805ce8e3f726d7fccb5149431acd673a4"
+    );
+}
+
 fn adapter(id: &str, index: u32) -> InterfaceInfo {
     InterfaceInfo {
         id: id.into(),

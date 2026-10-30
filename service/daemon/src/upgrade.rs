@@ -55,7 +55,7 @@ pub fn validate(value: Value, owner: &str, revision: u64, profile: &Path) -> Res
         ));
     }
     let hash = match std::fs::read(profile) {
-        Ok(bytes) => Some(format!("{:x}", Sha256::digest(bytes))),
+        Ok(bytes) => Some(crate::system_native::hex(&Sha256::digest(bytes))),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(ApiError::io("Check upgrade's applied profile", error)),
     };
@@ -161,7 +161,7 @@ mod tests {
         ));
         let bytes = br#"{"hash":"example","revision":9}"#;
         std::fs::write(&path, bytes).unwrap();
-        let value = json!({"version":1,"transactionId":"b".repeat(32),"ownerSid":"owner","revision":9,"profileSha256":format!("{:x}",Sha256::digest(bytes)),"resumeRouting":true,"settings":[]});
+        let value = json!({"version":1,"transactionId":"b".repeat(32),"ownerSid":"owner","revision":9,"profileSha256":crate::system_native::hex(&Sha256::digest(bytes)),"resumeRouting":true,"settings":[]});
         assert!(validate(value.clone(), "owner", 9, &path).is_ok());
         std::fs::write(&path, b"different applied profile").unwrap();
         assert_eq!(

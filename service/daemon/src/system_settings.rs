@@ -140,7 +140,7 @@ fn normalize_leases(mut leases: BTreeMap<Channel, Lease>) -> Result<BTreeMap<Cha
     Ok(leases)
 }
 pub fn version<T: Serialize>(value: &T) -> String {
-    format!("{:x}", Sha256::digest(serde_json::to_vec(value).unwrap()))
+    crate::system_native::hex(&Sha256::digest(serde_json::to_vec(value).unwrap()))
 }
 fn invalid(message: &str) -> ApiError {
     ApiError::new("INVALID_PARAMS", message)

@@ -16,7 +16,7 @@ serde_json.workspace = true
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_System_Rpc", "Win32_Security_Isolation"] }
 windows-service = "0.8.1"
-sha2 = "0.10"
+sha2 = "0.11"
 url = "2"
 idna = "=1.1.0"
 rquickjs = { version = "=0.14.0", default-features = false, features = ["array-buffer"] }
