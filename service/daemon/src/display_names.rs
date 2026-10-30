@@ -48,10 +48,14 @@ impl DisplayNames {
                     "Too many endpoint display names.",
                 ));
             }
+            let groups = (kind == "outbounds")
+                .then(|| config["routing"]["balancers"].as_array())
+                .flatten();
             let tags: std::collections::HashSet<&str> = config[kind]
                 .as_array()
                 .into_iter()
                 .flatten()
+                .chain(groups.into_iter().flatten())
                 .filter_map(|v| v["tag"].as_str())
                 .collect();
             for (tag, name) in names {
@@ -89,5 +93,13 @@ mod tests {
         names.outbound.clear();
         names.outbound.insert("missing".into(), "Server".into());
         assert!(names.validate(&config).is_err());
+
+        let config = serde_json::json!({"outbounds":[{"tag":"dns","protocol":"dns"}],"routing":{"balancers":[{"tag":"group"}]}});
+        names.outbound.clear();
+        names.outbound.insert("dns".into(), "Home DNS".into());
+        names
+            .outbound
+            .insert("group".into(), "Fastest server".into());
+        names.validate(&config).unwrap();
     }
 }

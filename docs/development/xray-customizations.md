@@ -229,7 +229,15 @@ quotes for both address families.
   or sends a wire query through an isolated DNS outbound. It has no listener,
   active-core command channel or adapter initialization. Routing simulation
   suppresses webhooks and returns the selected balancer without advancing it;
-  DNS diagnostics use fresh caches, observations and FakeDNS mappings.
+  DNS diagnostics use fresh caches and FakeDNS mappings. They retain DNS and
+  loopback routing scopes, starting fresh observations only when a reachable
+  rule still references a policy group. Native process evidence is required
+  only when an otherwise matching rule could decide the simulated route.
+
+The service binds an isolated DNS outbound's forwarded requests to the selected
+uplink (or loopback for a local resolver), as well as binding ordinary outbound
+transports. Forwarded requests dial through the handler rather than the DNS
+client's routing path, and must not be recaptured by an active TUN.
 
 The builder copies `service/core-control/*.go` into the worker's `main` package.
 These commands are not available in the official upstream executable. The main

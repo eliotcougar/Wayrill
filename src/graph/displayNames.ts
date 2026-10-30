@@ -32,7 +32,7 @@ export function displayNames(
   for (const node of graph.nodes) {
     const category = getDefinition(node.data.kind).category;
     if (
-      (category === 'inbound' || category === 'outbound') &&
+      (category === 'inbound' || category === 'outbound' || node.data.kind === 'dns-handler') &&
       typeof node.data.settings.tag === 'string'
     ) {
       nodeNames[category === 'inbound' ? 'inbound' : 'outbound'].set(
@@ -48,6 +48,7 @@ export function displayNames(
   for (const [key, list] of [
     ['inbound', config.inbounds],
     ['outbound', config.outbounds],
+    ['outbound', jsonRecord(config.routing) ? config.routing.balancers : undefined],
   ] as const) {
     if (!jsonArray(list)) continue;
     for (const item of list) {

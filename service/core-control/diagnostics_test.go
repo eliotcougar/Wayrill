@@ -70,6 +70,33 @@ func TestDiagnosticRoutingDoesNotInventDNSOrProcessIdentity(t *testing.T) {
 	}
 }
 
+func TestDiagnosticProcessEvidenceRespectsFirstMatchAndOtherPredicates(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		rules   string
+		process *diagnosticProcess
+		want    string
+	}{
+		{"later unknown process", `[{"domain":["full:example.test"],"outboundTag":"first"},{"process":["browser.exe"],"outboundTag":"app"}]`, nil, "first"},
+		{"irrelevant domain", `[{"domain":["full:other.test"],"process":["self/"],"outboundTag":"app"},{"network":"tcp","outboundTag":"fallback"}]`, nil, "fallback"},
+		{"irrelevant port", `[{"port":"80","process":["browser.exe"],"outboundTag":"app"},{"network":"tcp","outboundTag":"fallback"}]`, nil, "fallback"},
+		{"unknown first match", `[{"process":["browser.exe"],"outboundTag":"app"},{"network":"tcp","outboundTag":"fallback"}]`, nil, ""},
+		{"mixed alternatives", `[{"process":["self/","browser.exe"],"outboundTag":"app"}]`, &diagnosticProcess{Name: "browser.exe"}, "app"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := diagnosticRequest{Config: json.RawMessage(`{"routing":{"rules":` + test.rules + `}}`), Route: &diagnosticFlow{Domain: "example.test", Port: 443, Network: "tcp"}, Process: test.process}
+			result, err := diagnosticRoute(context.Background(), request)
+			if test.want == "" {
+				if err == nil {
+					t.Fatal("claimed a route without the deciding process identity")
+				}
+			} else if err != nil || result.(map[string]any)["outboundTag"] != test.want {
+				t.Fatalf("first-match evaluation: %#v, %v", result, err)
+			}
+		})
+	}
+}
+
 func TestDiagnosticDNSExercisesHostsAndRequestPolicies(t *testing.T) {
 	request := diagnosticRequest{Config: json.RawMessage(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"handler","protocol":"dns","settings":{"rules":[{"qType":"28","action":"return","rCode":3}]}}],"dns":{"hosts":{"full:example.test":["192.0.2.9"]},"servers":["localhost"]}}`), Handler: "handler", Domain: "example.test", QueryType: "A", Server: "8.8.8.8:53"}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -109,6 +136,21 @@ func TestDiagnosticDNSDropAndIsolation(t *testing.T) {
 	if _, err = diagnosticDNSQuery(ctx, request, &diagnosticLogger{start: time.Now()}); err == nil {
 		t.Fatal("a diagnostic was allowed to create a TUN inbound")
 	}
+	// Go's configuration loader accepts mixed-case field names. Isolation must
+	// inspect the same parsed setting, rather than search its JSON spelling.
+	for _, reverse := range []string{`"reverse":null`, `"ReVeRsE":{"tag":"reverse-listener"}`} {
+		request.Config = json.RawMessage(`{"outbounds":[{"tag":"unused","protocol":"vless","settings":{"address":"127.0.0.1","port":1,"id":"11111111-1111-4111-8111-111111111111","encryption":"none",` + reverse + `}},{"tag":"handler","protocol":"dns"}],"dns":{"hosts":{"example.test":"192.0.2.9"}}}`)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := diagnosticDNSQuery(ctx, request, &diagnosticLogger{start: time.Now()})
+		cancel()
+		if strings.Contains(reverse, "null") {
+			if err != nil {
+				t.Fatalf("null reverse setting rejected: %v", err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), "reverse listeners") {
+			t.Fatalf("mixed-case reverse listener was not rejected: %v", err)
+		}
+	}
 }
 
 func TestDiagnosticDNSFallbackAndFreshFakeDNS(t *testing.T) {
@@ -135,6 +177,10 @@ func TestDiagnosticDNSFallbackAndFreshFakeDNS(t *testing.T) {
 				query.Response = true
 				query.RecursionAvailable = true
 				query.Answers = []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: query.Questions[0].Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 60}, Body: &dnsmessage.AResource{A: address}}}
+				if query.Questions[0].Type == dnsmessage.TypeTXT {
+					query.Answers[0].Header.Type = dnsmessage.TypeTXT
+					query.Answers[0].Body = &dnsmessage.TXTResource{TXT: []string{"hello", "world"}}
+				}
 				reply, err := query.Pack()
 				if err == nil {
 					conn.WriteTo(reply, peer)
@@ -167,5 +213,16 @@ func TestDiagnosticDNSFallbackAndFreshFakeDNS(t *testing.T) {
 	answers, ok = result.(map[string]any)["answers"].([]map[string]any)
 	if !ok || len(answers) != 1 || answers[0]["synthetic"] != true {
 		t.Fatalf("test mapping not identified: %#v", result)
+	}
+	request.Config = json.RawMessage(`{"outbounds":[{"tag":"handler","protocol":"dns","settings":{"rules":[{"qType":"16","action":"direct"}]}}]}`)
+	request.QueryType = "TXT"
+	request.Server = "127.0.0.1:" + strconv.Itoa(first)
+	result, err = diagnosticDNSQuery(ctx, request, &diagnosticLogger{start: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers, ok = result.(map[string]any)["answers"].([]map[string]any)
+	if !ok || len(answers) != 1 || answers[0]["value"] != `"hello" "world"` {
+		t.Fatalf("forwarded TXT answer was not preserved: %#v", result)
 	}
 }

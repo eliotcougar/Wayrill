@@ -47,6 +47,9 @@
 .playground-result .key-value-list {
   margin: 0;
 }
+.playground-result .data-table td:first-child {
+  overflow-wrap: anywhere;
+}
 .playground-trace {
   margin: var(--space-3) 0 0;
   padding: 0;

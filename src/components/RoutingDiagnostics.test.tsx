@@ -50,12 +50,12 @@ afterEach(async () => {
   host.remove();
   vi.restoreAllMocks();
 });
-const render = (plan = draft) =>
+const render = (plan = draft, controller = runtime) =>
   act(() =>
     root.render(
       <RoutingDiagnostics
         draft={plan}
-        runtime={runtime}
+        runtime={controller}
         graph={graph}
         onClose={() => {}}
         onIssue={() => {}}
@@ -141,4 +141,16 @@ it('remembers Cancel pressed before the service acknowledges the new job', async
     await Promise.resolve();
   });
   expect(serviceCall).toHaveBeenCalledWith('routing.diagnosticCancel', { job: 43 });
+});
+
+it('does not bypass unavailable-service guards when Enter is pressed in the destination', async () => {
+  await render(draft, { ...runtime, connected: false });
+  await destination('example.com');
+  await act(() => {
+    host
+      .querySelector('[placeholder="example.com"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  expect(button('Evaluate route').disabled).toBe(true);
+  expect(serviceCall).not.toHaveBeenCalled();
 });

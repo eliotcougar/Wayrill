@@ -164,6 +164,7 @@ func diagnosticRoute(ctx context.Context, request diagnosticRequest) (any, error
 	original := append([]*router.RoutingRule(nil), c.Rule...)
 	c.Rule = nil
 	c.BalancingRule = nil
+	unknownProcess := make(map[int]string)
 	for i, rule := range original {
 		// A mixed graph can keep native process rules for proxy inputs alongside
 		// capture-mask rules. Irrelevant inputs must not demand an OS identity.
@@ -172,12 +173,13 @@ func diagnosticRoute(ctx context.Context, request diagnosticRequest) (any, error
 		}
 		if len(rule.Process) != 0 {
 			if request.Process == nil {
-				return nil, errors.New("supply an application identity for native process rules")
-			}
-			if slices.Contains(rule.Process, "self/") || slices.Contains(rule.Process, "xray/") {
-				return nil, errors.New("native self/ and xray/ rules require a real process; synthetic evaluation is unavailable")
-			}
-			if !request.Process.matches(rule.Process) {
+				unknownProcess[i] = "supply an application identity for this native process rule"
+			} else if request.Process.matches(rule.Process) {
+				// Process selectors are alternatives: a supplied executable can
+				// satisfy a rule that also lists self/ or xray/.
+			} else if slices.Contains(rule.Process, "self/") || slices.Contains(rule.Process, "xray/") {
+				unknownProcess[i] = "native self/ and xray/ rules require a real process; synthetic evaluation is unavailable"
+			} else {
 				continue
 			}
 		}
@@ -212,6 +214,11 @@ func diagnosticRoute(ctx context.Context, request diagnosticRequest) (any, error
 		index, parseErr := strconv.Atoi(route.GetOutboundTag())
 		if parseErr != nil || index < 0 || index >= len(original) {
 			return nil, errors.New("invalid diagnostic rule identity")
+		}
+		// Let Xray evaluate order and every other predicate first. Missing
+		// process evidence matters only if this rule could decide the route.
+		if message := unknownProcess[index]; message != "" {
+			return nil, errors.New(message)
 		}
 		result["ruleIndex"] = index
 		result["outboundTag"] = original[index].GetTag()
@@ -265,8 +272,14 @@ func diagnosticDNSQuery(ctx context.Context, request diagnosticRequest, logger *
 			return nil, errors.New("DNS diagnostics do not start virtual network outbounds")
 		}
 		// VLESS reverse starts a listener independently of inbounds.
-		if o.Protocol == "vless" && o.Settings != nil && strings.Contains(string(*o.Settings), `"reverse"`) {
-			return nil, errors.New("DNS diagnostics do not start reverse listeners")
+		if o.Protocol == "vless" && o.Settings != nil {
+			var settings conf.VLessOutboundConfig
+			if err := json.Unmarshal(*o.Settings, &settings); err != nil {
+				return nil, err
+			}
+			if settings.Reverse != nil {
+				return nil, errors.New("DNS diagnostics do not start reverse listeners")
+			}
 		}
 	}
 	config.LogConfig = nil
@@ -381,6 +394,14 @@ func diagnosticDNSQuery(ctx context.Context, request diagnosticRequest, logger *
 			synthetic = engine != nil && engine.IsIPInIPPool(xnet.IPAddress(xnet.IP(body.AAAA[:])))
 		case *dnsmessage.CNAMEResource:
 			value = body.CNAME.String()
+		case *dnsmessage.TXTResource:
+			quoted := make([]string, len(body.TXT))
+			for i, text := range body.TXT {
+				quoted[i] = strconv.Quote(text)
+			}
+			value = strings.Join(quoted, " ")
+		case *dnsmessage.UnknownResource:
+			value = fmt.Sprintf(`\# %d %x`, len(body.Data), body.Data)
 		}
 		answers = append(answers, map[string]any{"name": answer.Header.Name.String(), "type": uint16(answer.Header.Type), "ttl": answer.Header.TTL, "value": value, "synthetic": synthetic})
 	}

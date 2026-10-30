@@ -204,6 +204,7 @@ fn process_context(input: &mut Input, root: &std::path::Path) -> Result<Vec<Stri
 fn dns_config(
     config: &Value,
     handler: &str,
+    server: &str,
     egress: Option<&crate::tun::OutboundEgress>,
 ) -> Result<Value> {
     let mut config = config.clone();
@@ -239,8 +240,7 @@ fn dns_config(
     {
         return Err(invalid("DNS tests cannot start virtual network outbounds."));
     }
-    // DNS diagnostics run entirely in memory; background observations are retained
-    // only when the config needs them for policy-group decisions.
+    isolate_dns_routes(&mut config);
     if let Some(egress) = egress {
         egress.bind(&mut config)?;
     } else if crate::tun::needs_direct_binding(&config) {
@@ -251,6 +251,15 @@ fn dns_config(
     let loopback = egress
         .map(|e| Ok(e.loopback.clone()))
         .unwrap_or_else(crate::tun::loopback_interface)?;
+    // Unlike DNS-client queries dispatched through routing, a DNS outbound's
+    // Direct request policy dials its original/rewritten server itself.
+    let dns = config["outbounds"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|o| o["tag"] == handler)
+        .unwrap();
+    bind_dns_forward(dns, server, egress, &loopback)?;
     crate::loopback::Policy::apply(&mut config, &loopback)?;
     // Never fire a routing webhook for a diagnostic query.
     for rule in config["routing"]["rules"]
@@ -263,6 +272,105 @@ fn dns_config(
         }
     }
     Ok(config)
+}
+
+fn bind_dns_forward(
+    outbound: &mut Value,
+    server: &str,
+    egress: Option<&crate::tun::OutboundEgress>,
+    loopback: &str,
+) -> Result<()> {
+    let server: std::net::SocketAddr = server
+        .parse()
+        .map_err(|_| invalid("Provide a DNS destination IP and port."))?;
+    let settings = &outbound["settings"];
+    let address = settings["address"]
+        .as_str()
+        .or_else(|| settings["rewriteAddress"].as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| server.ip().to_string());
+    let local = crate::loopback::local_address(&address);
+    if !outbound["streamSettings"].is_object() {
+        outbound["streamSettings"] = json!({});
+    }
+    if !outbound["streamSettings"]["sockopt"].is_object() {
+        outbound["streamSettings"]["sockopt"] = json!({});
+    }
+    let options = &mut outbound["streamSettings"]["sockopt"];
+    if local || options["interface"].as_str().unwrap_or("").is_empty() {
+        let interface = if local {
+            loopback
+        } else {
+            &egress
+                .ok_or_else(|| invalid("No upstream interface is available for the DNS test."))?
+                .uplink
+        };
+        options["interface"] = json!(interface);
+    }
+    Ok(())
+}
+
+fn isolate_dns_routes(config: &mut Value) {
+    // DNS upstreams enter the dispatcher with the DNS/server tag. Loopback
+    // outbounds can redispatch them under another tag, including in proxy chains.
+    // Keep unscoped rules and all such scopes; discard only impossible inputs.
+    let mut inputs =
+        std::collections::BTreeSet::from([String::new(), "wayrill-diagnostic".to_owned()]);
+    for tag in std::iter::once(&config["dns"]["tag"])
+        .chain(
+            config["dns"]["servers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|s| &s["tag"]),
+        )
+        .chain(
+            config["outbounds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|o| o["protocol"] == "loopback")
+                .map(|o| &o["settings"]["inboundTag"]),
+        )
+        .filter_map(Value::as_str)
+    {
+        inputs.insert(tag.to_owned());
+    }
+    // A routing script may choose a group without a field-rule reference.
+    if config["routing"]["script"]
+        .as_str()
+        .is_some_and(|s| !s.is_empty())
+    {
+        return;
+    }
+    if let Some(rules) = config["routing"]["rules"].as_array_mut() {
+        rules.retain(|rule| {
+            rule["inboundTag"].as_array().is_none_or(|tags| {
+                tags.is_empty()
+                    || tags
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .any(|tag| inputs.contains(tag))
+            })
+        });
+    }
+    let groups: std::collections::BTreeSet<_> = config["routing"]["rules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["balancerTag"].as_str().map(str::to_owned))
+        .collect();
+    if let Some(balancers) = config["routing"]["balancers"].as_array_mut() {
+        balancers.retain(|group| {
+            group["tag"]
+                .as_str()
+                .is_some_and(|tag| groups.contains(tag))
+        });
+    }
+    if groups.is_empty() {
+        config.as_object_mut().unwrap().remove("observatory");
+        config.as_object_mut().unwrap().remove("burstObservatory");
+    }
 }
 fn run(
     mut input: Input,
@@ -281,11 +389,6 @@ fn run(
         vec![]
     };
     warnings.extend(input.resource_warnings.clone());
-    if input.mode == "dns"
-        && (input.config["observatory"].is_object() || input.config["burstObservatory"].is_object())
-    {
-        warnings.push("Policy observations start fresh in this isolated test; a group may use its fallback before probes finish.".into());
-    }
     if input.mode == "route"
         && (crate::loopback::local_address(input.route["domain"].as_str().unwrap_or(""))
             || input.route["ips"]
@@ -301,7 +404,10 @@ fn run(
         return Err(invalid("Diagnostic cancelled."));
     }
     if input.mode == "dns" {
-        input.config = dns_config(&input.config, &input.handler, egress)?;
+        input.config = dns_config(&input.config, &input.handler, &input.server, egress)?;
+        if input.config["observatory"].is_object() || input.config["burstObservatory"].is_object() {
+            warnings.push("Policy observations start fresh in this isolated test; a group may use its fallback before probes finish.".into());
+        }
     }
     let request = json!({"mode":input.mode,"config":input.config,"route":input.route,"resolvedIPs":input.resolved_ips,"process":input.application["lineage"].as_array().and_then(|v|v.first()).map(|p|json!({"name":p["name"].as_str().unwrap_or(""),"path":p["path"].as_str().unwrap_or("")})),"handler":input.handler,"domain":input.domain,"queryType":input.query_type,"server":input.server});
     let worker = crate::tun::worker_executable(root)?;
@@ -347,5 +453,80 @@ mod tests {
     fn diagnostic_wire_contract_preserves_ip_acronyms() {
         let request:Input=params(json!({"mode":"route","config":{},"capture":null,"route":{"inbound":"tun","domain":"example.test","ips":[],"port":443,"network":"tcp","protocol":"tls","user":"","sourceIP":"","sourcePort":0},"application":null,"resolvedIPs":["192.0.2.8"],"handler":"dns","domain":"example.test","queryType":"A","server":"8.8.8.8:53"})).unwrap();
         assert_eq!(request.resolved_ips, ["192.0.2.8"]);
+    }
+
+    #[test]
+    fn dns_isolation_keeps_query_and_chain_scopes_without_traffic_only_probes() {
+        let original = json!({
+            "dns":{"tag":"dns","servers":[{"address":"8.8.8.8","tag":"remote-dns"}]},
+            "outbounds":[{"tag":"chain","protocol":"loopback","settings":{"inboundTag":"chain-hop"}}],
+            "routing":{"rules":[
+                {"inboundTag":["proxy","tun"],"balancerTag":"traffic"},
+                {"inboundTag":["remote-dns"],"outboundTag":"chain"},
+                {"inboundTag":["dns"],"outboundTag":"direct"},
+                {"inboundTag":["chain-hop"],"outboundTag":"hop"},
+                {"ip":["127.0.0.0/8"],"outboundTag":"local"}
+            ],"balancers":[{"tag":"traffic","selector":["server-"]}]},
+            "observatory":{"subjectSelector":["server-"]}
+        });
+        let mut config = original.clone();
+        isolate_dns_routes(&mut config);
+        assert_eq!(
+            config["routing"]["rules"],
+            json!(&original["routing"]["rules"].as_array().unwrap()[1..])
+        );
+        assert_eq!(config["routing"]["balancers"], json!([]));
+        assert!(config.get("observatory").is_none());
+        assert_eq!(config["outbounds"], original["outbounds"]);
+
+        // A real DNS policy decision (including a chain's redispatch) still
+        // needs its balancer and observations. Unscoped rules remain eligible.
+        for scope in [json!(["remote-dns"]), json!(["chain-hop"]), json!([])] {
+            let mut config = original.clone();
+            config["routing"]["rules"][0]["inboundTag"] = scope;
+            isolate_dns_routes(&mut config);
+            assert_eq!(
+                config["routing"]["balancers"],
+                original["routing"]["balancers"]
+            );
+            assert_eq!(config["observatory"], original["observatory"]);
+        }
+    }
+
+    #[test]
+    fn dns_forwarding_binds_actual_destination_without_changing_request_policies() {
+        let egress = crate::tun::OutboundEgress {
+            uplink: "Ethernet".into(),
+            loopback: "Loopback".into(),
+            captured: true,
+        };
+        for (server, settings, options, expected) in [
+            ("8.8.8.8:53", json!({}), json!({}), "Ethernet"),
+            ("127.0.0.1:53", json!({}), json!({}), "Loopback"),
+            (
+                "[::1]:53",
+                json!({}),
+                json!({"interface":"Ethernet"}),
+                "Loopback",
+            ),
+            (
+                "8.8.8.8:53",
+                json!({"rewriteAddress":"127.0.0.2"}),
+                json!({}),
+                "Loopback",
+            ),
+            (
+                "127.0.0.1:53",
+                json!({"address":"8.8.4.4","rewriteAddress":"127.0.0.2"}),
+                json!({"interface":"Chosen VPN"}),
+                "Chosen VPN",
+            ),
+        ] {
+            let mut outbound = json!({"protocol":"dns","settings":settings,"streamSettings":{"sockopt":options},"proxySettings":{"tag":"hop"}});
+            bind_dns_forward(&mut outbound, server, Some(&egress), &egress.loopback).unwrap();
+            assert_eq!(outbound["streamSettings"]["sockopt"]["interface"], expected);
+            assert_eq!(outbound["settings"], settings);
+            assert_eq!(outbound["proxySettings"]["tag"], "hop");
+        }
     }
 }

@@ -193,8 +193,9 @@ export default function RoutingDiagnostics({
     setError('');
     if (!test.busy) test.clear();
   };
+  const canRun = !!plan && available && !!destination.trim() && (mode !== 'dns' || !!dnsHandler);
   const run = async () => {
-    if (!plan) return;
+    if (!plan || !canRun || test.busy) return;
     setError('');
     try {
       const target = diagnosticDestination(destination);
@@ -213,7 +214,8 @@ export default function RoutingDiagnostics({
           Number(sourcePort) > 65535)
       )
         throw new Error('Source port must be between 1 and 65535.');
-      if (mode === 'route' && sourceIP) diagnosticIPs(sourceIP);
+      if (mode === 'route' && sourceIP && diagnosticIPs(sourceIP).length !== 1)
+        throw new Error('Enter a single source IP address.');
       const identity = (path: string, leaf = false) => ({
         name: path.split(/[\\/]/).at(-1) ?? path,
         path: /[\\/]/.test(path) ? path : null,
@@ -231,7 +233,7 @@ export default function RoutingDiagnostics({
           network,
           protocol,
           user,
-          sourceIP,
+          sourceIP: sourceIP.trim(),
           sourcePort: Number(sourcePort) || 0,
         },
         application:
@@ -280,13 +282,7 @@ export default function RoutingDiagnostics({
               Cancel test
             </button>
           ) : (
-            <button
-              className="primary-button"
-              disabled={
-                !plan || !available || !destination.trim() || (mode === 'dns' && !dnsHandler)
-              }
-              onClick={() => void run()}
-            >
+            <button className="primary-button" disabled={!canRun} onClick={() => void run()}>
               <Search size={15} />
               {mode === 'dns' ? 'Test this domain' : 'Evaluate route'}
             </button>
@@ -523,6 +519,7 @@ export default function RoutingDiagnostics({
                 <button
                   className="secondary-button button--small"
                   key={`${hop.filterId}:${index}`}
+                  disabled={!graph.nodes.some((node) => node.id === hop.filterId)}
                   onClick={() => {
                     onClose();
                     onIssue({
@@ -554,7 +551,20 @@ export default function RoutingDiagnostics({
             <>
               <dl className="key-value-list">
                 <dt>Response</dt>
-                <dd>{result.rcode ?? 'No response'}</dd>
+                <dd>
+                  {result.rcode
+                    ? ((
+                        {
+                          RCodeSuccess: 'NOERROR',
+                          RCodeFormatError: 'FORMERR',
+                          RCodeServerFailure: 'SERVFAIL',
+                          RCodeNameError: 'NXDOMAIN',
+                          RCodeNotImplemented: 'NOTIMP',
+                          RCodeRefused: 'REFUSED',
+                        } as Record<string, string>
+                      )[result.rcode] ?? result.rcode)
+                    : 'No response'}
+                </dd>
                 <dt>Query</dt>
                 <dd>
                   {tested?.destination} · {queryType}
@@ -579,9 +589,12 @@ export default function RoutingDiagnostics({
                           )}
                         </td>
                         <td>
-                          {({ 1: 'A', 28: 'AAAA', 5: 'CNAME' } as Record<number, string>)[
-                            answer.type
-                          ] ?? answer.type}
+                          {(
+                            { 1: 'A', 28: 'AAAA', 5: 'CNAME', 16: 'TXT', 65: 'HTTPS' } as Record<
+                              number,
+                              string
+                            >
+                          )[answer.type] ?? answer.type}
                         </td>
                         <td>{answer.ttl} s</td>
                       </tr>
