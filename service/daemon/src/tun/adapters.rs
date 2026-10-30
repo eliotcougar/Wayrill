@@ -588,10 +588,9 @@ fn settings_hash(settings: &Value) -> String {
         object.remove("name");
         object.remove("autoOutboundsInterface");
     }
-    format!(
-        "{:x}",
-        Sha256::digest(format!("{}:{}", crate::native::XRAY_SHA, settings).as_bytes())
-    )
+    crate::system_native::hex(&Sha256::digest(
+        format!("{}:{}", crate::native::XRAY_SHA, settings).as_bytes(),
+    ))
 }
 impl Drop for Lease {
     fn drop(&mut self) {
