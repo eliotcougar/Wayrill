@@ -243,8 +243,8 @@ fn load_profile(
         Ok(profile) => Ok((Some(profile), revision, None)),
         Err(error) => {
             let backup = path.with_file_name(format!(
-                "profile-recovery-{:x}.json",
-                Sha256::digest(&bytes)
+                "profile-recovery-{}.json",
+                crate::system_native::hex(&Sha256::digest(&bytes))
             ));
             // An existing backup is accepted only when it is byte-for-byte equal.
             // A failed backup must not permit an unprotected replacement.
@@ -354,7 +354,7 @@ fn profile_hash(config: &Value, capture: Option<&Plan>) -> String {
     }
 }
 pub fn config_hash(config: &Value) -> String {
-    format!("{:x}", Sha256::digest(serde_json::to_vec(config).unwrap()))
+    crate::system_native::hex(&Sha256::digest(serde_json::to_vec(config).unwrap()))
 }
 fn tcp_listeners(config: &Value) -> Vec<SocketAddr> {
     listener_endpoints(config)
@@ -2598,6 +2598,23 @@ fn retry_private_listener(mut start: impl FnMut(usize) -> Result<()>) -> Result<
 mod tests {
     use super::*;
     use wayrill_protocol::direct_example;
+
+    #[test]
+    fn accepts_profile_hashes_written_before_the_digest_upgrade() {
+        let profile = json!({
+            "ownerSid": "test-owner",
+            "revision": 1,
+            "config": {"outbounds": []},
+            "hash": "13d1e3db45f13dbcf8a7dbab9084fd3a7bc9f32985792238767a564099ebb037"
+        });
+        assert!(stored_profile(profile.clone()).is_ok());
+        let mut changed = profile;
+        changed["config"]["outbounds"] = json!([{"protocol":"freedom"}]);
+        assert_eq!(
+            stored_profile(changed).err().unwrap().code,
+            "STATE_INTEGRITY"
+        );
+    }
 
     #[test]
     fn tracks_resource_dependencies_in_routing_dns_and_hosts_without_refreshing_unused_files() {

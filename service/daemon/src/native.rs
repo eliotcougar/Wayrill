@@ -72,7 +72,7 @@ pub fn verify_hash(path: &Path, expected: &str) -> Result<()> {
         }
         hash.update(&buf[..n]);
     }
-    if format!("{:x}", hash.finalize()) != expected.to_lowercase() {
+    if crate::system_native::hex(&hash.finalize()) != expected.to_lowercase() {
         return Err(ApiError::new(
             "BINARY_INTEGRITY",
             "Bundled dependency SHA-256 does not match this service build.",
