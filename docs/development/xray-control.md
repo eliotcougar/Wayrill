@@ -6,7 +6,7 @@ For Wayrill, prefer the existing RPCs for supported live changes, public socket 
 
 ## Scope and evidence
 
-The source catalog was re-indexed against the pristine pinned **v26.10.21** source, commit `1b1647cd9ddf0abc34b981d4611fc03bcac1ca74`. Its verified archive SHA-256 is `57a862fdd1e978fc0c74c624d94555257cecf4e97e0a7df646168e1272aaff50`. This is the upstream base; Wayrill overlays are documented separately.
+This reference records the control-surface audit of pristine **v26.10.21** source, commit `1b1647cd9ddf0abc34b981d4611fc03bcac1ca74`. Its verified archive SHA-256 is `57a862fdd1e978fc0c74c624d94555257cecf4e97e0a7df646168e1272aaff50`. See the [customization inventory](xray-customizations.md) for the currently bundled upstream base and Wayrill overlays; the source links below retain the audited revision.
 
 The audit covered all 1,181 archive files by structural searches, then read the implementations and call sites of the control surfaces described below. The [source inventory](xray-control-inventory.json) records all six protobuf services, **26 administrative RPCs**, two transport RPCs, 46 CLI usage declarations, 37 explicitly annotated Go API declarations, registration functions, HTTP route registrations, Lua modules and environment reads. Declaration counts include inactive CLI code; availability is explained here.
 

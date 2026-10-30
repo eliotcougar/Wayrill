@@ -4,7 +4,7 @@ This is the maintained inventory of changes compiled into Wayrill's Xray
 executables. It covers patches, added Go files and build-script edits. Existing
 upstream APIs used by Wayrill are identified separately from custom APIs.
 
-Last reconciled: **27 October 2026**, the pinned core build. PR states below were
+Last reconciled: **30 October 2026**, the pinned core build. PR states below were
 checked on GitHub on that date. They describe upstream publication, not whether
 a change is compiled into Wayrill.
 
@@ -12,7 +12,7 @@ a change is compiled into Wayrill.
 
 | Item | Current source of truth |
 | --- | --- |
-| Upstream base | Xray **v26.10.21**, commit `1b1647cd9ddf0abc34b981d4611fc03bcac1ca74` |
+| Upstream base | Xray **v26.10.29**, commit `0afec66085a85191e9dd2a4a6646c7c9a94688d1` |
 | Main executable | `xray.exe`; upstream base plus the shared patch and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
@@ -310,7 +310,7 @@ corresponding source for their executable variant.
 | --- | --- |
 | UDP dialer controllers receiving the remote destination | [#7201](https://github.com/XTLS/Xray-core/pull/7201) merged; included in the pinned base. No separate active backport; regression remains in X01's test file. |
 | Early SOCKS UDP association timer initialization | Fangliding's [#7203](https://github.com/XTLS/Xray-core/pull/7203) merged; included in the pinned base. Older local cleanup/timer workarounds and backport removed; regression retained. |
-| Windows single-family interface binding | [#7214](https://github.com/XTLS/Xray-core/pull/7214) open and unmerged when checked. A separate proposal, **not an active patch in these packaged cores**. |
+| Windows single-family interface binding | [#7214](https://github.com/XTLS/Xray-core/pull/7214) merged and included in v26.10.29. Both cores use upstream's family-restricted retry and TUN binding implementation, without a local backport. The build runs upstream's UDP binding regression. |
 | Live outbound replacement engine / `ReplaceOutbounds` / `AlterOutbound` wrapper | Removed from the packaged cores. Outbound changes use the service's guarded core restart; do not treat old proposal branches or reports as shipped functionality. |
 | Dedicated UDP sockopts proposal | Not shipped as a new Xray configuration API. Current listener behavior is X01 using the existing hook. |
 | gVisor-era TUN/ICMP integration | Retired. The pinned core uses the lightweight stack; the builder rejects gVisor packages in the Windows runtime dependency graph. An indirect module used by upstream tests is not evidence that it is linked into the executable. |

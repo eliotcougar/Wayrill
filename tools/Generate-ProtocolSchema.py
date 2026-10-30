@@ -5,7 +5,7 @@ parser.add_argument('--source',type=Path,required=True,help='Pinned Xray-core ch
 parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parent.parent/'src/graph/protocolSource.ts')
 args=parser.parse_args()
 commit=subprocess.check_output(['git','-C',str(args.source),'rev-parse','HEAD'],text=True).strip()
-if commit!='1b1647cd9ddf0abc34b981d4611fc03bcac1ca74':raise SystemExit('Audit a new core revision before regenerating the field catalogue.')
+if commit!='0afec66085a85191e9dd2a4a6646c7c9a94688d1':raise SystemExit('Audit a new core revision before regenerating the field catalogue.')
 source=args.source/'infra/conf'
 target=args.output
 structs={}
@@ -32,9 +32,9 @@ required=['DokodemoConfig','HTTPServerConfig','HTTPClientConfig','HTTPRemoteConf
 'SocksServerConfig','SocksClientConfig','SocksRemoteConfig','SocksAccount','VLessInboundConfig','VLessOutboundConfig','VLessOutboundVnext','VLessInboundFallback','VLessUserConfig',
 'VMessInboundConfig','VMessOutboundConfig','VMessOutboundTarget','VMessUserConfig','VMessDefaultConfig','TrojanServerConfig','TrojanClientConfig','TrojanServerTarget','TrojanUserConfig','TrojanInboundFallback',
 'WireGuardConfig','WireGuardPeerConfig','HysteriaClientConfig','HysteriaServerConfig','HysteriaUserConfig','MasqueClientConfig','MasqueServerConfig','MasqueUserConfig','TunConfig','LoopbackConfig','DNSOutboundConfig','DNSOutboundRuleConfig',
-'StreamConfig','SniffingConfig','MuxConfig','TCPConfig','SplitHTTPConfig','KCPConfig','GRPCConfig','WebSocketConfig','HttpUpgradeConfig','HysteriaConfig','MasqueConfig','MasqueWarpConfig','XDriveConfig','TLSConfig','TLSCertConfig','REALITYConfig','SocketConfig','HappyEyeballsConfig','CustomSockoptConfig','Masquerade','FreedomConfig','BlackholeConfig','FinalMask','Mask','QuicParamsConfig','VLessOutboundUserConfig','HTTPUserConfig','SocksUserConfig']
+'StreamConfig','SniffingConfig','MuxConfig','TCPConfig','SplitHTTPConfig','KCPConfig','GRPCConfig','WebSocketConfig','HttpUpgradeConfig','HysteriaConfig','MasqueConfig','MasqueWarpConfig','XDriveConfig','TLSConfig','TLSCertConfig','REALITYConfig','SocketConfig','HappyEyeballsConfig','CustomSockoptConfig','Masquerade','FreedomConfig','BlackholeConfig','FinalMask','Mask','QuicParamsConfig','VLessOutboundUserConfig','HTTPUserConfig','SocksUserConfig','XDriveS3Config']
 missing=[name for name in required if name not in structs]
 if missing: raise SystemExit('Missing audited structures: '+repr(missing))
 result={name:structs[name] for name in required}
-target.write_text('// Generated from Xray-core 1b1647cd9ddf0abc34b981d4611fc03bcac1ca74.\n// Regenerate with the audited protocol-schema helper when upgrading the core.\nexport const protocolSource = '+json.dumps(result,indent=2)+' as const;\n',encoding='utf-8')
+target.write_text('// Generated from Xray-core 0afec66085a85191e9dd2a4a6646c7c9a94688d1.\n// Regenerate with the audited protocol-schema helper when upgrading the core.\nexport const protocolSource = '+json.dumps(result,indent=2)+' as const;\n',encoding='utf-8')
 print(json.dumps({'structures':len(result),'fields':sum(len(v['fields']) for v in result.values()),'output':str(target)}))

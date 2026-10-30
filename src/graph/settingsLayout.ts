@@ -113,6 +113,7 @@ export const advancedSettings: Record<string, readonly string[]> = {
     'eagerWindowMs',
     'holeTimeoutMs',
   ],
+  XDriveS3Config: ['pathStyle'],
   TLSConfig: [
     'allowInsecure',
     'enableSessionResumption',

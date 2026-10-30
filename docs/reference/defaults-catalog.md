@@ -96,7 +96,7 @@ specifying the same option in both places unless you intend that precedence.
 Native JSON and typed controls preserve supported explicit false/zero/empty
 values; see [Xray import/export](xray-import.md).
 
-The beta's core-default information is tied to **Xray 26.10.21** and its pinned
+The beta's core-default information is tied to **Xray 26.10.29** and its pinned
 source. The [shared setting definitions](../../src/graph/defaults.ts) record the
 current app presets and applicable node scopes; the
 [core defaults store](../../src/graph/xrayCoreDefaults.json) records native hints

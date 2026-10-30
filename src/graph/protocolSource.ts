@@ -1,4 +1,4 @@
-// Generated from Xray-core 1b1647cd9ddf0abc34b981d4611fc03bcac1ca74.
+// Generated from Xray-core 0afec66085a85191e9dd2a4a6646c7c9a94688d1.
 // Regenerate with the audited protocol-schema helper when upgrading the core.
 export const protocolSource = {
   "DokodemoConfig": {
@@ -1549,6 +1549,10 @@ export const protocolSource = {
         "goType": "json.RawMessage"
       },
       {
+        "key": "s3",
+        "goType": "*XDriveS3Config"
+      },
+      {
         "key": "xmux",
         "goType": "XmuxConfig"
       }
@@ -2174,6 +2178,27 @@ export const protocolSource = {
       {
         "key": "email",
         "goType": "string"
+      }
+    ]
+  },
+  "XDriveS3Config": {
+    "file": "transport_method.go",
+    "fields": [
+      {
+        "key": "endpoint",
+        "goType": "string"
+      },
+      {
+        "key": "region",
+        "goType": "string"
+      },
+      {
+        "key": "bucket",
+        "goType": "string"
+      },
+      {
+        "key": "pathStyle",
+        "goType": "*bool"
       }
     ]
   }

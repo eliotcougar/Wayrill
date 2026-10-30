@@ -5,16 +5,16 @@ every active patch, added Go file and build-script edit, with its purpose, scope
 upstream status and verification requirements. Reconcile it whenever the custom
 core or its upstream base changes.
 
-The current base is Xray v26.10.21, commit
-`1b1647cd9ddf0abc34b981d4611fc03bcac1ca74`. Both packaged cores are audited
+The current base is Xray v26.10.29, commit
+`0afec66085a85191e9dd2a4a6646c7c9a94688d1`. Both packaged cores are audited
 source builds. The main core is not the unmodified upstream release executable.
 `service/dependencies.json` pins the base source archive, patches, initializer
 files, Go toolchain and main executable. The private worker has its own integrity
 manifest. [Core defaults](core-defaults.md) records the generated schema/defaults
 audit and the current main executable hash.
 
-Both cores require the pinned **Go 1.27.3** toolchain. The v26.10.21 security
-release includes an updated fallback CA bundle; Go 1.27.3 additionally rejects
+Both cores require the pinned **Go 1.27.3** toolchain. The base retains the
+fallback CA bundle update from v26.10.21; Go 1.27.3 additionally rejects
 compromised certificate public keys, including chains accepted by the Windows
 system verifier. The source version alone is insufficient: preserve the Go SDK
 pin when rebuilding. The build selects a versioned SDK under `.tools`, verifies
@@ -64,11 +64,17 @@ private, password-authenticated loopback SOCKS input routed to commander. This
 keeps control local without exposing an unauthenticated API listener.
 
 The SOCKS UDP timer and dialer destination
-repairs are now upstream in v26.10.21 (PRs #7203 and #7201); their old backport
+repairs are upstream since v26.10.21 (PRs #7203 and #7201); their old backport
 patch is removed. App-owned regression tests continue to exercise both behaviors
 without patching upstream production code. See `service/core-init`,
 `service/xray-patches`, [FakeDNS](../guide/dns.md), [live Apply](lifecycle.md) and
 [UDP socket buffers](xray-customizations.md).
+
+The Windows single-family interface-binding repair is upstream in v26.10.29
+(PR #7214). Both builds retain that implementation unchanged: dual-stack UDP
+remains preferred, with a destination-family retry only for an interface-binding
+failure. Native DNS sockets select their server's address family. The build also
+runs upstream's UDP binding regression alongside the maintained extension tests.
 
 The private TUN/ICS build adds authenticated process/NAT attribution, service-owned
 adapter/settings reuse, bounded upstream ICMP passthrough and private runtime
@@ -76,7 +82,7 @@ control. Its attribution hook precedes dispatch. Native addresses use plain IP
 literals, including IPv6, on the Rust bridge. Exported Xray configurations contain
 no private capture plan or privileged control endpoints.
 
-Xray v26.10.21 uses its lightweight packet stack. The old gVisor ICMP adapters and
+Xray v26.10.29 uses its lightweight packet stack. The old gVisor ICMP adapters and
 readiness flag are gone. ICMP interception is attached only to real TUN handlers;
 WireGuard/MASQUE consumers retain upstream stack behavior. The build rejects
 gVisor packages in the Windows runtime dependency graph. An indirect gVisor module

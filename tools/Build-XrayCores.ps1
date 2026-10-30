@@ -57,7 +57,7 @@ try {
     $taskGoZip=Join-Path $taskDownloads ('go'+$taskPin.build.goVersion+'.zip')
     $taskCurl=& (Join-Path $PSScriptRoot 'Get-Curl.ps1') -Path $CurlPath
     $taskCommit=$taskPin.sourceCommit
-    if ($taskCommit -ne '1b1647cd9ddf0abc34b981d4611fc03bcac1ca74') { throw 'Review the TUN extension when updating Xray.' }
+    if ($taskCommit -ne '0afec66085a85191e9dd2a4a6646c7c9a94688d1') { throw 'Review the TUN extension when updating Xray.' }
     $taskSourceZip=Join-Path $taskDownloads ('xray-source-'+$taskCommit+'.zip')
     New-Item -ItemType Directory -Path $taskDownloads,$TunOutputDirectory -Force | Out-Null
     if(-not (Test-Path $taskGoZip)) {
@@ -113,7 +113,7 @@ try {
     Push-Location $taskMainSource
     try {
         # Preserve the upstream Lua DNS query contract for our context changes.
-        if(-not $SkipTests){Invoke-MaintainedCoreTests -Source $taskMainSource -Files $taskMainTests -Controls @{TestDNSScriptQuery='./app/dns'}}
+        if(-not $SkipTests){Invoke-MaintainedCoreTests -Source $taskMainSource -Files $taskMainTests -Controls @{TestDNSScriptQuery='./app/dns';TestDialUDPBindFallback='./transport/internet'}}
         & $taskGo build -mod=readonly -trimpath -buildvcs=false -ldflags ('-s -w -X github.com/xtls/xray-core/core.build='+$taskPin.build.tag) -o (Join-Path $MainOutputDirectory 'xray.exe') ./main
         if($LASTEXITCODE -ne 0){throw 'Patched Xray main core build failed.'}
     }finally{Pop-Location}
@@ -196,7 +196,7 @@ try {
         Write-Host "Both pinned Xray cores built; packaging and manifest updates were not requested."
         return
     }
-    @{sha256=$taskHash;sourceCommit=$taskCommit;goVersion=$taskPin.build.goVersion} | ConvertTo-Json | Set-Content (Join-Path $taskProject 'service\daemon\src\tun-core-manifest.json') -Encoding utf8NoBOM
+    [ordered]@{sha256=$taskHash;sourceCommit=$taskCommit;goVersion=$taskPin.build.goVersion} | ConvertTo-Json | Set-Content (Join-Path $taskProject 'service\daemon\src\tun-core-manifest.json') -Encoding utf8NoBOM
     Copy-Item (Join-Path $taskSource 'LICENSE'),(Join-Path $taskProject 'service\tun-core\wayrill_windows.go') -Destination $TunOutputDirectory -Force
     $taskWintun=Get-ChildItem (Join-Path $taskCacheRoot 'service-deps\xray') -Filter 'wintun.dll' -Recurse -File | Select-Object -First 1
     if (-not $taskWintun -or (Get-FileHash $taskWintun.FullName).Hash -ne 'E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE') { throw 'Missing pinned Wintun DLL.' }

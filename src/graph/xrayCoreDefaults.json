@@ -1,13 +1,13 @@
 {
   "version": 1,
   "core": {
-    "version": "26.10.21",
-    "sourceCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
-    "executableSha256": "32d071b52da365542c9e0750779760835670e7c88995f43e677842ceb4afdbfc",
+    "version": "26.10.29",
+    "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
+    "executableSha256": "d97213711d558cd130219ccb095fc9388966e58dbd42bb8b729a773ccccda546",
     "platform": "windows/amd64"
   },
-  "auditSha256": "3d9a7594fdc71f84a564c09eeab7af2944035a05eea855611a1053e61917a758",
-  "schemaSha256": "ef15b67f0fe7c628c17359f8a47816ab6f7e60eb94d409851a4ee531c4274022",
+  "auditSha256": "38783ae855095fc7243d2afca6bb4737aa726cca98051c98f175c43454164bb7",
+  "schemaSha256": "38036cad78af3d8ffbd27ca630e743326c1ca9b370bdbd8ef72e78845daaa91f",
   "externalSources": {
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go": "e94680d15f3e9c0ab514f8490729da1e1edbc24b55884d3cf2e01f682cd78925",
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go": "6351a6070a38f4e0c8118bcdecec2a67dfb6ca7457ee2dbaa90d20a40eb5beeb",
@@ -2353,6 +2353,13 @@
         "transport/internet/xdrive/params.go"
       ]
     },
+    "XDriveConfig.s3": {
+      "hint": "Required for the S3 service",
+      "sources": [
+        "infra/conf/transport_method.go",
+        "transport/internet/xdrive/s3.go"
+      ]
+    },
     "XDriveConfig.xmux": {
       "hint": "Automatic — 4 connections for Google Drive over HTTP/2, otherwise 1; reuse 1800–3000 seconds",
       "sources": [
@@ -3565,6 +3572,36 @@
       "sources": [
         "infra/conf/socks.go"
       ]
+    },
+    "XDriveS3Config.endpoint": {
+      "value": "",
+      "hint": "Required HTTP(S) endpoint — no default",
+      "sources": [
+        "transport/internet/xdrive/s3.go"
+      ],
+      "required": true
+    },
+    "XDriveS3Config.region": {
+      "value": "us-east-1",
+      "hint": "us-east-1",
+      "sources": [
+        "transport/internet/xdrive/s3.go"
+      ]
+    },
+    "XDriveS3Config.bucket": {
+      "value": "",
+      "hint": "Required bucket — no default",
+      "sources": [
+        "transport/internet/xdrive/s3.go"
+      ],
+      "required": true
+    },
+    "XDriveS3Config.pathStyle": {
+      "hint": "Enabled",
+      "sources": [
+        "infra/conf/transport_method.go"
+      ],
+      "value": true
     },
     "Inbound.listen": {
       "hint": "0.0.0.0 — all IPv4 interfaces",

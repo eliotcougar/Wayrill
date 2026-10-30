@@ -1,11 +1,11 @@
 {
   "version": 1,
   "core": {
-    "version": "26.10.21",
-    "sourceCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
-    "executableSha256": "32D071B52DA365542C9E0750779760835670E7C88995F43E677842CEB4AFDBFC"
+    "version": "26.10.29",
+    "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
+    "executableSha256": "D97213711D558CD130219CCB095FC9388966E58DBD42BB8B729A773CCCCDA546"
   },
-  "protocolSchemaSha256": "ef15b67f0fe7c628c17359f8a47816ab6f7e60eb94d409851a4ee531c4274022",
+  "protocolSchemaSha256": "38036cad78af3d8ffbd27ca630e743326c1ca9b370bdbd8ef72e78845daaa91f",
   "sourceFiles": {
     "infra/conf/api.go": "40878700df0bc24e4ff87bea2669e6f3d2f00f9e2864c841ea35d096134c6ced",
     "infra/conf/blackhole.go": "11bab408fa98826bcb2dd0aef1b7e597616a3251b4b37407473b8f7695d23180",
@@ -14,8 +14,8 @@
     "infra/conf/dns_proxy.go": "eda8a79ee16ae012770c6e17d0e4e126653790c7558dd037e975b8f9c4866a48",
     "infra/conf/dokodemo.go": "dc615975e05922bd087d93135c4cb2e0da317a07d0e37b9de4447efbfdc2fd77",
     "infra/conf/fakedns.go": "72697ac1f2a71bcc198c65e54ac52ea01975cf678f4529cbe8d13f694394194d",
-    "infra/conf/freedom.go": "a56aca8c577b8d6d6cb1fdd0c91dcf178599853d183e0acc3ff11603dff860d2",
-    "infra/conf/geodata.go": "6f4fdfeabc39518681e651907973d5f1384bf99c86028b97271da4ee27588530",
+    "infra/conf/freedom.go": "0b5befe3c0bb45269009dd6ef4bbe4cceb7a7126ac518f386b4ee6642090389f",
+    "infra/conf/geodata.go": "e0efecafa83e2edd1b3a369acc543ac76305fc9bf75fa949c840318a3f8f0a80",
     "infra/conf/http.go": "093c0aa48ebea396766f836a7be4036f429ff100eb4bf5f0bc70679fc7e59936",
     "infra/conf/hysteria.go": "28627316ad7c5a68202aea51c489c1c7e33742b570113bde7a323cce45a7bc8b",
     "infra/conf/log.go": "78f26719e7f19087ffa217e593a0cc9ecbaa998746c106672b2ee5cf26fa0781",
@@ -31,7 +31,7 @@
     "infra/conf/socks.go": "487ef1e587b0cfbb2f9cde8ab71f28922acf5bfa95719e5d24b8c5d2be9063a5",
     "infra/conf/transport_finalmask.go": "d1037d60d4a372b82eb7e053726c76ac49bf84726367517d49b0df93c7284455",
     "infra/conf/transport_internet.go": "d07fb2fe1f3935f86396564afb26d79e0cfe865adc5dd52bd694f5cff8518d9c",
-    "infra/conf/transport_method.go": "5996fda44717d5ac2aed336ad74b009fa3e695a0127b842177b7b429fc70f427",
+    "infra/conf/transport_method.go": "a485be8746527d03041edea2c99ba9d6d4866c9b44cd1475c1264790f2258468",
     "infra/conf/transport_security.go": "dd7ea89e62d90bfd644bbd37ae44f0a1f8e66d10095fe12bd87a774571e4554e",
     "infra/conf/transport_sockopt.go": "9fba6eab1f52d0dac18c26b12f828a04762dfe44f08c123218da53faf45b32e3",
     "infra/conf/trojan.go": "9aa3c084b6e1eb8e0819c360c6ac316c5055fe31fde7b6879683aa277b5a4e50",
@@ -40,7 +40,7 @@
     "infra/conf/vless.go": "931e622cb00384016921fb825edd166f2753b9447113a0ed36c946e53e1b06d1",
     "infra/conf/vmess.go": "64a95f1085c794407432f6e89e22b835f5ae5f747dcafa425f5b3aff7b3ee096",
     "infra/conf/wireguard.go": "9e437212a7adf79ce5887f9c76fe9fd43093c42e62e73ed0e2caa5d245b884dd",
-    "infra/conf/xray.go": "01d1808afc8478373a201990c55d0ef2c037939f083a4cde96f29cf04135b7bb"
+    "infra/conf/xray.go": "6620e01be06b90b4452dcf6bf2d9ced2cda3d1362ed353273b9000cb31af856f"
   },
   "protocols": {
     "inbound": {
@@ -1074,7 +1074,14 @@
       "eagerWindowMs": "uint32",
       "holeTimeoutMs": "uint32",
       "template": "json.RawMessage",
+      "s3": "*XDriveS3Config",
       "xmux": "XmuxConfig"
+    },
+    "XDriveS3Config": {
+      "endpoint": "string",
+      "region": "string",
+      "bucket": "string",
+      "pathStyle": "*bool"
     },
     "XMC": {
       "hostname": "string",

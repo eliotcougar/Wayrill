@@ -264,7 +264,7 @@ const vlessFields: SettingDefinition[] = [
   json('transport', 'xdriveSettings', 'XDrive settings (JSON)', {
     required: true,
     visibleWhen: { network: 'xdrive' },
-    help: 'Full xdriveSettings: service, remoteFolder, secrets or template, and optional transfer tuning.',
+    help: 'Full xdriveSettings: service, remoteFolder, secrets, template or s3, and optional transfer tuning.',
   }),
   field('security', 'security', 'Transport security', 'select', 'tls', {
     options: ['tls', 'reality', 'none'],
