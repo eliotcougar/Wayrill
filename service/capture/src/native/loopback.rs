@@ -150,10 +150,10 @@ pub fn read() -> Result<BTreeMap<String, u32>> {
 pub fn version(entries: &BTreeMap<String, u32>) -> Result<String> {
     // SID keys are ASCII; BTreeMap order and compact JSON match the shipping
     // SortedDictionary/JsonSerializer version, including unknown SID attributes.
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(entries)?)
-    ))
+    Ok(Sha256::digest(serde_json::to_vec(entries)?)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 fn project(packages: &[Package], current: &BTreeMap<String, u32>) -> Result<Snapshot> {
     let mut rows = Vec::with_capacity(packages.len());
