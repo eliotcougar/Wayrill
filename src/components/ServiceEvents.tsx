@@ -1,7 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Search } from 'lucide-react';
-import type { ServiceEvent } from '../serviceClient';
+import type { ServiceEvent, ServiceSnapshot } from '../serviceClient';
 import RoutingLogFilter, { allLogItems, logItemVisible } from './RoutingLogFilter';
+
+function eventText(event: ServiceEvent): string {
+  const payload = event.payload;
+  if (payload && typeof payload === 'object') {
+    if (event.kind === 'core.log' && 'message' in payload) return String(payload.message);
+    const snapshot = payload as Partial<ServiceSnapshot>;
+    if (typeof snapshot.core?.state === 'string' && typeof snapshot.config?.revision === 'number') {
+      const failure = snapshot.core.lastError ?? snapshot.config.recoveryError;
+      return `Xray: ${snapshot.core.state} · revision ${snapshot.config.revision}${failure ? ` · ${failure.code}: ${failure.message}` : ''}`;
+    }
+  }
+  return JSON.stringify(payload) ?? '';
+}
 
 export default function ServiceEvents({
   events,
@@ -21,13 +34,7 @@ export default function ServiceEvents({
       events.map((event) => ({
         event,
         source: event.kind.split('.')[0],
-        text:
-          event.kind === 'core.log' &&
-          event.payload &&
-          typeof event.payload === 'object' &&
-          'message' in event.payload
-            ? String(event.payload.message)
-            : (JSON.stringify(event.payload) ?? ''),
+        text: eventText(event),
       })),
     [events],
   );

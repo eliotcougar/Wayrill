@@ -105,3 +105,24 @@ it('follows the tail until scrolled up and resumes when the user returns to the 
   await render(events, true);
   expect(log().scrollTop).toBe(1400);
 });
+
+it('keeps state-change events concise without hiding their failure reason', async () => {
+  await render([
+    {
+      ...event(1, 'core.state', ''),
+      payload: {
+        core: {
+          state: 'failed',
+          lastError: { code: 'CORE_EXIT', message: 'Core exited unexpectedly' },
+        },
+        config: { revision: 42 },
+        traffic: { detail: 'Unnecessary bulk snapshot details' },
+      },
+    },
+  ]);
+  expect(log().textContent).toContain('failed');
+  expect(log().textContent).toContain('42');
+  expect(log().textContent).toContain('CORE_EXIT');
+  expect(log().textContent).toContain('Core exited unexpectedly');
+  expect(log().textContent).not.toContain('Unnecessary bulk snapshot details');
+});
