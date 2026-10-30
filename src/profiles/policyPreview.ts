@@ -10,6 +10,7 @@ import {
   type PolicySources,
 } from '../graph/policySources';
 import { compileXrayGraph } from '../graph/xrayCompiler';
+import { policyContextPreview } from '../graph/configPreview';
 import type { GraphState, RuleNode, RuleNodeData } from '../graph/types';
 import type { Stash } from './import';
 
@@ -64,14 +65,17 @@ export function calculatePolicyPreview(
         observed ? input.observer : undefined,
       );
       corePreview = JSON.stringify(
-        graph.xray
-          ? compileXrayGraph(next).config
-          : compilePolicies(next, [
-              { tag: 'wayrill-runtime-unmatched' },
-              ...graph.nodes
-                .filter((n) => isExecutableOutboundKind(n.data.kind))
-                .flatMap((n) => outboundBundle(n.data)),
-            ]),
+        policyContextPreview(
+          graph.xray
+            ? compileXrayGraph(next).config
+            : (compilePolicies(next, [
+                { tag: 'wr-u' },
+                ...graph.nodes
+                  .filter((n) => isExecutableOutboundKind(n.data.kind))
+                  .flatMap((n) => outboundBundle(n.data)),
+              ]) as unknown as Record<string, unknown>),
+          String(input.settings.tag),
+        ),
         null,
         2,
       );

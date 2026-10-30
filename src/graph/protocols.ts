@@ -1,4 +1,5 @@
 import { isIpLiteral } from './addressValidation';
+import { applyUdpBufferSettings } from './socketBuffers';
 import {
   tunCaptureSettings,
   DEFAULT_TUN_ADAPTER_NAME,
@@ -524,6 +525,8 @@ function commonValue(key: string, value: SettingValue, s: RuleNodeData['settings
   return value === '' ? undefined : value;
 }
 export const sharedSocketKeys = [
+  'udpReceiveBufferKiB',
+  'udpSendBufferKiB',
   'sendThrough',
   'interface',
   'domainStrategy',
@@ -776,6 +779,18 @@ export function protocolPreview(data: RuleNodeData): Record<string, unknown> {
       raw = putPath(raw, path, 'brutal', true);
     else if (getPath(raw, path) === 'brutal') raw = putPath(raw, path, undefined, true);
   }
+  if (spec.direction === 'outbound') {
+    const stream = nativeValue(raw, 'streamSettings');
+    const sockopt = jsonRecord(stream) ? nativeValue(stream, 'sockopt') : undefined;
+    const next = applyUdpBufferSettings(jsonRecord(sockopt) ? sockopt : {}, data);
+    if (next !== sockopt && (jsonRecord(sockopt) || Object.keys(next).length))
+      raw = putPath(
+        raw,
+        ['streamSettings', 'sockopt'],
+        Object.keys(next).length ? next : undefined,
+        true,
+      );
+  }
   raw = omitCoreDefaults(data, setNative(raw, 'tag', s.tag || undefined));
   checkJson(raw);
   return raw;
@@ -943,7 +958,9 @@ export function protocolDefinitions(
           ...(spec.kind === 'ics-tun'
             ? { sharingVersion: '', publicId: '', privateId: '', shareIpv6: false }
             : {}),
-          ...Object.fromEntries(shared.map((f) => [f.key, f.defaultValue!])),
+          ...Object.fromEntries(
+            shared.filter((f) => f.defaultValue !== undefined).map((f) => [f.key, f.defaultValue!]),
+          ),
         },
       };
     });

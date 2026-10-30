@@ -26,4 +26,5 @@ Helpers run in contained jobs; their exit/pipe lifetimes belong to the service.
 UI disconnection must not silently retire a healthy runtime.
 
 See [lifecycle](lifecycle.md), [reliability](reliability.md), [service API](service-api.md),
-[compiler](graph-compiler.md) and [Xray integrations](xray-customizations.md).
+[compiler](graph-compiler.md), [generated tags](generated-tags.md) and
+[Xray integrations](xray-customizations.md).

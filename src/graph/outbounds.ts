@@ -1,4 +1,6 @@
 import { jsonRecord, parseJsonObject, parseJson } from './xrayJson';
+import { generatedTag } from './tags';
+import { applyUdpBufferSettings } from './socketBuffers';
 import { omitCoreDefaults, valueAt } from './coreDefaults';
 import {
   fragmentFields,
@@ -82,6 +84,19 @@ const identity = (tag: string) =>
     help: 'A unique name used by routing rules and other outbounds.',
   });
 const socketFields = [
+  ...[
+    ['udpReceiveBufferKiB', 'UDP receive buffer (KiB)'],
+    ['udpSendBufferKiB', 'UDP send buffer (KiB)'],
+  ].map(([key, label]): SettingDefinition => ({
+    section: 'socket',
+    key,
+    label,
+    type: 'number',
+    optional: true,
+    min: 0,
+    max: 65536,
+    help: 'Per UDP socket. 0 uses the Windows default. Windows support is checked during validation and startup.',
+  })),
   text('socket', 'sendThrough', 'Source IP / CIDR', {
     help: 'Optional local source address; Xray also accepts origin or srcip. Leave blank for automatic selection.',
   }),
@@ -466,7 +481,11 @@ function definition(
     category: 'outbound',
     fields,
     sections,
-    defaults: Object.fromEntries(fields.map((item) => [item.key, item.defaultValue!])),
+    defaults: Object.fromEntries(
+      fields
+        .filter((item) => item.defaultValue !== undefined)
+        .map((item) => [item.key, item.defaultValue!]),
+    ),
   };
 }
 export const outboundDefinitions: NodeDefinition[] = [
@@ -776,32 +795,35 @@ function configuredOutboundPreview(data: RuleNodeData): Record<string, unknown> 
     typeof s[key] === 'number' &&
     (!data.native ||
       valueAt(data.native.projection, ['streamSettings', 'sockopt', key]) !== undefined);
-  const socket = {
-    ...obj('sockoptExtra'),
-    domainStrategy: s.domainStrategy,
-    ...(s.interface ? { interface: s.interface } : {}),
-    ...(s.dialerProxy ? { dialerProxy: s.dialerProxy } : {}),
-    ...(s.tcpFastOpen === 'default' ? {} : { tcpFastOpen: s.tcpFastOpen === 'enabled' }),
-    ...(s.tcpKeepAliveIdle || explicitSocketNumber('tcpKeepAliveIdle')
-      ? { tcpKeepAliveIdle: s.tcpKeepAliveIdle }
-      : {}),
-    ...(s.tcpKeepAliveInterval || explicitSocketNumber('tcpKeepAliveInterval')
-      ? { tcpKeepAliveInterval: s.tcpKeepAliveInterval }
-      : {}),
-    ...(s.tcpUserTimeout || explicitSocketNumber('tcpUserTimeout')
-      ? { tcpUserTimeout: s.tcpUserTimeout }
-      : {}),
-    ...(s.happyEyeballsEnabled
-      ? {
-          happyEyeballs: {
-            tryDelayMs: s.happyEyeballsDelay,
-            prioritizeIPv6: s.happyEyeballsIPv6,
-            interleave: s.happyEyeballsInterleave,
-            maxConcurrentTry: s.happyEyeballsMax,
-          },
-        }
-      : {}),
-  };
+  const socket = applyUdpBufferSettings(
+    {
+      ...obj('sockoptExtra'),
+      domainStrategy: s.domainStrategy,
+      ...(s.interface ? { interface: s.interface } : {}),
+      ...(s.dialerProxy ? { dialerProxy: s.dialerProxy } : {}),
+      ...(s.tcpFastOpen === 'default' ? {} : { tcpFastOpen: s.tcpFastOpen === 'enabled' }),
+      ...(s.tcpKeepAliveIdle || explicitSocketNumber('tcpKeepAliveIdle')
+        ? { tcpKeepAliveIdle: s.tcpKeepAliveIdle }
+        : {}),
+      ...(s.tcpKeepAliveInterval || explicitSocketNumber('tcpKeepAliveInterval')
+        ? { tcpKeepAliveInterval: s.tcpKeepAliveInterval }
+        : {}),
+      ...(s.tcpUserTimeout || explicitSocketNumber('tcpUserTimeout')
+        ? { tcpUserTimeout: s.tcpUserTimeout }
+        : {}),
+      ...(s.happyEyeballsEnabled
+        ? {
+            happyEyeballs: {
+              tryDelayMs: s.happyEyeballsDelay,
+              prioritizeIPv6: s.happyEyeballsIPv6,
+              interleave: s.happyEyeballsInterleave,
+              maxConcurrentTry: s.happyEyeballsMax,
+            },
+          }
+        : {}),
+    },
+    data,
+  );
   const common = { tag: s.tag, ...(s.sendThrough ? { sendThrough: s.sendThrough } : {}) };
   if (data.kind === 'block-outbound')
     return {
@@ -1006,7 +1028,7 @@ function configuredOutboundPreview(data: RuleNodeData): Record<string, unknown> 
 export function outboundBundle(data: RuleNodeData): Record<string, unknown>[] {
   const outbound = outboundPreview(data);
   if (data.kind !== 'vless-outbound' || !data.settings.finalFragmentEnabled) return [outbound];
-  const innerTag = 'wayrill-runtime-inner-' + String(data.settings.tag);
+  const innerTag = generatedTag('wri', String(data.settings.tag));
   return [
     {
       tag: data.settings.tag,

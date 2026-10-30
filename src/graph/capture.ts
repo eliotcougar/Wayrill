@@ -326,9 +326,8 @@ function ambiguousTunRules(
   mask: string,
 ) {
   const outbounds = config.outbounds as Record<string, unknown>[];
-  const blockTag = 'wayrill-runtime-ambiguous';
-  if (outbounds.some((o) => o.tag === blockTag))
-    throw new Error('The tag wayrill-runtime-ambiguous is reserved.');
+  const blockTag = 'wr-a';
+  if (outbounds.some((o) => o.tag === blockTag)) throw new Error('The tag wr-a is reserved.');
   outbounds.push({
     tag: blockTag,
     protocol: 'blackhole',

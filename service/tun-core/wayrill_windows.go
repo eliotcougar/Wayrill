@@ -50,7 +50,7 @@ func wayrillProcessIdentity(ctx context.Context, source, destination net.Destina
 	fields := strings.Split(parts[0], ":")
 	width := 0
 	if parts[0] != "" {
-		if (len(fields) != 4 && len(fields) != 5) || fields[0] != "127.0.0.1" || len(fields[2]) != 64 || (len(fields) == 5 && fields[4] != "wayrill-runtime-nat") {
+		if (len(fields) != 4 && len(fields) != 5) || fields[0] != "127.0.0.1" || len(fields[2]) != 64 || (len(fields) == 5 && fields[4] != "wr-n" && fields[4] != "wayrill-runtime-nat") {
 			return "", fmt.Errorf("invalid TUN attribution endpoint")
 		}
 		var err error

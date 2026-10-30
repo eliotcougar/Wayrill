@@ -76,10 +76,10 @@ pub(crate) fn validate(config: &Value) -> Result<()> {
     for input in native(config, "inbounds").as_array().into_iter().flatten() {
         if native(input, "tag")
             .as_str()
-            .is_some_and(|tag| tag.starts_with("wr-tun-resolver-native-"))
+            .is_some_and(|tag| tag.starts_with("wdr-n-"))
         {
             return Err(invalid(
-                "Inbound tag prefix wr-tun-resolver-native- is reserved for the service resolver.",
+                "Inbound tag prefix wdr-n- is reserved for the service resolver.",
             ));
         }
     }
@@ -644,10 +644,10 @@ mod tests {
         for key in ["tag", "Tag"] {
             let mut input =
                 serde_json::json!({"protocol":"socks","listen":"127.0.0.1","port":10808});
-            input[key] = serde_json::json!("wr-tun-resolver-native-user");
+            input[key] = serde_json::json!("wdr-n-user");
             let mut config = serde_json::json!({"inbounds":[input],"outbounds":[{"tag":"direct","protocol":"freedom","settings":{}}]});
             assert!(validate(&config).unwrap_err().message.contains("reserved"));
-            config["inbounds"][0][key] = serde_json::json!("wr-tun-resolver-user");
+            config["inbounds"][0][key] = serde_json::json!("wdr-user");
             assert!(validate(&config).is_ok(), "{:?}", validate(&config));
         }
     }

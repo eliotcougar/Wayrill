@@ -47,6 +47,7 @@ import {
   type DnsServer,
 } from '../graph/dns';
 import { compileDnsGraph } from '../graph/dnsCompilation';
+import { dnsContextPreview } from '../graph/configPreview';
 import { FAKE_DNS_PORT } from '../graph/fakeDns';
 import type { Diagnostic, GraphState, RuleNode, RuleNodeData, SettingValue } from '../graph/types';
 
@@ -303,7 +304,15 @@ export default function DnsEditor({
   let preview = '',
     previewError = '';
   try {
-    preview = JSON.stringify(compileDnsGraph(draftGraph), null, 2);
+    preview = JSON.stringify(
+      dnsContextPreview(
+        compileDnsGraph(draftGraph) as unknown as Record<string, unknown>,
+        data,
+        node.id,
+      ),
+      null,
+      2,
+    );
   } catch (error) {
     previewError =
       error instanceof Error

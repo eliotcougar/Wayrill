@@ -23,7 +23,7 @@ describe('FakeDNS pools and resolver graph', () => {
       expect.objectContaining({
         rules: expect.arrayContaining([
           expect.objectContaining({
-            inboundTag: expect.arrayContaining([expect.stringMatching(/^wayrill-dns-/)]),
+            inboundTag: expect.arrayContaining([expect.stringMatching(/^wds-/)]),
           }),
         ]),
       }),

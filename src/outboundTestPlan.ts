@@ -1,4 +1,5 @@
 import { isOutboundKind } from './graph/outbounds';
+import { generatedTag } from './graph/tags';
 import { factoryDefaults, resolveNodeData } from './graph/defaults';
 import { udpListenerEnvironment } from './graph/udpListeners';
 import {
@@ -150,7 +151,7 @@ export function createTestPlan(input: TestPlanInput) {
         const node = stashEditorNode(entry, draft, `test-entry-${i}`);
         // Stash tags belong to independent definitions. They must not replace
         // graph dependencies or DNS transports when the test context is merged.
-        let tag = `wayrill-test-entry-${i}`;
+        let tag = generatedTag('wte', i);
         while (testTags.has(tag)) tag += '-x';
         testTags.add(tag);
         node.data.settings.tag = tag;

@@ -11,6 +11,7 @@ import { EditorTabs, EditorTabPanels, useEditorTabs } from './EditorTabs';
 import useModalDialog from './useModalDialog';
 import usePolicyPreview from '../profiles/usePolicyPreview';
 import { compileXrayGraph } from '../graph/xrayCompiler';
+import { policyContextPreview } from '../graph/configPreview';
 import { X } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { makeNode } from '../graph/catalog';
@@ -238,14 +239,16 @@ export default function PolicyEditor({
   if (!isGroup && tab === 'preview') {
     try {
       preview = JSON.stringify(
-        graph.xray
-          ? compileXrayGraph(nextGraph()).config
-          : compilePolicies(nextGraph(), [
-              { tag: 'wayrill-runtime-unmatched' },
-              ...graph.nodes
-                .filter((n) => isExecutableOutboundKind(n.data.kind))
-                .flatMap((n) => outboundBundle(n.data)),
-            ]),
+        policyContextPreview(
+          graph.xray
+            ? compileXrayGraph(nextGraph()).config
+            : (compilePolicies(nextGraph(), [
+                { tag: 'wr-u' },
+                ...graph.nodes
+                  .filter((n) => isExecutableOutboundKind(n.data.kind))
+                  .flatMap((n) => outboundBundle(n.data)),
+              ]) as unknown as Record<string, unknown>),
+        ),
         null,
         2,
       );

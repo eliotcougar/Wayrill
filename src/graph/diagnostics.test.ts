@@ -15,7 +15,7 @@ describe('Runtime graph diagnostics', () => {
       listen: 'localhost',
       port: 2081,
     });
-    g.nodes.find((n) => n.id === 'preferred')!.data.settings.tag = 'wayrill-runtime-test';
+    g.nodes.find((n) => n.id === 'preferred')!.data.settings.tag = 'wr-test';
     const f = g.nodes.find((n) => n.id === 'routes')!,
       table = readRuleTable(f.data.settings);
     table.rules[0].conditions.process = 'browser.exe';

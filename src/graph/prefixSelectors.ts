@@ -13,7 +13,7 @@ export function prefixMatches(sorted: readonly string[], prefix: string): boolea
 
 export function compactSelectors(selected: readonly string[], all: readonly string[]): string[] {
   const members = new Set(selected);
-  const excluded = [...all.filter((tag) => !members.has(tag)), 'wayrill-telemetry-'].sort();
+  const excluded = [...all.filter((tag) => !members.has(tag)), 'wt-'].sort();
   const prefixes = new Set<string>();
   for (const tag of members) {
     let prefix = '';

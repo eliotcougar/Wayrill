@@ -21,7 +21,7 @@ fn relay_rules(main: &Value, tags: &BTreeSet<&str>) -> Vec<Value> {
                 .as_array()
                 .is_some_and(|a| a.len() == 1 && a[0].as_str().is_some_and(|t| tags.contains(t)))
                 && rule["user"].as_array().is_some_and(|a| {
-                    a.len() == 1 && a[0].as_str().is_some_and(|u| u.starts_with("wr-tun-"))
+                    a.len() == 1 && a[0].as_str().is_some_and(|u| u.starts_with("wtr-"))
                 })
         })
         .cloned()
@@ -121,7 +121,7 @@ impl Manager {
                 .clone();
             host["outbounds"]
                 .as_array_mut()?
-                .retain(|o| !o["tag"].as_str().is_some_and(|t| t.starts_with("wr-ics6-")));
+                .retain(|o| !o["tag"].as_str().is_some_and(|t| t.starts_with("wi6-")));
             aliases =
                 super::shared_ipv6_worker(host, shared, &capture?.tun_sharing.as_ref()?.private_id)
                     .ok()?;
@@ -225,25 +225,25 @@ mod tests {
     use super::*;
     #[test]
     fn local_resolver_bridge_does_not_acquire_original_dns_server_scopes() {
-        let old = json!({"inbounds":[{"tag":"shared"}],"outbounds":[{"tag":"wr-tun-2","protocol":"socks"}],"dns":{"tag":"global-dns","servers":["tcp+local://127.0.0.1:54321"]},"routing":{"rules":[]}});
-        let relays = vec![json!({"inboundTag":["shared"],"user":["wr-tun-2"],"outboundTag":"b"})];
+        let old = json!({"inbounds":[{"tag":"shared"}],"outbounds":[{"tag":"wtr-2","protocol":"socks"}],"dns":{"tag":"global-dns","servers":["tcp+local://127.0.0.1:54321"]},"routing":{"rules":[]}});
+        let relays = vec![json!({"inboundTag":["shared"],"user":["wtr-2"],"outboundTag":"b"})];
         let raw = json!({"dns":{"servers":[{"tag":"original-server"}]},"routing":{"rules":[{"inboundTag":["original-server"],"outboundTag":"unprepared"},{"outboundTag":"b"}]}});
         let projected = project_worker(&old, &raw, &relays).unwrap();
         assert_eq!(projected["routing"]["rules"].as_array().unwrap().len(), 1);
-        assert_eq!(projected["routing"]["rules"][0]["outboundTag"], "wr-tun-2");
+        assert_eq!(projected["routing"]["rules"][0]["outboundTag"], "wtr-2");
     }
     #[test]
     fn projects_removed_rules_without_changing_relay_accounts_or_resolver() {
-        let old = json!({"inbounds":[{"tag":"host"}],"outbounds":[{"tag":"wr-tun-9","protocol":"socks"},{"tag":"wr-tun-2","protocol":"socks"},{"tag":"dns","protocol":"dns"}],"routing":{"rules":[{"inboundTag":["resolver"],"outboundTag":"dns"}]}});
+        let old = json!({"inbounds":[{"tag":"host"}],"outbounds":[{"tag":"wtr-9","protocol":"socks"},{"tag":"wtr-2","protocol":"socks"},{"tag":"dns","protocol":"dns"}],"routing":{"rules":[{"inboundTag":["resolver"],"outboundTag":"dns"}]}});
         let relays = vec![
-            json!({"inboundTag":["host"],"user":["wr-tun-9"],"outboundTag":"a"}),
-            json!({"inboundTag":["host"],"user":["wr-tun-2"],"outboundTag":"b"}),
+            json!({"inboundTag":["host"],"user":["wtr-9"],"outboundTag":"a"}),
+            json!({"inboundTag":["host"],"user":["wtr-2"],"outboundTag":"b"}),
         ];
         let raw = json!({"routing":{"rules":[{"domain":["example.org"],"outboundTag":"b"}]}});
         let projected = project_worker(&old, &raw, &relays).unwrap();
         assert_eq!(projected["outbounds"], old["outbounds"]);
         assert_eq!(projected["routing"]["rules"][0], old["routing"]["rules"][0]);
-        assert_eq!(projected["routing"]["rules"][1]["outboundTag"], "wr-tun-2");
+        assert_eq!(projected["routing"]["rules"][1]["outboundTag"], "wtr-2");
         let mut changed = raw;
         changed["routing"]["rules"][0]["outboundTag"] = json!("unprepared");
         assert!(project_worker(&old, &changed, &relays).is_none());

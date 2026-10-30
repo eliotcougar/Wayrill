@@ -71,7 +71,13 @@ pub(crate) fn private_prefix(config: &Value) -> Result<char> {
 }
 pub fn private_tag(config: &Value, base: &str) -> Result<String> {
     let first = private_prefix(config)?;
-    Ok(format!("{first}wr-{base}-{}", crate::tun::random_id()?))
+    let prefix = match base {
+        "control" => "wa",
+        "local" => "wl",
+        "telemetry" => "wt",
+        _ => base,
+    };
+    Ok(format!("{first}{prefix}-{}", crate::tun::random_tag_id()?))
 }
 impl Policy {
     pub fn rules(&self) -> &[Value] {
@@ -109,8 +115,8 @@ impl Policy {
                 outputs.push(original.clone());
                 continue;
             }
-            let scope = format!("{namespace}-{index}");
-            let inner = format!("{scope}-transport");
+            let scope = format!("{namespace}-{}", crate::tags::number(index as u64));
+            let inner = format!("{scope}-t");
             let mut transport = original.clone();
             transport["tag"] = json!(inner);
             if let Some(tag) = original["tag"].as_str().filter(|tag| !tag.is_empty()) {

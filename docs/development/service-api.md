@@ -47,6 +47,12 @@ clear changes the selected channel, restore checks its owned snapshot. Resource
 updates track content/reload generations independently from authored graph
 revision. Probe jobs have explicit lifetimes and preserve unrelated prior results.
 
+Applied display metadata also carries an optional `observed` map from a generated
+probe alias to its public outbound tag. The service validates both tags against
+the applied config and uses this map to report Observatory results for plain
+outbounds and chains. It is presentation metadata, not a routing instruction;
+opaque compact aliases do not need to be decoded on each polling cycle.
+
 `wayrillctl` is a diagnostic client of this same fixed API. For commands use its
 help and current schema; it is not a privileged shell. Exported profiles and
 diagnostics may contain sensitive data. Keep private test receipts outside Git.

@@ -15,6 +15,6 @@ it('keeps both matched filters and fallbacks beside flattened config, not inside
   expect(trails.some((t) => t[0].rule === 'Unmatched traffic')).toBe(true);
   const exported = JSON.stringify(compiled.config);
   expect(exported).not.toContain('filterId');
-  expect(exported).not.toContain('wr-route-');
+  expect(exported).not.toContain('wrr-');
   expect(exported).not.toContain('Web');
 });

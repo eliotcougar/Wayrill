@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
+import { generatedTag } from './tags';
 import {
   applyDefaults,
   enableDefaults,
@@ -67,7 +68,9 @@ describe('global defaults and explicit overrides', () => {
     );
     const updated = updateGraphNode(fresh, preferred(fresh).id, explicit);
     expect(outboundPreview(preferred(updated).data)).toMatchObject({
-      streamSettings: { sockopt: { customSockopt: [{ value: '524288' }] } },
+      streamSettings: {
+        sockopt: { customSockopt: expect.arrayContaining([{ ...options[0], value: '524288' }]) },
+      },
     });
     const inheritedCore = applyDefaults(fresh, { version: 1, settings: {} });
     expect(outboundPreview(preferred(inheritedCore).data)).not.toHaveProperty(
@@ -137,17 +140,17 @@ describe('global defaults and explicit overrides', () => {
     expect(outbounds.find((o) => o.tag === 'preferred')).toMatchObject({
       protocol: 'freedom',
       streamSettings: {
-        sockopt: { dialerProxy: 'wayrill-runtime-inner-preferred' },
+        sockopt: { dialerProxy: generatedTag('wri', 'preferred') },
         finalmask: { tcp: [{ type: 'fragment' }] },
       },
     });
-    expect(outbounds.find((o) => o.tag === 'wayrill-runtime-inner-preferred')).toMatchObject({
+    expect(outbounds.find((o) => o.tag === generatedTag('wri', 'preferred'))).toMatchObject({
       protocol: 'vless',
       streamSettings: { tlsSettings: { fingerprint: 'firefox' } },
     });
     expect(dns.outbounds.find((o) => o.tag === 'preferred')).toMatchObject({ protocol: 'freedom' });
     expect(outbounds.filter((o) => o.tag === 'preferred')).toHaveLength(1);
-    expect(outbounds.filter((o) => o.tag === 'wayrill-runtime-inner-preferred')).toHaveLength(1);
+    expect(outbounds.filter((o) => o.tag === generatedTag('wri', 'preferred'))).toHaveLength(1);
   });
   it('emits transport headers correctly, without changing client application requests', () => {
     for (const network of ['raw', 'grpc', 'ws', 'httpupgrade', 'xhttp']) {

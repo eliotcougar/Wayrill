@@ -208,6 +208,8 @@ export const advancedSettings: Record<string, readonly string[]> = {
 };
 
 export const basicGlobalSettings = new Set([
+  'udpReceiveBufferKiB',
+  'udpSendBufferKiB',
   'sniffing',
   'routeOnly',
   'sniffHttp',

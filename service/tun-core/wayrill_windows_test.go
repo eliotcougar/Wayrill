@@ -182,7 +182,7 @@ func TestWayrillNATIdentityChangesOnlyRoutingMetadata(t *testing.T) {
 		auth := strings.Repeat("a", 64)
 		endpoint := listener.Addr().String() + ":" + auth + ":1"
 		if separate {
-			endpoint += ":wayrill-runtime-nat"
+			endpoint += ":wr-n"
 		}
 		t.Setenv("WAYRILL_TUN_METADATA", endpoint)
 		go func() {
@@ -207,7 +207,7 @@ func TestWayrillNATIdentityChangesOnlyRoutingMetadata(t *testing.T) {
 		}
 		wantTag := "host-tun"
 		if separate {
-			wantTag = "wayrill-runtime-nat"
+			wantTag = "wr-n"
 		}
 		if inbound.Tag != wantTag || wire.Address.IP().String() != "10.90.0.1" || wire.Port != 50001 {
 			t.Fatal("routing tag or actual NAT wire tuple changed")
@@ -234,7 +234,7 @@ func TestWayrillNATRejectsMalformedIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer listener.Close()
-			t.Setenv("WAYRILL_TUN_METADATA", listener.Addr().String()+":"+strings.Repeat("a", 64)+":1:wayrill-runtime-nat")
+			t.Setenv("WAYRILL_TUN_METADATA", listener.Addr().String()+":"+strings.Repeat("a", 64)+":1:wr-n")
 			go func() {
 				conn, err := listener.Accept()
 				if err != nil {

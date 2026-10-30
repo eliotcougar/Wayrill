@@ -1,15 +1,141 @@
 //! Query actual Windows listener owners. Binding a probe is not a UDP readiness
 //! test: Go's wildcard dual-stack socket may coexist with an IPv4 probe bind.
 use std::{
+    collections::BTreeMap,
     mem::size_of,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket},
+    os::windows::io::AsRawSocket,
 };
 use wayrill_protocol::{ApiError, ListenerEndpoint, ListenerNetwork, Result};
 use windows_sys::Win32::{
     Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_NOT_SUPPORTED},
     NetworkManagement::IpHelper::*,
-    Networking::WinSock::{AF_INET, AF_INET6},
+    Networking::WinSock::{
+        getsockopt, setsockopt, WSAGetLastError, AF_INET, AF_INET6, SOCKET_ERROR, SOL_SOCKET,
+        SO_RCVBUF, SO_SNDBUF,
+    },
 };
+
+/// Probe isolated sockets before retiring routing. Windows may reject or clamp
+/// a size; Xray's config syntax test alone cannot detect either outcome.
+pub fn validate_udp_buffers(config: &serde_json::Value) -> Result<()> {
+    let mut requests = BTreeMap::<(bool, i32, i32), bool>::new();
+    fn add(
+        requests: &mut BTreeMap<(bool, i32, i32), bool>,
+        network: &str,
+        option: i32,
+        value: i32,
+    ) {
+        for (ipv6, family) in [(false, "udp4"), (true, "udp6")] {
+            if family.starts_with(network) {
+                *requests.entry((ipv6, option, value)).or_default() |= network == "udp6";
+            }
+        }
+    }
+    fn collect(value: &serde_json::Value, requests: &mut BTreeMap<(bool, i32, i32), bool>) {
+        if let Some(object) = value.as_object() {
+            if let Some(options) = object.get("customSockopt").and_then(|v| v.as_array()) {
+                for option in options {
+                    let text = |key: &str| option[key].as_str().unwrap_or("");
+                    if !["", "windows"].contains(&text("system"))
+                        || text("level") != "65535"
+                        || text("type") != "int"
+                    {
+                        continue;
+                    }
+                    let number = match text("opt") {
+                        "4098" => SO_RCVBUF,
+                        "4097" => SO_SNDBUF,
+                        _ => continue,
+                    };
+                    if let Ok(size) = text("value").parse::<i32>() {
+                        add(requests, text("network"), number, size);
+                    }
+                }
+            }
+            for child in object.values() {
+                collect(child, requests);
+            }
+        } else if let Some(array) = value.as_array() {
+            for child in array {
+                collect(child, requests);
+            }
+        }
+    }
+    collect(config, &mut requests);
+    for (key, option) in [
+        ("WAYRILL_UDP_LISTENER_RECEIVE_BYTES", SO_RCVBUF),
+        ("WAYRILL_UDP_LISTENER_SEND_BYTES", SO_SNDBUF),
+    ] {
+        if let Some(size) = config["env"][key]
+            .as_str()
+            .and_then(|v| v.parse::<i32>().ok())
+            .filter(|v| *v > 0)
+        {
+            add(&mut requests, "udp", option, size);
+        }
+    }
+    for ipv6 in [false, true] {
+        if !requests.keys().any(|(family, _, _)| *family == ipv6) {
+            continue;
+        }
+        let socket = match UdpSocket::bind(if ipv6 { "[::1]:0" } else { "127.0.0.1:0" }) {
+            Ok(socket) => socket,
+            Err(error)
+                if ipv6
+                    && matches!(error.raw_os_error(), Some(10043 | 10047 | 10049))
+                    && !requests
+                        .iter()
+                        .any(|((family, _, _), required)| *family && *required) =>
+            {
+                continue
+            }
+            Err(error) => return Err(ApiError::io("Check Windows UDP buffer support", error)),
+        };
+        for (family, option, requested) in requests.keys() {
+            if *family != ipv6 {
+                continue;
+            }
+            let mut accepted = 0i32;
+            let mut bytes = size_of::<i32>() as i32;
+            // Winsock borrows these exact-sized integers only for each call.
+            let result = unsafe {
+                if setsockopt(
+                    socket.as_raw_socket() as usize,
+                    SOL_SOCKET,
+                    *option,
+                    (requested as *const i32).cast(),
+                    bytes,
+                ) == SOCKET_ERROR
+                    || getsockopt(
+                        socket.as_raw_socket() as usize,
+                        SOL_SOCKET,
+                        *option,
+                        (&mut accepted as *mut i32).cast(),
+                        &mut bytes,
+                    ) == SOCKET_ERROR
+                {
+                    Err(std::io::Error::from_raw_os_error(WSAGetLastError()))
+                } else {
+                    Ok(())
+                }
+            };
+            let name = if *option == SO_RCVBUF {
+                "receive"
+            } else {
+                "send"
+            };
+            let family = if ipv6 { "IPv6" } else { "IPv4" };
+            if let Err(error) = result {
+                return Err(ApiError::new("SOCKET_BUFFER_UNSUPPORTED", format!("Windows rejected the {family} UDP {name} buffer of {requested} bytes: {error}")));
+            }
+            if accepted < *requested {
+                return Err(ApiError::new("SOCKET_BUFFER_UNSUPPORTED", format!("Windows accepted only {accepted} bytes for the {family} UDP {name} buffer; {requested} bytes were requested.")));
+            }
+        }
+    }
+    Ok(())
+}
 
 // Internal relays are service-owned; scope burst buffers to Windows UDP.
 pub fn udp_buffer_options(config: &serde_json::Value) -> serde_json::Value {
@@ -184,6 +310,15 @@ pub fn listeners() -> Result<Vec<OwnedEndpoint>> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn verifies_windows_udp_buffers_without_probing_other_platforms_or_tcp() {
+        let config = serde_json::json!({"env":{"WAYRILL_UDP_LISTENER_RECEIVE_BYTES":"65536"},"outbounds":[{"streamSettings":{"sockopt":{"customSockopt":[
+            {"system":"windows","network":"udp","level":"65535","opt":"4097","value":"131072","type":"int"},
+            {"system":"linux","network":"udp","level":"65535","opt":"4098","value":"-1","type":"int"},
+            {"system":"windows","network":"tcp","level":"65535","opt":"4098","value":"-1","type":"int"}
+        ]}}}]});
+        super::validate_udp_buffers(&config).unwrap();
+    }
     #[test]
     fn private_udp_buffers_follow_configured_values_and_system_omission() {
         use serde_json::json;

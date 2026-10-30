@@ -10,6 +10,7 @@ export const ObservatoryContext = createContext<ReadonlyMap<string, ObservationS
 export function compatibleObservedGroups(
   draft: Record<string, unknown> | null | undefined,
   applied: Record<string, unknown> | null,
+  observed: Record<string, string> = {},
 ): Set<string> {
   const result = new Set<string>();
   if (
@@ -21,14 +22,11 @@ export function compatibleObservedGroups(
     !matchesCapture(draft.burstObservatory, applied.burstObservatory)
   )
     return result;
-  if (jsonArray(draft.outbounds))
-    for (const outbound of draft.outbounds)
-      if (
-        jsonRecord(outbound) &&
-        typeof outbound.tag === 'string' &&
-        outbound.tag.startsWith('wayrill-observed-')
-      )
-        result.add(outbound.tag.slice('wayrill-observed-'.length));
+  if (jsonArray(draft.outbounds)) {
+    const tags = new Set(draft.outbounds.filter(jsonRecord).map((outbound) => outbound.tag));
+    for (const [probe, tag] of Object.entries(observed))
+      if (tags.has(probe) && tags.has(tag)) result.add(tag);
+  }
   const savedRouting = jsonRecord(applied.routing) ? applied.routing : {};
   const routing = jsonRecord(draft.routing) ? draft.routing : {};
   const saved = new Map(

@@ -1,4 +1,5 @@
 import { jsonArray, jsonRecord } from './xrayJson';
+import { observedTag } from './tags';
 import type { GraphState } from './types';
 import { getDefinition } from './catalog';
 import { getRoutingTrace, type RoutingHop } from './routingTrace';
@@ -7,6 +8,7 @@ export type DisplayNames = {
   outbound: Record<string, string>;
   routing?: Record<string, RoutingHop[]>;
   routingDefault?: RoutingHop[];
+  observed?: Record<string, string>;
 };
 /** Names belong to the applied revision, never to subsequently edited graph labels. */
 export function displayNames(
@@ -19,16 +21,29 @@ export function displayNames(
     outbound: Object.create(null) as Record<string, string>,
   };
   const nodeNames = { inbound: new Map<string, string>(), outbound: new Map<string, string>() };
+  const monitored = new Set(
+    graph.edges.filter((edge) => edge.sourceHandle === 'observation').map((edge) => edge.source),
+  );
+  const outboundTags = new Set(
+    (jsonArray(config.outbounds) ? config.outbounds : [])
+      .filter(jsonRecord)
+      .map((outbound) => outbound.tag),
+  );
   for (const node of graph.nodes) {
     const category = getDefinition(node.data.kind).category;
     if (
       (category === 'inbound' || category === 'outbound') &&
       typeof node.data.settings.tag === 'string'
-    )
+    ) {
       nodeNames[category === 'inbound' ? 'inbound' : 'outbound'].set(
         node.data.settings.tag,
         node.data.label,
       );
+      if (category === 'outbound' && monitored.has(node.id)) {
+        const tag = observedTag(node.data.settings.tag);
+        if (outboundTags.has(tag)) (names.observed ??= {})[tag] = node.data.settings.tag;
+      }
+    }
   }
   for (const [key, list] of [
     ['inbound', config.inbounds],

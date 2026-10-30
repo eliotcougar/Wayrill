@@ -4,7 +4,7 @@
     "prerelease": false,
     "url": "https://github.com/XTLS/Xray-core/releases/download/v26.10.29/Xray-windows-64.zip",
     "archiveSha256": "FCE33E81CCCF50E7AAB572B175519A50B5E0F9D2F5C8D1ED73012EA5C9AD4D58",
-    "executableSha256": "D97213711D558CD130219CCB095FC9388966E58DBD42BB8B729A773CCCCDA546",
+    "executableSha256": "052DBF1897922EA783CF4FF39411C6F53EB7EF998FA0BB9FCE85CBD8685A5E6A",
     "license": "MPL-2.0",
     "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.10.29",
     "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
@@ -15,7 +15,7 @@
       "tag": "Wayrill-socket-defaults",
       "goVersion": "1.27.3",
       "fakeDnsPatch": "service/xray-patches/shared-fakedns.patch",
-      "fakeDnsPatchSha256": "D7DC4F46F68837AFC04DB77DC837D44DF5F0890BA3AE3DCD5F73C4E92BDC62BC",
+      "fakeDnsPatchSha256": "66900CF5EE37429372CBF7292472CCC581BA33337A26FB1A14DF5258F8DDA66E",
       "initializerFiles": {
         "udp_windows.go": "A8D638AFF1145152469653B1279723E85072847216D0DFECE9FBABE64C48C087",
         "udp_windows_test.go": "535B3D8AA6D34D6D4EC75CDA432B14372C019C3D6F55F7C35140AF207099BBC8"

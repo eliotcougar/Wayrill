@@ -83,7 +83,9 @@ pub(super) fn application_provider(
         }
         endpoint = Some(format!("127.0.0.1:{port}:{secret}:{width}"));
         if let Some(tag) = nat_tag {
-            if tag != "wayrill-runtime-nat" || result["natTag"].as_str() != Some(&tag) {
+            if !matches!(tag.as_str(), "wr-n" | "wayrill-runtime-nat")
+                || result["natTag"].as_str() != Some(&tag)
+            {
                 return Err(invalid("Invalid NAT metadata scope."));
             }
             endpoint = endpoint.map(|endpoint| format!("{endpoint}:{tag}"));

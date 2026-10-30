@@ -136,7 +136,7 @@ describe('ambiguous TUN ownership policy', () => {
     g.nodes.push(child);
     g.edges = g.edges.filter((e) => e.id !== 'filterdefaultdirect');
     g.edges.push(edge('filter', 'default', 'child'), edge('child', 'default', 'direct'));
-    expect(rulesOf(g)[0].outboundTag).toBe('wayrill-runtime-ambiguous');
+    expect(rulesOf(g)[0].outboundTag).toBe('wr-a');
     policy(g, { action: 'allow', output: '' }, 'child');
     expect(rulesOf(g)[0].outboundTag).toBe('direct');
   });

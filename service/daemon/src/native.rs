@@ -656,11 +656,7 @@ pub(crate) fn spawn_tun_with_token(
             .and_then(|inputs| {
                 inputs
                     .iter()
-                    .find(|i| {
-                        i["tag"]
-                            .as_str()
-                            .is_some_and(|t| t.starts_with("wr-tun-resolver-native-"))
-                    })
+                    .find(|i| i["tag"].as_str().is_some_and(|t| t.starts_with("wdr-n-")))
                     .and_then(|i| i["port"].as_u64())
                     .map(|port| format!("wayrill-dns://127.0.0.1:{port}"))
                     .or_else(|| {
@@ -812,6 +808,7 @@ fn spawn_verified_core(
     generation: u64,
     fakedns: Option<&str>,
 ) -> Result<CoreProcess> {
+    crate::sockets::validate_udp_buffers(config)?;
     verify_hash(exe, XRAY_SHA)?;
     spawn_tun_with_token(
         exe,
@@ -928,7 +925,7 @@ mod output_tests {
             1,
         );
         for index in 0..1005 {
-            output.observe(format!("2026/10/13 12:01:02.123 [Info] [345] app/dispatcher: Hit route rule: [wr-route-1-0] so taking detour [wr-tun-1] for [tcp:example.org:{index}]\r\n"), None, 1);
+            output.observe(format!("2026/10/13 12:01:02.123 [Info] [345] app/dispatcher: Hit route rule: [wrr-1-0] so taking detour [wtr-1] for [tcp:example.org:{index}]\r\n"), None, 1);
         }
         let mut rows = output.routing.lock().unwrap();
         assert_eq!(rows.len(), 1000);

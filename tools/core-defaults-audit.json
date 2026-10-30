@@ -2,7 +2,7 @@
   "version": 1,
   "coreVersion": "26.10.29",
   "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
-  "executableSha256": "d97213711d558cd130219ccb095fc9388966e58dbd42bb8b729a773ccccda546",
+  "executableSha256": "052dbf1897922ea783cf4ff39411c6f53eb7ef998fa0bb9fce85cbd8685a5e6a",
   "platform": "windows/amd64",
   "auditedFiles": {
     "app/dispatcher/default.go": "29100330a020d75b5f4b77b8eec20779960a8768e765c99c1003e2b1475746fb",

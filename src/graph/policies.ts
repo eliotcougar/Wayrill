@@ -1,4 +1,5 @@
 import { jsonText, jsonArray, parseJson } from './xrayJson';
+import { generatedTag, generatedTagPrefixes, observedTag } from './tags';
 import { LIMITS } from '../limits';
 import { compactSelectors, prefixMatches } from './prefixSelectors';
 import { nativeConfig } from './xrayNodes';
@@ -556,9 +557,7 @@ export function compilePolicies(
         .filter((o) => o.tag !== tag)
         .map((o, i) => [
           String(o.tag),
-          tag.startsWith('wayrill-observed-')
-            ? `wayrill-monitor-inner-${node.id}-${i}`
-            : `wayrill-policy-inner-${node.id}-${i}`,
+          generatedTag(tag.startsWith('wob-') ? 'woi' : 'wpi', node.id, i),
         ]),
     );
     const rewrite = (v: unknown): unknown =>
@@ -627,7 +626,7 @@ export function compilePolicies(
       s.selection === 'prefixes'
         ? lines(s.selectorPrefixes)
         : targets.map((n) => String(n.data.settings.tag));
-    if (!selectors.length && s.fallbackEnabled) selectors = [`wayrill-policy-empty-${group.id}`];
+    if (!selectors.length && s.fallbackEnabled) selectors = [generatedTag('wpe', group.id)];
     if (!selectors.length || (!targets.length && !s.fallbackEnabled))
       throw new Error(`${data.label}: no candidate destinations match this group.`);
     if (s.selection === 'prefixes') {
@@ -650,14 +649,12 @@ export function compilePolicies(
       selectors = targets.map((n) => {
         const tag = String(n.data.settings.tag);
         if (
-          !'wayrill-policy-'.startsWith(tag) &&
-          !'wayrill-observed-'.startsWith(tag) &&
-          !'wayrill-telemetry-'.startsWith(tag) &&
-          !tag.startsWith('wayrill-telemetry-') &&
+          !generatedTagPrefixes.some((prefix) => prefix.startsWith(tag)) &&
+          !tag.startsWith('wt-') &&
           !prefixMatches(excluded, tag)
         )
           return tag;
-        const alias = `wayrill-policy-member-${n.id.length}-${n.id}`;
+        const alias = generatedTag('wpm', n.id);
         if (!aliases.has(n.id)) {
           rewriteBundle(n, alias);
           aliases.set(n.id, alias);
@@ -668,7 +665,7 @@ export function compilePolicies(
         return alias;
       });
     }
-    if (!selectors.length && s.fallbackEnabled) selectors = [`wayrill-policy-empty-${group.id}`];
+    if (!selectors.length && s.fallbackEnabled) selectors = [generatedTag('wpe', group.id)];
     let fallback: string | undefined;
     if (s.fallbackEnabled) {
       const ref = readPolicySources(data).fallback;
@@ -752,7 +749,7 @@ export function compilePolicies(
     if (!link) continue;
     const subjects = subjectsByObserver.get(link.target);
     if (!subjects) throw new Error(`${node.data.label}: connect Observation to an observatory.`);
-    const tag = `wayrill-observed-${node.data.settings.tag}`;
+    const tag = observedTag(String(node.data.settings.tag));
     rewriteBundle(node, tag);
     subjects.push(tag);
   }
@@ -793,7 +790,7 @@ export function compilePolicies(
       s.subjects === 'prefixes' ? lines(s.selectorPrefixes) : [...new Set(observerSubjects)];
     // Exact-path monitoring aliases are also required in native-prefix mode.
     // Prefixes continue to control native candidates; drawn paths stay observable.
-    subjects.push(...observerSubjects.filter((tag) => tag.startsWith('wayrill-observed-')));
+    subjects.push(...observerSubjects.filter((tag) => tag.startsWith('wob-')));
     if (!subjects.length)
       throw new Error(`${data.label}: choose observed outbounds or tag prefixes.`);
     if (s.subjects === 'prefixes')

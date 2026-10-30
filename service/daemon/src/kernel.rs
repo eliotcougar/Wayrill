@@ -2505,7 +2505,8 @@ impl Kernel {
                 self.observation = self.control.as_ref().map(|control| {
                     let groups = crate::observation::groups(&control.config, &value.counters["observatory"]);
                     let truncated = control.config["routing"]["balancers"].as_array().is_some_and(|groups| groups.len() > wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS);
-                    (generation, value.observed_at, json!({"generation":generation,"revision":self.revision(),"sampledAtMs":value.timestamp_ms,"groups":groups,"outbounds":crate::observation::outbounds(&control.config, &value.counters["observatory"]),"truncated":truncated}))
+                    let outbounds = self.profile.as_ref().map(|profile| crate::observation::outbounds(&control.config, &value.counters["observatory"], &profile.display_names)).unwrap_or_else(|| json!([]));
+                    (generation, value.observed_at, json!({"generation":generation,"revision":self.revision(),"sampledAtMs":value.timestamp_ms,"groups":groups,"outbounds":outbounds,"truncated":truncated}))
                 });
                 if self
                     .statistics

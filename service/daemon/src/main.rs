@@ -32,6 +32,7 @@ mod subscription_http;
 mod subscriptions;
 mod system_native;
 mod system_settings;
+mod tags;
 mod traffic;
 mod tun;
 mod upgrade;

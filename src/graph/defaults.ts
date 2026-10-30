@@ -11,13 +11,9 @@ import {
 } from './coreDefaults';
 import { outboundDefinitions, outboundPreview, isExecutableOutboundKind } from './outbounds';
 import { fieldProblem } from './settingValidation';
+import { migrateUdpBufferDefaults, socketBufferValue, udpBufferFields } from './socketBuffers';
 import { proxyDefinition, inboundPreview, isInboundKind } from './inbounds';
-import {
-  clearJsonUserAgents,
-  rangeParts,
-  validRange,
-  windowsUdpSocketOptions,
-} from './trafficTuning';
+import { clearJsonUserAgents, rangeParts, validRange } from './trafficTuning';
 import { jsonEqual, jsonText, jsonArray, parseJson, parseJsonObject } from './xrayJson';
 import {
   commonPath,
@@ -105,7 +101,8 @@ const sources = [
   ...outboundDefinitions.find((d) => d.kind === 'vless-outbound')!.fields,
 ];
 const networkFactoryDefaults: Record<string, SettingValue> = {
-  sockoptExtra: JSON.stringify({ customSockopt: windowsUdpSocketOptions }, null, 2),
+  udpReceiveBufferKiB: 256,
+  udpSendBufferKiB: 256,
 };
 const fields: GlobalField[] = [],
   bindings: DefaultBinding[] = [];
@@ -200,6 +197,8 @@ for (const key of [
 ])
   bind('fragment', key, ['vless-outbound']);
 for (const key of [
+  'udpReceiveBufferKiB',
+  'udpSendBufferKiB',
   'sendThrough',
   'interface',
   'tcpFastOpen',
@@ -336,7 +335,7 @@ export function parseDefaults(raw: unknown): GlobalDefaults {
   )
     throw new Error('Unknown global default.');
   // Absence means core inheritance. Never replace missing keys with app factory values.
-  const settings = { ...raw.settings } as Record<string, SettingValue>;
+  const settings = migrateUdpBufferDefaults({ ...raw.settings } as Record<string, SettingValue>);
   for (const field of fields) {
     if (!Object.hasOwn(settings, field.key)) continue;
     const problem = fieldProblem(field, settings);
@@ -367,10 +366,16 @@ export function resolveNodeData(data: RuleNodeData, defaults?: GlobalDefaults): 
   for (const binding of bindingsFor(data.kind)) {
     if (data.overrides.includes(binding.nodeKey)) continue;
     const configured = defaults.settings[binding.key];
-    const value = configured ?? coreDefaultValue(binding.key);
+    const field = sources.find((field) => field.key === binding.nodeKey);
+    const value =
+      configured ??
+      (field?.optional && field.defaultValue === undefined
+        ? undefined
+        : coreDefaultValue(binding.key));
     if (!Object.is(data.settings[binding.nodeKey], value)) {
       settings ??= { ...data.settings };
-      settings[binding.nodeKey] = value;
+      if (value === undefined) delete settings[binding.nodeKey];
+      else settings[binding.nodeKey] = value;
     }
     if (configured === undefined) coreDefaults.push(binding.nodeKey);
   }
@@ -762,6 +767,22 @@ export function settingDefaultHint(
       ),
     };
   if (binding) {
+    if (field.key in udpBufferFields && !data.overrides?.includes(field.key)) {
+      const socket = valueAt(root, ['streamSettings', 'sockopt']);
+      if (record(socket)) {
+        const size = socketBufferValue(
+          socket,
+          'udp',
+          udpBufferFields[field.key as keyof typeof udpBufferFields],
+        ).value;
+        if (size !== undefined && size !== Number(data.settings[field.key]) * 1024)
+          return {
+            text: `${size / 1024}`,
+            source: 'native',
+            detail: 'Configured by this node’s socket options.',
+          };
+      }
+    }
     if (!data.overrides?.includes(field.key)) {
       if (
         (defaults?.settings[binding.key] === undefined || defaults.settings[binding.key] === '') &&

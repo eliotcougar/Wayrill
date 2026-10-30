@@ -1328,7 +1328,7 @@ index 00000000..24a1b890
 +	defer common.Interrupt(writer)
 +	defer common.Interrupt(outReader)
 +	defer common.Interrupt(outWriter)
-+	ctx, cancel := context.WithCancel(session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wr-tun-resolver-native-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)}))
++	ctx, cancel := context.WithCancel(session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)}))
 +	defer cancel()
 +	done := make(chan error, 1)
 +	go func() {
@@ -1746,7 +1746,7 @@ index 00000000..f0d11529
 +
 +func WayrillHandleResolver(ctx context.Context, link *transport.Link, client dns.Client) (bool, error) {
 +	inbound := session.InboundFromContext(ctx)
-+	if os.Getenv("WAYRILL_FAKEDNS") == "" || inbound == nil || !strings.HasPrefix(inbound.Tag, "wr-tun-resolver-native-") {
++	if os.Getenv("WAYRILL_FAKEDNS") == "" || inbound == nil || !strings.HasPrefix(inbound.Tag, "wdr-n-") {
 +		return false, nil
 +	}
 +	// This handler is reachable only through the service-generated loopback
@@ -1876,7 +1876,7 @@ index 00000000..d9b701a9
 +			go func() {
 +				defer pending.Done()
 +				defer c.Close()
-+				ctx := session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wr-tun-resolver-native-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)})
++				ctx := session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)})
 +				handled, err := WayrillHandleResolver(ctx, &transport.Link{Reader: buf.NewReader(c), Writer: buf.NewWriter(c)}, resolverTestClient{})
 +				if !handled || err != nil {
 +					t.Errorf("resolver: handled=%v err=%v", handled, err)

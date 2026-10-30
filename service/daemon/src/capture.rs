@@ -280,7 +280,7 @@ pub fn validate(plan: Option<&Plan>, config: &Value) -> Result<()> {
                 || input
                     .nat_tag
                     .as_deref()
-                    .is_some_and(|tag| tag != "wayrill-runtime-nat")
+                    .is_some_and(|tag| !matches!(tag, "wr-n" | "wayrill-runtime-nat"))
             {
                 return Err(invalid("Invalid TUN application scope."));
             }
@@ -1086,12 +1086,12 @@ mod tests {
         p.inputs[0].selectors.clear();
         p.inputs[0].predicates.clear();
         p.inputs[0].masks = vec!["0".into()];
-        p.inputs[0].nat_tag = Some("wayrill-runtime-nat".into());
+        p.inputs[0].nat_tag = Some("wr-n".into());
         let c = json!({"inbounds":[{"tag":p.inputs[0].tag,"protocol":"tun","settings":{}}],"outbounds":[{"tag":"direct","protocol":"freedom"}]});
         assert!(validate(Some(&p), &c).is_ok());
         p.inputs[0].nat_tag = Some("arbitrary-inbound".into());
         assert!(validate(Some(&p), &c).is_err());
-        p.inputs[0].nat_tag = Some("wayrill-runtime-nat".into());
+        p.inputs[0].nat_tag = Some("wr-n".into());
         p.inputs[0].source = None;
         assert!(validate(Some(&p), &wayrill_protocol::direct_example()).is_err());
     }

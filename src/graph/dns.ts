@@ -1,4 +1,5 @@
 import { enabledInboundGraph } from './inboundState';
+import { generatedTag } from './tags';
 import { capturesSystemDns } from './dnsCapture';
 import { jsonArray, jsonRecord, parseJson } from './xrayJson';
 import { validateRuleSource, type RuleSource } from './ruleSourceModel';
@@ -647,9 +648,9 @@ export function compileDnsGraph(
   };
   const routing: Record<string, unknown>[] = [],
     outbounds = new Map<string, Record<string, unknown>>();
-  const reserved = 'wayrill-dns-';
-  if (graph.nodes.some((n) => String(n.data.settings.tag ?? '').startsWith('wayrill-runtime-')))
-    throw new Error('Tags starting wayrill-runtime- are reserved for generated outbound paths.');
+  const reserved = 'wds-';
+  if (graph.nodes.some((n) => String(n.data.settings.tag ?? '').startsWith('wr-')))
+    throw new Error('Tags starting wr- are reserved for generated outbound paths.');
   if (graph.nodes.some((n) => String(n.data.settings.tag ?? '').startsWith(reserved)))
     throw new Error(`Tags starting ${reserved} are reserved for generated DNS paths.`);
   const addOutbound = (data: RuleNodeData, seen = new Set<string>()) => {
@@ -732,7 +733,7 @@ export function compileDnsGraph(
         throw new Error(
           `${group.data.label}: localhost uses Windows DNS, which returns to this captured handler. Use a real DNS server, or a local service address such as 127.0.0.1.`,
         );
-      const tag = `${reserved}${id}-${entry.id}`;
+      const tag = generatedTag('wds', id, entry.id);
       if (
         !isLocalResolver(entry.address) &&
         !routing.some((r) => jsonArray(r.inboundTag) && r.inboundTag.includes(tag))
@@ -854,7 +855,7 @@ export function compileDnsGraph(
     ...(policies?.observation ?? {}),
     dns: {
       servers,
-      tag: `${reserved}global`,
+      tag: 'wdg-global',
       queryStrategy: s.queryStrategy,
       disableCache: s.disableCache,
       hosts: parseJson(String(s.hosts)),

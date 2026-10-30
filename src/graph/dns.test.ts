@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { generatedTag } from './tags';
 import { getOutputPorts, makeNode, portLabel } from './catalog';
 import {
   dnsAddressProblem,
@@ -40,13 +41,21 @@ describe('Native Xray DNS graph', () => {
     });
     expect(fragment.dns.servers[1]).not.toHaveProperty('port');
     expect(fragment.routing.rules).toEqual([
-      { type: 'field', inboundTag: ['wayrill-dns-local-dns-lan'], outboundTag: 'direct' },
       {
         type: 'field',
-        inboundTag: ['wayrill-dns-remote-dns-cloudflare'],
+        inboundTag: [generatedTag('wds', 'local-dns', 'lan')],
+        outboundTag: 'direct',
+      },
+      {
+        type: 'field',
+        inboundTag: [generatedTag('wds', 'remote-dns', 'cloudflare')],
         outboundTag: 'preferred',
       },
-      { type: 'field', inboundTag: ['wayrill-dns-remote-dns-quad9'], outboundTag: 'preferred' },
+      {
+        type: 'field',
+        inboundTag: [generatedTag('wds', 'remote-dns', 'quad9')],
+        outboundTag: 'preferred',
+      },
     ]);
   });
   it('maps request policies to DNS outbound actions, omitting disabled drafts', () => {

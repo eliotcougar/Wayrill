@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
+import { generatedTag } from './tags';
 import { makeNode, makeProxyInbound } from './catalog';
 import { createTrafficExample } from './example';
 import { parseGraph, serializeGraph } from './model';
@@ -19,16 +20,16 @@ describe('Complete graph runtime compilation', () => {
     };
     expect(config.inbounds.map((i) => i.protocol)).toEqual(['socks', 'http']);
     expect(config.outbounds[0]).toMatchObject({
-      tag: 'wayrill-runtime-unmatched',
+      tag: 'wr-u',
       protocol: 'blackhole',
     });
     const rules = config.routing.rules;
     expect(rules[0]).toMatchObject({
-      inboundTag: ['wayrill-dns-local-dns-lan'],
+      inboundTag: [generatedTag('wds', 'local-dns', 'lan')],
       outboundTag: 'direct',
     });
     expect(rules[1]).toMatchObject({
-      inboundTag: ['wayrill-dns-remote-dns-cloudflare'],
+      inboundTag: [generatedTag('wds', 'remote-dns', 'cloudflare')],
       outboundTag: 'preferred',
     });
     expect(rules.slice(2, 4).map((r) => r.port)).toEqual(['53', '53']);

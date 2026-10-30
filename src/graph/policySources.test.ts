@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { generatedTag } from './tags';
 import { createPolicyExample } from './policyExample';
 import { compileRuntimeGraph } from './runtime';
 import { parseGraph, serializeGraph } from './model';
@@ -154,7 +155,7 @@ describe('internal outbound sources', () => {
     );
     const graph = configure(createPolicyExample('leastPing'), sources);
     const config = compileRuntimeGraph(graph).config;
-    expect(selectors(config)).toEqual(['wayrill-policy-empty-test-group']);
+    expect(selectors(config)).toEqual([generatedTag('wpe', 'test-group')]);
     expect(
       (config.routing as { balancers: { fallbackTag: string }[] }).balancers[0].fallbackTag,
     ).toBe('block');

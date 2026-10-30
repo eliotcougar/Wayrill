@@ -1,4 +1,5 @@
 import { makeNode, getDefinition, validateSettings } from './catalog';
+import { generatedTag } from './tags';
 import { resolveNodeData, bindingsFor } from './defaults';
 import { allOutboundNodes } from './nativePool';
 import {
@@ -327,7 +328,7 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
     if (++serial > LIMITS.maxOutbounds)
       throw new Error('Prepared outbounds exceed the executable outbound budget.');
     const id = 'prepared-' + serial + '-' + origin.slice(0, 90);
-    let tag = 'wayrill-chain-' + serial + '-' + origin.slice(0, 90);
+    let tag = generatedTag('wc', origin, serial);
     while (tags.has(tag)) tag += '-x';
     tags.add(tag);
     origins.set(id, origin);
@@ -459,7 +460,7 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
         built.set(key, group);
         return group;
       }
-      const reinjection = 'wayrill-chain-route-' + group.id;
+      const reinjection = generatedTag('wcr', group.id);
       rules.push({ type: 'field', inboundTag: [reinjection], balancerTag: groupAllocation.tag });
       const result = materialize(
         { tag: allocated.tag, protocol: 'loopback', settings: { inboundTag: reinjection } },

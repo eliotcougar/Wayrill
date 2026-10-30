@@ -78,13 +78,13 @@ pub(super) struct Measurement {
 
 pub(super) fn add_inbound(config: &mut Value, port: u16, password: &str, tag: &str) {
     config["inbounds"].as_array_mut().unwrap().push(json!({
-        "tag":"wayrill-test-udp", "listen":"127.0.0.1", "port":port,
+        "tag":"wtu", "listen":"127.0.0.1", "port":port,
         "protocol":"socks", "settings":{"auth":"password", "udp":true,
             "accounts":[{"user":"wayrill-test","pass":password}]}
     }));
     config["routing"]["rules"].as_array_mut().unwrap().insert(
         0,
-        json!({"type":"field","inboundTag":["wayrill-test-udp"],"outboundTag":tag}),
+        json!({"type":"field","inboundTag":["wtu"],"outboundTag":tag}),
     );
 }
 

@@ -19,7 +19,15 @@ export function configuredDefaultHint(
   value: unknown,
   context: Parameters<typeof coreDefaultHint>[1] = {},
 ): string {
-  if (value === 0 && ['udpListenerReceiveKiB', 'udpListenerSendKiB'].includes(key))
+  if (
+    value === 0 &&
+    [
+      'udpListenerReceiveKiB',
+      'udpListenerSendKiB',
+      'udpReceiveBufferKiB',
+      'udpSendBufferKiB',
+    ].includes(key)
+  )
     return '0 → Windows default';
   const zeroSentinels = [
     'tcpKeepAliveIdle',
@@ -43,7 +51,16 @@ interface Entry {
 const entries: Record<string, Entry> = store.fields;
 const globals: Record<string, { field: string; encoded?: SettingValue }> = store.globals;
 export const embeddedCoreDefaults = store.core;
-export const coreDefaultField = (key: string) => globals[key]?.field;
+export const coreDefaultField = (key: string) =>
+  globals[key]?.field ??
+  ([
+    'udpListenerReceiveKiB',
+    'udpListenerSendKiB',
+    'udpReceiveBufferKiB',
+    'udpSendBufferKiB',
+  ].includes(key)
+    ? 'Windows.socketBuffer'
+    : undefined);
 export const coreDefaultValue = (key: string): SettingValue => {
   const binding = globals[key],
     value = binding?.encoded ?? entries[binding?.field]?.value;
@@ -69,7 +86,7 @@ export function coreDefaultHint(
   } = {},
 ): DefaultHint {
   const entry = entries[key];
-  let text = entry?.hint ?? 'Not configured';
+  let text = entry?.hint ?? (key === 'Windows.socketBuffer' ? 'Windows default' : 'Not configured');
   const network =
     context.network ?? jsonText(valueAt(context.root, ['streamSettings', 'network']) ?? 'raw');
   if (entry?.contexts && context.direction) {

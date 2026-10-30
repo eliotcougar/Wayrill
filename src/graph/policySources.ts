@@ -1,4 +1,5 @@
 import { policyProfileId, policyProfileIdentity, stableProfileKey } from './profileIdentity';
+import { compactTagId } from './tags';
 export { policyProfileId, policyProfileIdentity } from './profileIdentity';
 import { jsonArray, parseJson } from './xrayJson';
 import { allOutboundNodes } from './nativePool';
@@ -534,7 +535,7 @@ export function resolvePolicyReference(
     ...node.data.settings,
     ...reference.profile.settings,
   });
-  node.data.settings.tag = `wayrill-policy-profile-${policyRuntimeId(reference)}`;
+  node.data.settings.tag = `wpp-${compactTagId(policyRuntimeId(reference))}`;
   node.data.overrides = bindingsFor(node.data.kind)
     .filter((b) => Object.hasOwn(reference.profile.settings, b.nodeKey))
     .map((b) => b.nodeKey);

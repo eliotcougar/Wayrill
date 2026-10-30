@@ -3527,6 +3527,15 @@
             "maxLength": 160
           }
         },
+        "observed": {
+          "type": "object",
+          "maxProperties": 16384,
+          "propertyNames": { "pattern": "^wob-" },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "routing": {
           "type": "object",
           "maxProperties": 16384,

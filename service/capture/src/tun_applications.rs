@@ -53,7 +53,7 @@ impl TunInput {
             || self
                 .nat_tag
                 .as_deref()
-                .is_some_and(|tag| tag != "wayrill-runtime-nat")
+                .is_some_and(|tag| !matches!(tag, "wr-n" | "wayrill-runtime-nat"))
         {
             return Err(Error::invalid("Invalid TUN application scope."));
         }

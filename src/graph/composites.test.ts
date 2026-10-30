@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { describe, it, expect } from 'vitest';
+import { observedTag } from './tags';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createDnsExample } from './example';
@@ -297,10 +298,12 @@ it('probes the complete chain through its public route and retains its Observati
   const observer = makeNode('observatory', { x: 900, y: 0 }, 'monitor');
   graph.nodes.push(observer);
   graph.edges.push(wire(chain.id, 'observation', observer.id));
-  const config = compileRuntimeGraph(graph).config;
+  const compiled = compileRuntimeGraph(graph);
+  const config = compiled.config;
   const root = outbound(config, 'exit'),
-    probe = outbound(config, 'wayrill-observed-exit');
-  expect(probe).toEqual({ ...root, tag: 'wayrill-observed-exit' });
+    probe = outbound(config, observedTag('exit'));
+  expect(probe).toEqual({ ...root, tag: observedTag('exit') });
   expect(via(probe)).toBeTruthy();
-  expect(config.observatory).toMatchObject({ subjectSelector: ['wayrill-observed-exit'] });
+  expect(config.observatory).toMatchObject({ subjectSelector: [observedTag('exit')] });
+  expect(compiled.displayNames?.observed).toEqual({ [observedTag('exit')]: 'exit' });
 });

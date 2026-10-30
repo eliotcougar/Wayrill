@@ -366,7 +366,7 @@ fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
         ));
     }
     config["log"] = json!({"loglevel":"none","access":"none"});
-    config["inbounds"] = json!([{"tag":"wayrill-test-input","listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
+    config["inbounds"] = json!([{"tag":"wti","listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
     config = normalize_config(config)?;
     let outputs = config["outbounds"]
         .as_array()
@@ -381,14 +381,20 @@ fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
         return Err(invalid("TUN outbounds cannot be tested in isolation."));
     }
     config["log"] = json!({"loglevel":"none","access":"none"});
-    config["inbounds"] = json!([{"tag":"wayrill-test-input","listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
+    config["inbounds"] = json!([{"tag":"wti","listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
     if config["routing"].is_null() {
         config["routing"] = json!({});
     }
     if config["routing"]["rules"].is_null() {
         config["routing"]["rules"] = json!([]);
     }
-    config["routing"]["rules"].as_array_mut().ok_or_else(||invalid("Invalid test routing rules."))?.insert(0, json!({"type":"field","inboundTag":["wayrill-test-input"],"outboundTag":target.outbound_tag}));
+    config["routing"]["rules"]
+        .as_array_mut()
+        .ok_or_else(|| invalid("Invalid test routing rules."))?
+        .insert(
+            0,
+            json!({"type":"field","inboundTag":["wti"],"outboundTag":target.outbound_tag}),
+        );
     normalize_config(config)
 }
 fn bind_probe(config: &mut Value, egress: Option<&crate::tun::OutboundEgress>) -> Result<()> {

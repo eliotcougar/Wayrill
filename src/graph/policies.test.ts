@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
+import { generatedTag, observedTag } from './tags';
 import { makeNode } from './catalog';
 import { compileRuntimeGraph } from './runtime';
 import { diagnoseRuntimeGraph } from './diagnostics';
@@ -99,8 +100,8 @@ describe('Policy-group compilation and graph editing', () => {
     const result = compileRuntimeGraph(graph),
       balancer = balance(result.config),
       outbounds = result.config.outbounds as Record<string, unknown>[];
-    expect(balancer.selector).toEqual(['wayrill-policy-member-10-test-first']);
-    expect(outbounds.find((o) => o.tag === 'wayrill-policy-member-10-test-first')).toMatchObject({
+    expect(balancer.selector).toEqual([generatedTag('wpm', 'test-first')]);
+    expect(outbounds.find((o) => o.tag === generatedTag('wpm', 'test-first'))).toMatchObject({
       protocol: 'freedom',
       settings: { redirect: '127.0.0.1:18881' },
     });
@@ -115,7 +116,7 @@ describe('Policy-group compilation and graph editing', () => {
       strategy: {
         settings: {
           costs: [
-            { match: '^wayrill-policy-member-10-test-first$', regexp: true, value: 4 },
+            { match: `^${generatedTag('wpm', 'test-first')}$`, regexp: true, value: 4 },
             { match: 'test-a', regexp: false, value: 4 },
           ],
         },
@@ -153,7 +154,7 @@ it('merges separate compatible observatories and rejects conflicting probe setti
   expect(
     (compileRuntimeGraph(graph).config.observatory as { subjectSelector: string[] })
       .subjectSelector,
-  ).toContain('wayrill-observed-test-a');
+  ).toContain(observedTag('test-a'));
   second.data.settings.probeURL = 'https://different.example/test';
   expect(() => compileRuntimeGraph(graph)).toThrow('one observation provider');
 });

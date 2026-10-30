@@ -5,6 +5,7 @@ import {
   icsNodeProblems,
 } from './internetSharing';
 import { parseJson } from './xrayJson';
+import { isGeneratedTag } from './tags';
 import { enabledInboundGraph, isDisabledInbound, isGraphInbound } from './inboundState';
 import { listenerProblem, listenerEndpointsConflict } from './listeners';
 import { resourceCompilationGraph, resourcePlans, type ResourceFilePlan } from './resources';
@@ -76,10 +77,13 @@ function sharingIntent(source: GraphState, compiled: RuntimeCompilation): Runtim
   }
   return compiled;
 }
-export function compileResolvedRuntimeGraph(source: GraphState): RuntimeCompilation {
-  return sharingIntent(source, compileActiveRuntimeGraph(source));
+export function compileResolvedRuntimeGraph(
+  source: GraphState,
+  generated = false,
+): RuntimeCompilation {
+  return sharingIntent(source, compileActiveRuntimeGraph(source, generated));
 }
-function compileActiveRuntimeGraph(source: GraphState): RuntimeCompilation {
+function compileActiveRuntimeGraph(source: GraphState, generated: boolean): RuntimeCompilation {
   const active = enabledInboundGraph(source);
   if (
     !active.nodes.some((n) => isGraphInbound(n.data.kind)) &&
@@ -120,15 +124,11 @@ function compileActiveRuntimeGraph(source: GraphState): RuntimeCompilation {
   const inputs = graph.nodes.filter((n) => isInboundKind(n.data.kind));
   if (!inputs.length || inputs.length > 16)
     throw new Error('A runtime graph needs 1–16 configured Xray inbounds.');
-  for (const node of graph.nodes) {
+  for (const node of source.nodes) {
     const tag = String(node.data.settings.tag ?? '');
-    if (
-      tag.startsWith('wayrill-runtime-') ||
-      tag.startsWith('wayrill-dns-') ||
-      tag.startsWith('wayrill-policy-')
-    )
+    if (!generated && isGeneratedTag(tag))
       throw new Error(
-        `${node.data.label}: tags starting wayrill-runtime-, wayrill-dns- or wayrill-policy- are reserved.`,
+        `${node.data.label}: this tag prefix is reserved for generated destinations.`,
       );
   }
   const listeners = new Set<string>();
@@ -157,8 +157,8 @@ function compileActiveRuntimeGraph(source: GraphState): RuntimeCompilation {
     ? compileDnsGraph(graph, { includePolicies: false, resourcesResolved: true })
     : undefined;
   const outbounds = new Map<string, Record<string, unknown>>();
-  outbounds.set('wayrill-runtime-unmatched', {
-    tag: 'wayrill-runtime-unmatched',
+  outbounds.set('wr-u', {
+    tag: 'wr-u',
     protocol: 'blackhole',
     settings: { response: { type: 'none' } },
   });

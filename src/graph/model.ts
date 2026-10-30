@@ -93,9 +93,7 @@ export function toDocument(graph: GraphState): GraphDocument {
           ...node,
           data: {
             ...node.data,
-            overrides: bindingsFor(node.data.kind)
-              .filter((b) => node.data.settings[b.nodeKey] !== undefined)
-              .map((b) => b.nodeKey),
+            overrides: bindingsFor(node.data.kind).map((b) => b.nodeKey),
           },
         })),
       };
@@ -115,7 +113,11 @@ export function toDocument(graph: GraphState): GraphDocument {
           : {}),
         label: captureNodeName(node.data),
         description: node.data.description,
-        settings: { ...node.data.settings },
+        settings: Object.fromEntries(
+          Object.keys(node.data.settings)
+            .sort()
+            .map((key) => [key, node.data.settings[key]]),
+        ),
         ...(node.data.overrides ? { overrides: [...node.data.overrides] } : {}),
         ...(node.data.native ? { native: node.data.native } : {}),
         ...(node.data.stashLink ? { stashLink: { ...node.data.stashLink } } : {}),

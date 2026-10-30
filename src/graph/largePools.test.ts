@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { compactTagId, generatedTag } from './tags';
 import { LIMITS } from '../limits';
 import { createPolicyExample } from './policyExample';
 import {
@@ -103,13 +104,11 @@ it('retains exact membership for overlapping substantial groups and generated al
   const config = compileRuntimeGraph(graph).config,
     outputs = config.outbounds as { tag: string }[];
   const groups = (config.routing as { balancers: { selector: string[] }[] }).balancers;
-  const alias = 'wayrill-policy-member-10-test-first';
+  const alias = generatedTag('wpm', 'test-first');
   for (const [i, group] of groups.entries()) {
     const expected = new Set([
       alias,
-      ...all
-        .slice(i === 0 ? 0 : 100, i === 0 ? 200 : 300)
-        .map((p) => `wayrill-policy-profile-${p.id}`),
+      ...all.slice(i === 0 ? 0 : 100, i === 0 ? 200 : 300).map((p) => `wpp-${compactTagId(p.id)}`),
     ]);
     expect(
       new Set(

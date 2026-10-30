@@ -131,7 +131,8 @@ responsible for rejecting unresolved synthetic traffic.
 The runtime-only `wayrill-dns://` server and authenticated native resolver
 handler carry address-family options, `FakeEnable`, TTL and DNS response codes
 between cores. The handler is selected only on generated native-resolver inbound
-tags and requires local authenticated access. Frame sizes, concurrency and query
+tags (`wdr-n-` followed by an unpadded Base64url identity) and requires local
+authenticated access. Frame sizes, concurrency and query
 time are bounded; cancellation interrupts unread links and active requests.
 
 Ordinary DNS wire messages do not encode the distinction between synthetic client

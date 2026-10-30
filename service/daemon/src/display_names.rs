@@ -11,6 +11,8 @@ pub struct DisplayNames {
     #[serde(default)]
     pub outbound: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub observed: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub routing: BTreeMap<String, Vec<crate::routing_log::Hop>>,
     #[serde(
         default,
@@ -21,6 +23,24 @@ pub struct DisplayNames {
 }
 impl DisplayNames {
     pub fn validate(&self, config: &Value) -> Result<()> {
+        let outputs: std::collections::HashSet<_> = config["outbounds"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect();
+        if self.observed.len() > wayrill_protocol::MAX_OUTBOUNDS
+            || self.observed.iter().any(|(probe, target)| {
+                !probe.starts_with("wob-")
+                    || !outputs.contains(probe.as_str())
+                    || !outputs.contains(target.as_str())
+            })
+        {
+            return Err(ApiError::new(
+                "INVALID_PARAMS",
+                "Observation mappings must reference configured outbound tags.",
+            ));
+        }
         for (kind, names) in [("inbounds", &self.inbound), ("outbounds", &self.outbound)] {
             if names.len() > wayrill_protocol::MAX_OUTBOUNDS {
                 return Err(ApiError::new(

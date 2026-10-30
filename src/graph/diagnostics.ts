@@ -1,4 +1,5 @@
 import { listenerProblem, listenerEndpointsConflict } from './listeners';
+import { isGeneratedTag } from './tags';
 import { enabledInboundGraph, isGraphInbound, isDisabledInbound } from './inboundState';
 import { RoutingPathError } from './routingPaths';
 import { policyCandidates, readPolicySources, resolvePolicyReference } from './policySources';
@@ -88,7 +89,7 @@ export function diagnoseRuntimeGraph(source: GraphState, internal = false): Diag
   };
   for (const node of graph.nodes) {
     const tag = String(node.data.settings.tag ?? '');
-    if (/^wayrill-(runtime|dns|policy)-/.test(tag))
+    if (isGeneratedTag(tag) && !internal)
       add(node, 'This tag prefix is reserved for generated runtime destinations.', 'tag');
     if (isInboundKind(node.data.kind)) {
       for (const port of getOutputPorts(node.data.kind, node.data)) {
@@ -231,7 +232,9 @@ export function diagnoseRuntimeGraph(source: GraphState, internal = false): Diag
       );
   if (!issues.some((i) => i.severity === 'error')) {
     try {
-      const compiled = internal ? compileResolvedRuntimeGraph(graph) : compileRuntimeGraph(graph);
+      const compiled = internal
+        ? compileResolvedRuntimeGraph(graph, true)
+        : compileRuntimeGraph(graph);
       for (const issue of [
         ...loopbackProblems(compiled.config),
         ...outboundDependencyProblems(compiled.config).map((p) => ({

@@ -156,7 +156,10 @@ pub fn instrument(
             .or_else(|| rule["balancerTag"].as_str())
             .unwrap_or(&default)
             .to_string();
-        let base = format!("wr-route-{generation}-{revision}-{index}");
+        let base = format!(
+            "wrr-{}",
+            crate::tags::sequence(&[generation, revision, index as u64])
+        );
         let mut tag = base.clone();
         let mut suffix = 0;
         while !used_tags.insert(tag.clone()) {
@@ -376,7 +379,7 @@ pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
     } else {
         ("udp", target.strip_prefix("udp:")?)
     };
-    if !tag.starts_with("wr-route-")
+    if !tag.starts_with("wrr-")
         || !printable(tag, 128)
         || !printable(outbound, 160)
         || !printable(destination, 1024)
@@ -411,8 +414,7 @@ mod tests {
         updated.routing.get_mut("0").unwrap()[0].rule = "New rule".into();
         log.live(instrument(&mut config(), &updated, 1, 8));
         let old = line(1, "tcp:old.example:80", "direct");
-        let new =
-            line(1, "tcp:new.example:80", "direct").replace("wr-route-1-7-0", "wr-route-1-8-0");
+        let new = line(1, "tcp:new.example:80", "direct").replace("wrr-AQcA", "wrr-AQgA");
         assert!(log.ingest(1, &new));
         assert!(log.ingest(1, &old));
         let snapshot = log.snapshot("parent", "instance");
@@ -446,7 +448,7 @@ mod tests {
         let first = line(1, "tcp:mtalk.google.com:5228", "direct");
         let second = first
             .replace("[345]", "[678]")
-            .replace("wr-route-1-7-0", "wr-route-1-7-1");
+            .replace("wrr-AQcA", "wrr-AQcB");
         log.ingest_from(1, 100, "TUN", &first);
         log.ingest_from(1, 100, "TUN", &first);
         log.ingest_from(1, 100, "TUN", &second);
@@ -500,12 +502,11 @@ mod tests {
     fn shared_ipv6_alias_keeps_the_original_filter_decision() {
         let log = Log::default();
         let mut session = instrument(&mut config(), &names(), 1, 7).unwrap();
-        session.include_aliases(&[("wr-route-1-7-0-ics6".into(), "wr-route-1-7-0".into())]);
+        session.include_aliases(&[("wrr-AQcA-ics6".into(), "wrr-AQcA".into())]);
         log.begin(Some(session));
         assert!(log.ingest(
             1,
-            &line(1, "tcp:[2001:db8::1]:443", "wr-ics6-wr-tun-0")
-                .replace("[wr-route-1-7-0]", "[wr-route-1-7-0-ics6]")
+            &line(1, "tcp:[2001:db8::1]:443", "wi6-A").replace("[wrr-AQcA]", "[wrr-AQcA-ics6]")
         ));
         let rows = log.snapshot("parent", "test");
         assert_eq!(rows["rows"].as_array().unwrap().len(), 1);
@@ -520,14 +521,15 @@ mod tests {
     }
     fn line(generation: u64, destination: &str, outbound: &str) -> String {
         let revision = if generation == 2 { 8 } else { 7 };
-        format!("2026/10/13 12:01:02.123 [Info] [345] app/dispatcher: Hit route rule: [wr-route-{generation}-{revision}-0] so taking detour [{outbound}] for [{destination}]\r\n")
+        let tag = format!("wrr-{}", crate::tags::sequence(&[generation, revision, 0]));
+        format!("2026/10/13 12:01:02.123 [Info] [345] app/dispatcher: Hit route rule: [{tag}] so taking detour [{outbound}] for [{destination}]\r\n")
     }
     #[test]
     fn actual_decision_retains_every_filter_and_hides_tun_relay() {
         let log = Log::default();
         let mut config = config();
         log.begin(instrument(&mut config, &names(), 1, 7));
-        assert!(log.ingest(1, &line(1, "tcp:[2001:db8::1]:443", "wr-tun-3")));
+        assert!(log.ingest(1, &line(1, "tcp:[2001:db8::1]:443", "wtr-3")));
         for filter in ["parent", "child"] {
             let snapshot = log.snapshot(filter, "test");
             assert_eq!(snapshot["rows"][0]["destination"], "[2001:db8::1]:443");
@@ -577,11 +579,11 @@ mod tests {
         config["routing"]["rules"]
             .as_array_mut()
             .unwrap()
-            .push(json!({"ruleTag":"wr-route-1-1-0", "outboundTag":"block"}));
+            .push(json!({"ruleTag":"wrr-AQEA", "outboundTag":"block"}));
         let session = instrument(&mut config, &names(), 1, 1).unwrap();
-        assert_eq!(config["routing"]["rules"][0]["ruleTag"], "wr-route-1-1-0-1");
-        assert!(session.routes.contains_key("wr-route-1-1-0-1"));
-        assert_eq!(config["routing"]["rules"][1]["ruleTag"], "wr-route-1-1-0");
+        assert_eq!(config["routing"]["rules"][0]["ruleTag"], "wrr-AQEA-1");
+        assert!(session.routes.contains_key("wrr-AQEA-1"));
+        assert_eq!(config["routing"]["rules"][1]["ruleTag"], "wrr-AQEA");
     }
     #[test]
     #[cfg(feature = "core-integration")]

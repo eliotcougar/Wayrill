@@ -85,14 +85,22 @@ pub fn groups(config: &Value, raw: &Value) -> Value {
 
 /// Only canvas monitoring aliases are projected; large policy candidate sets
 /// remain bounded summaries instead of being copied into every status message.
-pub fn outbounds(config: &Value, reports: &Value) -> Value {
+pub fn outbounds(
+    config: &Value,
+    reports: &Value,
+    names: &crate::display_names::DisplayNames,
+) -> Value {
     let rows: Vec<_> = config["outbounds"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|outbound| {
             let probe = outbound["tag"].as_str()?;
-            let tag = probe.strip_prefix("wayrill-observed-")?;
+            let tag = names
+                .observed
+                .get(probe)
+                .map(String::as_str)
+                .or_else(|| probe.strip_prefix("wayrill-observed-"))?;
             let report = &reports[probe];
             Some(
                 json!({"tag":tag,"checked":report.is_object(),"alive":report["alive"] == true,
@@ -109,11 +117,20 @@ mod tests {
     use super::*;
     #[test]
     fn returns_only_canvas_path_reports_including_unchecked_and_failed() {
-        let config = json!({"outbounds":[{"tag":"wayrill-observed-plain"},{"tag":"wayrill-observed-chain"},{"tag":"wayrill-observed-waiting"},{"tag":"internal-candidate"}]});
+        let config = json!({"outbounds":[{"tag":"wob-AAAAAAAAAAAAAAAAAAAAAA"},{"tag":"wayrill-observed-chain"},{"tag":"wayrill-observed-waiting"},{"tag":"plain"},{"tag":"internal-candidate"}]});
         let reports = sanitize(
-            &json!({"wayrill-observed-plain":{"alive":true,"delay":37},"wayrill-observed-chain":{"alive":false,"delay":999}}),
+            &json!({"wob-AAAAAAAAAAAAAAAAAAAAAA":{"alive":true,"delay":37},"wayrill-observed-chain":{"alive":false,"delay":999}}),
         );
-        let result = outbounds(&config, &reports);
+        let mut names = crate::display_names::DisplayNames::default();
+        names
+            .observed
+            .insert("wob-AAAAAAAAAAAAAAAAAAAAAA".into(), "plain".into());
+        names.validate(&config).unwrap();
+        let result = outbounds(&config, &reports, &names);
+        names
+            .observed
+            .insert("wob-AAAAAAAAAAAAAAAAAAAAAA".into(), "missing".into());
+        assert!(names.validate(&config).is_err());
         assert_eq!(result.as_array().unwrap().len(), 3);
         assert_eq!(
             result[0],

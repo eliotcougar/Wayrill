@@ -64,12 +64,12 @@ impl Bridge {
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
         let scope = crate::loopback::private_tag(config, "telemetry")?;
-        let inbound = format!("{scope}-in");
+        let inbound = format!("{scope}-i");
         let metrics = config["metrics"]["tag"]
             .as_str()
             .filter(|s| !s.is_empty())
             .map(String::from)
-            .unwrap_or_else(|| format!("{scope}-metrics"));
+            .unwrap_or_else(|| format!("{scope}-m"));
         let mut run = config.clone();
         run["stats"] = json!({});
         if !run["policy"].is_object() {

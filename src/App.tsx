@@ -440,8 +440,13 @@ export default function App() {
     subscriptionMaintenance.appliedSourceHash,
   );
   const compatibleObservations = useMemo(
-    () => compatibleObservedGroups(graphCompilation?.config, runtime.savedConfig),
-    [graphCompilation?.config, runtime.savedConfig],
+    () =>
+      compatibleObservedGroups(
+        graphCompilation?.config,
+        runtime.savedConfig,
+        graphCompilation?.displayNames?.observed,
+      ),
+    [graphCompilation?.config, graphCompilation?.displayNames?.observed, runtime.savedConfig],
   );
   const observationSummaries = useMemo(
     () =>

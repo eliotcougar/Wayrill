@@ -106,3 +106,20 @@ zero are not interchangeable.
 **Use Xray default** clears a shared app value. **Factory defaults** restores
 Wayrill's presets. For scope, buffering and native-import details, see
 [Defaults and inheritance](../reference/defaults-catalog.md).
+
+### UDP buffers
+
+In Global defaults → Connections, **UDP receive buffer (KiB)** and **UDP send
+buffer (KiB)** set the outbound socket sizes independently. Compatible outbound
+editors expose the same fields under Socket, with the usual override/reset
+controls. The factory preset is 256 KiB each; `0` leaves the Windows default.
+Imported native socket settings remain authoritative until explicitly overridden.
+
+The Inputs section has separate defaults for UDP listeners. Listener-specific
+socket controls are in the inbound editor; SOCKS UDP follows the shared listener
+defaults because Xray's listener hook does not identify individual SOCKS inbounds.
+
+Check detects invalid ranges. Validate and Start also ask Windows to apply and
+read back the requested sizes on isolated temporary sockets. Rejected or reduced
+sizes are reported before replacing working routing. Larger buffers use more
+memory per socket; they do not increase the link's bandwidth.

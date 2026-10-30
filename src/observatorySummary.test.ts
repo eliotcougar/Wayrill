@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { observedTag } from './graph/tags';
 import { compatibleObservedGroups, observedGroupSummaries } from './observatorySummary';
 import type { ServiceSnapshot } from './serviceClient';
 
@@ -52,10 +53,13 @@ it('distinguishes pending probes and failures and clears stopped/disconnected re
 
 it('updates standalone and whole-chain reports and rejects stale route definitions', () => {
   const config = {
-    outbounds: [{ tag: 'wayrill-observed-chain', protocol: 'socks' }],
+    outbounds: [
+      { tag: 'chain', protocol: 'socks' },
+      { tag: observedTag('chain'), protocol: 'socks' },
+    ],
     observatory: { probeURL: 'https://example.test' },
   };
-  const compatible = compatibleObservedGroups(config, config);
+  const compatible = compatibleObservedGroups(config, config, { [observedTag('chain')]: 'chain' });
   const current = snapshot();
   current.observation!.outbounds = [{ tag: 'chain', checked: true, alive: true, latencyMs: 28 }];
   expect(observedGroupSummaries(current, compatible, 9).get('chain')?.text).toBe('28 ms');

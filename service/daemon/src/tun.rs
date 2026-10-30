@@ -67,6 +67,12 @@ pub(crate) fn worker_executable(service: &Path) -> Result<PathBuf> {
     Ok(worker)
 }
 pub(crate) fn random_id() -> Result<String> {
+    Ok(random_bytes()?.iter().map(|b| format!("{b:02x}")).collect())
+}
+pub(crate) fn random_tag_id() -> Result<String> {
+    Ok(crate::tags::encode(&random_bytes()?))
+}
+fn random_bytes() -> Result<[u8; 16]> {
     let mut bytes = [0u8; 16];
     if unsafe {
         BCryptGenRandom(
@@ -79,7 +85,7 @@ pub(crate) fn random_id() -> Result<String> {
     {
         return Err(native::os_error("Generate TUN identity"));
     }
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    Ok(bytes)
 }
 type CreateAdapter = unsafe extern "system" fn(*const u16, *const u16, *const GUID) -> *mut c_void;
 type CloseAdapter = unsafe extern "system" fn(*mut c_void);
@@ -1485,7 +1491,7 @@ fn prepare_source(
     let destinations: BTreeMap<_, _> = destinations
         .into_iter()
         .enumerate()
-        .map(|(i, d)| (d, format!("wr-tun-{i}")))
+        .map(|(i, d)| (d, format!("wtr-{}", crate::tags::number(i as u64))))
         .collect();
     let mut main = config.clone();
     main["inbounds"]
@@ -1585,12 +1591,8 @@ fn prepare_source(
             .map_err(|e| ApiError::io("Read TUN resolver", e))?
             .port();
         let native = config.get("fakedns").is_some_and(|p| !p.is_null());
-        let dns_tag = format!(
-            "wr-tun-resolver-{}{}",
-            if native { "native-" } else { "" },
-            random_id()?
-        );
-        let dns_out = format!("wr-tun-dns-{}", random_id()?);
+        let dns_tag = format!("wdr-{}{}", if native { "n-" } else { "" }, random_tag_id()?);
+        let dns_out = format!("wdo-{}", random_tag_id()?);
         worker["inbounds"].as_array_mut().unwrap().push(json!({"tag":dns_tag,"protocol":"dokodemo-door","listen":"127.0.0.1","port":dns_port,"settings":{"address":"1.1.1.1","port":53,"network":"tcp"}}));
         worker["outbounds"]
             .as_array_mut()
@@ -1663,14 +1665,15 @@ fn shared_ipv6_worker(
     let host_tag = host["inbounds"][0]["tag"].clone();
     let shared_tag = &shared["inbounds"][0]["tag"];
     let mut targets = BTreeMap::new();
-    for o in shared["outbounds"]
+    for (index, o) in shared["outbounds"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|o| o["protocol"] == "socks")
+        .enumerate()
     {
         let tag = o["tag"].as_str().unwrap();
-        let renamed = format!("wr-ics6-{tag}");
+        let renamed = format!("wi6-{}", crate::tags::number(index as u64));
         targets.insert(tag.to_owned(), renamed.clone());
         let mut relay = o.clone();
         relay["tag"] = json!(renamed);
@@ -2684,12 +2687,12 @@ mod tests {
     #[test]
     fn nat_scopes_are_copied_only_to_the_host_attribution_worker() {
         let c = json!({"routing":{"rules":[
-            {"inboundTag":["wayrill-runtime-nat"],"outboundTag":"guest"},
+            {"inboundTag":["wr-n"],"outboundTag":"guest"},
             {"inboundTag":["host"],"outboundTag":"host"},
             {"inboundTag":["shared"],"outboundTag":"shared"}
         ]}});
         assert_eq!(
-            worker_rules_with_nat(&c, "host", &Value::Null, Some("wayrill-runtime-nat")).len(),
+            worker_rules_with_nat(&c, "host", &Value::Null, Some("wr-n")).len(),
             2
         );
         assert_eq!(
@@ -2832,9 +2835,9 @@ mod shared_ipv6_tests {
     fn projected_tags_are_unique_even_when_host_and_shared_match_the_same_rule() {
         let mut host = host();
         let mut shared = shared();
-        host["routing"]["rules"][0]["ruleTag"] = json!("wr-route-1-0");
-        host["routing"]["rules"][1]["ruleTag"] = json!("wr-route-1-0-ics6");
-        shared["routing"]["rules"][0]["ruleTag"] = json!("wr-route-1-0");
+        host["routing"]["rules"][0]["ruleTag"] = json!("wrr-1-0");
+        host["routing"]["rules"][1]["ruleTag"] = json!("wrr-1-0-ics6");
+        shared["routing"]["rules"][0]["ruleTag"] = json!("wrr-1-0");
         let aliases =
             shared_ipv6_worker(&mut host, &shared, "22944640-3598-4b5d-aa13-06ea38f26fb0").unwrap();
         let tags = host["routing"]["rules"]
@@ -2844,10 +2847,7 @@ mod shared_ipv6_tests {
             .filter_map(|r| r["ruleTag"].as_str())
             .collect::<Vec<_>>();
         assert_eq!(tags.len(), tags.iter().collect::<BTreeSet<_>>().len());
-        assert_eq!(
-            aliases,
-            vec![("wr-route-1-0-ics6-1".into(), "wr-route-1-0".into())]
-        );
+        assert_eq!(aliases, vec![("wrr-1-0-ics6-1".into(), "wrr-1-0".into())]);
         assert_eq!(
             host["routing"]["rules"][0]["sourceIP"]
                 .as_array()
@@ -2855,13 +2855,13 @@ mod shared_ipv6_tests {
                 .len(),
             1
         );
-        assert_eq!(host["routing"]["rules"][2]["ruleTag"], "wr-route-1-0");
+        assert_eq!(host["routing"]["rules"][2]["ruleTag"], "wrr-1-0");
     }
     fn host() -> Value {
-        json!({"inbounds":[{"tag":"host","protocol":"tun","settings":{"gateway":["fd90::1/64"],"autoSystemRoutingTable":["::/1","8000::/1"],"mtu":1420}}],"outbounds":[{"tag":"wr-tun-0","protocol":"socks","settings":{"user":"host-account"}}],"routing":{"rules":[{"inboundTag":["host"],"user":["host-mask"],"outboundTag":"wr-tun-0"},{"inboundTag":["dns"],"outboundTag":"wr-tun-0"}]}})
+        json!({"inbounds":[{"tag":"host","protocol":"tun","settings":{"gateway":["fd90::1/64"],"autoSystemRoutingTable":["::/1","8000::/1"],"mtu":1420}}],"outbounds":[{"tag":"wtr-0","protocol":"socks","settings":{"user":"host-account"}}],"routing":{"rules":[{"inboundTag":["host"],"user":["host-mask"],"outboundTag":"wtr-0"},{"inboundTag":["dns"],"outboundTag":"wtr-0"}]}})
     }
     fn shared() -> Value {
-        json!({"inbounds":[{"tag":"shared","protocol":"tun"}],"outbounds":[{"tag":"wr-tun-0","protocol":"socks","settings":{"user":"shared-account"}}],"routing":{"rules":[{"inboundTag":["shared"],"domain":["domain:media.example"],"outboundTag":"wr-tun-0"},{"inboundTag":["dns"],"outboundTag":"wr-tun-0"}]}})
+        json!({"inbounds":[{"tag":"shared","protocol":"tun"}],"outbounds":[{"tag":"wtr-0","protocol":"socks","settings":{"user":"shared-account"}}],"routing":{"rules":[{"inboundTag":["shared"],"domain":["domain:media.example"],"outboundTag":"wtr-0"},{"inboundTag":["dns"],"outboundTag":"wtr-0"}]}})
     }
     #[test]
     fn isolates_shared_ipv6_before_host_rules_without_changing_relay_accounts_or_dns_scope() {
@@ -2874,7 +2874,7 @@ mod shared_ipv6_tests {
         assert_eq!(rules[0]["inboundTag"], json!(["host"]));
         assert_eq!(rules[0]["sourceIP"].as_array().unwrap().len(), 1);
         assert_eq!(rules[0]["domain"], json!(["domain:media.example"]));
-        assert_eq!(rules[0]["outboundTag"], "wr-ics6-wr-tun-0");
+        assert_eq!(rules[0]["outboundTag"], "wi6-A");
         assert_eq!(json!(&rules[2..]), original);
         assert_eq!(host["outbounds"][0]["settings"]["user"], "host-account");
         assert_eq!(host["outbounds"][1]["settings"]["user"], "shared-account");

@@ -2,7 +2,7 @@
 export const DEFAULT_TUN_ADAPTER_NAME = 'Wayrill-TUN';
 export const DEFAULT_ICS_ADAPTER_NAME = 'Wayrill-ICS';
 export const DEFAULT_ICS_GATEWAY = '10.91.0.1/32';
-export const NAT_ROUTING_TAG = 'wayrill-runtime-nat';
+export const NAT_ROUTING_TAG = 'wr-n';
 export const isTunKind = (kind: string) => kind === 'tun-inbound' || kind === 'ics-tun';
 export function tunAdapterNameProblem(name: unknown): string | undefined {
   if (name === undefined || name === '') return undefined;

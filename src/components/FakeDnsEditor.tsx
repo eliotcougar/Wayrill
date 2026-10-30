@@ -6,10 +6,10 @@ import { EditorTabs, EditorTabPanel, useEditorTabs } from './EditorTabs';
 import useModalDialog from './useModalDialog';
 import { Plus, Trash2, X } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
-import { automaticFakeDnsPools, editFakeDnsGraph, fakeDnsNodeProblems } from '../graph/fakeDns';
+import { automaticFakeDnsPools, fakeDnsNodeProblems } from '../graph/fakeDns';
 import { dnsServerFields, type NativeField } from '../graph/nativeFields';
 import { jsonRecord, parseXrayJson, jsonText, jsonArray } from '../graph/xrayJson';
-import { compileRuntimeGraph } from '../graph/runtime';
+import { compileFakeDnsPools, fakeDnsServers } from '../graph/fakeDns';
 import type { GraphState, RuleNode } from '../graph/types';
 import NativeObjectFields from './NativeObjectFields';
 
@@ -95,7 +95,13 @@ export default function FakeDnsEditor({
   let preview: string;
   try {
     preview = JSON.stringify(
-      compileRuntimeGraph(editFakeDnsGraph(graph, node.id, settings)).config,
+      {
+        fakedns: compileFakeDnsPools({
+          ...graph,
+          nodes: [{ ...node, data: { ...node.data, settings } }],
+        }),
+        dns: { servers: fakeDnsServers({ ...node.data, settings }) },
+      },
       null,
       2,
     );
