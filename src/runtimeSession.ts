@@ -153,7 +153,15 @@ export class RuntimeSession {
     // Replay belongs to the acknowledged instance. Keep old log messages, but
     // reject their state snapshots and stale frames from an earlier connection.
     if (this.cursor.instanceId && message.instanceId !== this.cursor.instanceId) return;
-    this.update({ events: [...this.state.events, message].slice(-150) });
+    // Periodic snapshots drive the live view, not diagnostic history. Replayed
+    // events keep their original identity and should appear only once.
+    if (
+      message.kind !== 'service.snapshot' &&
+      !this.state.events.some(
+        (event) => event.instanceId === message.instanceId && event.sequence === message.sequence,
+      )
+    )
+      this.update({ events: [...this.state.events, message].slice(-150) });
     if (message.sequence <= this.cursor.sequence || message.kind === 'core.log') return;
     this.cursor = { instanceId: message.instanceId, sequence: message.sequence };
     if (message.kind === 'subscriptions.changed' || message.kind === 'subscriptions.progress') {

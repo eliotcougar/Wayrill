@@ -76,8 +76,30 @@
 .runtime-scope {
   margin: 16px 0;
 }
+.runtime-events-body {
+  overflow: hidden;
+}
+.runtime-events-body:not([hidden]),
+.runtime-event-log {
+  display: flex;
+  flex-direction: column;
+}
+.runtime-event-log {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--space-3);
+}
+.runtime-event-controls {
+  flex-shrink: 0;
+}
+.runtime-event-search {
+  flex: 1 1 180px;
+}
 .runtime-events {
-  margin-top: 13px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   background: var(--surface-sunken);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -86,7 +108,7 @@
 }
 .runtime-events > div {
   display: grid;
-  grid-template-columns: 75px 155px 1fr;
+  grid-template-columns: 75px minmax(130px, 180px) minmax(0, 1fr);
   gap: 9px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
@@ -97,6 +119,7 @@
 .runtime-events strong {
   color: var(--success);
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .runtime-events span {
   white-space: pre-wrap;

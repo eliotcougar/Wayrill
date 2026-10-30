@@ -63,6 +63,36 @@ function service() {
 }
 
 describe('runtime synchronization', () => {
+  it('updates live snapshots without evicting diagnostic events or duplicating replay', async () => {
+    const env = service();
+    await env.session.refresh();
+    const failure = {
+      type: 'event' as const,
+      apiVersion: 1,
+      instanceId: 'service-a',
+      sequence: 1,
+      timestampMs: 1,
+      kind: 'core.log',
+      payload: { message: 'Connection failed.' },
+    };
+    env.session.message(failure);
+    const history = env.session.getSnapshot().events;
+    for (let sequence = 2; sequence <= 202; sequence++)
+      env.session.message({
+        ...failure,
+        sequence,
+        kind: 'service.snapshot',
+        payload: { ...snapshot(1, 'running'), uptimeSeconds: sequence },
+      });
+    env.session.message(failure);
+    expect(env.session.getSnapshot().snapshot).toMatchObject({
+      uptimeSeconds: 202,
+      core: { state: 'running' },
+    });
+    expect(env.session.getSnapshot().events).toBe(history);
+    expect(history).toEqual([failure]);
+    expect(env.request).toHaveBeenCalledTimes(1);
+  });
   it('keeps a newer live snapshot when an older status reply finishes afterward', async () => {
     const env = service(),
       old = deferred<ServiceView>();
