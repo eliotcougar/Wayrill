@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import react from '@eslint-react/eslint-plugin';
 import { defineConfig, type OxlintConfig } from 'oxlint';
 
 type RuleSet = NonNullable<OxlintConfig['rules']>;
@@ -8,6 +9,33 @@ const { version: reactVersion } = JSON.parse(
 ) as { version: string };
 const errors = (names: readonly string[]) =>
   Object.fromEntries(names.map((name) => [name, 'error' as const]));
+
+// Keep the plugin's recommended correctness coverage as it evolves, without
+// adopting React Compiler restrictions or naming/API migrations. The native
+// hook rules below remain authoritative for hooks and render-time updates.
+const excludedReactRules = new Set([
+  // Native JSON forms use array slots; stateless geometry has no item IDs.
+  'no-array-index-key',
+  'exhaustive-deps',
+  'rules-of-hooks',
+  'error-boundaries',
+  'purity',
+  'set-state-in-effect',
+  'set-state-in-render',
+  'static-components',
+  'unsupported-syntax',
+  'use-memo',
+  'use-state',
+  'no-context-provider',
+  'no-use-context',
+  'no-forward-ref',
+  'naming-convention-ref-name',
+]);
+const reactCorrectness = errors(
+  Object.keys(react.configs['recommended-typescript'].rules!).filter(
+    (rule) => !excludedReactRules.has(rule.replace('@eslint-react/', '')),
+  ),
+);
 
 // Match the existing recommended correctness checks and explicit rule options.
 const baseRules: RuleSet = {
@@ -100,6 +128,7 @@ const baseRules: RuleSet = {
 // Type-aware checks and React lifecycle rules apply to production source.
 // Test fixtures intentionally describe invalid external shapes and mock promises.
 const productionRules: RuleSet = {
+  ...reactCorrectness,
   ...errors([
     'typescript/await-thenable',
     'typescript/no-array-delete',
@@ -124,56 +153,6 @@ const productionRules: RuleSet = {
     'typescript/restrict-plus-operands',
     'typescript/restrict-template-expressions',
     'typescript/unbound-method',
-    '@eslint-react/no-access-state-in-setstate',
-    '@eslint-react/no-children-count',
-    '@eslint-react/no-children-for-each',
-    '@eslint-react/no-children-map',
-    '@eslint-react/no-children-only',
-    '@eslint-react/no-children-to-array',
-    '@eslint-react/no-clone-element',
-    '@eslint-react/no-component-will-mount',
-    '@eslint-react/no-component-will-receive-props',
-    '@eslint-react/no-component-will-update',
-    '@eslint-react/no-create-ref',
-    '@eslint-react/no-direct-mutation-state',
-    '@eslint-react/no-missing-key',
-    '@eslint-react/no-nested-component-definitions',
-    '@eslint-react/no-nested-lazy-component-declarations',
-    '@eslint-react/no-set-state-in-component-did-mount',
-    '@eslint-react/no-set-state-in-component-did-update',
-    '@eslint-react/no-set-state-in-component-will-update',
-    '@eslint-react/no-unnecessary-use-prefix',
-    '@eslint-react/no-unsafe-component-will-mount',
-    '@eslint-react/no-unsafe-component-will-receive-props',
-    '@eslint-react/no-unsafe-component-will-update',
-    '@eslint-react/no-unused-class-component-members',
-    '@eslint-react/jsx-no-children-prop',
-    '@eslint-react/jsx-no-children-prop-with-children',
-    '@eslint-react/jsx-no-comment-textnodes',
-    '@eslint-react/jsx-no-key-after-spread',
-    '@eslint-react/jsx-no-leaked-dollar',
-    '@eslint-react/jsx-no-leaked-semicolon',
-    '@eslint-react/jsx-no-namespace',
-    '@eslint-react/rsc-function-definition',
-    '@eslint-react/dom-no-dangerously-set-innerhtml',
-    '@eslint-react/dom-no-dangerously-set-innerhtml-with-children',
-    '@eslint-react/dom-no-find-dom-node',
-    '@eslint-react/dom-no-flush-sync',
-    '@eslint-react/dom-no-hydrate',
-    '@eslint-react/dom-no-render',
-    '@eslint-react/dom-no-render-return-value',
-    '@eslint-react/dom-no-script-url',
-    '@eslint-react/dom-no-unsafe-iframe-sandbox',
-    '@eslint-react/dom-no-use-form-state',
-    '@eslint-react/dom-no-void-elements-with-children',
-    '@eslint-react/web-api-no-leaked-event-listener',
-    '@eslint-react/web-api-no-leaked-fetch',
-    '@eslint-react/web-api-no-leaked-intersection-observer',
-    '@eslint-react/web-api-no-leaked-interval',
-    '@eslint-react/web-api-no-leaked-resize-observer',
-    '@eslint-react/web-api-no-leaked-timeout',
-    '@eslint-react/naming-convention-context-name',
-    '@eslint-react/naming-convention-id-name',
     'react/rules-of-hooks',
     'react/exhaustive-deps',
     'react/set-state-in-render',
@@ -194,7 +173,10 @@ export default defineConfig({
     'service/**',
     'src-tauri/**',
   ],
-  settings: { react: { version: reactVersion } },
+  settings: {
+    react: { version: reactVersion },
+    'react-x': { version: reactVersion },
+  },
   rules: baseRules,
   overrides: [
     { files: ['src/**/*.{ts,tsx}'], env: { browser: true } },
