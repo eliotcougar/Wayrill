@@ -19,11 +19,13 @@ export default function NativeDnsEditor({
   node,
   graph,
   onApply,
+  onTest,
   onClose,
 }: {
   node: RuleNode;
   graph: GraphState;
   onApply: (id: string, data: Partial<RuleNodeData>) => void;
+  onTest?: (settings: RuleNodeData['settings']) => void;
   onClose: () => void;
 }) {
   const { save, saveError } = useEditorSave(onClose);
@@ -361,6 +363,15 @@ export default function NativeDnsEditor({
         </p>
       )}
       <div className="rule-editor-footer">
+        {onTest && (
+          <button
+            className="secondary-button"
+            disabled={blocked}
+            onClick={() => onTest(data.settings)}
+          >
+            Test this domain…
+          </button>
+        )}
         <button className="secondary-button" onClick={onClose}>
           Cancel
         </button>

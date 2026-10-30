@@ -221,12 +221,14 @@ export default function DnsEditor({
   graph,
   resourceWarnings,
   onApply,
+  onTest,
   onClose,
 }: {
   node: RuleNode;
   resourceWarnings?: Partial<ResourceWarningReport> | null;
   graph: GraphState;
   onApply: (id: string, data: Partial<RuleNodeData>) => void;
+  onTest?: (settings: Record<string, SettingValue>) => void;
   onClose: () => void;
 }) {
   const { save, saveError } = useEditorSave(onClose);
@@ -1270,6 +1272,15 @@ export default function DnsEditor({
           </p>
         )}
         <div className="rule-editor-footer">
+          {onTest && (
+            <button
+              className="secondary-button"
+              disabled={errors.length > 0}
+              onClick={() => onTest(configured)}
+            >
+              Test this domain…
+            </button>
+          )}
           {errors.length > 0 && <span>{errors.length} issue(s) to correct</span>}
           <button className="secondary-button" onClick={onClose}>
             Cancel

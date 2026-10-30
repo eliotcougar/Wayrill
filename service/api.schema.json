@@ -15,8 +15,79 @@
     }
   ],
   "$defs": {
+    "diagnosticStart": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "const": 1 },
+        "id": { "type": "integer", "minimum": 0 },
+        "method": { "const": "routing.diagnosticStart" },
+        "params": {
+          "type": "object",
+          "properties": {
+            "mode": { "enum": ["route", "dns"] },
+            "config": { "type": "object" },
+            "capture": { "anyOf": [{ "$ref": "#/$defs/capturePlan" }, { "type": "null" }] },
+            "route": {
+              "type": "object",
+              "properties": {
+                "inbound": { "type": "string" },
+                "domain": { "type": "string", "maxLength": 253 },
+                "ips": { "type": "array", "maxItems": 64, "items": { "type": "string" } },
+                "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                "network": { "enum": ["tcp", "udp"] },
+                "protocol": { "type": "string" },
+                "user": { "type": "string" },
+                "sourceIP": { "type": "string" },
+                "sourcePort": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                "localIP": { "type": "string" },
+                "localPort": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                "attributes": { "type": "object", "additionalProperties": { "type": "string" } }
+              },
+              "additionalProperties": false
+            },
+            "application": {
+              "type": ["object", "null"],
+              "properties": {
+                "lineage": {
+                  "type": "array", "maxItems": 64,
+                  "items": {
+                    "type": "object",
+                    "properties": { "name": { "type": "string" }, "path": { "type": ["string", "null"] }, "package": { "type": ["string", "null"] } },
+                    "required": ["name"], "additionalProperties": false
+                  }
+                },
+                "service": { "type": ["string", "null"] }
+              },
+              "additionalProperties": false
+            },
+            "resolvedIPs": { "type": "array", "maxItems": 64, "items": { "type": "string" } },
+            "handler": { "type": "string" },
+            "domain": { "type": "string", "maxLength": 253 },
+            "queryType": { "enum": ["A", "AAAA", "HTTPS", "TXT"] },
+            "server": { "type": "string" }
+          },
+          "required": ["mode", "config"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["apiVersion", "id", "method", "params"],
+      "additionalProperties": false
+    },
+    "diagnosticJob": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "const": 1 },
+        "id": { "type": "integer", "minimum": 0 },
+        "method": { "enum": ["routing.diagnosticGet", "routing.diagnosticCancel"] },
+        "params": { "type": "object", "properties": { "job": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 } }, "required": ["job"], "additionalProperties": false }
+      },
+      "required": ["apiVersion", "id", "method", "params"],
+      "additionalProperties": false
+    },
     "request": {
       "oneOf": [
+        { "$ref": "#/$defs/diagnosticStart" },
+        { "$ref": "#/$defs/diagnosticJob" },
         {
           "type": "object",
           "properties": {

@@ -31,6 +31,7 @@
 @import url('./traffic-units.css');
 @import url('./traffic.css');
 @import url('./components/diagnostics.css');
+@import url('./components/RoutingDiagnostics.css');
 @import url('./connections.css');
 @import url('./stash.css');
 @import url('./components/TunAdapterSettings.css');

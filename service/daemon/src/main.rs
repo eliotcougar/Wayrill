@@ -22,6 +22,7 @@ mod recovery;
 mod resource_download;
 mod resource_rules;
 mod resources;
+mod routing_diagnostics;
 mod routing_log;
 mod sockets;
 mod startup;
@@ -737,6 +738,9 @@ async fn client(
                 );
                 if result.is_ok() && request.method == "outbounds.testStart" {
                     k.retain_test_reservation(reservation.take());
+                }
+                if result.is_ok() && request.method == "routing.diagnosticStart" {
+                    k.retain_diagnostic_reservation(reservation.take());
                 }
                 result
             }

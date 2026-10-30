@@ -48,6 +48,37 @@ Speed tests download for up to five seconds or 256 MiB per route and consume
 real bandwidth. Test a small selection first on a metered connection. Endpoint
 location, remote load and your local link can all limit the result.
 
+## Explain a route or test DNS
+
+Open **Service → Routing playground…**, or right-click a node and choose
+**Evaluate route…**. Select the edited graph or the applied revision, choose a
+traffic source, and enter a destination, port and network. The result identifies
+the first matching Xray rule and outbound or policy group. A linked filter rule
+opens its editor. This evaluates routing; it does not send an application
+connection or prove that its destination is reachable.
+
+Expand **Application and connection details** to supply an executable, its
+parent chain, a Windows app/service identity, source address or resolved
+destination IPs. These values describe the flow you want to simulate. If Xray
+needs IPs and none were supplied, or application identity is missing, the result
+is marked provisional. Policy-group selection is reported without rotating the
+running group's winner. Native Lua routing scripts and native `self/`/`xray/`
+process identities cannot be simulated by this tool.
+
+For DNS, choose **Service → Test this domain…**, use a DNS node's right-click
+menu, or click **Test this domain…** in a DNS editor. Choose the handler, domain
+and record type. Unsaved DNS editor settings can be tested without applying them.
+The original DNS destination matters for policies that forward the original
+query; normal A/AAAA resolution uses the handler's configured resolvers.
+
+The test uses Xray's DNS outbound and resolver logic, including request policies,
+static hosts, expected-IP checks and fallback. It shows returned records, TTLs,
+response code and resolver activity. FakeDNS answers are labeled synthetic test
+mappings. Each test has fresh caches and mappings; policy observations also start
+fresh and may initially select a fallback. No test applies the graph, restarts
+active routing or configures a network adapter. DNS probes do send real requests
+through the selected configuration's outbound paths.
+
 ## Read card results and observations
 
 Delay/UDP results appear on outbound cards. The UDP marker is shown only when a

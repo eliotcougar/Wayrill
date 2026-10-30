@@ -47,6 +47,18 @@ clear changes the selected channel, restore checks its owned snapshot. Resource
 updates track content/reload generations independently from authored graph
 revision. Probe jobs have explicit lifetimes and preserve unrelated prior results.
 
+`routing.diagnosticStart` accepts a normalized configuration snapshot and either
+a synthetic routing context or a DNS query. It returns a job token; poll
+`routing.diagnosticGet`, and cancel with `routing.diagnosticCancel`. The job
+holds maintenance admission until completion, blocks resource-file replacement,
+and is canceled/drained during service shutdown. It never applies a profile or
+changes Windows settings. The private restricted worker has a 12-second query
+deadline and an outer process deadline. Responses contain a matched original
+rule index/action or DNS answers/rcode plus a bounded resolver trace. Application
+contexts are supplied identities, not assertions about live socket ownership.
+The capture companion evaluates child/app/service selectors with its live matcher;
+native process conditions retain Xray's process-name/path matching semantics.
+
 Applied display metadata also carries an optional `observed` map from a generated
 probe alias to its public outbound tag. The service validates both tags against
 the applied config and uses this map to report Observatory results for plain

@@ -134,6 +134,8 @@ import { applyStashedProfile } from './profiles/graph';
 import { isOutboundKind } from './graph/outbounds';
 import { canDuplicateNode } from './graph/editing';
 import NodeContextMenu from './components/NodeContextMenu';
+import RoutingDiagnostics from './components/RoutingDiagnostics';
+import { compileRuntimeGraph, type RuntimeCompilation } from './graph/runtime';
 import { isProtocolKind } from './graph/protocols';
 import ProtocolEditor from './components/ProtocolEditor';
 import ConfigurationStash from './components/ConfigurationStash';
@@ -239,6 +241,11 @@ export default function App() {
   const [inspectorVisible, setInspectorVisible] = useState(true);
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
+  const [playground, setPlayground] = useState<{
+    mode: 'route' | 'dns';
+    nodeId?: string;
+    draft?: RuntimeCompilation;
+  } | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
   const [icsSetupOpen, setIcsSetupOpen] = useState(false);
   const [icsFilter, setIcsFilter] = useState(false);
@@ -432,6 +439,19 @@ export default function App() {
   };
   const graphActions = createGraphRuntimeActions(executionGraph, analysis, runtime);
   const graphCompilation = analysis.compilation;
+  const testDnsDraft = (nodeId: string, settings: RuleNodeData['settings']) => {
+    try {
+      const draft = compileRuntimeGraph({
+        ...executionGraph,
+        nodes: executionGraph.nodes.map((node) =>
+          node.id === nodeId ? { ...node, data: { ...node.data, settings } } : node,
+        ),
+      });
+      setPlayground({ mode: 'dns', nodeId, draft });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Cannot compile this draft.', true);
+    }
+  };
   useAppliedSubscriptionGraph(
     stash,
     runtime,
@@ -1113,7 +1133,11 @@ export default function App() {
     },
     {
       label: 'Service',
-      items: [{ label: 'Run graph…', action: () => setRuntimeOpen(true) }],
+      items: [
+        { label: 'Run graph…', action: () => setRuntimeOpen(true) },
+        { label: 'Routing playground…', action: () => setPlayground({ mode: 'route' }) },
+        { label: 'Test this domain…', action: () => setPlayground({ mode: 'dns' }) },
+      ],
     },
     {
       label: 'Help',
@@ -1791,6 +1815,24 @@ export default function App() {
                               label: 'Rename…',
                               action: () => showNodeProperties(contextNode.id, true),
                             },
+                            {
+                              label:
+                                isDnsEditor(contextNode.data) ||
+                                ['xray-dns', 'xray-dns-servers', 'xray-dns-filter'].includes(
+                                  contextNode.data.kind,
+                                )
+                                  ? 'Test this domain…'
+                                  : 'Evaluate route…',
+                              action: () =>
+                                setPlayground({
+                                  mode:
+                                    isDnsEditor(contextNode.data) ||
+                                    contextNode.data.kind.startsWith('xray-dns')
+                                      ? 'dns'
+                                      : 'route',
+                                  nodeId: contextNode.id,
+                                }),
+                            },
                             ...(contextNode.data.kind === 'routing-filter'
                               ? [
                                   {
@@ -2240,6 +2282,7 @@ export default function App() {
                               node={editingNode}
                               graph={editor.graph}
                               onApply={saveNodeData}
+                              onTest={(settings) => testDnsDraft(editingNode.id, settings)}
                               onClose={closeNodeEditor}
                             />
                           )
@@ -2278,6 +2321,7 @@ export default function App() {
                             node={editingNode}
                             graph={editor.graph}
                             onApply={saveNodeData}
+                            onTest={(settings) => testDnsDraft(editingNode.id, settings)}
                             onClose={closeNodeEditor}
                           />
                         ) : (
@@ -2308,6 +2352,18 @@ export default function App() {
                             onClose={closeNodeEditor}
                           />
                         ))}
+                      {playground && (
+                        <RoutingDiagnostics
+                          key={`${playground.mode}:${playground.nodeId ?? ''}`}
+                          draft={playground.draft ?? graphCompilation}
+                          runtime={runtime}
+                          graph={editor.graph}
+                          initialMode={playground.mode}
+                          initialNodeId={playground.nodeId}
+                          onIssue={reviewIssue}
+                          onClose={() => setPlayground(null)}
+                        />
+                      )}
                     </div>
                   </DiagnosticFocusContext.Provider>
                 </NodeEditorContext.Provider>

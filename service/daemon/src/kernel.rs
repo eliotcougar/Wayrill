@@ -138,6 +138,7 @@ pub struct Kernel {
     network: crate::tun::network::Monitor,
     resources: crate::resources::Manager,
     outbound_tests: crate::outbound_tests::Manager,
+    routing_diagnostics: crate::routing_diagnostics::Manager,
     direct_egress: Option<crate::tun::OutboundEgress>,
     loopback_policy: Option<crate::loopback::Policy>,
     core_resource_generation: u64,
@@ -479,6 +480,12 @@ impl Kernel {
     ) {
         self.outbound_tests.retain_reservation(reservation);
     }
+    pub(crate) fn retain_diagnostic_reservation(
+        &mut self,
+        reservation: Option<crate::operation_gate::Foreground>,
+    ) {
+        self.routing_diagnostics.retain_reservation(reservation);
+    }
     pub(crate) fn subscription_test(&mut self, method: &str, input: Value) -> Result<Value> {
         if self.resources.snapshot()["busy"] == true {
             return Err(ApiError::new("BUSY", "Resource files are being updated."));
@@ -558,6 +565,7 @@ impl Kernel {
                 events.clone(),
             )?,
             outbound_tests: crate::outbound_tests::Manager::new(),
+            routing_diagnostics: crate::routing_diagnostics::Manager::new(),
             direct_egress: None,
             loopback_policy: None,
             core_resource_generation: 0,
@@ -640,7 +648,7 @@ impl Kernel {
         json!({"appProtection":self.protection.summary(),"serviceVersion":env!("CARGO_PKG_VERSION"),"apiVersion":1,"instanceId":self.events.instance_id,"ownerSid":self.owner,"uptimeSeconds":self.started.elapsed().as_secs(),"config":{"present":self.profile.is_some(),"revision":self.revision(),"sha256":self.profile.as_ref().map(|p|&p.hash),"recoveryError":self.profile_recovery},"startup":self.startup.snapshot(self.recovery.boot_waiting()),"lifecycle":self.lifecycle,"recovery":self.recovery.snapshot(),"core":{"userSid":self.core.as_ref().map(|c|&c.user_sid),"state":self.core_state,"failureSource":self.health_fault,"pid":self.core.as_ref().map(|c|c.pid),"generation":self.generation,"version":crate::native::XRAY_VERSION,"lastError":self.last_error},"winDivert":self.divert.status(),"capture":self.capture.status(),"tun":self.tun.status(),"fakeDns":self.fake_dns_status(),"network":self.network.snapshot(),"tunAdapters":self.tun.adapter_preferences().ok(),"systemProxy":self.proxy.status(),"systemCapture":self.proxy.extras.summary(),"userSettings":{"waitingForUser":self.proxy.user_deferred(),"lastError":self.user_settings_error.as_ref().filter(|_|self.proxy.user_deferred())},"traffic":self.statistics.snapshot(),"observation":self.observation.as_ref().filter(|(generation, time, _)| *generation == self.generation && self.core_state == CoreState::Running && time.elapsed() < Duration::from_secs(10)).map(|(_, _, value)| value),"resources":self.resource_status()})
     }
     fn hello(&self) -> Value {
-        json!({"serviceVersion":env!("CARGO_PKG_VERSION"),"apiVersion":1,"instanceId":self.events.instance_id,"capabilities":["service.sync","subscriptions.service","subscriptions.replace","service.startup","resources.management","resources.browse","xray.lifecycle","xray.routingLive","config.refreshOutbounds","windows.tun","windows.tun.adapters","windows.tun.applications","windows.tun.fakedns","windows.tun.nat","windows.tun.sharing","windows.ics.graph","xray.observatory","xray.statistics","xray.routingLog","xray.statistics.pages","xray.statistics.sorting","xray.statistics.reset","outbounds.testing","outbounds.interfaces","xray.nativeImport","xray.protocols","config.validate","config.apply","config.applyAndStart","config.displayNames","events.replay","windivert.sniffDiagnostic","windivert.routing","windivert.ruleProcesses","windows.catalog","windows.loopback","system.capture","system.capture.diagnostics","system.capture.scope","windivert.maintenance"],"notImplemented":["firewallRules","coreAutoUpdate","fullGraphCompilation"],"protocols":{"inbound":wayrill_protocol::INBOUND_PROTOCOLS,"outbound":wayrill_protocol::OUTBOUND_PROTOCOLS,"adapterRuntime":true},"maxFrameBytes":wayrill_protocol::MAX_FRAME,"maxConfigBytes":wayrill_protocol::MAX_CONFIG,"maxOutbounds":wayrill_protocol::MAX_OUTBOUNDS,"maxRoutingRules":wayrill_protocol::MAX_ROUTING_RULES})
+        json!({"serviceVersion":env!("CARGO_PKG_VERSION"),"apiVersion":1,"instanceId":self.events.instance_id,"capabilities":["service.sync","subscriptions.service","subscriptions.replace","service.startup","resources.management","resources.browse","xray.lifecycle","xray.routingLive","routing.diagnostics","config.refreshOutbounds","windows.tun","windows.tun.adapters","windows.tun.applications","windows.tun.fakedns","windows.tun.nat","windows.tun.sharing","windows.ics.graph","xray.observatory","xray.statistics","xray.routingLog","xray.statistics.pages","xray.statistics.sorting","xray.statistics.reset","outbounds.testing","outbounds.interfaces","xray.nativeImport","xray.protocols","config.validate","config.apply","config.applyAndStart","config.displayNames","events.replay","windivert.sniffDiagnostic","windivert.routing","windivert.ruleProcesses","windows.catalog","windows.loopback","system.capture","system.capture.diagnostics","system.capture.scope","windivert.maintenance"],"notImplemented":["firewallRules","coreAutoUpdate","fullGraphCompilation"],"protocols":{"inbound":wayrill_protocol::INBOUND_PROTOCOLS,"outbound":wayrill_protocol::OUTBOUND_PROTOCOLS,"adapterRuntime":true},"maxFrameBytes":wayrill_protocol::MAX_FRAME,"maxConfigBytes":wayrill_protocol::MAX_CONFIG,"maxOutbounds":wayrill_protocol::MAX_OUTBOUNDS,"maxRoutingRules":wayrill_protocol::MAX_ROUTING_RULES})
     }
     fn config_view(&self) -> Value {
         json!({"revision":self.revision(),"config":self.profile.as_ref().map(|p|&p.config),"capture":self.profile.as_ref().and_then(|p|p.capture.as_ref()),"displayNames":self.profile.as_ref().map(|p|&p.display_names)})
@@ -753,6 +761,28 @@ impl Kernel {
         if method.starts_with("subscriptions.") {
             return self.subscriptions.handle(method, input);
         }
+        if method == "routing.diagnosticStart" {
+            let mut request: crate::routing_diagnostics::Input = params(input)?;
+            request.config = normalize_config(request.config)?;
+            let projection = self.resources.project(&request.config)?;
+            if projection.report.skipped_selector_count > 0 {
+                request.resource_warnings.push(format!(
+                    "{} missing geodata selectors are inactive in this test.",
+                    projection.report.skipped_selector_count
+                ));
+            }
+            request.config = projection.config;
+            let egress = self.outbound_egress().ok();
+            return self.routing_diagnostics.start(
+                request,
+                self.exe.clone(),
+                self.owner.clone(),
+                egress,
+            );
+        }
+        if matches!(method, "routing.diagnosticGet" | "routing.diagnosticCancel") {
+            return self.routing_diagnostics.get(method, input);
+        }
         if method.starts_with("outbounds.test") {
             if method == "outbounds.testStart" && self.resources.snapshot()["busy"] == true {
                 return Err(ApiError::new(
@@ -789,17 +819,18 @@ impl Kernel {
         if method.starts_with("resources.") {
             let proxy_port = self.subscription_proxy_port().ok();
             self.resources.set_proxy_port(proxy_port);
-            if self.outbound_tests.busy()
+            if (self.outbound_tests.busy() || self.routing_diagnostics.busy())
                 && [
                     "resources.update",
                     "resources.ensure",
                     "resources.uploadCommit",
+                    "resources.configure",
                 ]
                 .contains(&method)
             {
                 return Err(ApiError::new(
                     "BUSY",
-                    "Wait for outbound tests to finish before changing resource files.",
+                    "Wait for tests to finish before changing resource files.",
                 ));
             }
             let mut result = self.resources.handle(method, input)?;
@@ -2277,7 +2308,7 @@ impl Kernel {
         if crate::diagnostics::sampling_due() {
             crate::diagnostics::snapshot(&self.snapshot());
         }
-        if !self.outbound_tests.busy() {
+        if !self.outbound_tests.busy() && !self.routing_diagnostics.busy() {
             let proxy_port = self.subscription_proxy_port().ok();
             self.resources.set_proxy_port(proxy_port);
             self.resources.tick();
@@ -2360,6 +2391,7 @@ impl Kernel {
             || self.core_state != CoreState::Running
             || self.core.is_none()
             || self.outbound_tests.busy()
+            || self.routing_diagnostics.busy()
             || self.resources.snapshot()["busy"] == true
             || generation == self.core_resource_generation
             || self.resources.reload_generation() <= self.core_resource_generation
@@ -2521,6 +2553,7 @@ impl Kernel {
     }
     pub fn shutdown(&mut self, reason: crate::lifecycle::ServiceExit) -> Result<()> {
         self.outbound_tests.shutdown();
+        self.routing_diagnostics.shutdown();
         self.resources.shutdown();
         if self.shutting_down {
             return Ok(());

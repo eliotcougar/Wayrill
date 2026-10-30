@@ -225,6 +225,11 @@ quotes for both address families.
   and checks the channel with `ListRule`. It adds no routing or outbound RPC.
 - `wayrill-fakedns` reads a bounded configuration from stdin, starts the native
   holder, opens the authenticated mapping authority and reports readiness.
+- `wayrill-diagnose` evaluates a supplied flow with upstream `router.Router`,
+  or sends a wire query through an isolated DNS outbound. It has no listener,
+  active-core command channel or adapter initialization. Routing simulation
+  suppresses webhooks and returns the selected balancer without advancing it;
+  DNS diagnostics use fresh caches, observations and FakeDNS mappings.
 
 The builder copies `service/core-control/*.go` into the worker's `main` package.
 These commands are not available in the official upstream executable. The main
@@ -284,6 +289,8 @@ Broad upstream test audits remain separate from the contributor build gate.
 | `service/core-init/udp_windows.go` | `main/wayrill_init_udp_windows.go` | X01 |
 | `service/core-init/udp_windows_test.go` | `main/wayrill_init_udp_windows_test.go` | X01 and merged UDP repair tests |
 | `service/core-control/fakedns.go` | `main/wayrill_control_fakedns.go` | X12 |
+| `service/core-control/diagnostics.go` | `main/wayrill_control_diagnostics.go` | X12 isolated routing/DNS diagnostics |
+| `service/core-control/diagnostics_test.go` | `main/wayrill_control_diagnostics_test.go` | X12 matcher, DNS policy/fallback and cancellation tests |
 | `service/core-control/main.go` | `main/wayrill_control_main.go` | X12 |
 | `service/core-control/main_test.go` | `main/wayrill_control_main_test.go` | X12 tests |
 | `service/core-control/routing_test.go` | `main/wayrill_control_routing_test.go` | X12 tests |

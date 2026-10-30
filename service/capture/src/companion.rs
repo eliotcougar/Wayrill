@@ -26,6 +26,7 @@ impl Companion {
                 progress,
             )?)?),
             "catalog" => catalog(owner_sid(data)?),
+            "policy.evaluate" => crate::policy::evaluate(data),
             "loopback.get" => {
                 let packages = native::packages::read(Some(owner_sid(data)?))?;
                 Ok(serde_json::to_value(native::loopback::snapshot(

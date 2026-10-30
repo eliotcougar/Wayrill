@@ -412,7 +412,11 @@ pub(crate) fn read_output(input: impl Read, mut emit: impl FnMut(String)) -> std
 fn helper_output(arguments: &str) -> bool {
     matches!(
         arguments,
-        "--proxy-helper" | "--system-settings-helper" | "wayrill-fakedns" | "--subscription-worker"
+        "--proxy-helper"
+            | "--system-settings-helper"
+            | "wayrill-fakedns"
+            | "--subscription-worker"
+            | "wayrill-diagnose"
     )
 }
 
@@ -715,7 +719,9 @@ pub(crate) fn spawn_tun_with_token(
         drop(stdout_write);
         drop(stderr_write);
         let output = Arc::new(CoreOutput {
-            reply: Mutex::new((arguments == "--subscription-worker").then(String::new)),
+            reply: Mutex::new(
+                matches!(arguments, "--subscription-worker" | "wayrill-diagnose").then(String::new),
+            ),
             origin: info.dwProcessId,
             helper: helper_output(arguments),
             source: if input["inbounds"]

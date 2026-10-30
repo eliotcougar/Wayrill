@@ -272,6 +272,70 @@ fn rows(selectors: &[Selector]) -> Result<Vec<Row>> {
         .map(Row::from)
         .collect()
 }
+fn profile_mask(matches: impl Iterator<Item = bool>, width: usize) -> String {
+    let mut mask = vec![0u8; width];
+    for (i, matched) in matches.enumerate() {
+        if matched {
+            let pos = mask.len() - 1 - i / 4;
+            mask[pos] |= 1 << (i % 4);
+        }
+    }
+    mask.into_iter()
+        .map(|n| char::from(b"0123456789abcdef"[usize::from(n)]))
+        .collect()
+}
+/// Evaluate supplied identities with the same matcher used by live capture.
+/// This operation does not start observation or claim ownership of real flows.
+pub fn evaluate(value: &serde_json::Value) -> Result<serde_json::Value> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Person {
+        name: String,
+        path: Option<String>,
+        package: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Evaluation {
+        predicates: Vec<Vec<Selector>>,
+        lineage: Vec<Person>,
+        service: Option<String>,
+        #[serde(rename = "maskCount")]
+        mask_count: usize,
+        #[serde(rename = "maskWidth")]
+        mask_width: usize,
+    }
+    let input: Evaluation = serde_json::from_value(value.clone())?;
+    if input.predicates.len() > 32768
+        || input.lineage.len() > 64
+        || input.predicates.iter().map(Vec::len).sum::<usize>() > 32768
+    {
+        return Err(Error::invalid("Application diagnostic exceeds its limit."));
+    }
+    let lineage = input
+        .lineage
+        .iter()
+        .map(|p| Identity::new(&p.name, p.path.as_deref(), p.package.as_deref()))
+        .collect::<Vec<_>>();
+    let matches = input
+        .predicates
+        .iter()
+        .map(|p| {
+            Ok(rows(p)?
+                .iter()
+                .any(|r| r.matches(&lineage, input.service.as_deref())))
+        })
+        .collect::<Result<Vec<bool>>>()?;
+    if input.mask_count > matches.len()
+        || input.mask_width < input.mask_count.div_ceil(4).max(1)
+        || input.mask_width > 8192
+    {
+        return Err(Error::invalid("Invalid application diagnostic mask."));
+    }
+    Ok(
+        serde_json::json!({"mask":profile_mask(matches.iter().take(input.mask_count).copied(), input.mask_width),"matches":matches}),
+    )
+}
 impl SharedPolicy {
     pub fn new(plan: Plan) -> Result<Self> {
         let mut branches = Vec::new();
@@ -339,17 +403,12 @@ impl SharedPolicy {
             if !b.selectors.is_empty() && !b.selectors.iter().any(|r| r.matches(lineage, service)) {
                 continue;
             }
-            let mut mask = vec![0u8; b.predicates.len().div_ceil(4).max(1)];
-            for (i, predicate) in b.predicates.iter().enumerate() {
-                if predicate.iter().any(|r| r.matches(lineage, service)) {
-                    let pos = mask.len() - 1 - i / 4;
-                    mask[pos] |= 1 << (i % 4);
-                }
-            }
-            let profile: String = mask
-                .into_iter()
-                .map(|n| char::from(b"0123456789abcdef"[usize::from(n)]))
-                .collect();
+            let profile = profile_mask(
+                b.predicates
+                    .iter()
+                    .map(|p| p.iter().any(|r| r.matches(lineage, service))),
+                b.predicates.len().div_ceil(4).max(1),
+            );
             if !b.masks.contains(&profile) {
                 return Err(Error::invalid(
                     "A Windows process identity is absent from its compiled profiles.",
@@ -410,6 +469,17 @@ impl SharedPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn supplied_application_diagnostics_share_child_service_and_package_matching() {
+        let selector = |kind: &str, value: &str, mode: &str, children: bool| serde_json::json!({"kind":kind,"value":value,"mode":mode,"children":children});
+        let result=evaluate(&serde_json::json!({"predicates":[[selector("process","parent.exe","name",true)],[selector("process","parent.exe","name",false)],[selector("package","package.name","name",false)],[selector("service","DnsService","name",false)],[selector("process","C:\\Apps\\","folder",false)]],"lineage":[{"name":"child.exe","path":"C:\\Apps\\child.exe","package":"package.name"},{"name":"parent.exe","path":null,"package":null}],"service":"dnsservice","maskCount":5,"maskWidth":2})).unwrap();
+        assert_eq!(
+            result["matches"],
+            serde_json::json!([true, false, true, true, true])
+        );
+        assert_eq!(result["mask"], "1d");
+        assert!(evaluate(&serde_json::json!({"predicates":[],"lineage":[],"service":null,"maskCount":1,"maskWidth":1})).is_err());
+    }
     #[test]
     fn composite_profiles_do_not_accumulate_in_the_policy_cache() {
         let inputs = (0..4)
