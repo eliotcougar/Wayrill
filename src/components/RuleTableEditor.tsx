@@ -71,16 +71,7 @@ export default function RuleTableEditor({
   const resources = useMemo(() => readResources(graph.defaults), [graph.defaults]);
   const requested = useRequestedDiagnostic();
   const dialog = useRef<HTMLDialogElement>(null);
-  const [unavailable] = useState(() => unavailableRuleIds(node, graph, resourceWarnings));
-  const [table, setTable] = useState(() => {
-    const table = readRuleTable(node.data.settings);
-    return {
-      ...table,
-      rules: table.rules.map((rule) =>
-        unavailable.has(rule.id) ? { ...rule, enabled: false } : rule,
-      ),
-    };
-  });
+  const [table, setTable] = useState(() => readRuleTable(node.data.settings));
   const [selected, setSelected] = useState<string | null>(
     () => requested?.rowId ?? table.rules[0]?.id ?? null,
   );
@@ -89,6 +80,7 @@ export default function RuleTableEditor({
   >(initialTab ?? ruleDiagnosticTab(requested));
   const [presetStrategy, setPresetStrategy] = useState<string | null>(null);
   const data = { ...node.data, settings: { ...node.data.settings, ...tableSettings(table) } };
+  const unavailable = unavailableRuleIds({ ...node, data }, graph, resourceWarnings);
   const missingOutputs: import('../graph/types').Diagnostic[] = [];
   const hasOutput = (id: string) => table.outputs.some((output) => output.id === id);
   if (!table.outputs.length)
@@ -641,8 +633,8 @@ export default function RuleTableEditor({
                           </div>
                           {unavailable.has(selectedRule.id) && (
                             <p className="field-help">
-                              Disabled because its geodata matches are unavailable. Entries are
-                              preserved.
+                              Skipped at runtime while its geodata matches are unavailable. Saved
+                              entries and enable settings are preserved.
                             </p>
                           )}
                           <label className="editor-field">

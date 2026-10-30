@@ -6,7 +6,8 @@ import DnsEditor from './DnsEditor';
 import { makeNode } from '../graph/catalog';
 import { createDnsExample } from '../graph/example';
 import { createFakeDnsExample } from '../graph/fakeDnsExample';
-import { readDnsFilter } from '../graph/dns';
+import { readDnsFilter, dnsFilterSettings } from '../graph/dns';
+import { exportDnsRules } from '../graph/dnsRuleSource';
 import { updateGraphNode } from '../graph/model';
 import {
   commitWorkspaceHistory,
@@ -14,9 +15,12 @@ import {
   undoWorkspaceHistory,
 } from '../graph/workspaceHistory';
 import type { GraphState } from '../graph/types';
+const download = vi.hoisted(() => vi.fn());
+vi.mock('../routingDownload', () => ({ downloadRoutingRules: download }));
 
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
+  download.mockReset();
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
@@ -24,6 +28,107 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
+});
+
+it('loads and refreshes a DNS source through the editor without losing user entries or changing connections', async () => {
+  let graph = createDnsExample();
+  let node = graph.nodes.find((n) => n.id === 'dns-routes')!;
+  const provider = readDnsFilter(node.data.settings),
+    beforeEdges = structuredClone(graph.edges);
+  download.mockResolvedValue(exportDnsRules(provider, 'Provider'));
+  const apply = vi.fn();
+  const render = async () => {
+    await act(() =>
+      root.render(
+        <DnsEditor
+          key={node.id + ':' + apply.mock.calls.length}
+          node={node}
+          graph={graph}
+          onApply={apply}
+          onClose={vi.fn()}
+        />,
+      ),
+    );
+  };
+  await render();
+  await act(() => button('Import').click());
+  const url = host.querySelector<HTMLInputElement>('[aria-label="Routing URL"]')!;
+  await act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      url,
+      'https://example.test/dns.json',
+    );
+    url.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => {
+    button('Load URL').click();
+  });
+  await act(() => button('Import rules').click());
+  const domains = host.querySelector<HTMLTextAreaElement>('[aria-label="Preferred domains"]')!;
+  await act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      domains,
+      domains.value + '\nfull:mine.test',
+    );
+    domains.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(() => button('Apply changes').click());
+  graph = updateGraphNode(graph, node.id, apply.mock.calls.at(-1)![1]);
+  node = graph.nodes.find((n) => n.id === node.id)!;
+  expect(readDnsFilter(node.data.settings).source?.location).toBe('https://example.test/dns.json');
+  provider.rules[0].domains = 'full:provider-updated.test';
+  download.mockResolvedValue(exportDnsRules(provider, 'Provider'));
+  await render();
+  await act(() => button('Import').click());
+  await act(async () => {
+    button('Update from source').click();
+  });
+  await act(() => button('Update rules').click());
+  await act(() => button('Apply changes').click());
+  const updated = readDnsFilter(apply.mock.calls.at(-1)![1].settings);
+  expect(updated.rules[0].domains).toBe('full:provider-updated.test\nfull:mine.test');
+  expect(updated.outputs).toEqual(readDnsFilter(node.data.settings).outputs);
+  expect(graph.edges).toEqual(beforeEdges);
+  graph = updateGraphNode(graph, node.id, apply.mock.calls.at(-1)![1]);
+  node = graph.nodes.find((n) => n.id === node.id)!;
+  const accepted = structuredClone(node.data.settings);
+  download.mockRejectedValue(new Error('Source unavailable'));
+  await render();
+  await act(() => button('Import').click());
+  await act(async () => {
+    button('Update from source').click();
+  });
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Source unavailable');
+  await act(() => button(`Preferences (${updated.rules.length})`).click());
+  await act(() => button('Apply changes').click());
+  expect(apply.mock.calls.at(-1)![1].settings).toEqual(accepted);
+});
+
+it('does not save temporary DNS geodata skips as disabled preferences', async () => {
+  const graph = createDnsExample(),
+    node = graph.nodes.find((n) => n.id === 'dns-routes')!;
+  const filter = readDnsFilter(node.data.settings);
+  filter.rules[0].domains = 'geosite:gone';
+  Object.assign(node.data.settings, dnsFilterSettings(filter));
+  const apply = vi.fn(),
+    before = structuredClone(node.data.settings);
+  await act(() =>
+    root.render(
+      <DnsEditor
+        node={node}
+        graph={graph}
+        resourceWarnings={{ skippedSelectors: [{ selector: 'geosite:gone', context: 'DNS' }] }}
+        onApply={apply}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  const enabled = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+    (input) => input.parentElement?.textContent?.includes('Preference enabled'),
+  )!;
+  expect(enabled.checked).toBe(true);
+  await act(() => button('Apply changes').click());
+  expect(apply.mock.calls[0][1].settings).toEqual(before);
 });
 afterEach(async () => {
   await act(() => root.unmount());

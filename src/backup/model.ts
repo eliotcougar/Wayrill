@@ -4,6 +4,7 @@ import { factoryDefaults } from '../graph/defaults';
 import { readRuleTable } from '../graph/rules';
 import { remapTrafficSource } from '../graph/trafficRuleSource';
 import { readDnsFilter } from '../graph/dns';
+import { remapDnsSource } from '../graph/dnsRuleSource';
 import { readPolicySources, type PolicyReference } from '../graph/policySources';
 import { readProxyChain } from '../graph/proxyChains';
 import { remapPreparedSubscriptions } from '../graph/composites';
@@ -318,6 +319,10 @@ function restoreFilter(graph: GraphState, data: RuleNodeData, targetId?: string)
         ...table.tunAmbiguity,
         output: mapping.get(table.tunAmbiguity.output) ?? '',
       });
+  } else {
+    const filter = remapDnsSource(readDnsFilter(data.settings), mapping);
+    settings.rules = JSON.stringify(filter.rules);
+    settings.ruleSource = filter.source ? JSON.stringify(filter.source) : '';
   }
   const restored = updateGraphNode(graph, targetId, { ...data, settings });
   return { ...restored, nodes: restored.nodes.map((n) => ({ ...n, selected: n.id === targetId })) };

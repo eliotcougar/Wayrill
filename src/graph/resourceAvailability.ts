@@ -5,7 +5,7 @@ import { readRuleTable, captureRuleVariants, listEntries } from './rules';
 import type { DnsRoute, DnsPolicy } from './dns';
 import { parseJson } from './xrayJson';
 
-/** Apply the existing enabled flag in an editor draft, leaving all saved terms intact.
+/** Identify runtime-only skips without changing authored enable switches or saved terms.
  * Only confirmed missing selectors participate. A truncated report never guesses.
  */
 export function unavailableRuleIds(

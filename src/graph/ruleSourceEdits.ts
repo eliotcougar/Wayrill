@@ -17,7 +17,7 @@ export const sourceEntries = (text: string, kind: string) =>
     (v) => sourceEntryKey(v, kind),
   );
 
-function listEdit(
+export function editSourceList(
   previous: ListEdits | undefined,
   before: string[],
   after: string[],
@@ -54,7 +54,7 @@ export function editSourceConditions(
   const edits: RuleEdits = structuredClone(rule.source.edits);
   for (const key of ['domain', 'ip'] as const) {
     if (conditions[key] === rule.conditions[key]) continue;
-    const change = listEdit(
+    const change = editSourceList(
       edits[key],
       sourceEntries(rule.conditions[key] ?? '', key),
       sourceEntries(conditions[key] ?? '', key),

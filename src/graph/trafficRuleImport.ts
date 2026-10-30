@@ -4,7 +4,7 @@ import { parseXrayJson, jsonRecord, jsonText, jsonArray } from './xrayJson';
 import { parseApplicationSelectors, type ApplicationSelector } from './applications';
 import { readWayrillRules, trafficRulesFormat } from './trafficRuleExport';
 import { remapTrafficSource } from './ruleSourceRemap';
-import type { TrafficSource } from './ruleSourceModel';
+import type { RuleSource } from './ruleSourceModel';
 import {
   bindOutputs,
   newPresetOutput,
@@ -22,7 +22,7 @@ import {
 export interface ImportedTrafficRules {
   format?: 'wayrill';
   rules: (Omit<TableRule, 'id'> & { sourceId?: string; sourceName?: boolean })[];
-  source?: TrafficSource;
+  source?: RuleSource;
   roles: { id: string; name: string; tag: string; kind: 'outbound' | 'balancer' }[];
   defaultOutput?: string;
   domainStrategy?: string;

@@ -252,7 +252,7 @@ it.each(['Cancel', 'Apply changes'])(
   },
 );
 
-it('reuses Rule enabled for missing resource matches and preserves the entries on save', async () => {
+it('keeps authored enable switches and entries when missing geodata is skipped at runtime', async () => {
   const node = makeNode('routing-filter', { x: 0, y: 0 });
   const table = readRuleTable(node.data.settings);
   table.rules = [
@@ -285,12 +285,12 @@ it('reuses Rule enabled for missing resource matches and preserves the entries o
   const enabled = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((i) =>
     i.parentElement?.textContent?.includes('Rule enabled'),
   )!;
-  expect(enabled.checked).toBe(false);
+  expect(enabled.checked).toBe(true);
   expect(node.data).toEqual(before);
   await act(() => button('Apply changes').click());
   const settings = apply.mock.calls[0][1].settings;
   expect(readRuleTable(settings).rules[0]).toMatchObject({
-    enabled: false,
+    enabled: true,
     conditions: { domain: 'geosite:gone' },
   });
 });

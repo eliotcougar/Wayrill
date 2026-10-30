@@ -22,7 +22,7 @@ export interface SourceRow {
   edits: RuleEdits;
   missing?: boolean;
 }
-export interface TrafficSource {
+export interface RuleSource {
   version: 1;
   kind: 'url' | 'file';
   location: string;
@@ -35,7 +35,7 @@ const text = (value: unknown, max: number): value is string =>
   typeof value === 'string' && value.length <= max && !value.includes('\0');
 const strings = (value: unknown, max = 16384): value is string[] =>
   jsonArray(value) && value.length <= 4096 && value.every((v) => text(v, max));
-export function validateTrafficSource(raw: unknown): TrafficSource {
+export function validateRuleSource(raw: unknown): RuleSource {
   if (
     !jsonRecord(raw) ||
     raw.version !== 1 ||
@@ -50,13 +50,13 @@ export function validateTrafficSource(raw: unknown): TrafficSource {
     Object.keys(raw.bindings).length > 128 ||
     Object.entries(raw.bindings).some(([key, value]) => !text(key, 512) || !text(value, 128))
   )
-    throw new Error('Invalid traffic filter source.');
+    throw new Error('Invalid filter source.');
   if (raw.kind === 'url') {
     let url: URL;
     try {
       url = new URL(raw.location);
     } catch {
-      throw new Error('Invalid traffic filter source URL.');
+      throw new Error('Invalid filter source URL.');
     }
     if (
       !['https:', 'http:'].includes(url.protocol) ||
@@ -65,9 +65,9 @@ export function validateTrafficSource(raw: unknown): TrafficSource {
       url.hash ||
       (url.protocol === 'http:' && !raw.allowHttp)
     )
-      throw new Error('Invalid traffic filter source URL.');
+      throw new Error('Invalid filter source URL.');
   }
-  return raw as unknown as TrafficSource;
+  return raw as unknown as RuleSource;
 }
 export function validateSourceRow(
   raw: unknown,

@@ -9,6 +9,8 @@ import { isUdpResolver, tcpResolverAddress, udpDnsPolicyWarnings } from '../grap
 import { boundedText } from '../text';
 import OutputList from './OutputList';
 import RoutingPresetPicker from './RoutingPresetPicker';
+import DnsRuleImport, { DnsRuleExport } from './DnsRuleImport';
+import { editSourcedDnsRule } from '../graph/dnsRuleSource';
 import { importDnsPreset, type DnsPreset } from '../graph/routingPresets';
 import { hasQuestionType, toggleQuestionType } from '../graph/dnsQuestionTypes';
 import { exportFile } from '../exportFile';
@@ -36,6 +38,7 @@ import {
   newDnsRoute,
   newDnsServer,
   readDnsFilter,
+  dnsFilterSettings,
   readDnsPolicies,
   readDnsServers,
   type DnsFilter,
@@ -230,7 +233,6 @@ export default function DnsEditor({
     group = node.data.kind === 'dns-servers';
   const requested = useRequestedDiagnostic();
   const dialog = useRef<HTMLDialogElement>(null);
-  const [unavailable] = useState(() => unavailableRuleIds(node, graph, resourceWarnings));
   const [settings, setSettings] = useState({ ...node.data.settings });
   const [servers, setServers] = useState<DnsServer[]>(() =>
     group ? readDnsServers(settings) : [],
@@ -239,25 +241,16 @@ export default function DnsEditor({
     if (handler || group)
       return { outputs: [], rules: [], fallbackMode: 'always', parallel: false };
     const filter = readDnsFilter(settings);
-    return {
-      ...filter,
-      rules: filter.rules.map((rule) =>
-        unavailable.has(rule.id) ? { ...rule, enabled: false } : rule,
-      ),
-    };
+    return filter;
   });
   const [policies, setPolicies] = useState<DnsPolicy[]>(() =>
-    handler
-      ? readDnsPolicies(settings).map((rule) =>
-          unavailable.has(rule.id) ? { ...rule, enabled: false } : rule,
-        )
-      : [],
+    handler ? readDnsPolicies(settings) : [],
   );
   const entries = group ? servers : handler ? policies : filter.rules;
   const [selected, setSelected] = useState<string | null>(
     () => requested?.rowId ?? entries[0]?.id ?? null,
   );
-  const [tab, setTab] = useState<'main' | 'settings' | 'preview' | 'presets'>(
+  const [tab, setTab] = useState<'main' | 'settings' | 'preview' | 'presets' | 'import' | 'export'>(
     group ? 'main' : dnsDiagnosticTab(requested),
   );
   const configured = {
@@ -266,15 +259,10 @@ export default function DnsEditor({
       ? { servers: JSON.stringify(servers) }
       : handler
         ? { policyRules: JSON.stringify(policies) }
-        : {
-            outputs: JSON.stringify(filter.outputs),
-            rules: JSON.stringify(filter.rules),
-            fallbackMode: filter.fallbackMode,
-            parallel: filter.parallel,
-            ...(filter.fallbackFirst !== undefined ? { fallbackFirst: filter.fallbackFirst } : {}),
-          }),
+        : dnsFilterSettings(filter)),
   };
   const data: RuleNodeData = { ...node.data, settings: configured };
+  const unavailable = unavailableRuleIds({ ...node, data }, graph, resourceWarnings);
   const namedOutputs = filter.outputs.filter((o) => !o.fallback);
   const fallbackOutput = filter.outputs.find((o) => o.fallback);
   const fallbackEdge = graph.edges.find(
@@ -335,7 +323,7 @@ export default function DnsEditor({
   const setRule = (update: Partial<DnsRoute>) =>
     setFilter((f) => ({
       ...f,
-      rules: f.rules.map((r) => (r.id === selected ? { ...r, ...update } : r)),
+      rules: f.rules.map((r) => (r.id === selected ? editSourcedDnsRule(r, update) : r)),
     }));
   const setOutputName = (id: string, name: string) =>
     setFilter((f) => ({
@@ -370,7 +358,7 @@ export default function DnsEditor({
         rules: [
           ...f.rules,
           duplicate && rule
-            ? { ...rule, id, name: `${rule.name} copy` }
+            ? { ...rule, id, name: `${rule.name} copy`, source: undefined }
             : newDnsRoute(f.outputs[0].id, id),
         ],
       }));
@@ -427,7 +415,13 @@ export default function DnsEditor({
             },
           ]
         : []),
-      ...(!handler && !group ? [{ key: 'presets' as const, label: 'Presets' }] : []),
+      ...(!handler && !group
+        ? [
+            { key: 'presets' as const, label: 'Presets' },
+            { key: 'import' as const, label: 'Import' },
+            { key: 'export' as const, label: 'Export' },
+          ]
+        : []),
       { key: 'preview', label: 'Xray DNS preview' },
     ],
     tab,
@@ -539,7 +533,8 @@ export default function DnsEditor({
                     </p>
                     {selected && unavailable.has(selected) && (
                       <p className="field-help">
-                        Disabled because its geodata matches are unavailable. Entries are preserved.
+                        Skipped at runtime while its geodata matches are unavailable. Saved entries
+                        and enable settings are preserved.
                       </p>
                     )}
                     <OrderedEntries
@@ -910,6 +905,15 @@ export default function DnsEditor({
                           )}
                           {rule && !handler && !group && (
                             <>
+                              {filter.source && (
+                                <p className="field-help">
+                                  {rule.source?.missing
+                                    ? 'Kept locally · no longer in source'
+                                    : rule.source
+                                      ? 'Source preference · local edits are kept on update'
+                                      : 'Local preference'}
+                                </p>
+                              )}
                               <div className="editor-two-fields">
                                 <TextField
                                   label="Preference name"
@@ -1187,6 +1191,19 @@ export default function DnsEditor({
                     </p>
                   )}
                 </div>
+              ) : tab === 'import' ? (
+                <DnsRuleImport
+                  filter={filter}
+                  graph={graph}
+                  node={node}
+                  onImport={(next) => {
+                    setFilter(next);
+                    setSelected(next.rules[0]?.id ?? null);
+                    setTab('main');
+                  }}
+                />
+              ) : tab === 'export' ? (
+                <DnsRuleExport filter={filter} name={node.data.label} />
               ) : tab === 'presets' ? (
                 <RoutingPresetPicker
                   kind="dns"

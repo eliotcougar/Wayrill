@@ -46,6 +46,33 @@ several preferred servers can be eligible, and order alone is not an exclusive
 traffic-routing rule. Use the preference's stop/final-query controls deliberately.
 Expected/rejected answer-IP checks can reject an otherwise successful answer.
 
+## Keep DNS preferences in a file or URL
+
+In **Edit DNS routing → Import**, open a routing file or enter a URL, review the
+preferences and map their resolver outputs to this filter. Fallback retains its
+existing connection. Choose **Keep source for manual updates** to attach the
+file or URL; **Update from source** previews a refresh before you accept it.
+
+Use **Export → Export file** to create a `wayrill.dns-rules` JSON source. It
+contains preferences and output names, not resolver addresses or credentials.
+The normal DNS fragment export remains available in **Xray DNS preview**.
+Traffic-routing files and native Xray DNS fragments are different formats.
+
+After attaching a source, edit preferences normally. Added/removed domain and
+answer-IP entries, disabled preferences, output changes and local preferences
+survive refreshes. Customized preferences omitted by the provider stay local;
+unchanged omitted preferences are removed. Provider preference IDs must stay
+stable across revisions so local edits follow the correct preference.
+
+Refresh keeps your current fallback policy and resolver order. An invalid file
+or failed download leaves the accepted preferences unchanged. Updates are manual
+in this beta and take effect when you save the editor and Apply the graph.
+**Detach source** retains the effective preferences as local settings.
+
+Export normally preserves source information and local overrides separately.
+Enable **Embed overrides** for an independent snapshot of the effective rules.
+Graph and filter backups also preserve the editable source relationship.
+
 ## Choose fallback behavior
 
 The collapsible **Fallback** section is below the preference list. The fixed

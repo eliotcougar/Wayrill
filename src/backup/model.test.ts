@@ -24,6 +24,8 @@ import {
 } from '../graph/trafficRuleSource';
 import { parseTrafficRules } from '../graph/trafficRuleImport';
 import { readDnsFilter } from '../graph/dns';
+import { dnsFilterSettings, newDnsRoute } from '../graph/dns';
+import { importDnsRules, editSourcedDnsRule, refreshDnsSource } from '../graph/dnsRuleSource';
 import { readPolicySources, policyProfileId } from '../graph/policySources';
 import { subscriptionSource } from '../graph/policySources';
 import { readProxyChain } from '../graph/proxyChains';
@@ -251,6 +253,52 @@ it('rejects invalid filter contents and unsafe preferences before restoration', 
       preferences: { 'unrelated.key': 'overwrite' },
     }),
   ).toThrow('preferences');
+});
+
+it('preserves DNS source overrides through portable backup, in-place restore and subsequent refresh', () => {
+  const source = makeNode('dns-routing-filter', { x: 0, y: 0 }, 'source');
+  const upstream = {
+    ...readDnsFilter(source.data.settings),
+    rules: [{ ...newDnsRoute('default', 'provider'), domains: 'domain:source.test' }],
+  };
+  const filter = importDnsRules(readDnsFilter(source.data.settings), upstream, {}, 'replace', {
+    kind: 'url',
+    location: 'https://example.test/dns.json',
+    allowHttp: false,
+    viaWayrill: false,
+  });
+  filter.rules[0] = editSourcedDnsRule(filter.rules[0], {
+    domains: 'domain:source.test\nfull:mine.test',
+    enabled: false,
+  });
+  Object.assign(source.data.settings, dnsFilterSettings(filter));
+  const target = makeNode('dns-routing-filter', { x: 300, y: 0 }, 'target');
+  const targetFilter = readDnsFilter(target.data.settings);
+  targetFilter.outputs[0].id = 'preserved-fallback';
+  Object.assign(target.data.settings, dnsFilterSettings(targetFilter));
+  const backup = validateContent(
+    JSON.parse(
+      JSON.stringify(
+        createContent('filters', { ...graph(), nodes: [source] }, library(), {}, [source.id]),
+      ),
+    ),
+  );
+  const result = prepareRestore(
+    backup,
+    selection({ filters: true, targetId: target.id }),
+    { ...graph(), nodes: [target] },
+    library(),
+  );
+  const restored = readDnsFilter(result.graph!.nodes[0].data.settings);
+  expect(restored.source?.bindings.default).toBe('preserved-fallback');
+  expect(restored.rules[0].source?.base.output).toBe('preserved-fallback');
+  upstream.rules[0].domains = 'domain:updated.test';
+  const updated = refreshDnsSource(restored, upstream, {});
+  expect(updated.rules[0]).toMatchObject({
+    output: 'preserved-fallback',
+    enabled: false,
+    domains: 'domain:updated.test\nfull:mine.test',
+  });
 });
 
 it('preserves source overrides and remaps all output references during in-place filter restore', () => {

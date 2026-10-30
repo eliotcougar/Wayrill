@@ -77,6 +77,18 @@ function reference(value: unknown, direction: Direction, depth: number): unknown
     ...(direction === 'read' ? { id: policyProfileId(profile as unknown as Profile) } : {}),
   };
 }
+export function portableDnsRule(value: unknown, direction: Direction): unknown {
+  if (!jsonRecord(value)) return value;
+  return {
+    ...value,
+    ...Object.fromEntries(
+      ['domains', 'expectedIPs', 'unexpectedIPs'].map((key) => [key, lines(value[key], direction)]),
+    ),
+    ...(jsonRecord(value.source)
+      ? { source: { ...value.source, base: portableDnsRule(value.source.base, direction) } }
+      : {}),
+  };
+}
 function nestedSetting(
   kind: string,
   key: string,
@@ -87,16 +99,7 @@ function nestedSetting(
   if (kind === 'routing-filter' && key === 'rules' && jsonArray(value))
     return value.map((row) => portableTrafficRule(row, direction));
   if (kind === 'dns-routing-filter' && key === 'rules' && jsonArray(value))
-    return value.map((row) =>
-      !jsonRecord(row)
-        ? row
-        : {
-            ...row,
-            ...Object.fromEntries(
-              ['domains', 'expectedIPs', 'unexpectedIPs'].map((k) => [k, lines(row[k], direction)]),
-            ),
-          },
-    );
+    return value.map((row) => portableDnsRule(row, direction));
   if (kind === 'policy-group' && key === 'sources' && jsonRecord(value))
     return {
       ...value,

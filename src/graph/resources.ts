@@ -1,5 +1,7 @@
 import { policyProfileId } from './profileIdentity';
 import { editSourceConditions } from './ruleSourceEdits';
+import { editSourcedDnsRule } from './dnsRuleSourceEdits';
+import type { DnsRoute } from './dns';
 import type { PolicyProfile } from './policySources';
 import { jsonArray, parseJson } from './xrayJson';
 import { readRuleTable, tableSettings, routingListEntries } from './rules';
@@ -302,6 +304,24 @@ export function renameResourceReferences(graph: GraphState, resources: ResourceS
     return name ? `${match[1]}${match[2]}:${name}:${match[4]}` : term;
   });
   for (const node of renamed.nodes) {
+    if (node.data.kind === 'dns-routing-filter') {
+      const original = graph.nodes.find((old) => old.id === node.id)!;
+      const previous = parseJson(String(original.data.settings.rules)) as DnsRoute[];
+      const rules = parseJson(String(node.data.settings.rules)) as DnsRoute[];
+      node.data.settings.rules = JSON.stringify(
+        rules.map((row) => {
+          const old = previous.find((entry) => entry.id === row.id);
+          return old?.source
+            ? editSourcedDnsRule(old, {
+                domains: row.domains,
+                expectedIPs: row.expectedIPs,
+                unexpectedIPs: row.unexpectedIPs,
+              })
+            : row;
+        }),
+      );
+      continue;
+    }
     if (node.data.kind !== 'routing-filter') continue;
     const original = graph.nodes.find((old) => old.id === node.id)!;
     const previous = readRuleTable(original.data.settings);

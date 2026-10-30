@@ -1,3 +1,4 @@
+import { matchSourceRows, preserveLocalRows } from './ruleSourceMerge';
 import {
   sourceEntryKey as entryKey,
   sourceEntries as entries,
@@ -13,7 +14,7 @@ import {
 } from './rules';
 import { importTrafficRules, type ImportedTrafficRules } from './trafficRuleImport';
 import { bindOutputs, type PresetBindings, type PresetMode } from './routingPresets';
-import type { RuleEdits, SourceRule, SourceRow, TrafficSource } from './ruleSourceModel';
+import type { RuleEdits, SourceRule, SourceRow, RuleSource } from './ruleSourceModel';
 import type { RuleNodeData } from './types';
 import { LIMITS, CONFIG_LIMIT_LABEL } from '../limits';
 
@@ -195,50 +196,23 @@ function matchRows(old: TableRule[], incoming: ImportedTrafficRules['rules']) {
     shape: body(rule, role, true),
     tokens: tokens(rule),
   });
-  const previous = new Map(old.map((row) => [row, describe(row.source!.base, row.source!.role)]));
-  const nextRows = new Map(incoming.map((row) => [row, describe(plain(row), row.output)]));
-  const result = new Map<number, TableRule>(),
-    used = new Set<string>();
-  const matchUnique = (
-    predicate: (old: TableRule, next: ImportedTrafficRules['rules'][number]) => boolean,
-  ) => {
-    for (const [i, next] of incoming.entries()) {
-      if (result.has(i)) continue;
-      const choices = old.filter((row) => !used.has(row.id) && predicate(row, next));
-      if (choices.length !== 1) continue;
-      const chosen = choices[0];
-      if (incoming.some((other, j) => j !== i && !result.has(j) && predicate(chosen, other)))
-        continue;
-      result.set(i, chosen);
-      used.add(chosen.id);
-    }
-  };
-  matchUnique((old, next) => !!next.sourceId && old.source?.identity === next.sourceId);
-  const legacy = (old: TableRule, next: ImportedTrafficRules['rules'][number]) =>
-    !old.source!.identity || !next.sourceId;
-  matchUnique(
-    (old, next) => legacy(old, next) && previous.get(old)!.exact === nextRows.get(next)!.exact,
+  const matches = matchSourceRows(
+    old.map((row) => ({
+      ...describe(row.source!.base, row.source!.role),
+      identity: row.source!.identity,
+      name: row.source!.named ? row.source!.base.name : undefined,
+      role: row.source!.role,
+    })),
+    incoming.map((row) => ({
+      ...describe(plain(row), row.output),
+      identity: row.sourceId,
+      name: row.sourceName ? row.name : undefined,
+      role: row.output,
+    })),
   );
-  matchUnique(
-    (old, next) =>
-      legacy(old, next) &&
-      old.source!.role === next.output &&
-      old.source!.named &&
-      !!next.sourceName &&
-      old.source!.base.name === next.name,
-  );
-  matchUnique((old, next) => {
-    const before = previous.get(old)!,
-      after = nextRows.get(next)!;
-    if (!legacy(old, next) || before.shape !== after.shape) return false;
-    for (const token of before.tokens) if (after.tokens.has(token)) return true;
-    return false;
-  });
-  matchUnique(
-    (old, next) => legacy(old, next) && previous.get(old)!.shape === nextRows.get(next)!.shape,
-  );
-  return result;
+  return new Map([...matches].map(([index, previous]) => [index, old[previous]]));
 }
+
 function validate(table: RuleTable) {
   if (
     table.rules.length > 128 ||
@@ -260,7 +234,7 @@ export function attachTrafficSource(
   parsed: ImportedTrafficRules,
   bindings: PresetBindings,
   mode: PresetMode,
-  location: Omit<TrafficSource, 'version' | 'bindings' | 'updatedAt'>,
+  location: Omit<RuleSource, 'version' | 'bindings' | 'updatedAt'>,
 ): RuleTable {
   checkIdentities(parsed);
   const imported = importTrafficRules(table, parsed, bindings, mode),
@@ -319,7 +293,6 @@ export function refreshTrafficSource(
       table.rules.filter((r) => !!r.source),
       parsed.rules,
     ),
-    kept = new Set<string>(),
     refreshed = mapped.rules.map((row, i) => {
       const input = parsed.rules[i],
         previous = matches.get(i),
@@ -333,7 +306,6 @@ export function refreshTrafficSource(
           throw new Error(
             `“${previous.name}” changed matching logic. Keep the current rules or detach the source before replacing them.`,
           );
-        kept.add(previous.id);
       }
       return materialize(
         base,
@@ -347,23 +319,13 @@ export function refreshTrafficSource(
         previous?.id ?? row.id,
       );
     });
-  const gaps = new Map<string | null, TableRule[]>();
-  let anchor: string | null = null;
-  for (const row of table.rules) {
-    if (kept.has(row.id)) {
-      anchor = row.id;
-      continue;
-    }
-    if (!row.source || hasLocalRuleEdits(row)) {
-      const group = gaps.get(anchor) ?? [];
-      group.push(row.source ? { ...row, source: { ...row.source, missing: true } } : row);
-      gaps.set(anchor, group);
-    }
-  }
-  const rules = [
-    ...(gaps.get(null) ?? []),
-    ...refreshed.flatMap((r) => [r, ...(gaps.get(r.id) ?? [])]),
-  ];
+  const rules = preserveLocalRows(table.rules, refreshed, (row) =>
+    !row.source
+      ? row
+      : hasLocalRuleEdits(row)
+        ? { ...row, source: { ...row.source, missing: true } }
+        : undefined,
+  );
   const rolesInUse = new Set(rules.flatMap((rule) => (rule.source ? [rule.source.role] : [])));
   return validate({
     ...table,

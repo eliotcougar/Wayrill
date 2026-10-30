@@ -10,10 +10,10 @@ import { ipProblem, domainProblem } from './addressValidation';
 export { ipProblem, domainProblem } from './addressValidation';
 import { parseNativeProjection } from './xrayProjection';
 import {
-  validateTrafficSource,
+  validateRuleSource,
   validateSourceRow,
   type SourceRow,
-  type TrafficSource,
+  type RuleSource,
 } from './ruleSourceModel';
 import type {
   NativeProjection,
@@ -46,7 +46,7 @@ export interface RuleTable {
   rules: TableRule[];
   defaultOutput: string;
   tunAmbiguity?: { action: 'block' | 'allow'; output: string };
-  source?: TrafficSource;
+  source?: RuleSource;
 }
 /** The pinned core gives `domains` precedence, but `sourceIP` precedence over `source`. */
 export function effectiveRoutingFields(raw: Record<string, unknown>): Record<string, unknown> {
@@ -262,7 +262,7 @@ export function readRuleTable(settings: Record<string, SettingValue>): RuleTable
     throw new Error('Choose an existing output for ambiguous TUN ownership.');
   const ruleIds = new Set<string>();
   const source = settings.ruleSource
-    ? validateTrafficSource(parseJson(String(settings.ruleSource)))
+    ? validateRuleSource(parseJson(String(settings.ruleSource)))
     : undefined;
   const identities = new Set<string>();
   for (const rule of rules) {

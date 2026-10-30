@@ -112,7 +112,12 @@ export function importDnsPreset(
     outputs,
     rules,
     ...(mode === 'replace'
-      ? { fallbackMode: 'always', parallel: false, fallbackFirst: preset.fallbackFirst }
+      ? {
+          source: undefined,
+          fallbackMode: 'always',
+          parallel: false,
+          fallbackFirst: preset.fallbackFirst,
+        }
       : {}),
   };
 }

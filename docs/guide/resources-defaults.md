@@ -56,8 +56,11 @@ runtime replacement. If automatic reload is off, inspect the reported reload
 requirement and restart routing when ready.
 
 If a provider removes a referenced group, Wayrill omits the unavailable entry and
-reports it. A positive rule that loses all its match entries is skipped or
-disabled, rather than becoming a catch-all. Review those warnings: routing can
+reports it. A positive rule that loses all its match entries is skipped in the
+runtime projection, rather than becoming a catch-all. Saved terms and enable
+switches remain intact, so a later resource update can restore the match without
+editing the graph. Opening or saving its editor does not make that temporary
+skip permanent. Review those warnings: routing can
 continue through later rules or fallback, which may differ from your intention.
 
 ## Browse a GeoSite or GeoIP group

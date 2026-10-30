@@ -1,6 +1,9 @@
 import { enabledInboundGraph } from './inboundState';
 import { capturesSystemDns } from './dnsCapture';
 import { jsonArray, jsonRecord, parseJson } from './xrayJson';
+import { validateRuleSource, type RuleSource } from './ruleSourceModel';
+import { validateDnsSourceRow, type DnsSourceRow } from './dnsRuleSourceModel';
+import { LIMITS } from '../limits';
 import { resourceCompilationGraph } from './resources';
 import { dnsIpLiteral as literal, dnsAddressProblem } from './addressValidation';
 export { dnsAddressProblem } from './addressValidation';
@@ -62,6 +65,7 @@ export interface DnsRoute {
   unexpectedIPs: string;
   skipFallback: boolean;
   finalQuery: boolean;
+  source?: DnsSourceRow;
 }
 export interface DnsFilter {
   fallbackFirst?: boolean;
@@ -69,6 +73,7 @@ export interface DnsFilter {
   rules: DnsRoute[];
   fallbackMode: string;
   parallel: boolean;
+  source?: RuleSource;
 }
 export interface DnsPolicy {
   id: string;
@@ -222,6 +227,14 @@ export const dnsDefinitions: NodeDefinition[] = [
       },
       { key: 'parallel', label: 'Parallel equivalent servers', type: 'boolean' },
       {
+        key: 'ruleSource',
+        label: 'Rule source',
+        type: 'json',
+        jsonShape: 'object',
+        optional: true,
+        maxLength: LIMITS.configBytes,
+      },
+      {
         key: 'fallbackFirst',
         label: 'Fallback servers first in core config',
         type: 'boolean',
@@ -292,7 +305,7 @@ export function readDnsFilter(settings: Record<string, SettingValue>): DnsFilter
     outputs.filter((o) => o.fallback).length !== 1
   )
     throw new Error('Keep exactly one Fallback output and up to 15 named resolver outputs.');
-  for (const r of rules)
+  for (const r of rules) {
     if (
       typeof r.enabled !== 'boolean' ||
       !text(r.output, 128) ||
@@ -304,6 +317,8 @@ export function readDnsFilter(settings: Record<string, SettingValue>): DnsFilter
       typeof r.finalQuery !== 'boolean'
     )
       throw new Error('Invalid DNS preference rule.');
+    if (r.source !== undefined) validateDnsSourceRow(r.source);
+  }
   if (
     !['always', 'when-unmatched', 'disabled'].includes(String(settings.fallbackMode)) ||
     typeof settings.parallel !== 'boolean' ||
@@ -318,7 +333,20 @@ export function readDnsFilter(settings: Record<string, SettingValue>): DnsFilter
     rules: rules as unknown as DnsRoute[],
     fallbackMode: String(settings.fallbackMode),
     parallel: settings.parallel,
+    ...(settings.ruleSource
+      ? { source: validateRuleSource(parseJson(String(settings.ruleSource))) }
+      : {}),
     ...(settings.fallbackFirst !== undefined ? { fallbackFirst: settings.fallbackFirst } : {}),
+  };
+}
+export function dnsFilterSettings(filter: DnsFilter): Record<string, SettingValue> {
+  return {
+    outputs: JSON.stringify(filter.outputs),
+    rules: JSON.stringify(filter.rules),
+    fallbackMode: filter.fallbackMode,
+    parallel: filter.parallel,
+    ...(filter.fallbackFirst !== undefined ? { fallbackFirst: filter.fallbackFirst } : {}),
+    ruleSource: filter.source ? JSON.stringify(filter.source) : '',
   };
 }
 export function readDnsPolicies(settings: Record<string, SettingValue>): DnsPolicy[] {
