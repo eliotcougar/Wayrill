@@ -87,3 +87,52 @@ it('defers while storage or activation blocks editing and preserves a request ac
   expect(result.request?.host).toBe('one.test');
   expect(queue).toHaveLength(2);
 });
+
+it.each(['editor', 'activation'])(
+  'rechecks %s readiness when a delayed native reply arrives',
+  async (blocker) => {
+    let reply!: (request: CompanionRuleRequest) => void;
+    mocks.invoke.mockImplementationOnce(() => new Promise((resolve) => (reply = resolve)));
+    await act(() => root.render(<Harness />));
+    const editor = document.createElement('dialog');
+    if (blocker === 'editor') {
+      editor.open = true;
+      document.body.append(editor);
+    } else await act(() => root.render(<Harness ready={false} />));
+    try {
+      await act(() => reply(queue[0]));
+      expect(result.request).toBeNull();
+      await act(() => root.render(<Harness ready={false} />));
+      editor.remove();
+      await act(async () => vi.advanceTimersByTimeAsync(500));
+      expect(result.request).toBeNull();
+      await act(() => root.render(<Harness />));
+      expect(result.request?.host).toBe('one.test');
+    } finally {
+      editor.remove();
+    }
+  },
+);
+
+it('acknowledges a dismissal once while the next request waits in the queue', async () => {
+  await act(() => root.render(<Harness />));
+  let acknowledge!: () => void;
+  mocks.invoke.mockImplementation((_name, args) => {
+    if (!args?.completed) return Promise.resolve(queue[0] ?? null);
+    return new Promise((resolve) => {
+      acknowledge = () => {
+        queue.shift();
+        resolve(queue[0] ?? null);
+      };
+    });
+  });
+  await act(() => {
+    result.close();
+    result.close();
+  });
+  expect(mocks.invoke.mock.calls.filter(([, args]) => args?.completed)).toHaveLength(1);
+  expect(result.request?.host).toBe('one.test');
+  await act(() => acknowledge());
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(result.request?.host).toBe('two.test');
+});

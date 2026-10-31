@@ -380,12 +380,18 @@ impl Browser {
         q.validate()?;
         let key = stamp(&self.root, &q, generation)?;
         {
-            let cache = self.cache.lock().unwrap();
-            if let Some((_, _, result)) = cache
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(i) = cache
                 .iter()
-                .find(|(request, k, _)| *request == q && *k == key)
+                .position(|(request, k, _)| *request == q && *k == key)
             {
-                return result.clone().unwrap_or_else(|| Ok(json!({"ready":false})));
+                let result = cache[i].2.clone();
+                // Report a failed lookup once, then let Retry perform new work.
+                // A sharing violation or rolled-back update need not change the stamp.
+                if matches!(result, Some(Err(_))) {
+                    cache.remove(i);
+                }
+                return result.unwrap_or_else(|| Ok(json!({"ready":false})));
             }
         }
         if self.sender.is_none() {
@@ -632,6 +638,48 @@ mod tests {
         assert_eq!(browser.browse(q, 1).unwrap()["ready"], false);
         browser.shutdown();
         fs::remove_file(root.join("geosite.dat")).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn retries_a_resource_read_after_a_temporary_sharing_violation() {
+        use std::{
+            os::windows::fs::OpenOptionsExt,
+            time::{Duration, Instant},
+        };
+        let root = std::env::temp_dir().join(format!("wayrill-geo-retry-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("geosite.dat");
+        fs::write(&path, dataset("geosite")).unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let mut browser = Browser::new(root.clone());
+        let q = query("geosite");
+        assert_eq!(browser.browse(q.clone(), 0).unwrap()["ready"], false);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if browser.browse(q.clone(), 0).is_err() {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
+        drop(lock);
+        // No file, timestamp or resource-generation change: Retry must really retry.
+        loop {
+            let page = browser.browse(q.clone(), 0).unwrap();
+            if page["ready"] == true {
+                assert_eq!(page["total"], 1);
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
+        browser.shutdown();
+        fs::remove_file(path).unwrap();
         fs::remove_dir(root).unwrap();
     }
 }

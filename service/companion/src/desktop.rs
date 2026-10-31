@@ -1,9 +1,25 @@
 //! Launch the normal-user desktop without inheriting browser/native-message handles.
-use std::{ffi::OsStr, io, os::windows::ffi::OsStrExt, path::Path, ptr};
+use std::{
+    ffi::OsStr,
+    io,
+    os::windows::ffi::OsStrExt,
+    path::{Path, PathBuf},
+    ptr,
+};
 use windows_sys::Win32::{
     Foundation::CloseHandle,
     System::Threading::{CreateProcessW, CREATE_NO_WINDOW, PROCESS_INFORMATION, STARTUPINFOW},
 };
+
+pub fn locate(directory: &Path, program_files: Option<&OsStr>) -> Option<PathBuf> {
+    [
+        directory.join("wayrill.exe"),
+        directory.parent().unwrap_or(directory).join("wayrill.exe"),
+    ]
+    .into_iter()
+    .chain(program_files.map(|root| Path::new(root).join("Wayrill/wayrill.exe")))
+    .find(|path| path.is_file())
+}
 
 fn command_line(exe: &Path, args: &[&str]) -> Vec<u16> {
     let mut line = Vec::new();

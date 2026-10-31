@@ -42,16 +42,14 @@ fn edit_domain(params: &Value) -> Result<Value> {
     let directory = exe
         .parent()
         .ok_or_else(|| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot locate Wayrill."))?;
-    let desktop = [
-        directory.join("wayrill.exe"),
-        directory.parent().unwrap_or(directory).join("wayrill.exe"),
-    ]
-    .into_iter()
-    .find(|path| path.is_file())
-    .ok_or_else(|| {
+    // The separately distributed Companion can be registered from its extracted
+    // folder. Its editor still belongs to the installed app, not that folder.
+    let program_files =
+        std::env::var_os("ProgramW6432").or_else(|| std::env::var_os("ProgramFiles"));
+    let desktop = desktop::locate(directory, program_files.as_deref()).ok_or_else(|| {
         ApiError::new(
             "DESKTOP_UNAVAILABLE",
-            "Use the Companion bridge bundled with the installed Wayrill app.",
+            "Install Wayrill to use its rule editor.",
         )
     })?;
     desktop::launch(&desktop, &["--companion-domain", &params.to_string()])
@@ -146,6 +144,30 @@ async fn run() -> io::Result<()> {
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+    #[test]
+    fn standalone_bridge_finds_installed_desktop_and_prefers_its_own_bundle() {
+        let root =
+            std::env::temp_dir().join(format!("wayrill-desktop-location-{}", std::process::id()));
+        let extracted = root.join("download/Companion");
+        let installed = root.join("Program Files/Wayrill");
+        std::fs::create_dir_all(&extracted).unwrap();
+        std::fs::create_dir_all(&installed).unwrap();
+        let program_files = installed.parent().unwrap().as_os_str();
+        assert!(desktop::locate(&extracted, Some(program_files)).is_none());
+        let app = installed.join("wayrill.exe");
+        std::fs::write(&app, b"installed").unwrap();
+        assert_eq!(desktop::locate(&extracted, Some(program_files)), Some(app));
+        let portable = extracted.parent().unwrap().join("wayrill.exe");
+        std::fs::write(&portable, b"portable").unwrap();
+        assert_eq!(
+            desktop::locate(&extracted, Some(program_files)),
+            Some(portable)
+        );
+        let bundled = extracted.join("wayrill.exe");
+        std::fs::write(&bundled, b"bundled").unwrap();
+        assert_eq!(desktop::locate(&extracted, None), Some(bundled));
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn desktop_children_do_not_hold_browser_pipes() {
         use std::{

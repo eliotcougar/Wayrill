@@ -13,6 +13,9 @@ if ($taskService) {
     if ($taskService.PathName -notlike ('"'+$taskTarget+'\wayrill-service.exe" --owner-sid S-1-*')) { throw 'The service path is not this installation.' }
     $taskOwner=[regex]::Match($taskService.PathName,' --owner-sid (S-1-[0-9-]+)$').Groups[1].Value
     if (-not $taskOwner) { throw 'The service owner could not be identified.' }
+} else { $taskOwner=$taskIdentity.User.Value }
+Invoke-WayrillWithoutCompanion -Path (Join-Path $taskTarget 'wayrill-companion.exe') -OwnerSid $taskOwner -Action {
+if ($taskService) {
     Close-WayrillDesktop $taskOwner
     if ($taskService.State -eq 'Running') { Stop-WayrillRouting $taskOwner }
     Stop-WayrillInstalledService
@@ -47,3 +50,4 @@ if (Test-Path -LiteralPath $taskTarget) {
 }
 if ($RemoveData -and (Test-Path -LiteralPath $taskData)) { Remove-Item -LiteralPath $taskData -Recurse -Force }
 'Wayrill service removed. Any shared WinDivert driver registration and dependency files were preserved.'
+}

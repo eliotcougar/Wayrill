@@ -36,6 +36,7 @@ switch($Action) {
   $taskDriver=$taskManifest.files | Where-Object path -eq 'windivert\WinDivert64.sys'
   $taskSys=Join-Path $taskTarget 'windivert\WinDivert64.sys'
   if((Test-Path -LiteralPath $taskSys) -and (Get-FileHash -LiteralPath $taskSys -Algorithm SHA256).Hash -ne $taskDriver.sha256) { throw 'A different shared WinDivert driver needs explicit maintenance before this upgrade.' }
+  Invoke-WayrillWithoutCompanion -Path (Join-Path $taskTarget 'wayrill-companion.exe') -OwnerSid $taskOwner -Action {
   Close-WayrillDesktop $taskOwner
   $taskResume=Join-Path $env:ProgramData 'Wayrill\upgrade-resume.json'
   $taskIntent=$null
@@ -91,6 +92,7 @@ switch($Action) {
   }
   $taskPriorManifest=Join-Path $taskTarget 'manifest.json'
   if (Test-Path -LiteralPath $taskPriorManifest) { Copy-Item -LiteralPath $taskPriorManifest -Destination (Join-Path $PSScriptRoot 'previous-manifest.json') }
+  }
  }
  'Install' {
   foreach($taskKind in @('geoip','geosite')) {

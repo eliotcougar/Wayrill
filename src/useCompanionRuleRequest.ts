@@ -7,6 +7,7 @@ export default function useCompanionRuleRequest(ready: boolean) {
   const [request, setRequest] = useState<CompanionRuleRequest | null>(null);
   const [error, setError] = useState('');
   const current = useRef<CompanionRuleRequest | null>(null);
+  const dismissing = useRef(false);
   const enabled = useRef(ready);
   enabled.current = ready;
   const wake = useRef(() => {});
@@ -34,8 +35,12 @@ export default function useCompanionRuleRequest(ready: boolean) {
         // consume a request whose asynchronous response it can no longer show.
         const next = await invoke<CompanionRuleRequest | null>('companion_rule_request');
         if (active && next) {
-          current.current = next;
-          setRequest(next);
+          // A different editor or activation can begin while the native call waits.
+          if (!enabled.current || document.querySelector('dialog[open]')) again = true;
+          else {
+            current.current = next;
+            setRequest(next);
+          }
         }
       } catch (failure) {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
@@ -69,14 +74,19 @@ export default function useCompanionRuleRequest(ready: boolean) {
   }, [ready]);
   const close = useCallback(() => {
     const completed = current.current;
-    if (!completed) return;
+    if (!completed || dismissing.current) return;
+    dismissing.current = true;
     void invoke('companion_rule_request', { completed })
       .then(() => {
+        dismissing.current = false;
         current.current = null;
         setRequest(null);
         wake.current();
       })
-      .catch((failure: unknown) => setError(String(failure)));
+      .catch((failure: unknown) => {
+        dismissing.current = false;
+        setError(String(failure));
+      });
   }, []);
   return { request, close, error };
 }

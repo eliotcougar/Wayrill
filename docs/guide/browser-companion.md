@@ -30,6 +30,8 @@ not required.
    The popup may close once; reopen it. Reloading clears the captured request list;
    reload a webpage to capture requests it already made. If an older copy cannot
    reconnect, reload it manually from the browser's Extensions page.
+   An app upgrade disconnects open bridge sessions before replacing their files;
+   browsers can stay open. The popup reconnects when the new bridge is available.
 
 The native bridge is shared: Chrome and Opera use the same registry location,
 while Edge can also use fallback registrations. **Bridge registered** reports
@@ -66,6 +68,9 @@ registrations without the former files:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/Register-Companion.ps1 -Unregister
 ```
+
+The standalone bridge can open the rule editor in a normally installed Wayrill.
+For a portable app, keep the bridge beside `wayrill.exe` or in its `Service` folder.
 
 Scripts support Windows PowerShell 5.1 and PowerShell 7. Start routing with the
 browser included in Local capture or pointed at a Wayrill Proxy inbound. Reload a

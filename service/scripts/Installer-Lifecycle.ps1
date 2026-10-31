@@ -1,4 +1,54 @@
-# Shared by installation and removal. Only graceful, owner-scoped operations.
+# Shared by installation and removal. Owner-scoped desktop and helper retirement.
+function Invoke-WayrillWithoutCompanion([string]$Path,[string]$OwnerSid,[scriptblock]$Action) {
+    if (-not (Test-Path -LiteralPath $Path)) { & $Action; return }
+    $taskFile=Get-Item -LiteralPath $Path -Force
+    if ($taskFile.PSIsContainer -or $taskFile.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'The Companion bridge is not a regular file.' }
+    $taskRetired=$Path+'.'+[Guid]::NewGuid().ToString('N')+'.retired'
+    $taskSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
+    # Renaming a mapped image is allowed. Removing the registered launch path
+    # first prevents open popups from respawning it while setup replaces files.
+    Move-Item -LiteralPath $Path -Destination $taskRetired
+    try {
+        $taskDeadline=[DateTime]::UtcNow.AddSeconds(15)
+        do {
+            foreach($taskInstance in @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -in @($Path,$taskRetired) })) {
+                $taskProcess=Get-Process -Id $taskInstance.ProcessId -ErrorAction SilentlyContinue
+                if (-not $taskProcess) { continue }
+                try {
+                    # Keep the process object alive before checking its identity;
+                    # a recycled PID must never select an unrelated application.
+                    $null=$taskProcess.Handle
+                    if ($taskProcess.HasExited) { continue }
+                    $taskCurrent=Get-CimInstance Win32_Process -Filter "ProcessId=$($taskProcess.Id)"
+                    if (-not $taskCurrent -or $taskCurrent.ExecutablePath -notin @($Path,$taskRetired)) { continue }
+                    $taskOwner=(Invoke-CimMethod -InputObject $taskCurrent -MethodName GetOwnerSid).Sid
+                    if ($taskOwner -ne $OwnerSid -or $taskCurrent.SessionId -ne $taskSession) { throw 'Wayrill Companion is open in another desktop session. Close it there before retrying setup.' }
+                    # Native hosts have no unsaved state. Closing their pipe makes
+                    # the extension reconnect; browsers and the GUI are untouched.
+                    $taskProcess.Kill()
+                    if (-not $taskProcess.WaitForExit(5000)) { throw 'The Companion bridge did not close.' }
+                } catch {
+                    if (-not $taskProcess.HasExited) { throw }
+                } finally { $taskProcess.Dispose() }
+            }
+            try {
+                # Also excludes a late CreateProcess already opening the old image.
+                $taskExclusive=[IO.File]::Open($taskRetired,'Open','ReadWrite','None')
+                $taskExclusive.Dispose()
+                break
+            } catch [IO.IOException] {
+                if ([DateTime]::UtcNow -ge $taskDeadline) { throw 'The Companion bridge is still in use. Close its popup and retry setup.' }
+                Start-Sleep -Milliseconds 100
+            }
+        } while ($true)
+        & $Action
+        if (Test-Path -LiteralPath $taskRetired) { Remove-Item -LiteralPath $taskRetired -Force }
+    } catch {
+        # Preparation failure must leave the existing browser integration usable.
+        if ((Test-Path -LiteralPath $taskRetired) -and -not (Test-Path -LiteralPath $Path)) { Move-Item -LiteralPath $taskRetired -Destination $Path }
+        throw
+    }
+}
 function Protect-WayrillInstallerFile([string]$Path) {
     $taskAcl=[Security.AccessControl.FileSecurity]::new()
     $taskAcl.SetAccessRuleProtection($true,$false)
