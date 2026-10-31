@@ -395,6 +395,8 @@ pub(crate) fn canonicalize(config: &mut Value) -> Result<()> {
                             "ip",
                             "userLevel",
                             "inboundTag",
+                            "address",
+                            "rewriteAddress",
                         ],
                     )?;
                 }
@@ -411,14 +413,33 @@ pub(crate) fn canonicalize(config: &mut Value) -> Result<()> {
                         ],
                     )?;
                     if let Some(sockopt) = stream.get_mut("sockopt") {
-                        keys(sockopt, &["dialerProxy", "interface", "domainStrategy"])?;
+                        keys(
+                            sockopt,
+                            &[
+                                "dialerProxy",
+                                "interface",
+                                "domainStrategy",
+                                "customSockopt",
+                            ],
+                        )?;
+                        if let Some(options) = sockopt
+                            .get_mut("customSockopt")
+                            .and_then(Value::as_array_mut)
+                        {
+                            for option in options {
+                                keys(
+                                    option,
+                                    &["system", "network", "level", "opt", "value", "type"],
+                                )?;
+                            }
+                        }
                     }
                 }
             }
         }
     }
     if let Some(routing) = config.get_mut("routing") {
-        keys(routing, &["rules", "balancers", "domainStrategy"])?;
+        keys(routing, &["rules", "balancers", "domainStrategy", "script"])?;
         if let Some(rules) = routing.get_mut("rules").and_then(Value::as_array_mut) {
             for rule in rules {
                 keys(
@@ -429,6 +450,7 @@ pub(crate) fn canonicalize(config: &mut Value) -> Result<()> {
                         "inboundTag",
                         "outboundTag",
                         "balancerTag",
+                        "webhook",
                     ],
                 )?;
             }
@@ -450,6 +472,15 @@ pub(crate) fn canonicalize(config: &mut Value) -> Result<()> {
     ] {
         if let Some(value) = config.get_mut(section) {
             keys(value, names)?;
+        }
+    }
+    if let Some(servers) = config
+        .get_mut("dns")
+        .and_then(|dns| dns.get_mut("servers"))
+        .and_then(Value::as_array_mut)
+    {
+        for server in servers {
+            keys(server, &["address", "tag"])?;
         }
     }
     Ok(())
@@ -554,6 +585,18 @@ mod tests {
         let c = normalize_config(c).unwrap();
         assert_eq!(c["routing"]["rules"][0]["outboundTag"], "direct");
         assert_eq!(c["dns"]["hosts"]["full:Mixed.EXAMPLE"], "192.0.2.1");
+
+        let mut raw = direct_example();
+        raw["outbounds"][0]["StreamSettings"] = json!({"SockOpt":{"CustomSockopt":[{
+            "System":"windows","Network":"udp","Level":"65535","Opt":"4098","Value":"65536","Type":"int"
+        }]}});
+        let normalized = normalize_config(raw).unwrap();
+        assert_eq!(
+            normalized["outbounds"][0]["streamSettings"]["sockopt"]["customSockopt"],
+            json!([{
+                "system":"windows","network":"udp","level":"65535","opt":"4098","value":"65536","type":"int"
+            }])
+        );
     }
     #[test]
     fn loopback_rule_index_handles_large_unique_virtual_inputs() {

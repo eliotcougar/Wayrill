@@ -450,6 +450,64 @@ fn run(
 mod tests {
     use super::*;
     #[test]
+    fn dns_isolation_respects_native_field_spelling_and_removes_webhooks() {
+        let original = wayrill_protocol::normalize_config(json!({
+            "inbounds":[{"tag":"proxy","protocol":"socks","listen":"127.0.0.1","port":2080}],
+            "outbounds":[
+                {"tag":"direct","protocol":"freedom"},
+                {"tag":"block","protocol":"blackhole"},
+                {"tag":"handler","protocol":"dns","settings":{"Address":"127.0.0.2"}}
+            ],
+            "dns":{"servers":[{"address":"8.8.8.8","Tag":"private-dns"}]},
+            "routing":{"rules":[{"inboundTag":["private-dns"],"outboundTag":"block","WebHook":{"url":"https://must-not-be-called.invalid/"}}]}
+        })).unwrap();
+        let egress = crate::tun::OutboundEgress {
+            uplink: "Ethernet".into(),
+            loopback: "Loopback".into(),
+            captured: true,
+        };
+        let prepared = dns_config(&original, "handler", "8.8.8.8:53", Some(&egress)).unwrap();
+        assert!(prepared["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|rule| rule["inboundTag"] == json!(["private-dns"])
+                && rule["outboundTag"] == "block"));
+        assert!(prepared["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|rule| rule
+                .as_object()
+                .unwrap()
+                .keys()
+                .all(|key| !key.eq_ignore_ascii_case("webhook"))));
+        let handler = prepared["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["tag"] == "handler")
+            .unwrap();
+        assert_eq!(
+            handler["streamSettings"]["sockopt"]["interface"],
+            "Loopback"
+        );
+        assert_eq!(original["outbounds"][2]["settings"]["address"], "127.0.0.2");
+
+        let mut scripted = original;
+        scripted["routing"]["Script"] = json!("return 'group'");
+        scripted["routing"]["balancers"] = json!([{"tag":"group","selector":["direct"]}]);
+        scripted["observatory"] = json!({"subjectSelector":["direct"]});
+        let mut scripted = wayrill_protocol::normalize_config(scripted).unwrap();
+        isolate_dns_routes(&mut scripted);
+        assert_eq!(
+            scripted["routing"]["balancers"].as_array().unwrap().len(),
+            1
+        );
+        assert!(scripted["observatory"].is_object());
+    }
+
+    #[test]
     fn diagnostic_wire_contract_preserves_ip_acronyms() {
         let request:Input=params(json!({"mode":"route","config":{},"capture":null,"route":{"inbound":"tun","domain":"example.test","ips":[],"port":443,"network":"tcp","protocol":"tls","user":"","sourceIP":"","sourcePort":0},"application":null,"resolvedIPs":["192.0.2.8"],"handler":"dns","domain":"example.test","queryType":"A","server":"8.8.8.8:53"})).unwrap();
         assert_eq!(request.resolved_ips, ["192.0.2.8"]);

@@ -58,6 +58,9 @@ rule index/action or DNS answers/rcode plus a bounded resolver trace. Applicatio
 contexts are supplied identities, not assertions about live socket ownership.
 The capture companion evaluates child/app/service selectors with its live matcher;
 native process conditions retain Xray's process-name/path matching semantics.
+Accepted native field spellings are normalized before service inspection, including
+DNS server tags, forwarding addresses, routing webhooks/scripts and socket options.
+Dictionary keys and user values retain their original spelling.
 
 Applied display metadata also carries an optional `observed` map from a generated
 probe alias to its public outbound tag. The service validates both tags against
