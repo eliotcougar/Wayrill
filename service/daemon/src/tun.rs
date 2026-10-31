@@ -1803,13 +1803,15 @@ impl Manager {
     pub fn new(data: &Path, worker_root: std::path::PathBuf) -> Result<Self> {
         // Recovery can disable retained host capture. Contain private DNS
         // delivery before removing that protection, even after both owners died.
-        {
+        // Missing hardware must leave recovery available without retiring any
+        // existing capture before its sharing barrier can be reconciled.
+        let protection = {
             let _transaction = keeper::mutation_lock()?;
-            sharing_guard::set_paused(data, true)?;
-        }
+            sharing_guard::set_paused(data, true)
+        };
         let adapters = adapters::Store::new(data);
-        let adapter_recovery_error = adapters
-            .rehydrate()
+        let adapter_recovery_error = protection
+            .and_then(|()| adapters.rehydrate())
             .and_then(|_| adapters.disable(adapters::Kind::Host, None))
             .err();
         let mut manager = Self {
@@ -1923,6 +1925,7 @@ impl Manager {
         // drained. Finish that exact retirement before examining a new plan.
         self.finish_retirement()?;
         if self.adapter_recovery_error.is_some() {
+            self.pause_sharing()?;
             self.adapters.rehydrate()?;
             self.adapters.disable(adapters::Kind::Host, None)?;
             self.disable_shared_adapter()?;
@@ -2345,10 +2348,14 @@ impl Manager {
         &mut self,
         sharing: crate::lifecycle::SharingExit,
     ) -> Result<()> {
+        self.retirement_pending = Some(sharing);
         self.sharing.request_handback(sharing)
     }
     pub fn finish_retirement(&mut self) -> Result<()> {
         if let Some(sharing) = self.retirement_pending {
+            if sharing != crate::lifecycle::SharingExit::Suspend {
+                self.sharing.request_handback(sharing)?;
+            }
             self.retire(sharing)?;
         }
         Ok(())
@@ -2480,6 +2487,55 @@ impl Drop for Manager {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn missing_private_adapter_keeps_recovery_available_and_retries_explicit_handback() {
+        use super::*;
+        let data =
+            std::env::temp_dir().join(format!("wayrill-missing-private-{}", random_id().unwrap()));
+        std::fs::create_dir_all(&data).unwrap();
+        let guard = data.join("tun-sharing-barrier.json");
+        crate::storage::write(
+            &guard,
+            &json!({
+                "private":"11111111-1111-4111-8111-111111111111",
+                "capture":"22222222-2222-4222-8222-222222222222",
+                "release":null
+            }),
+        )
+        .unwrap();
+        let mut manager = Manager::new(&data, data.clone())
+            .expect("Missing hardware must not prevent the service from opening its recovery API");
+        assert_eq!(
+            manager.status()["adapterRecoveryError"]["code"],
+            "TUN_UPLINK_UNAVAILABLE"
+        );
+        assert_eq!(
+            manager.preflight(&json!({}), None).unwrap_err().code,
+            "TUN_UPLINK_UNAVAILABLE"
+        );
+        assert_eq!(sharing_guard::requested(&data).unwrap(), None);
+
+        // A full/unwritable state volume can interrupt explicit Stop before it
+        // records handback. Preserve that exact intent for the next retry.
+        for sharing in [
+            crate::lifecycle::SharingExit::Native,
+            crate::lifecycle::SharingExit::Disable,
+        ] {
+            let temporary = guard.with_extension("tmp");
+            std::fs::create_dir(&temporary).unwrap();
+            assert!(manager.request_sharing_handback(sharing).is_err());
+            std::fs::remove_dir(&temporary).unwrap();
+            assert_eq!(
+                manager.finish_retirement().unwrap_err().code,
+                "TUN_UPLINK_UNAVAILABLE"
+            );
+            assert_eq!(sharing_guard::requested(&data).unwrap(), Some(sharing));
+            assert_eq!(manager.retirement_pending, Some(sharing));
+        }
+        drop(manager);
+        std::fs::remove_dir_all(data).unwrap();
+    }
 
     #[test]
     fn native_loopback_selection_resolves_to_the_software_loopback_interface() {

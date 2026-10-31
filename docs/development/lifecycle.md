@@ -125,6 +125,9 @@ Explicit Stop is the accountable cleanup path and returns failures. `Drop` is
 only a final best-effort safety net. Durable recovery journals are removed only
 after successful restoration or explicit acknowledgement of external changes.
 Telemetry persistence/read failure remains independent of routing health.
+Missing sharing hardware remains a recoverable status error; it cannot prevent
+the service from exposing its recovery API. Interrupted Stop persistence retains
+the exact handback intent for retry before native retirement.
 
 A confirmed dead ICS keeper cannot acknowledge preparation or Stop. Retirement
 then acquires the existing adapter/mutation locks and reconciles the durable
@@ -302,10 +305,11 @@ replay it. Closing the response receiver bounds queued progress during recovery.
 The keeper accepts a read-only proof that host capture is already Down/absent;
 it must not acquire the same exclusive host lease held by the waiting parent.
 Wintun handles remain live until the keeper is prepared or confirmed exited.
-A failed native EOF handback can leave a read-only guardian alive; the coordinator
+A failed EOF retirement can leave a read-only guardian alive; the coordinator
 may reconcile its guarded journal only after acquiring the existing keeper/native
 mutation locks. It does not kill or supersede an in-flight Windows operation.
-Emergency EOF retains the established guarded native-sharing handback behavior.
+Emergency EOF suspends sharing behind the persistent boundary; it cannot grant
+native handback.
 
 Incomplete retirement remains an explicit pending transition. The sole supervisor
 finishes it before checking whether another activation is permitted, including
