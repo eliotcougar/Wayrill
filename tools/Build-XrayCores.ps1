@@ -167,14 +167,6 @@ try {
     }
     [IO.File]::WriteAllText($taskWindowsTun,$taskWindowsText)
     Get-ChildItem (Join-Path $taskProject 'service\core-control') -Filter '*.go' | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $taskSource ('main\wayrill_control_'+$_.Name)) -Force }
-    $taskResources=Join-Path $taskSource 'resources'
-    New-Item -ItemType Directory -Path $taskResources -Force | Out-Null
-    if(-not $SkipTests) {
-        & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -CurlPath $taskCurl
-        foreach($taskAssetName in @('geosite.dat','geoip.dat')) {
-            Copy-Item -LiteralPath (Join-Path $taskProject ('service/resource-assets/'+$taskAssetName)) -Destination $taskResources -Force
-        }
-    }
     Push-Location $taskSource
     try {
         $taskRuntimePackages=@(& $taskGo list -mod=readonly -deps ./main)
@@ -202,11 +194,6 @@ try {
     if (-not $taskWintun -or (Get-FileHash $taskWintun.FullName).Hash -ne 'E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE') { throw 'Missing pinned Wintun DLL.' }
     Copy-Item $taskWintun.FullName -Destination $TunOutputDirectory -Force
     # Corresponding patched source is shipped for MPL changes and reproducibility.
-    foreach($taskAssetName in @('geosite.dat','geoip.dat')) {
-        $taskCopiedAsset=[IO.Path]::GetFullPath((Join-Path $taskResources $taskAssetName))
-        if ((Split-Path $taskCopiedAsset -Parent) -ne [IO.Path]::GetFullPath($taskResources)) {throw 'Invalid test asset cleanup path.'}
-        if(Test-Path -LiteralPath $taskCopiedAsset){Remove-Item -LiteralPath $taskCopiedAsset -Force}
-    }
     Compress-Archive -LiteralPath $taskSource -DestinationPath (Join-Path $TunOutputDirectory 'source.zip') -Force
     Write-Host "Pinned TUN attribution worker: $taskHash"
 } finally {

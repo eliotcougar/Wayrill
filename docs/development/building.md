@@ -89,6 +89,11 @@ compatibility tests, then packages the service and
 desktop installer. No running Wayrill, credentials or VM is required. Building
 does not install the result or change the machine's networking.
 
+Base XTLS geodata comes from a pinned Xray release archive, with both archive
+and extracted-file hashes checked. Daily rules releases are pruned upstream and
+are unsuitable as long-lived build inputs. Core compilation and its maintained
+Go regressions do not require geodata downloads.
+
 The installer is written under
 `.tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Build logs are under
 `.tools/logs/`. `-SkipTests` is available for a build iteration; it still runs lint

@@ -98,25 +98,29 @@
     ]
   },
   "resourceData": {
-    "snapshot": "2026-10-26",
+    "snapshot": "2026-10-29",
     "files": [
       {
         "path": "geoip.dat",
-        "bytes": 3974726,
-        "sha256": "E996525D5B519F086DACAD90F8AF776A053FD5FDAB838B3DEF809151BEAFE53B",
-        "sourceSha256": "E996525D5B519F086DACAD90F8AF776A053FD5FDAB838B3DEF809151BEAFE53B",
-        "sourceUrl": "https://github.com/XTLS/Xray-rules-dat/releases/download/20261025203849/geoip-lite.dat",
-        "release": "20261025203849",
+        "bytes": 3986356,
+        "sha256": "36E0E76145DBA3F13AC4BF7BE0B738D7EAE957835FEFD2EE220E7034FE52A4D1",
+        "sourceSha256": "36E0E76145DBA3F13AC4BF7BE0B738D7EAE957835FEFD2EE220E7034FE52A4D1",
+        "sourceUrl": "https://github.com/XTLS/Xray-core/releases/download/v26.10.29/Xray-windows-64.zip",
+        "archiveSha256": "FCE33E81CCCF50E7AAB572B175519A50B5E0F9D2F5C8D1ED73012EA5C9AD4D58",
+        "archiveEntry": "geoip.dat",
+        "release": "v26.10.29",
         "license": "GPL-3.0-only",
         "sourceRepository": "https://github.com/XTLS/Xray-rules-dat"
       },
       {
         "path": "geosite.dat",
-        "bytes": 6540378,
-        "sha256": "3BC82B9ECAEDF43A12F5655AC62CEB9A625E4657949224750D14E9C4B08C3DCE",
-        "sourceSha256": "3BC82B9ECAEDF43A12F5655AC62CEB9A625E4657949224750D14E9C4B08C3DCE",
-        "sourceUrl": "https://github.com/XTLS/Xray-rules-dat/releases/download/20261025203849/geosite.dat",
-        "release": "20261025203849",
+        "bytes": 7555935,
+        "sha256": "B8A31CE12D3EC997358BF2BDE95BE502DF7402179D1C93D1E8B3EDA6F7B08F3A",
+        "sourceSha256": "B8A31CE12D3EC997358BF2BDE95BE502DF7402179D1C93D1E8B3EDA6F7B08F3A",
+        "sourceUrl": "https://github.com/XTLS/Xray-core/releases/download/v26.10.29/Xray-windows-64.zip",
+        "archiveSha256": "FCE33E81CCCF50E7AAB572B175519A50B5E0F9D2F5C8D1ED73012EA5C9AD4D58",
+        "archiveEntry": "geosite.dat",
+        "release": "v26.10.29",
         "license": "GPL-3.0-only",
         "sourceRepository": "https://github.com/XTLS/Xray-rules-dat"
       }

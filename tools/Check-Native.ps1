@@ -28,8 +28,8 @@ try {
             if ($taskComponent -eq 'service') {
                 & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -IncludeRegional:(-not $SkipTests) -CurlPath $CurlPath
                 if (-not $SkipTests) {
-                    # Synthetic installer contracts; no installation or system changes.
-                    foreach ($taskScript in @('Test-PackageCleanup.ps1', 'Test-InstallerResources.ps1', 'Test-InstallerRetirement.ps1')) {
+                    # Synthetic build/installer contracts; no installation or system changes.
+                    foreach ($taskScript in @('Test-PackageCleanup.ps1', 'Test-PinnedResources.ps1', 'Test-InstallerResources.ps1', 'Test-InstallerRetirement.ps1')) {
                         & (Join-Path $PSScriptRoot $taskScript)
                     }
                 }
