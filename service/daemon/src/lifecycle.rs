@@ -59,8 +59,8 @@ impl Fault {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SharingExit {
-    #[default]
     Native,
+    #[default]
     Suspend,
     Disable,
 }
@@ -77,9 +77,10 @@ pub enum Retirement {
 impl Retirement {
     pub fn sharing(self) -> SharingExit {
         match self {
-            Self::Stop(sharing) | Self::Replace(_, sharing) => sharing,
-            Self::Fault(_) | Self::Shutdown(ServiceExit::Unexpected) => SharingExit::Suspend,
-            Self::Shutdown(ServiceExit::Stop | ServiceExit::WindowsShutdown) => SharingExit::Native,
+            Self::Stop(sharing) => sharing,
+            Self::Replace(_, SharingExit::Disable) => SharingExit::Disable,
+            Self::Replace(_, _) => SharingExit::Suspend,
+            Self::Fault(_) | Self::Shutdown(_) => SharingExit::Suspend,
         }
     }
     pub fn restore_settings(self) -> bool {
@@ -240,7 +241,12 @@ mod tests {
     use serde_json::json;
     #[test]
     fn sharing_intent_is_explicit_and_replacements_never_default_to_native_handback() {
+        assert_eq!(SharingExit::default(), SharingExit::Suspend);
         for network in [NetworkChange::Reconfigure, NetworkChange::PreserveNetwork] {
+            assert_eq!(
+                Retirement::Replace(network, SharingExit::Native).sharing(),
+                SharingExit::Suspend
+            );
             assert_eq!(
                 Retirement::Replace(network, SharingExit::Suspend).sharing(),
                 SharingExit::Suspend
@@ -426,14 +432,7 @@ mod tests {
             assert!(
                 !intent.retain_capture() && !intent.retain_network() && intent.release_fake_dns()
             );
-            assert_eq!(
-                intent.sharing(),
-                if reason == ServiceExit::Unexpected {
-                    SharingExit::Suspend
-                } else {
-                    SharingExit::Native
-                }
-            );
+            assert_eq!(intent.sharing(), SharingExit::Suspend);
         }
     }
 }

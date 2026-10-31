@@ -15,6 +15,7 @@ pub(crate) mod live;
 pub(crate) mod network;
 mod notifications;
 pub(crate) mod sharing;
+mod sharing_guard;
 mod update;
 mod uplink_guard;
 use crate::{
@@ -1800,6 +1801,12 @@ pub struct Manager {
 }
 impl Manager {
     pub fn new(data: &Path, worker_root: std::path::PathBuf) -> Result<Self> {
+        // Recovery can disable retained host capture. Contain private DNS
+        // delivery before removing that protection, even after both owners died.
+        {
+            let _transaction = keeper::mutation_lock()?;
+            sharing_guard::set_paused(data, true)?;
+        }
         let adapters = adapters::Store::new(data);
         let adapter_recovery_error = adapters
             .rehydrate()
@@ -1886,7 +1893,7 @@ impl Manager {
     // Before replacing a running graph, automatic selection reuses its known
     // physical uplink instead of mistaking our own active split routes for it.
     pub fn restore_sharing(&mut self) -> Result<()> {
-        self.stop()?;
+        self.retire(crate::lifecycle::SharingExit::Suspend)?;
         self.sharing.restore_saved()
     }
     pub fn sharing_keep(&mut self, expected: &str) -> Result<()> {
@@ -2329,10 +2336,16 @@ impl Manager {
             return Ok(());
         }
         match previous {
-            Some(true) => self.sharing.restore_saved(),
+            Some(true) => self.sharing.restore_intent(),
             Some(false) => self.retire(crate::lifecycle::SharingExit::Disable),
             None => Ok(()),
         }
+    }
+    pub fn request_sharing_handback(
+        &mut self,
+        sharing: crate::lifecycle::SharingExit,
+    ) -> Result<()> {
+        self.sharing.request_handback(sharing)
     }
     pub fn finish_retirement(&mut self) -> Result<()> {
         if let Some(sharing) = self.retirement_pending {
@@ -2340,10 +2353,17 @@ impl Manager {
         }
         Ok(())
     }
-    pub fn stop(&mut self) -> Result<()> {
-        self.retire(crate::lifecycle::SharingExit::Native)
+    pub fn pause_sharing(&mut self) -> Result<()> {
+        self.sharing.pause(true)
+    }
+    pub fn resume_sharing(&mut self) -> Result<()> {
+        if self.keeper.is_some() {
+            self.sharing.pause(false)?;
+        }
+        Ok(())
     }
     pub fn retire(&mut self, sharing: crate::lifecycle::SharingExit) -> Result<()> {
+        self.pause_sharing()?;
         self.retirement_pending = Some(sharing);
         // Park capture while retaining its lease AND Wintun handle. A keeper
         // whose response channel died must be able to prove capture release
@@ -2426,7 +2446,7 @@ impl Manager {
             if let Some(keeper) = &mut self.keeper {
                 keeper.call("status", json!({}))?;
             } else {
-                self.sharing.poll(self.core.is_none())?;
+                self.sharing.poll()?;
             }
             self.sharing_poll = Instant::now();
         }
@@ -2454,7 +2474,7 @@ impl Manager {
 }
 impl Drop for Manager {
     fn drop(&mut self) {
-        let _ = self.stop();
+        let _ = self.retire(crate::lifecycle::SharingExit::Suspend);
     }
 }
 

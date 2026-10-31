@@ -179,6 +179,23 @@ fn main() {
         }
         return;
     }
+    if args.len() == 2
+        && matches!(
+            args[1].as_str(),
+            "--prepare-sharing-upgrade" | "--stop-sharing"
+        )
+    {
+        let result = if args[1] == "--prepare-sharing-upgrade" {
+            tun::sharing::prepare_installed_upgrade()
+        } else {
+            tun::sharing::stop_installed()
+        };
+        if let Err(error) = result {
+            crate::diagnostics::error!("Sharing protection: {}", error.message);
+            std::process::exit(1);
+        }
+        return;
+    }
     if args.len() == 2 && args[1] == "--remove-tun-adapters" {
         if let Err(error) = tun::adapters::uninstall() {
             crate::diagnostics::error!("Remove owned TUN adapters: {}", error.message);

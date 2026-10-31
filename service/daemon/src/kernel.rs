@@ -1192,11 +1192,21 @@ impl Kernel {
                 storage::remove(&self.profile_path.with_file_name("upgrade-resume.json"))?;
                 let intent = self.recovery.stop();
                 self.network.cancel();
-                let retirement = self.stop_core_with_sharing(if p.disable_sharing {
+                let sharing = if p.disable_sharing
+                    || self
+                        .profile
+                        .as_ref()
+                        .and_then(|p| p.capture.as_ref())
+                        .is_some_and(|p| p.sharing_disabled)
+                {
                     SharingExit::Disable
                 } else {
                     SharingExit::Native
-                });
+                };
+                let retirement = self
+                    .tun
+                    .request_sharing_handback(sharing)
+                    .and_then(|()| self.stop_core_with_sharing(sharing));
                 let mut cleanup = Cleanup::default();
                 cleanup.record("cancel automatic recovery", intent);
                 cleanup.record("explicit routing stop", retirement);
@@ -2072,6 +2082,7 @@ impl Kernel {
                         profile.capture.as_ref(),
                         &self.tun.status(),
                     )?;
+                    self.tun.resume_sharing()?;
                     return Ok(core);
                 }
                 if Instant::now() >= until {
@@ -2134,7 +2145,7 @@ impl Kernel {
         }
     }
     fn stop_core(&mut self) -> Result<()> {
-        self.stop_core_with_sharing(SharingExit::Native)
+        self.stop_core_with_sharing(SharingExit::Suspend)
     }
     fn stop_core_with_sharing(&mut self, sharing: SharingExit) -> Result<()> {
         let sharing = if self
@@ -2169,6 +2180,7 @@ impl Kernel {
             }
             self.protection.arm(crate::app_protection::Phase::Restart)?;
         }
+        self.tun.pause_sharing()?;
         self.events.routing.stop();
         self.core_state = CoreState::Stopping;
         let tun_result = if !intent.retain_network() {
@@ -2575,7 +2587,7 @@ impl Kernel {
         let core = if self.recovery.wants_running() {
             // Desired assignments stay owned through Windows/service restart;
             // otherwise a proxy-only graph would resume with Windows proxy Off.
-            // Native ICS still hands back before Windows service shutdown.
+            // Shared traffic stays protected and suspended across service exit.
             self.retire_core(Retirement::Shutdown(reason))
         } else {
             self.stop_core()

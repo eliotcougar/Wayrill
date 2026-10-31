@@ -28,17 +28,22 @@ Assert $caught 'Preserve initial error while recovery remains pending'
 Assert ($script:journalChecks -eq 1) 'Unsafe snapshot must not pass cleanup'
 $script:old=@{serviceVersion='0.31.18';core=@{state='running'};appProtection=@{phase='upgrade';error=@{code='APP_PROTECTION'}}}
 $script:armed=$false;$script:repairWorks=$true
+function Initialize-WayrillSharingProtection { $script:sharingArmed=$true }
+$script:sharingArmed=$false
 function Initialize-WayrillUpgradeProtection { $script:armed=$script:repairWorks; return $script:armed }
 function Invoke-WayrillInstallerApi($Method,$OwnerSid){
  $script:calls+=$Method
  switch($Method){
   'service.status' {return $script:old}
-  'core.stopForUpgrade' {throw 'Missing protected application'}
+  'core.stopForUpgrade' {Assert $script:sharingArmed 'Sharing must be protected before the old service retires';throw 'Missing protected application'}
   'core.stop' {Assert $script:armed 'Must arm the replacement barrier before retirement';return (Retired)}
  }
 }
 $script:calls=@();Stop-WayrillRouting 'owner' -ForUpgrade
 Assert (($script:calls -join ',') -eq 'service.status,core.stopForUpgrade,service.status,core.stop') 'Old-service recovery must arm before explicit retirement'
+$script:old.core.state='failed';$script:old.tun=@{state='running';sharedPid=12};$script:calls=@();$script:sharingArmed=$false
+Stop-WayrillRouting 'owner' -ForUpgrade
+Assert ($script:sharingArmed -and 'core.stop' -in $script:calls) 'A failed runtime with surviving helpers must still pass protected retirement'
 $script:repairWorks=$false;$script:calls=@();$caught=$false
 try{Stop-WayrillRouting 'owner' -ForUpgrade}catch{$caught=$_.Exception.Message -eq 'Missing protected application'}
 Assert $caught 'Failed barrier repair must preserve the original failure'
@@ -47,4 +52,9 @@ $script:old.serviceVersion='0.31.19';$script:repairWorks=$true;$script:calls=@()
 try{Stop-WayrillRouting 'owner' -ForUpgrade}catch{$caught=$_.Exception.Message -eq 'Missing protected application'}
 Assert $caught 'Current coordinators must use their own lifecycle'
 Assert ('core.stop' -notin $script:calls) 'Do not bypass the current coordinator protection contract'
+function Initialize-WayrillSharingProtection { throw 'Sharing protection unavailable' }
+$script:calls=@();$caught=$false
+try{Stop-WayrillRouting 'owner' -ForUpgrade}catch{$caught=$_.Exception.Message -eq 'Sharing protection unavailable'}
+Assert $caught 'An unavailable sharing barrier must abort the upgrade'
+Assert ($script:calls.Count -eq 0) 'No old-service command may run before sharing protection succeeds'
 @{passed=$true;checks=$script:checks}|ConvertTo-Json

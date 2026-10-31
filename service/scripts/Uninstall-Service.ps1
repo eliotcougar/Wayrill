@@ -21,6 +21,8 @@ if ($taskService) {
 }
 Assert-WayrillRecoveryComplete
 if (Test-Path -LiteralPath (Join-Path $taskTarget 'wayrill-service.exe')) {
+    & (Join-Path $taskTarget 'wayrill-service.exe') --stop-sharing
+    if ($LASTEXITCODE -ne 0) { throw 'Sharing restoration remains pending. Its protection, installed files and ownership records were preserved.' }
     # Fixed provider ownership is sufficient even if the settings file was lost.
     & (Join-Path $taskTarget 'wayrill-service.exe') --clear-app-protection
     if ($LASTEXITCODE -ne 0) { throw 'App protection could not be released. Service registration, installed files and ownership records were preserved.' }

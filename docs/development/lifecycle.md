@@ -65,7 +65,7 @@ booleans. The shared policy is in `lifecycle.rs`.
 | Intent | Windows proxy assignments | Packet capture / TUN network | FakeDNS authority |
 | --- | --- | --- | --- |
 | Explicit Stop | Restore still-owned values | Retire; hand back only when sharing is enabled | Release |
-| Windows shutdown, Running intent | Retain | Retire; hand back only when sharing is enabled | Release |
+| Windows/service shutdown, Running intent | Retain | Retire; suspend sharing for recovery | Release |
 | Unexpected service exit, Running intent | Retain | Retire; suspend sharing for recovery | Release |
 | Replace, preserve network | Retain | Retain network; replace runtime | Retain until commit |
 | Replace, reconfigure | Retain | Retain WinDivert handle; reconfigure TUN network | Retain until commit |
@@ -88,8 +88,22 @@ advertise a successful Stop. Unexpected child exit retains the committed Running
 
 This remains an application router rather than an atomic firewall boundary.
 Ending TUN or WinDivert capture can release applications to Windows networking.
-Native ICS handback can return shared clients to native routing. Retained proxy
-assignments do not establish that all applications are contained.
+Retained proxy assignments do not establish that all applications are contained.
+ICS has an independent persistent WFP forwarding boundary: packets arriving on
+the selected private adapter may be forwarded only to the owned sharing TUN.
+Xray's own outbound sockets are unaffected. Apply, rollback, failures, keeper
+EOF, service shutdown and upgrades suspend sharing; none authorize native ICS.
+Disruptive transitions first block IP ingress on that private adapter, including
+requests to Windows' local ICS DNS proxy. Ingress resumes only after Wayrill's
+runtime is ready; the forwarding boundary remains throughout the routed run.
+Only explicit Stop or manual sharing recovery records durable native-handback
+permission. Protection is removed after that requested retirement succeeds.
+The verified installer helper arms this boundary before retiring older services,
+whose legacy Stop may otherwise briefly activate native sharing. A canceled or
+failed upgrade retains protection until routing resumes or explicit handback.
+The coordinator reconciles prior sharing ownership. A fresh keeper only loads
+that state during construction; its native operations run inside the correlated
+command handler, where progress can renew the caller's inactivity timeout.
 
 Opt-in app protection adds a separate service-owned WFP barrier around disruptive
 transitions. Arm it before retiring routing; readiness and owned Windows settings
@@ -177,7 +191,7 @@ intent that would reactivate routing on the next service restart.
 The supervisor owns this persistence retry for every Stop caller. Applying a
 stopped profile cancels intent before committing the profile, so failure to save
 the cancellation leaves the persisted and in-memory profile unchanged.
-Windows pre-shutdown restores native sharing and parks capture, but retains owned proxy/environment/WinHTTP
+Windows pre-shutdown suspends sharing and parks capture, but retains owned proxy/environment/WinHTTP
 assignments and Running intent for resumption; unexpected coordinator failure
 preserves intent and owned assignments for SCM restart. Deliberately disabled
 sharing, invalid ownership and integrity failures cannot be bypassed by retries.

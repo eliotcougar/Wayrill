@@ -193,6 +193,38 @@ pub(super) fn record_disabled(data: &Path) -> Result<()> {
 fn restore_native_default() -> bool {
     true
 }
+
+/// Called by the verified new installer helper before asking an older service
+/// to stop. Older coordinators may hand sharing back, but cannot remove this
+/// independent persistent forwarding boundary.
+pub fn prepare_installed_upgrade() -> Result<()> {
+    let data = installed_data()?;
+    let _transaction = super::keeper::mutation_lock()?;
+    if let Some(journal) = storage::read::<Journal>(&data.join("tun-sharing-lease.json"))? {
+        if !valid(&journal) {
+            return Err(error("ICS_STATE", "Invalid sharing ownership journal."));
+        }
+        super::sharing_guard::arm(&data, &journal.private.id, &journal.owned_public)
+    } else {
+        super::sharing_guard::set_paused(&data, true)
+    }
+}
+fn installed_data() -> Result<PathBuf> {
+    Ok(PathBuf::from(
+        std::env::var_os("ProgramData")
+            .ok_or_else(|| error("ICS_STATE", "Windows ProgramData is unavailable."))?,
+    )
+    .join("Wayrill"))
+}
+pub fn stop_installed() -> Result<()> {
+    let root = std::env::current_exe().map_err(|e| ApiError::io("Locate sharing worker", e))?;
+    let mut manager = Manager::new(
+        &installed_data()?,
+        root.parent().unwrap().join("attribution"),
+    )?;
+    manager.request_handback(SharingExit::Native)?;
+    manager.retire(SharingExit::Native)
+}
 impl NativePair {
     fn from_journal(j: &Journal) -> Self {
         Self {
@@ -681,8 +713,22 @@ pub struct Manager {
     idle: IdleMonitor,
     changes: Option<super::notifications::Changes>,
 }
+enum Initialization {
+    Coordinator,
+    Keeper,
+}
 impl Manager {
     pub fn new(data: &Path, worker_root: PathBuf) -> Result<Self> {
+        Self::open(data, worker_root, Initialization::Coordinator)
+    }
+    pub(super) fn for_keeper(data: &Path, worker_root: PathBuf) -> Result<Self> {
+        // The coordinator already drained the previous owner. Native work in
+        // this fresh owner belongs to its progress-correlated command handler,
+        // not an unobserved constructor before that handler can receive Start.
+        Self::open(data, worker_root, Initialization::Keeper)
+    }
+    fn open(data: &Path, worker_root: PathBuf, initialization: Initialization) -> Result<Self> {
+        let recover = matches!(initialization, Initialization::Coordinator);
         let lease = super::keeper::keeper_lease()?;
         let _transaction = if lease.is_some() {
             Some(super::keeper::mutation_lock()?)
@@ -712,10 +758,9 @@ impl Manager {
                 remembered = Some(pair);
             }
         }
-        let recovery_until = (journal.is_some()
-            || remembered.as_ref().is_some_and(|p| p.restore_native)
-            || lease.is_none())
-        .then(|| Instant::now() + Duration::from_secs(180));
+        let recovery_until =
+            (journal.is_some() || recover && super::sharing_guard::active(data) || lease.is_none())
+                .then(|| Instant::now() + Duration::from_secs(180));
         let mut manager = Self {
             path,
             remembered_path,
@@ -738,8 +783,8 @@ impl Manager {
         };
         if lease.is_none() {
             manager.last_error = Some(super::keeper::busy());
-        } else if manager.journal.is_some() {
-            let result = manager.restore_inner(true);
+        } else if recover && (manager.journal.is_some() || super::sharing_guard::active(data)) {
+            let result = manager.recover_inner();
             let _ = manager.finish_recovery(result);
         }
         Ok(manager)
@@ -776,7 +821,7 @@ impl Manager {
         };
         let _transaction = super::keeper::mutation_lock()?;
         self.reload_journal()?;
-        let result = self.restore_inner(true);
+        let result = self.recover_inner();
         self.finish_recovery(result)
     }
     fn finish_recovery(&mut self, result: Result<()>) -> Result<()> {
@@ -807,7 +852,7 @@ impl Manager {
         self.reload_journal()?;
         // Re-read native state for a later manual/boot attempt. Every mutation
         // still passes the durable ownership guards; a conflict is never reset.
-        let result = self.restore_inner(true);
+        let result = self.recover_inner();
         self.finish_recovery(result)
     }
     fn call(&mut self, method: &str, data: Value) -> Result<Snapshot> {
@@ -1148,6 +1193,7 @@ impl Manager {
         );
         storage::write(&self.remembered_path, &remembered)?;
         self.remembered = Some(remembered);
+        super::sharing_guard::arm(self.data(), &private.id, owned_public)?;
         self.recovery_until = None;
         let moved: Result<()> = (|| {
             // Windows requires the private role to be released before the public
@@ -1273,6 +1319,10 @@ impl Manager {
         Ok(())
     }
     fn observe_native_intent(&mut self, snapshot: &Snapshot) -> Result<()> {
+        // Our own suspension is not the user's decision to disable sharing.
+        if super::sharing_guard::active(self.data()) {
+            return Ok(());
+        }
         if let Some(pair) = &mut self.remembered {
             let Some((public, private)) = snapshot
                 .connection(&pair.public.id)
@@ -1316,7 +1366,13 @@ impl Manager {
             storage::write(&self.remembered_path, &next)?;
             *pair = next;
         }
-        let result = self.restore_inner(true);
+        if let Some(pair) = &self.remembered {
+            super::sharing_guard::arm(self.data(), &pair.private.id, &pair.previous_public)?;
+            super::sharing_guard::request_release(self.data(), SharingExit::Native)?;
+        }
+        let result = self
+            .restore_inner(true)
+            .and_then(|()| super::sharing_guard::finish_release(self.data()));
         self.finish_recovery(result)
     }
     pub fn retire(&mut self, sharing: SharingExit) -> Result<()> {
@@ -1324,10 +1380,14 @@ impl Manager {
         let _lease = super::keeper::keeper_lease()?.ok_or_else(super::keeper::busy)?;
         let _transaction = super::keeper::mutation_lock()?;
         self.reload_journal()?;
+        super::sharing_guard::set_paused(self.data(), true)?;
+        let sharing = super::sharing_guard::requested(self.data())?.unwrap_or(sharing);
         if sharing == SharingExit::Disable {
             self.set_native_intent(false)?;
         }
-        let result = self.retire_inner(false, sharing);
+        let result = self
+            .retire_inner(false, sharing)
+            .and_then(|()| super::sharing_guard::finish_release(self.data()));
         self.last_error = result.as_ref().err().cloned();
         result
     }
@@ -1346,6 +1406,34 @@ impl Manager {
         }
         Ok(())
     }
+    fn data(&self) -> &Path {
+        self.path.parent().unwrap_or_else(|| Path::new(""))
+    }
+    pub fn restore_intent(&mut self) -> Result<()> {
+        let _transaction = super::keeper::mutation_lock()?;
+        self.reload_journal()?;
+        self.set_native_intent(true)
+    }
+    pub fn request_handback(&mut self, sharing: SharingExit) -> Result<()> {
+        let _transaction = super::keeper::mutation_lock()?;
+        super::sharing_guard::request_release(self.data(), sharing)
+    }
+    pub fn pause(&mut self, paused: bool) -> Result<()> {
+        let _transaction = super::keeper::mutation_lock()?;
+        super::sharing_guard::set_paused(self.data(), paused)
+    }
+    fn recover_inner(&mut self) -> Result<()> {
+        if !super::sharing_guard::active(self.data()) {
+            if let Some(j) = &self.journal {
+                super::sharing_guard::arm(self.data(), &j.private.id, &j.owned_public)?;
+            }
+        } else {
+            super::sharing_guard::set_paused(self.data(), true)?;
+        }
+        let sharing = super::sharing_guard::requested(self.data())?.unwrap_or(SharingExit::Suspend);
+        self.retire_inner(true, sharing)
+            .and_then(|()| super::sharing_guard::finish_release(self.data()))
+    }
     fn restore_inner(&mut self, startup_recovery: bool) -> Result<()> {
         self.retire_inner(startup_recovery, SharingExit::Native)
     }
@@ -1355,7 +1443,12 @@ impl Manager {
         }
         // An explicit Disable may arrive after native Stop, with no live keeper.
         // Only the exact remembered pair can be retired; never adopt another pair.
-        if self.journal.is_none() && sharing == SharingExit::Disable {
+        if self.journal.is_none()
+            && (sharing == SharingExit::Disable
+                || startup_recovery
+                    && sharing == SharingExit::Suspend
+                    && super::sharing_guard::active(self.data()))
+        {
             if let Some(pair) = self.remembered.clone() {
                 let current = self.read()?;
                 if !current.roles().is_empty() {
@@ -1381,7 +1474,10 @@ impl Manager {
                 }
             }
         }
-        if self.journal.is_none() && startup_recovery {
+        if self.journal.is_none()
+            && sharing == SharingExit::Native
+            && super::sharing_guard::active(self.data())
+        {
             if let Some(pair) = self.remembered.clone().filter(|p| p.restore_native) {
                 let current = self.read()?;
                 if current.roles().len() < 2 {
@@ -1526,15 +1622,17 @@ impl Manager {
         }
         storage::remove(&self.path)?;
         storage::remove(&self.remembered_path)?;
+        super::sharing_guard::request_release(self.data(), SharingExit::Disable)?;
+        super::sharing_guard::finish_release(self.data())?;
         self.journal = None;
         self.remembered = None;
         self.last_error = None;
         self.worker = None;
         Ok(())
     }
-    pub fn poll(&mut self, restore_native: bool) -> Result<()> {
+    pub fn poll(&mut self) -> Result<()> {
         self.finish_previous_keeper()?;
-        if restore_native
+        if super::sharing_guard::active(self.data())
             && self.journal.is_none()
             && self.remembered.is_some()
             && self
@@ -1546,7 +1644,7 @@ impl Manager {
             if let Some(_lease) = super::keeper::keeper_lease()? {
                 let _transaction = super::keeper::mutation_lock()?;
                 self.reload_journal()?;
-                let result = self.restore_inner(true);
+                let result = self.recover_inner();
                 let _ = self.finish_recovery(result);
             }
             return Ok(());
@@ -1563,8 +1661,7 @@ impl Manager {
             // A failed startup recovery is a stopped lease, not an active
             // runtime to monitor. Early boot snapshots must not mark it as an
             // external edit before the next guarded recovery attempt.
-            // Hand back native ICS even with automatic routing disabled. Only
-            // constructor recovery arms this window, never an active handoff.
+            // Reconcile owned suspension without granting native handback.
             if self
                 .recovery_until
                 .is_some_and(|deadline| Instant::now() < deadline)
@@ -1855,9 +1952,26 @@ mod tests {
         };
         // No native call/worker or journal: restoration needs a live lease or
         // an explicit saved-pair recovery request.
-        manager.restore_inner(false).unwrap();
+        manager.recover_inner().unwrap();
         assert!(manager.worker.is_none());
         assert!(manager.journal.is_none());
+        // Repeated retirement must not create a native worker just because the
+        // fail-closed barrier survives. Only startup recovery reconciles it.
+        let data = std::env::temp_dir().join(format!(
+            "wayrill-suspended-{}",
+            super::super::random_id().unwrap()
+        ));
+        std::fs::create_dir_all(&data).unwrap();
+        manager.path = data.join("lease.json");
+        let pair = manager.remembered.as_ref().unwrap();
+        storage::write(
+            &data.join("tun-sharing-barrier.json"),
+            &json!({"private":pair.private.id,"capture":pair.previous_public,"release":null}),
+        )
+        .unwrap();
+        manager.retire_inner(false, SharingExit::Suspend).unwrap();
+        assert!(manager.worker.is_none());
+        std::fs::remove_dir_all(data).unwrap();
     }
     #[test]
     fn remembered_but_user_disabled_sharing_is_not_a_boot_recovery_lease() {

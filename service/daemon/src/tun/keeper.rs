@@ -1,5 +1,5 @@
 //! Own the public ICS adapter beyond the coordinator's lifetime. The only IPC is
-//! bounded inherited pipes; coordinator EOF restores sharing before releasing it.
+//! bounded inherited pipes; coordinator EOF suspends sharing before releasing it.
 //! No external command, path, driver operation or remote outbound is accepted.
 use super::{add_routes, clients, scoped_token, shared_gateway, sharing, wait_started, Adapter};
 use crate::events::Events;
@@ -799,20 +799,21 @@ impl Runtime {
         if self.acknowledge_disable()? {
             return Err(ApiError::new("ICS_DISABLED", "The ICS TUN adapter was disabled in Windows. Enable ICS TUN and Apply to resume sharing."));
         }
-        self.sharing.poll(false)?;
+        self.sharing.poll()?;
         if let Some(advertiser) = &mut self.advertiser {
             advertiser.poll()?;
         }
         if let Some(core) = &self.core {
             if let Some(code) = core.exit_code()? {
                 return Err(failure(format!(
-                    "ICS traffic worker exited ({code}); sharing must be restored."
+                    "ICS traffic worker exited ({code}); sharing must be suspended for recovery."
                 )));
             }
         }
         Ok(())
     }
     fn stop(&mut self, sharing: SharingExit) -> Result<Value> {
+        self.sharing.pause(true)?;
         self.acknowledge_disable()?;
         if let Some(advertiser) = self.advertiser.take() {
             if let Err(e) = advertiser.withdraw() {
@@ -1054,7 +1055,7 @@ pub(crate) fn run() -> Result<()> {
     // A replacement service stays available but cannot race this keeper.
     let lease = keeper_lease()?.ok_or_else(busy)?;
     let mut runtime = Runtime {
-        sharing: sharing::Manager::new(&data, root.join("attribution"))?,
+        sharing: sharing::Manager::for_keeper(&data, root.join("attribution"))?,
         adapter: None,
         core: None,
         host_index: None,
@@ -1150,13 +1151,14 @@ pub(crate) fn run() -> Result<()> {
                     })),
                 })
                 .unwrap();
-                if writeln!(std::io::stdout(), "{reply}")
-                    .and_then(|_| std::io::stdout().flush())
-                    .is_err()
-                {
-                    break;
-                }
+                let written =
+                    writeln!(std::io::stdout(), "{reply}").and_then(|_| std::io::stdout().flush());
                 if finished {
+                    // Retirement is complete, even if its acknowledgement was
+                    // lost. EOF recovery must not retire again after success.
+                    return Ok(());
+                }
+                if written.is_err() {
                     break;
                 }
             }
@@ -1185,11 +1187,16 @@ pub(crate) fn run() -> Result<()> {
     // EOF is not permission to restore forwarding after a fixed timeout. Keep
     // ownership until the host adapter is actually absent, including read errors.
     // A persistent device survives coordinator death. Disable only the recorded
-    // owned host, matching the LUID captured at Start, before restoring ICS.
-    while runtime.release_host_capture().is_err() {
+    // owned host, matching the LUID captured at Start, before retiring sharing.
+    while runtime
+        .sharing
+        .pause(true)
+        .and_then(|()| runtime.release_host_capture())
+        .is_err()
+    {
         std::thread::sleep(Duration::from_secs(2));
     }
-    let stopped = runtime.stop(SharingExit::Native);
+    let stopped = runtime.stop(SharingExit::Suspend);
     drop(lease); // Native mutation ended; an authorized new service may retry.
     if stopped.is_err() {
         // Preserve the still-shared adapter on recovery failure. A new service can

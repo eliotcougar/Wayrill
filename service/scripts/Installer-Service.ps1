@@ -52,7 +52,7 @@ switch($Action) {
    if ((Get-Service WayrillService).Status -eq 'Running') {
     $taskBefore=Invoke-WayrillInstallerApi -Method service.status -OwnerSid $taskOwner
     $taskCapture=Invoke-WayrillInstallerApi -Method system.capture.get -OwnerSid $taskOwner
-    if (($taskBefore.core.state -notin @('running','stopped') -and -not (Test-WayrillRetiredRuntime $taskBefore)) -or $taskBefore.config.revision -ne $taskCapture.revision) { throw 'The runtime is not ready for an upgrade. Resolve its current error in Wayrill first.' }
+    if ($taskBefore.core.state -notin @('running','stopped','failed') -or $taskBefore.config.revision -ne $taskCapture.revision) { throw 'The runtime is not ready for an upgrade. Wait for its current operation to finish.' }
     $taskBindings=@($taskCapture.rows | Where-Object { $_.managed -and $_.request } | ForEach-Object {
      $taskBinding=$_.request
      if ($_.restoreVersion) { $taskBinding.expectedVersion=$_.restoreVersion }

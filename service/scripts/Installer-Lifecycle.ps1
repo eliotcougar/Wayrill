@@ -165,20 +165,25 @@ function Test-WayrillRetiredRuntime($Snapshot) {
         $Snapshot.systemProxy.managed -eq $false -and
         $Snapshot.systemCapture.managed -eq $false
 }
-function Initialize-WayrillUpgradeProtection {
+function Invoke-WayrillUpgradeHelper([string]$Argument) {
     $taskRepair=Join-Path $PSScriptRoot 'upgrade-protection.exe'
     $taskManifestPath=Join-Path $PSScriptRoot 'installer-manifest.json'
     if (-not (Test-Path -LiteralPath $taskRepair) -or -not (Test-Path -LiteralPath $taskManifestPath)) { return $false }
     $taskManifest=Get-Content -LiteralPath $taskManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $taskExpected=@($taskManifest.files | Where-Object path -EQ 'wayrill-service.exe')
     if ($taskExpected.Count -ne 1 -or (Get-FileHash -LiteralPath $taskRepair).Hash -ne $taskExpected[0].sha256) { throw 'Upgrade protection helper integrity check failed. Routing was preserved.' }
-    & $taskRepair --prepare-upgrade-protection
-    if ($LASTEXITCODE -ne 0) { throw 'App protection could not be armed. Routing and installed files were preserved.' }
+    & $taskRepair $Argument
+    if ($LASTEXITCODE -ne 0) { throw 'Upgrade protection could not be armed. Routing and installed files were preserved.' }
     return $true
+}
+function Initialize-WayrillUpgradeProtection { Invoke-WayrillUpgradeHelper '--prepare-upgrade-protection' }
+function Initialize-WayrillSharingProtection {
+    if (-not (Invoke-WayrillUpgradeHelper '--prepare-sharing-upgrade')) { throw 'The sharing protection helper is missing. Routing and installed files were preserved.' }
 }
 function Stop-WayrillRouting([string]$OwnerSid,[switch]$ForUpgrade) {
     $taskMethod='core.stop'
     if ($ForUpgrade) {
+        Initialize-WayrillSharingProtection
         $taskCurrent=Invoke-WayrillInstallerApi -Method service.status -OwnerSid $OwnerSid
         if ($null -ne $taskCurrent.appProtection) { $taskMethod='core.stopForUpgrade' }
     }

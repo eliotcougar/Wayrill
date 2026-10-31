@@ -548,7 +548,7 @@ impl crate::activation::Activation for KernelActivation<'_> {
         } else if self.previous.sharing_native == Some(false) {
             SharingExit::Disable
         } else {
-            SharingExit::Native
+            SharingExit::Suspend
         };
         let stop = self
             .kernel
