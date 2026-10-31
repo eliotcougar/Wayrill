@@ -35,6 +35,7 @@ test('background checkpoints survive suspension, filter closed tabs, and authori
       onCompleted: event('completed'),
       onErrorOccurred: event('error'),
     },
+    webNavigation: { onCommitted: event('committed') },
     runtime: {
       id: 'companion',
       getURL: (path) => `chrome-extension://companion/${path}`,
@@ -77,6 +78,13 @@ test('background checkpoints survive suspension, filter closed tabs, and authori
     false,
   );
   listeners.before(request(2, 'new', 'next.test'));
+  listeners.committed({
+    tabId: 2,
+    frameId: 0,
+    documentId: 'next',
+    url: 'https://next.test/',
+    timeStamp: 1001,
+  });
   listeners.error(request(2, 'nav', 'kept.test')); // Completion from the retired page.
   assert.equal((await snapshot(2)).page.domains[0].errors, 0);
   await new Promise((resolve) => setTimeout(resolve, 300));

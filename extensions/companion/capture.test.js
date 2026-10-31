@@ -33,8 +33,22 @@ test('per-page capture keeps frames, redirects and WebSockets, and discards priv
 test('navigation resets the page, and late completion cannot count against a new page', () => {
   const capture = new Capture();
   capture.before(request(1, 'nav1', 'https://first.test/', 'main_frame'));
+  capture.committed({
+    tabId: 1,
+    frameId: 0,
+    documentId: 'first',
+    url: 'https://first.test/',
+    timeStamp: 1001,
+  });
   capture.before(request(1, 'late', 'https://cdn.test/'));
   capture.before(request(1, 'nav2', 'https://next.test/', 'main_frame', 2000));
+  capture.committed({
+    tabId: 1,
+    frameId: 0,
+    documentId: 'next',
+    url: 'https://next.test/',
+    timeStamp: 2001,
+  });
   capture.before(request(1, 'new', 'https://cdn.test/'));
   capture.finish(request(1, 'late', 'https://cdn.test/'), true);
   capture.finish(request(1, 'new', 'https://cdn.test/'), true);
@@ -45,6 +59,42 @@ test('navigation resets the page, and late completion cannot count against a new
       ['cdn.test', 1],
     ],
   );
+  // Distinct cached documents can have the same hostname.
+  capture.committed({
+    tabId: 1,
+    frameId: 0,
+    documentId: 'older-next',
+    url: 'https://next.test/older',
+    timeStamp: 2500,
+  });
+  assert.deepEqual(capture.snapshot(1).domains, []);
+  // Back/forward-cache restores the old document without another request.
+  capture.committed({
+    tabId: 1,
+    frameId: 0,
+    documentId: 'first',
+    url: 'https://first.test/',
+    timeStamp: 3000,
+  });
+  assert.equal(capture.snapshot(1).host, 'first.test');
+  assert.deepEqual(capture.snapshot(1).domains, []);
+  capture.before(request(1, 'fresh', 'https://cdn.test/'));
+  capture.committed({
+    tabId: 1,
+    frameId: 1,
+    documentId: 'frame',
+    url: 'https://frame.test/',
+    timeStamp: 3001,
+  });
+  assert.equal(capture.snapshot(1).domains[0].host, 'cdn.test');
+  capture.committed({
+    tabId: 1,
+    frameId: 0,
+    documentId: 'internal',
+    url: 'chrome://newtab/',
+    timeStamp: 4000,
+  });
+  assert.equal(capture.snapshot(1), null);
 });
 
 test('capture is bounded, survives worker suspension, and excludes incognito and browser traffic', () => {

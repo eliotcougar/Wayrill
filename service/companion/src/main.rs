@@ -67,6 +67,10 @@ async fn main() {
     }
 }
 async fn run() -> io::Result<()> {
+    // Compiled package identity, not a service-supplied reload command. An old
+    // bridge remains compatible; upgraded files can reload their unpacked copy.
+    let extension: Value =
+        serde_json::from_str(include_str!("../../../extensions/companion/manifest.json"))?;
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
     while let Some(bytes) = read_frame(&mut input)? {
@@ -88,7 +92,7 @@ async fn run() -> io::Result<()> {
             Err(error) => (0, Err(error)),
         };
         // Do not pass service diagnostic details or private paths into a browser.
-        let response = match result {
+        let mut response = match result {
             Ok(result) => json!({"version":1,"id":id,"ok":true,"result":result}),
             Err(error) => json!({"version":1,"id":id,"ok":false,"error":{
                 "code":error.code,
@@ -96,6 +100,7 @@ async fn run() -> io::Result<()> {
                     else { "Cannot read Wayrill routes. Check the service and Companion setup." }
             }}),
         };
+        response["extensionVersion"] = extension["version"].clone();
         write_frame(&mut output, &response)?;
     }
     Ok(())

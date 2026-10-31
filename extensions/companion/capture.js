@@ -3,8 +3,9 @@ const MAX_TABS = 48;
 const MAX_PENDING = 256;
 
 /** @typedef {{host:string, count:number, errors:number, cached:number, types:string[], firstSeen:number, lastSeen:number}} Domain */
-/** @typedef {{tabId:number, host:string, navigationId:string, startedAt:number, updatedAt:number, domains:Domain[], pending:{id:string,host:string}[], dropped:number}} Page */
+/** @typedef {{tabId:number, host:string, navigationId:string, documentId?:string, startedAt:number, updatedAt:number, domains:Domain[], pending:{id:string,host:string}[], dropped:number}} Page */
 /** @typedef {{tabId:number, requestId:string, url:string, type:string, timeStamp:number, incognito?:boolean, fromCache?:boolean}} Request */
+/** @typedef {{tabId:number, frameId:number, documentId:string, url:string, timeStamp:number}} Navigation */
 
 /** Store only the hostname, never a URL, path, query, headers, or page content.
  * @param {string} url */
@@ -27,6 +28,46 @@ export class Capture {
     /** @type {Map<number, Page>} */
     this.pages = new Map(saved.slice(-MAX_TABS).map((page) => [page.tabId, page]));
   }
+  /** @param {number} tabId @param {number} timeStamp @param {string} [navigationId] */
+  start(tabId, timeStamp, navigationId = '') {
+    /** @type {Page} */
+    const page = {
+      tabId,
+      host: '',
+      navigationId,
+      startedAt: timeStamp,
+      updatedAt: timeStamp,
+      domains: [],
+      pending: [],
+      dropped: 0,
+    };
+    this.pages.set(tabId, page);
+    if (this.pages.size > MAX_TABS) {
+      const oldest = [...this.pages.values()].sort((a, b) => a.updatedAt - b.updatedAt)[0];
+      this.pages.delete(oldest.tabId);
+    }
+    return page;
+  }
+  /** Restoring a cached document does not emit a main-frame webRequest.
+   * @param {Navigation} navigation */
+  committed(navigation) {
+    if (navigation.frameId !== 0 || navigation.tabId < 0) return;
+    const host = hostname(navigation.url);
+    if (!host) {
+      this.pages.delete(navigation.tabId);
+      return;
+    }
+    let page = this.pages.get(navigation.tabId);
+    if (
+      !page ||
+      (page.documentId
+        ? page.documentId !== navigation.documentId
+        : page.host && page.host !== host)
+    )
+      page = this.start(navigation.tabId, navigation.timeStamp);
+    page.documentId = navigation.documentId;
+    page.host = host;
+  }
   /** @param {Request} request */
   before(request) {
     if (request.tabId < 0 || request.incognito) return null;
@@ -34,17 +75,11 @@ export class Capture {
     if (!host) return null;
     let page = this.pages.get(request.tabId);
     if (!page || (request.type === 'main_frame' && page.navigationId !== request.requestId)) {
-      page = {
-        tabId: request.tabId,
-        host: '',
-        navigationId: request.type === 'main_frame' ? request.requestId : '',
-        startedAt: request.timeStamp,
-        updatedAt: request.timeStamp,
-        domains: [],
-        pending: [],
-        dropped: 0,
-      };
-      this.pages.set(request.tabId, page);
+      page = this.start(
+        request.tabId,
+        request.timeStamp,
+        request.type === 'main_frame' ? request.requestId : '',
+      );
     }
     if (request.type === 'main_frame') page.host = host;
     page.updatedAt = request.timeStamp;
@@ -71,10 +106,6 @@ export class Capture {
     page.pending = page.pending.filter((row) => row.id !== request.requestId);
     page.pending.push({ id: request.requestId, host });
     if (page.pending.length > MAX_PENDING) page.pending.shift();
-    if (this.pages.size > MAX_TABS) {
-      const oldest = [...this.pages.values()].sort((a, b) => a.updatedAt - b.updatedAt)[0];
-      this.pages.delete(oldest.tabId);
-    }
     return page;
   }
   /** @param {Request} request @param {boolean} failed */

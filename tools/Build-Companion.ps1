@@ -27,8 +27,9 @@ foreach ($taskFile in @('manifest.json', 'background.js', 'capture.js', 'native.
 Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release/wayrill-companion.exe') -Destination $taskOutput -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Register-Companion.ps1') -Destination $taskOutput -Force
 Copy-Item -LiteralPath (Join-Path $taskProject 'service/scripts/Companion-Setup.ps1') -Destination $taskOutput -Force
+$taskVersion = (Get-Content -LiteralPath (Join-Path $taskExtension 'manifest.json') -Raw | ConvertFrom-Json).version
 $taskReadme = @'
-# Wayrill Companion 0.2.0 preview
+# Wayrill Companion preview
 
 Requires Windows and a matching Wayrill build that supports `companion.routes`.
 This package does not install or upgrade the Wayrill networking service.
@@ -70,6 +71,7 @@ script, binary, package path or extension ID is required. Remove the
 unpacked extension in the browser. Neither operation stops Wayrill routing.
 See docs/guide/browser-companion.md in the matching source checkout for details.
 '@
+$taskReadme = $taskReadme.Replace('# Wayrill Companion preview',('# Wayrill Companion '+$taskVersion+' preview'))
 [IO.File]::WriteAllText((Join-Path $taskOutput 'README.md'), $taskReadme, [Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath (Join-Path $taskProject 'LICENSE') -Destination $taskOutput -Force
 Write-Host "Companion package: $taskOutput"

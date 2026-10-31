@@ -1,5 +1,5 @@
 import { hostname } from './capture.js';
-import { NativeClient } from './native.js';
+import { NativeClient, reloadUpdatedBundle } from './native.js';
 
 /** @param {string} id */
 function element(id) {
@@ -36,12 +36,11 @@ function time(timestamp) {
     second: '2-digit',
   });
 }
-/** @param {import('./capture.js').Domain} domain @param {Set<string>} opened */
-function domainRow(domain, opened) {
+/** @param {import('./capture.js').Domain} domain */
+function domainRow(domain) {
   const row = document.createElement('details');
   row.className = 'domain';
   row.dataset.host = domain.host;
-  row.open = opened.has(domain.host);
   const summary = document.createElement('summary');
   const evidence = routes?.hosts.find((item) => item.host === domain.host);
   const matches = evidence?.matches ?? [];
@@ -101,16 +100,39 @@ function domainRow(domain, opened) {
   return row;
 }
 function render() {
-  const opened = new Set(
-    [...domains.querySelectorAll('details[open]')].map(
-      (item) => /** @type {HTMLElement} */ (item).dataset.host ?? '',
-    ),
+  const existing = new Map(
+    [...domains.querySelectorAll('details')].map((row) => [row.dataset.host, row]),
   );
+  const focused = document.activeElement;
   const query = search.value.trim().toLowerCase();
   const rows = (page?.domains ?? [])
     .filter((row) => row.host.includes(query))
     .sort((a, b) => b.count - a.count || a.host.localeCompare(b.host));
-  domains.replaceChildren(...rows.map((row) => domainRow(row, opened)));
+  let cursor = domains.firstElementChild;
+  for (const domain of rows) {
+    const next = domainRow(domain);
+    const row = existing.get(domain.host) ?? next;
+    // Keep details/summary identity, focus and unchanged text selections while
+    // counts and route observations update. Do not rebuild unrelated cards.
+    if (row !== next) {
+      for (let index = 0; index < next.children.length; index++) {
+        const current = row.children[index];
+        const replacement = next.children[index];
+        if (current.innerHTML !== replacement.innerHTML)
+          current.replaceChildren(...replacement.childNodes);
+      }
+    }
+    if (row !== cursor) domains.insertBefore(row, cursor);
+    cursor = row.nextElementSibling;
+    existing.delete(domain.host);
+  }
+  for (const row of existing.values()) row.remove();
+  if (
+    focused instanceof HTMLElement &&
+    domains.contains(focused) &&
+    document.activeElement !== focused
+  )
+    focused.focus({ preventScroll: true });
   element('count').textContent = `${rows.length} / ${page?.domains.length ?? 0}`;
   element('empty').hidden = rows.length > 0;
   element('empty').textContent = query
@@ -159,6 +181,11 @@ async function refresh() {
     element('capture-warning').textContent = warnings.join(' ');
     try {
       const next = await client.routes((page?.domains ?? []).map((row) => row.host));
+      if (await reloadUpdatedBundle(next.extensionVersion)) {
+        closed = true;
+        client.close();
+        return;
+      }
       for (const host of next.hosts)
         for (const match of host.matches) match.instanceId = next.instanceId;
       // An empty lookup is not a new routing decision. Keep evidence already

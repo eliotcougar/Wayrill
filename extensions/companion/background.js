@@ -49,6 +49,12 @@ function change(action) {
 }
 
 const filter = { urls: ['<all_urls>'] };
+// An unpacked upgrade can start new code before its cached manifest is reloaded.
+chrome.webNavigation?.onCommitted.addListener((navigation) => {
+  change(() => {
+    capture.committed(navigation);
+  });
+});
 chrome.webRequest.onBeforeRequest.addListener((request) => {
   if (request.tabId < 0) return;
   change(() => {

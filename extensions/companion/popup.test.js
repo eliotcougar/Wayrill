@@ -7,6 +7,7 @@ test('current-tab popup retains last known Block through empty lookups and failu
   const dom = new JSDOM(readFileSync(new URL('./popup.html', import.meta.url), 'utf8'));
   globalThis.document = dom.window.document;
   globalThis.window = dom.window;
+  globalThis.HTMLElement = dom.window.HTMLElement;
   let host = 'page.test';
   let failed = false;
   let empty = false;
@@ -118,8 +119,11 @@ test('current-tab popup retains last known Block through empty lookups and failu
     assert.equal(document.getElementById('setup').hidden, false);
     assert.equal(text('extension-id'), 'extension-id');
     blocked = true;
+    const summary = document.querySelector('.domain summary');
+    summary.focus();
     document.getElementById('refresh').click();
     await settle();
+    assert.equal(document.activeElement, summary);
     assert.match(text('domains'), /Last known: Blocked \(Renamed deny output\)/);
     assert.ok(!text('domains').includes('Retained observation;'));
     empty = true;
@@ -147,5 +151,6 @@ test('current-tab popup retains last known Block through empty lookups and failu
     delete globalThis.chrome;
     delete globalThis.document;
     delete globalThis.window;
+    delete globalThis.HTMLElement;
   }
 });

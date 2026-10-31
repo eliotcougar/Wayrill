@@ -1,5 +1,24 @@
 /** @typedef {{outbound:string, action?:'block'|'route', instanceId?:string, generation?:number, revision?:number, port:number, transport:string, timestampMs:number, source:string, path:{rule:string,output:string}[], pathTruncated:boolean}} Match */
-/** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[]}} Routes */
+/** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[], extensionVersion?:string}} Routes */
+
+/** The installed bridge identifies its matching package. Reload only after a
+ * successful lookup and when this copy's files have actually been updated.
+ * @param {string|undefined} version */
+export async function reloadUpdatedBundle(version) {
+  if (!version) return false;
+  const loaded = chrome.runtime.getManifest();
+  if (version === loaded.version) return false;
+  try {
+    const response = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
+    if (!response.ok) return false;
+    const installed = await response.json();
+    if (installed.version !== version || installed.key !== loaded.key) return false;
+    chrome.runtime.reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export class NativeClient {
   constructor() {
@@ -21,7 +40,13 @@ export class NativeClient {
         if (!pending || message.id !== pending.id || message.version !== 1) return;
         clearTimeout(pending.timer);
         this.pending = null;
-        if (message.ok && Array.isArray(message.result?.hosts)) pending.resolve(message.result);
+        if (message.ok && Array.isArray(message.result?.hosts))
+          pending.resolve({
+            ...message.result,
+            ...(typeof message.extensionVersion === 'string'
+              ? { extensionVersion: message.extensionVersion }
+              : {}),
+          });
         else
           pending.reject(
             new Error(message.error?.message ?? 'Wayrill returned an invalid response.'),

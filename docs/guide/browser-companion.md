@@ -21,10 +21,14 @@ not required.
    the folder shown by Wayrill. **Copy extension folder** and **Open folder** help
    locate it. Browser policy may prevent unpacked extensions; setup does not
    override browser policies or silently approve installation.
+   Keep Developer mode enabled while using the unpacked extension.
 4. Remove older Companion copies from the browser's Extensions page. The bundled
    extension has a fixed ID across installation paths. Future updates replace its
-   files in the same installed folder; reload the extension after an app update
-   if the browser still displays its previous version.
+   files in the same installed folder. When Companion next connects, a matching
+   updated bridge and extension package trigger the browser's own extension reload.
+   The popup may close once; reopen it. Reloading clears the captured request list;
+   reload a webpage to capture requests it already made. If an older copy cannot
+   reconnect, reload it manually from the browser's Extensions page.
 
 The native bridge is shared: Chrome and Opera use the same registry location,
 while Edge can also use fallback registrations. **Bridge registered** reports
@@ -106,17 +110,25 @@ are not inferred from traffic routes. Request counts include redirect hops.
 
 The extension passively observes requests; it does not redirect or block them.
 It needs `webRequest` and host access to observe a page's cross-origin requests,
-`storage` to survive extension worker suspension, and `nativeMessaging` to read
-Wayrill observations. There are no content scripts, remote scripts, analytics,
+`webNavigation` to reset capture when back/forward navigation restores a cached
+document without a new network request, `storage` to survive extension worker
+suspension, and `nativeMessaging` to read Wayrill observations. There are no
+content scripts, remote scripts, analytics,
 uploads, or external network calls made by the extension.
 
-Capture retains hostnames, request types/counts/times, and bounded in-flight request
-IDs in `chrome.storage.session`. It never retains URL paths, queries, headers,
-bodies or page content. Session data clears with the browser session, extension
+Capture retains hostnames, request types/counts/times, document identities and
+bounded in-flight request IDs in `chrome.storage.session`. It never retains URL
+paths, queries, headers, bodies or page content. Session data clears with the browser session, extension
 reload/disable, or tab closure; navigation starts a fresh page capture. Incognito
 is disabled. Up to 48 recent tabs and 128 domains per tab are retained; truncation
 is displayed. A very recent batch can be lost if the worker is terminated before
 its 250 ms session checkpoint.
+
+The bridge includes its compiled extension version in its replies. Automatic
+reload also requires this copy's local manifest to match that version and public
+key. A separately extracted older copy is not overwritten, and an older bridge
+remains usable without automatic reload. Setup never edits browser profiles,
+approves extension permissions or restarts the browser.
 
 The normal-user bridge accepts only bounded `routes` lookups and calls the existing
 authenticated local service pipe. It exposes no activation, settings, profile or
