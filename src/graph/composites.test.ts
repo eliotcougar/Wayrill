@@ -122,6 +122,49 @@ describe('Interchangeable prepared outbounds', () => {
     expect(group.fallbackTag).toBeTruthy();
     expect(config.observatory).toBeTruthy();
   });
+  it.each([false, true])(
+    'leaves a disabled prepared fallback inactive when the group is in a chain: %s',
+    (inChain) => {
+      const { graph, chain } = setup();
+      const fallback = addGroup(graph, ['a'], 'fallback-group');
+      fallback.data.settings.strategy = 'leastPing';
+      const observer = makeNode('observatory', { x: 0, y: 0 }, 'observer');
+      graph.nodes.push(observer);
+      graph.edges.push(wire(fallback.id, 'observation', observer.id));
+      const savedFallback = policyProfile(preparedEntry(graph, fallback.id));
+      const group = addGroup(graph, ['b'], 'selected-group');
+      const sources = JSON.parse(String(group.data.settings.sources));
+      sources.fallback = savedFallback;
+      group.data.settings.sources = JSON.stringify(sources);
+      group.data.settings.fallbackEnabled = false;
+      graph.nodes = graph.nodes.filter((n) => ![fallback.id, observer.id].includes(n.id));
+      graph.edges = graph.edges.filter((e) => e.source !== fallback.id);
+      if (inChain) {
+        chain.data.settings.steps = JSON.stringify({
+          version: 1,
+          steps: [
+            { id: 'entry', outbound: { type: 'node', nodeId: 'a' } },
+            { id: 'exit', outbound: { type: 'node', nodeId: group.id } },
+          ],
+        });
+      } else {
+        graph.nodes = graph.nodes.filter((n) => n.id !== chain.id);
+        graph.edges[0] = wire('input', 'data', group.id);
+      }
+      const before = JSON.stringify(graph);
+      const compiled = compileRuntimeGraph(graph).config;
+      expect(compiled.observatory).toBeUndefined();
+      expect(
+        (compiled.routing as { balancers: Record<string, unknown>[] }).balancers.every(
+          (balancer) => balancer.fallbackTag === undefined,
+        ),
+      ).toBe(true);
+      expect(diagnoseRuntimeGraph(graph).filter((i) => i.severity === 'error')).toEqual([]);
+      expect(JSON.stringify(graph)).toBe(before);
+      group.data.settings.fallbackEnabled = true;
+      expect(() => compileRuntimeGraph(graph)).toThrow(/Observation|observatory/i);
+    },
+  );
   it('restores saved observation settings when adding a prepared group to a fresh graph', () => {
     const { graph } = setup();
     const group = addGroup(graph, ['a']);

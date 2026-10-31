@@ -449,7 +449,8 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
       sources.subscriptions = [];
       group.data.settings.selection = 'manual';
       if (group.data.native) delete group.data.native;
-      if (sources.fallback) sources.fallback = transform(sources.fallback);
+      if (group.data.settings.fallbackEnabled && sources.fallback)
+        sources.fallback = transform(sources.fallback);
       group.data.preparedWeightTags = Object.fromEntries(weightTags);
       group.data.settings.sources = JSON.stringify(sources);
       if (publicRoot && !underlay) nodes[nodes.findIndex((n) => n.id === node.id)] = group;
@@ -529,7 +530,7 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
         const sources = readPolicySources(node.data);
         const refs = [
           ...policyReferenceSet(source, node).map((r) => r.reference),
-          ...(sources.fallback ? [sources.fallback] : []),
+          ...(node.data.settings.fallbackEnabled && sources.fallback ? [sources.fallback] : []),
         ];
         if (refs.some((ref) => isCompositeKind(nodeFor(ref, node).data.kind)))
           emit(node, node, undefined, new Set(), true);
