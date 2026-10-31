@@ -23,6 +23,7 @@ sharing boundaries and capture behavior.
 | Route a TV/router through Windows sharing | [Internet sharing](guide/sharing.md) |
 | Import subscriptions and build reusable groups/chains | [Stash and subscriptions](guide/stash.md) |
 | Test a route or inspect traffic rates/history | [Testing and statistics](guide/testing-statistics.md) |
+| Inspect a browser page's domains and recent routes | [Browser Companion preview](guide/browser-companion.md) |
 | Select/update GeoSite/GeoIP files or change shared defaults | [Resources and defaults](guide/resources-defaults.md) |
 | Back up, move or restore a configuration/filter | [Backup and restore](guide/backups.md) |
 | Find a failed route, read logs or report a bug | [Troubleshooting](guide/troubleshooting.md) |

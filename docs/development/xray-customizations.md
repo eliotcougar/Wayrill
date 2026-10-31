@@ -35,6 +35,17 @@ file index below makes those less visible changes reviewable.
 
 ## Active changes
 
+The service also instruments its runtime configuration using upstream `ruleTag`
+and dispatcher Info logs, in [routing_log.rs](../../service/daemon/src/routing_log.rs).
+Explicit routing rules are observed for the browser Companion. An explicit
+first-outbound fallback is added only when it preserves routing semantics;
+`IPIfNonMatch` keeps its implicit fallback so DNS/IP rule retry still occurs.
+Script routers remain untouched and do not supply Companion observations.
+Traffic-filter metadata adds
+display trails; simple graphs need no filter. Instrumentation operates on the
+runtime clone, preserves rule order/destinations, and requires no new core API or
+binary patch. The bounded log supplies observations rather than per-tab attribution.
+
 “Shared” means both executable variants. “Worker” means the private worker only.
 
 | ID | Change | Scope | Upstream relationship |

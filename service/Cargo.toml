@@ -1,10 +1,10 @@
 [workspace]
-members = ["protocol", "ipc", "daemon", "diagnostics"]
+members = ["protocol", "ipc", "daemon", "diagnostics", "companion"]
 exclude = ["capture"]
 resolver = "2"
 
 [workspace.package]
-version = "0.32.10"
+version = "0.32.13"
 edition = "2021"
 license = "MIT"
 

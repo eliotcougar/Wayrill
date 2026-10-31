@@ -4,6 +4,7 @@
 | --- | --- |
 | React/TypeScript editor | Draft graph, atomic editors, library views, checks, user intent and diagnostics |
 | Tauri desktop | Windows UI integration, protected owner storage, file dialogs, tray and authenticated service transport |
+| Browser Companion and native host | Current-tab request domains and read-only destination correlation with service routing observations |
 | Rust networking service | Applied state, activation/recovery, core/helper lifetimes, subscriptions/resources and owned system settings |
 | Restricted subscription engine helper | Fixed bundled parser/compiler code in QuickJS; no arbitrary OS/network imports |
 | Capture/attribution workers | Contained native packet/process/NAT/catalogue/sharing operations; separate GPL leaf workspace |

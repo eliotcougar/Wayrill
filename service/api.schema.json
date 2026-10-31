@@ -15,6 +15,22 @@
     }
   ],
   "$defs": {
+    "companionRoutes": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "const": 1 },
+        "id": { "type": "integer", "minimum": 0 },
+        "method": { "const": "companion.routes" },
+        "params": {
+          "type": "object",
+          "properties": { "hosts": { "type": "array", "maxItems": 128, "items": { "type": "string", "minLength": 1, "maxLength": 255 } } },
+          "required": ["hosts"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["apiVersion", "id", "method", "params"],
+      "additionalProperties": false
+    },
     "diagnosticStart": {
       "type": "object",
       "properties": {
@@ -86,6 +102,7 @@
     },
     "request": {
       "oneOf": [
+        { "$ref": "#/$defs/companionRoutes" },
         { "$ref": "#/$defs/diagnosticStart" },
         { "$ref": "#/$defs/diagnosticJob" },
         {

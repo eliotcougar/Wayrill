@@ -1,0 +1,281 @@
+:root {
+  color-scheme: light dark;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  color: #e4e8f1;
+  background: #10141d;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  width: 440px;
+  margin: 0;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #2a3140;
+}
+.brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.brand img {
+  background: #25354d;
+  border-radius: 6px;
+  padding: 3px;
+}
+.brand strong {
+  font-size: 16px;
+  letter-spacing: 0.2px;
+}
+.brand span {
+  color: #97a4bc;
+  margin-left: 7px;
+  font-size: 12px;
+}
+main {
+  padding: 20px 22px 16px;
+}
+.eyebrow {
+  color: #91a3c2;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  font-weight: 650;
+}
+h1 {
+  font-size: 21px;
+  margin: 7px 0 4px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.page-heading p {
+  margin: 0 0 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.muted {
+  color: #94a0b5;
+  font-size: 12px;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+.quiet {
+  border: 1px solid #343e51;
+  background: transparent;
+  color: #c2cce0;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+.quiet:hover {
+  background: #252d3d;
+}
+:focus-visible {
+  outline: 2px solid #91b0ff;
+  outline-offset: 3px;
+}
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  min-height: 28px;
+}
+.connection button {
+  margin-left: auto;
+}
+.dot {
+  flex: 0 0 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d9ac65;
+}
+.dot.live {
+  background: #74dab8;
+  box-shadow: 0 0 8px #74dab833;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 16px 0 9px;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #343e51;
+  border-radius: 7px;
+  padding: 7px 10px;
+  flex: 1;
+}
+.search span {
+  font-size: 19px;
+  color: #94a0b5;
+  line-height: 12px;
+}
+input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+.search:focus-within {
+  outline: 2px solid #91b0ff;
+}
+#domains {
+  max-height: 340px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.domain {
+  border-bottom: 1px solid #283041;
+  padding: 11px 0;
+}
+summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+.domain-name {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.request-count {
+  color: #7f8da5;
+  font-size: 11px;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+.route-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  color: #9babc7;
+  font-size: 11px;
+  margin-top: 5px;
+}
+.route-line.observed {
+  color: #83d9bd;
+}
+.route-line::before {
+  content: '↳';
+  color: #65758e;
+}
+.domain-body {
+  padding: 11px 0 0 12px;
+  color: #a5b2c9;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.domain-body p {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+.match {
+  margin-top: 10px;
+  border-left: 2px solid #3b5e62;
+  padding-left: 10px;
+}
+.match strong {
+  color: #d1e8e0;
+  font-weight: 550;
+}
+.notice {
+  border: 1px solid #5e5036;
+  background: #d4a4590b;
+  border-radius: 7px;
+  color: #d8c6a6;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.notice p {
+  margin: 6px 0;
+}
+code {
+  font-size: 10px;
+  user-select: all;
+}
+.empty {
+  text-align: center;
+  color: #9caac1;
+  padding: 26px 14px;
+  line-height: 1.7;
+}
+footer {
+  font-size: 10px;
+  color: #7e8da7;
+  line-height: 1.6;
+  margin-top: 16px;
+}
+[hidden] {
+  display: none !important;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #202b40;
+    background: #f8fafc;
+  }
+  header,
+  .domain {
+    border-color: #dce2eb;
+  }
+  .muted,
+  footer,
+  .empty {
+    color: #596b86;
+  }
+  .brand span,
+  .eyebrow {
+    color: #526582;
+  }
+  .quiet {
+    color: #405372;
+    border-color: #c8d2e2;
+  }
+  .quiet:hover {
+    background: #e8eef7;
+  }
+  .search {
+    border-color: #c8d2e2;
+    background: white;
+  }
+  .route-line {
+    color: #5d6f8a;
+  }
+  .route-line.observed {
+    color: #19735c;
+  }
+  .domain-body {
+    color: #4a5f7c;
+  }
+  .match strong {
+    color: #1d5c4c;
+  }
+  .notice {
+    color: #6e5428;
+    border-color: #e0d1b3;
+  }
+}

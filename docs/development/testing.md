@@ -7,6 +7,7 @@ subscriptions, VM addresses or private files.
 | What you changed | Command | Requirements |
 | --- | --- | --- |
 | Editor, graph compiler or shared TypeScript | `npm run check`, `npm test`, `npm run build` | Node.js 26 LTS and `npm ci` |
+| Browser Companion | `npm run check:companion`, `npm run test:companion` (also included above) | Same Node dependencies; synthetic browser/native API peers |
 | Windows service, desktop shell or capture | `pwsh -NoProfile -File tools/Check-Native.ps1` | Pinned Rust, MSVC/SDK; Node dependencies for service/desktop |
 | Xray configuration compatibility or service transformations | `npm run test:core` | Public core/service package built from this checkout |
 | Complete package | `pwsh -NoProfile -File tools/Build-Windows.ps1` | Windows build prerequisites and public downloads |
@@ -40,6 +41,14 @@ capture features, static CRT settings, fixture verification and desktop test
 configuration are shared. `-SkipTests` retains formatting and Clippy; CI does not
 use it. Desktop tests use the same resource-free configuration as desktop dev,
 restoring the caller's environment afterwards.
+
+Companion's native host is part of the service workspace. For browser interaction
+checks, load the unpacked package into a disposable Chromium profile, browse a local
+fixture with cross-origin subresources/frames and WebSockets, and inspect the
+current-tab popup. Test unknown/disconnected states as well as a synthetic native
+peer with route evidence; only a matching installed service in a disposable Windows
+environment can establish actual routing. Setup and limitations are in the
+[Companion guide](../guide/browser-companion.md).
 
 PRs also run CodeQL and dependency review. CodeQL's Windows jobs inspect the
 native source; its Rust build scripts use the resource-free desktop configuration.

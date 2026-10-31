@@ -1,19 +1,19 @@
 {
   "name": "wayrill",
   "private": true,
-  "version": "0.32.10",
+  "version": "0.32.13",
   "type": "module",
   "engines": {
     "node": "26.x"
   },
   "scripts": {
-    "format": "prettier --write src vite.config.ts package.json vitest.config.ts vitest.core.config.ts oxlint.config.ts stylelint.config.js",
-    "format:check": "prettier --check src vite.config.ts package.json vitest.config.ts vitest.core.config.ts oxlint.config.ts stylelint.config.js",
+    "format": "prettier --write src vite.config.ts package.json vitest.config.ts vitest.core.config.ts oxlint.config.ts stylelint.config.js extensions/companion",
+    "format:check": "prettier --check src vite.config.ts package.json vitest.config.ts vitest.core.config.ts oxlint.config.ts stylelint.config.js extensions/companion",
     "dev": "vite",
     "typecheck": "node node_modules/@typescript/native/bin/tsc -b",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:companion",
     "test:core": "pwsh -NoProfile -File tools/Check-Core.ps1",
     "tauri": "tauri",
     "desktop:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
@@ -22,10 +22,12 @@
     "pretest": "node tools/Check-CoreDefaults.mjs",
     "check:core-defaults": "node tools/Check-CoreDefaults.mjs",
     "lint": "npm run lint:ts && npm run lint:css",
-    "lint:ts": "oxlint src vite.config.ts vitest.config.ts vitest.core.config.ts oxlint.config.ts --max-warnings 0",
-    "lint:css": "stylelint \"src/**/*.css\" --max-warnings 0",
+    "lint:ts": "oxlint src extensions/companion vite.config.ts vitest.config.ts vitest.core.config.ts oxlint.config.ts --max-warnings 0",
+    "lint:css": "stylelint \"src/**/*.css\" \"extensions/companion/*.css\" --max-warnings 0",
     "lint:fix": "npm run lint:ts -- --fix && npm run lint:css -- --fix",
-    "check": "npm run check:core-defaults && npm run lint && npm run typecheck && npm run format:check"
+    "check": "npm run check:core-defaults && npm run lint && npm run typecheck && npm run format:check && npm run check:companion",
+    "check:companion": "node node_modules/@typescript/native/bin/tsc -p extensions/companion/tsconfig.json",
+    "test:companion": "node --test extensions/companion/*.test.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -38,6 +40,7 @@
   "devDependencies": {
     "@eslint-react/eslint-plugin": "5.28.8",
     "@tauri-apps/cli": "^2.12.4",
+    "@types/chrome": "^0.3.7",
     "@types/node": "^26.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

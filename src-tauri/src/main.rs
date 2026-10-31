@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
+mod companion;
 mod diagnostics;
 mod export;
 mod picker;
@@ -306,6 +307,10 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            companion::companion_status,
+            companion::companion_register,
+            companion::companion_unregister,
+            companion::companion_open,
             service_request,
             service_events_start,
             tray::tray_quick_switch,

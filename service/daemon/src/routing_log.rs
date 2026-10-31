@@ -80,6 +80,7 @@ pub struct Session {
     routes: BTreeMap<String, Route>,
     filters: BTreeSet<String>,
     names: BTreeMap<String, String>,
+    blocked: BTreeSet<String>,
 }
 impl Session {
     pub fn include_aliases(&mut self, aliases: &[(String, String)]) {
@@ -110,27 +111,41 @@ pub fn instrument(
     generation: u64,
     revision: u64,
 ) -> Option<Session> {
-    if names.routing.is_empty() && names.routing_default.is_none() {
+    // Script routers choose their own outbound without field rules. Adding any
+    // rule would make the original script configuration invalid in Xray.
+    if config["routing"]["script"]
+        .as_str()
+        .is_some_and(|s| !s.is_empty())
+    {
         return None;
     }
+    let default = config["outbounds"][0]["tag"].as_str()?.to_string();
     let mut session = Session {
         generation,
         revision,
         routes: BTreeMap::new(),
         filters: BTreeSet::new(),
         names: names.outbound.clone(),
+        blocked: config["outbounds"]
+            .as_array()?
+            .iter()
+            .filter(|outbound| matches!(outbound["protocol"].as_str(), Some("blackhole" | "block")))
+            .filter_map(|outbound| outbound["tag"].as_str().map(str::to_owned))
+            .collect(),
     };
-    let default = config["outbounds"][0]["tag"]
+    if !config["routing"].is_object() {
+        config["routing"] = json!({"rules":[]});
+    }
+    if !config["routing"]["rules"].is_array() {
+        config["routing"]["rules"] = json!([]);
+    }
+    // IPIfNonMatch must first exhaust the domain pass before resolving and
+    // retrying IP rules. A catch-all would suppress that second pass. Leave its
+    // implicit fallback unobserved rather than change the route to observe it.
+    let observe_default = !config["routing"]["domainStrategy"]
         .as_str()
-        .unwrap_or("")
-        .to_string();
-    if names.routing_default.is_some() {
-        if !config["routing"].is_object() {
-            config["routing"] = json!({"rules":[]});
-        }
-        if !config["routing"]["rules"].is_array() {
-            config["routing"]["rules"] = json!([]);
-        }
+        .is_some_and(|s| s.eq_ignore_ascii_case("IPIfNonMatch"));
+    if observe_default {
         config["routing"]["rules"]
             .as_array_mut()
             .unwrap()
@@ -142,15 +157,14 @@ pub fn instrument(
         .filter_map(|r| r["ruleTag"].as_str().map(str::to_owned))
         .collect();
     let last = rules.len().saturating_sub(1);
+    let empty_trail = Vec::new();
     for (index, rule) in rules.iter_mut().enumerate() {
         let trail = names.routing.get(&index.to_string()).or_else(|| {
-            (index == last)
+            (observe_default && index == last)
                 .then_some(names.routing_default.as_ref())
                 .flatten()
         });
-        let Some(trail) = trail else {
-            continue;
-        };
+        let trail = trail.unwrap_or(&empty_trail);
         let target = rule["outboundTag"]
             .as_str()
             .or_else(|| rule["balancerTag"].as_str())
@@ -183,10 +197,12 @@ pub fn instrument(
 }
 struct Row {
     id: u64,
+    generation: u64,
     timestamp: u64,
     revision: u64,
     destination: String,
     outbound: String,
+    blocked: bool,
     trail: Arc<Vec<Hop>>,
     connection_id: Option<String>,
     transport: &'static str,
@@ -202,7 +218,12 @@ struct State {
     collecting: bool,
     sequence: u64,
     bytes: usize,
-    rows: VecDeque<Row>,
+    rows: VecDeque<Arc<Row>>,
+    // Retain one last decision per destination independently of connection-log
+    // churn. Both stores have explicit row and byte bounds.
+    known: BTreeMap<String, Arc<Row>>,
+    known_order: BTreeMap<u64, String>,
+    known_bytes: usize,
     seen: HashSet<Arc<(u32, String)>>,
 }
 #[derive(Default)]
@@ -306,10 +327,13 @@ impl Log {
         let weight = decision.destination.len() + outbound.len() + route.weight + text.len() + 256;
         let row = Row {
             id: state.sequence + 1,
+            generation: session.generation,
             timestamp: crate::traffic::timestamp_ms(),
             revision: session.revision,
             destination: decision.destination.into(),
             outbound,
+            blocked: session.blocked.contains(decision.outbound)
+                || session.blocked.contains(&route.target),
             trail: route.trail.clone(),
             connection_id: decision
                 .session_id
@@ -324,12 +348,32 @@ impl Log {
         }
         state.sequence = row.id;
         state.bytes += weight;
+        let row = Arc::new(row);
+        if let Some(host) = row.destination.rsplit_once(':').and_then(|(host, port)| {
+            port.parse::<u16>().ok()?;
+            wayrill_protocol::companion::normalize_host(host).ok()
+        }) {
+            if let Some(old) = state.known.insert(host.clone(), row.clone()) {
+                state.known_bytes -= old.weight;
+                state.known_order.remove(&old.id);
+            }
+            state.known_bytes += row.weight;
+            state.known_order.insert(row.id, host);
+            while state.known.len() > CAPACITY || state.known_bytes > BYTES {
+                let Some((_, host)) = state.known_order.pop_first() else {
+                    break;
+                };
+                if let Some(old) = state.known.remove(&host) {
+                    state.known_bytes -= old.weight;
+                }
+            }
+        }
         state.rows.push_back(row);
         while state.rows.len() > CAPACITY || state.bytes > BYTES {
             if let Some(old) = state.rows.pop_front() {
                 state.bytes -= old.weight;
-                if let Some(event) = old.event {
-                    state.seen.remove(&event);
+                if let Some(event) = &old.event {
+                    state.seen.remove(event);
                 }
             } else {
                 break;
@@ -347,6 +391,81 @@ impl Log {
         }).take(PAGE).collect();
         rows.reverse();
         json!({"instanceId":instance,"generation":session.map(|s|s.generation),"revision":session.map(|s|s.revision),"state":if state.collecting && configured {"collecting"} else if configured {"stopped"} else {"unconfigured"},"capacity":PAGE,"rows":rows})
+    }
+    /// Destination correlation, never an assertion about a browser tab or socket.
+    /// Keep last known decisions in a bounded per-destination history, including Block.
+    /// Each match carries its own revision/generation, even after Stop or activation.
+    pub fn companion(&self, hosts: &BTreeSet<String>, instance: &str, now: u64) -> Value {
+        use wayrill_protocol::companion::normalize_host;
+        let state = self.state.lock().unwrap();
+        let session = state.session.as_ref();
+        let mut results: BTreeMap<&str, Vec<Value>> =
+            hosts.iter().map(|s| (s.as_str(), Vec::new())).collect();
+        let mut truncated = BTreeSet::new();
+        let mut bytes = 0;
+        let mut epochs = BTreeMap::new();
+        for row in state.rows.iter().rev().chain(
+            state
+                .known_order
+                .values()
+                .rev()
+                .filter_map(|host| state.known.get(host)),
+        ) {
+            let Some((host, port)) = row.destination.rsplit_once(':') else {
+                continue;
+            };
+            let Ok(host) = normalize_host(host) else {
+                continue;
+            };
+            let Some(matches) = results.get_mut(host.as_str()) else {
+                continue;
+            };
+            let Ok(port) = port.parse::<u16>() else {
+                continue;
+            };
+            // A newer observed revision replaces the old route set for this
+            // host. Do not mix an old Block with a new Direct observation.
+            let epoch = epochs
+                .entry(host.clone())
+                .or_insert((row.generation, row.revision));
+            if *epoch != (row.generation, row.revision) {
+                continue;
+            }
+            let path: Vec<_> = row
+                .trail
+                .iter()
+                .take(8)
+                .map(|hop| json!({"rule":hop.rule,"output":hop.output}))
+                .collect();
+            if matches.iter().any(|m| {
+                m["outbound"] == row.outbound
+                    && m["port"] == port
+                    && m["transport"] == row.transport
+                    && m["path"] == json!(path)
+            }) {
+                continue;
+            }
+            if matches.len() == 3 {
+                truncated.insert(host);
+                continue;
+            }
+            let value = json!({"outbound":row.outbound,"port":port,"transport":row.transport,
+                    "timestampMs":row.timestamp,"generation":row.generation,"revision":row.revision,
+                    "action":if row.blocked {"block"} else {"route"},
+                    "source":row.source,"path":path,"pathTruncated":row.trail.len()>8});
+            let size = serde_json::to_vec(&value).map_or(usize::MAX, |v| v.len());
+            if size > 768 * 1024 - bytes {
+                truncated.insert(host);
+                continue;
+            }
+            bytes += size;
+            matches.push(value);
+        }
+        let hosts: Vec<_> = results.into_iter().map(|(host, matches)|
+            json!({"host":host,"matches":matches,"truncated":truncated.contains(host)})).collect();
+        json!({"instanceId":instance,"generation":session.map(|s|s.generation),"revision":session.map(|s|s.revision),
+            "state":if state.collecting {"collecting"} else if session.is_some() {"stopped"} else {"unconfigured"},
+            "timestampMs":now,"capacity":CAPACITY,"hosts":hosts})
     }
 }
 pub(crate) fn is_info(text: &str) -> bool {
@@ -406,6 +525,185 @@ pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn ip_retry_config() -> Value {
+        json!({"log":{"loglevel":"info"},"dns":{"hosts":{"ip-retry.companion.test":"127.0.0.1"}},
+            "inbounds":[{"tag":"browser","protocol":"http","listen":"127.0.0.1","port":28974}],
+            "outbounds":[{"tag":"default-block","protocol":"blackhole"},{"tag":"ip-match","protocol":"freedom","settings":{"domainStrategy":"UseIP"}}],
+            "routing":{"domainStrategy":"IPIfNonMatch","rules":[{"type":"field","ip":["127.0.0.1/32"],"outboundTag":"ip-match"}]}})
+    }
+    #[test]
+    fn instrumentation_preserves_ip_retry_and_never_labels_an_explicit_rule_as_default() {
+        for strategy in ["IPIfNonMatch", "ipifnonmatch", "IPIFNONMATCH"] {
+            for with_default_metadata in [false, true] {
+                let mut config = ip_retry_config();
+                config["routing"]["domainStrategy"] = json!(strategy);
+                let mut metadata = DisplayNames::default();
+                if with_default_metadata {
+                    metadata.routing_default = names().routing.get("0").cloned();
+                }
+                let session = instrument(&mut config, &metadata, 1, 7).unwrap();
+                assert_eq!(config["routing"]["rules"].as_array().unwrap().len(), 1);
+                assert_eq!(config["routing"]["rules"][0]["outboundTag"], "ip-match");
+                assert!(session.routes.values().all(|route| route.trail.is_empty()));
+                assert!(session.filters.is_empty());
+            }
+        }
+        let mut scripted =
+            json!({"outbounds":[{"tag":"direct"}],"routing":{"script":"return 'direct'"}});
+        let original = scripted.clone();
+        assert!(instrument(&mut scripted, &DisplayNames::default(), 1, 7).is_none());
+        assert_eq!(scripted, original);
+    }
+    #[test]
+    fn companion_limits_diverse_routes_and_unicode_trails_below_chromium_frame_limit() {
+        let log = Log::default();
+        let mut metadata = names();
+        let mut hop = metadata.routing["0"][0].clone();
+        hop.rule = "界".repeat(160);
+        hop.output = "界".repeat(160);
+        metadata.routing.insert("0".into(), vec![hop; 8]);
+        log.begin(instrument(&mut config(), &metadata, 1, 7));
+        let mut hosts = BTreeSet::new();
+        for i in 0..128 {
+            let host = format!("host{i}.test");
+            hosts.insert(host.clone());
+            for port in 440..444 {
+                log.ingest(1, &line(1, &format!("tcp:{host}:{port}"), "direct"));
+            }
+        }
+        log.ingest(1, &line(1, "tcp:unrequested-private.test:443", "direct"));
+        let snapshot = log.companion(&hosts, "instance", crate::traffic::timestamp_ms());
+        let bytes = serde_json::to_vec(&snapshot).unwrap();
+        assert!(bytes.len() < 900 * 1024);
+        assert!(!String::from_utf8(bytes)
+            .unwrap()
+            .contains("unrequested-private"));
+        assert!(snapshot["hosts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|h| h["matches"].as_array().unwrap().len() <= 3));
+        assert!(snapshot["hosts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| h["truncated"] == true));
+    }
+    #[test]
+    fn companion_observes_simple_graphs_and_native_rules_without_filter_metadata() {
+        let log = Log::default();
+        let mut simple = json!({"outbounds":[{"tag":"direct"}]});
+        let saved = simple.clone();
+        let names = DisplayNames::default();
+        log.begin(instrument(&mut simple, &names, 1, 7));
+        assert!(saved.get("routing").is_none());
+        assert_eq!(simple["routing"]["rules"][0]["outboundTag"], "direct");
+        log.ingest(1, &line(1, "tcp:example.org:443", "direct"));
+        let hosts = BTreeSet::from(["example.org".into()]);
+        let snapshot = log.companion(&hosts, "instance", crate::traffic::timestamp_ms());
+        assert_eq!(snapshot["state"], "collecting");
+        assert_eq!(snapshot["hosts"][0]["matches"][0]["outbound"], "direct");
+        assert_eq!(snapshot["hosts"][0]["matches"][0]["path"], json!([]));
+        assert_eq!(
+            log.snapshot("unconfigured-filter", "instance")["rows"],
+            json!([])
+        );
+    }
+    #[test]
+    fn companion_retains_last_known_routes_and_replaces_them_with_new_observations() {
+        let log = Log::default();
+        let hosts = BTreeSet::from([
+            "example.org".into(),
+            "2001:db8::1".into(),
+            "other.test".into(),
+        ]);
+        log.begin(instrument(&mut config(), &names(), 1, 7));
+        log.ingest(1, &line(1, "tcp:EXAMPLE.org.:443", "direct"));
+        log.ingest(1, &line(1, "udp:[2001:db8::1]:443", "direct"));
+        let now = crate::traffic::timestamp_ms();
+        let snapshot = log.companion(&hosts, "instance", now);
+        assert_eq!(snapshot["hosts"][0]["matches"][0]["outbound"], "Direct");
+        assert_eq!(
+            snapshot["hosts"][1]["matches"][0]["path"][0]["rule"],
+            "Web 🌍"
+        );
+        assert_eq!(snapshot["hosts"][2]["matches"], json!([]));
+        assert_eq!(
+            log.companion(&hosts, "instance", now + 86_400_000)["hosts"][1]["matches"],
+            snapshot["hosts"][1]["matches"]
+        );
+        log.stop();
+        assert_eq!(
+            log.companion(&hosts, "instance", now)["hosts"][1]["matches"],
+            snapshot["hosts"][1]["matches"]
+        );
+        let mut blocked_config = config();
+        blocked_config["outbounds"][1]["protocol"] = json!("blackhole");
+        log.begin(instrument(&mut blocked_config, &names(), 2, 7));
+        assert_eq!(
+            log.companion(&hosts, "instance", now)["hosts"][1]["matches"],
+            snapshot["hosts"][1]["matches"]
+        );
+        log.ingest(
+            2,
+            &line(2, "tcp:example.org:443", "block").replace("wrr-AggA", "wrr-AgcA"),
+        );
+        assert_eq!(
+            log.companion(&hosts, "instance", now)["hosts"][1]["matches"][0]["outbound"],
+            "Block"
+        );
+        let blocked = log.companion(&hosts, "instance", now + 120_001);
+        assert_eq!(blocked["hosts"][1]["matches"][0]["action"], "block");
+        assert_eq!(blocked["hosts"][1]["matches"][0]["generation"], 2);
+        assert_eq!(blocked["hosts"][1]["matches"][0]["revision"], 7);
+        // Activation is not evidence of a new connection. Retain the old Block
+        // with its provenance until a newly observed route replaces it.
+        log.live(instrument(&mut config(), &names(), 2, 8));
+        assert_eq!(
+            log.companion(&hosts, "instance", now)["hosts"][1]["matches"],
+            blocked["hosts"][1]["matches"]
+        );
+        log.ingest(2, &line(2, "tcp:example.org:443", "direct"));
+        let changed = log.companion(&hosts, "instance", now);
+        assert_eq!(changed["hosts"][1]["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(changed["hosts"][1]["matches"][0]["outbound"], "Direct");
+        assert_eq!(changed["hosts"][1]["matches"][0]["action"], "route");
+        assert_eq!(changed["hosts"][1]["matches"][0]["revision"], 8);
+    }
+    #[test]
+    fn companion_keeps_renamed_block_after_connection_log_rollover() {
+        let log = Log::default();
+        let mut config = config();
+        config["outbounds"][1]["protocol"] = json!("blackhole");
+        let mut metadata = names();
+        metadata
+            .outbound
+            .insert("block".into(), "Advertising".into());
+        log.begin(instrument(&mut config, &metadata, 1, 7));
+        log.ingest(1, &line(1, "tcp:blocked.test:443", "block"));
+        for port in 1..=CAPACITY + 100 {
+            log.ingest(1, &line(1, &format!("tcp:busy.test:{port}"), "direct"));
+        }
+        {
+            let state = log.state.lock().unwrap();
+            assert!(!state
+                .rows
+                .iter()
+                .any(|row| row.destination == "blocked.test:443"));
+            assert_eq!(state.known.len(), 2);
+            assert!(state.known_bytes <= BYTES);
+        }
+        let snapshot = log.companion(
+            &BTreeSet::from(["blocked.test".into()]),
+            "instance",
+            u64::MAX,
+        );
+        assert_eq!(
+            snapshot["hosts"][0]["matches"][0]["outbound"],
+            "Advertising"
+        );
+        assert_eq!(snapshot["hosts"][0]["matches"][0]["action"], "block");
+    }
     #[test]
     fn live_revisions_keep_late_old_decisions_and_rollback_metadata() {
         let log = Log::default();
@@ -583,7 +881,8 @@ mod tests {
         let session = instrument(&mut config, &names(), 1, 1).unwrap();
         assert_eq!(config["routing"]["rules"][0]["ruleTag"], "wrr-AQEA-1");
         assert!(session.routes.contains_key("wrr-AQEA-1"));
-        assert_eq!(config["routing"]["rules"][1]["ruleTag"], "wrr-AQEA");
+        assert_eq!(config["routing"]["rules"][1]["ruleTag"], "wrr-AQEB");
+        assert_eq!(config["routing"]["rules"][2]["ruleTag"], "wrr-AQEC");
     }
     #[test]
     #[cfg(feature = "core-integration")]
@@ -594,31 +893,49 @@ mod tests {
         };
         let exe = std::env::var_os("WAYRILL_XRAY_TEST_EXE")
             .expect("Run tools/Check-Core.ps1 to prepare core integration tests");
-        let mut config = json!({"inbounds":[{"tag":"test","protocol":"socks","listen":"127.0.0.1","port":22981,"settings":{}}],"outbounds":[{"tag":"direct","protocol":"freedom","settings":{}},{"tag":"block","protocol":"blackhole","settings":{}}],"routing":{"rules":[{"type":"field","domain":["full:blocked.example"],"outboundTag":"block"}]}});
+        let config = json!({"inbounds":[{"tag":"test","protocol":"socks","listen":"127.0.0.1","port":22981,"settings":{}}],"outbounds":[{"tag":"direct","protocol":"freedom","settings":{}},{"tag":"block","protocol":"blackhole","settings":{}}],"routing":{"rules":[{"type":"field","domain":["full:blocked.example"],"outboundTag":"block"}]}});
         let mut names = names();
         names.routing_default = names.routing.get("0").cloned();
-        instrument(&mut config, &names, 1, 1);
-        enable(&mut config);
-        let mut child = Command::new(exe)
-            .args(["run", "-test", "-format", "json", "-config", "stdin:"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(&serde_json::to_vec(&config).unwrap())
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{} {}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        let mut simple = config.clone();
+        simple.as_object_mut().unwrap().remove("routing");
+        for (mut config, names) in [
+            (config.clone(), names),
+            (config, DisplayNames::default()),
+            (simple, DisplayNames::default()),
+            (ip_retry_config(), DisplayNames::default()),
+        ] {
+            instrument(&mut config, &names, 1, 1);
+            enable(&mut config);
+            let mut child = Command::new(&exe)
+                .args(["run", "-test", "-format", "json", "-config", "stdin:"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(&serde_json::to_vec(&config).unwrap())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if config["routing"]["domainStrategy"] == "IPIfNonMatch" {
+                let fixture = std::env::var_os("WAYRILL_XRAY_FIXTURE_DIR")
+                    .expect("Run tools/Check-Core.ps1 to prepare fixtures");
+                std::fs::write(
+                    std::path::Path::new(&fixture).join("companion-ip-retry.json"),
+                    serde_json::to_vec(&config).unwrap(),
+                )
+                .unwrap();
+            }
+        }
     }
     #[test]
     fn bounded_rollover_and_retired_generation_never_relabels_held_rows() {
@@ -628,6 +945,8 @@ mod tests {
             log.ingest(1, &line(1, &format!("udp:host{i}.example:53"), "direct"));
         }
         assert!(log.state.lock().unwrap().rows.len() <= CAPACITY);
+        assert!(log.state.lock().unwrap().known.len() <= CAPACITY);
+        assert!(log.state.lock().unwrap().known_bytes <= BYTES);
         let before = log.snapshot("parent", "test");
         assert_eq!(before["rows"].as_array().unwrap().len(), PAGE);
         let mut updated = names();

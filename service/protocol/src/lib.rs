@@ -1,3 +1,4 @@
+pub mod companion;
 mod config_guard;
 pub use config_guard::validate_udp_listener_environment;
 use serde::{Deserialize, Serialize};

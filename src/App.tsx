@@ -150,6 +150,7 @@ import type {
 import useGraphEditor from './useGraphEditor';
 import useTheme from './useTheme';
 import AppearanceSettings from './components/AppearanceSettings';
+import CompanionSettings from './components/CompanionSettings';
 import StartupSettings from './components/StartupSettings';
 import TunAdapterSettings from './components/TunAdapterSettings';
 import { MainOutboundContext } from './components/MainOutboundContext';
@@ -168,6 +169,7 @@ export default function App() {
   const trafficUnits = useTrafficUnits();
   const theme = useTheme();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [companionOpen, setCompanionOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
   const stash = useStash();
   const runtime = useRuntime();
@@ -1092,6 +1094,13 @@ export default function App() {
           },
         },
         {
+          label: 'Browser Companion…',
+          action: () => {
+            setSpaceHeld(false);
+            setCompanionOpen(true);
+          },
+        },
+        {
           label: 'TUN adapters…',
           action: () => {
             setSpaceHeld(false);
@@ -1213,6 +1222,9 @@ export default function App() {
                           theme={theme}
                           onClose={() => setAppearanceOpen(false)}
                         />
+                      )}
+                      {companionOpen && (
+                        <CompanionSettings onClose={() => setCompanionOpen(false)} />
                       )}
                       {backupOpen && (
                         <BackupDialog

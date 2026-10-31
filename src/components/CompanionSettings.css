@@ -1,0 +1,40 @@
+.app-dialog.companion-settings {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.companion-settings-content,
+.companion-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.companion-settings-content {
+  gap: var(--space-5);
+}
+
+.companion-settings-content :is(h3, h4, p, ul),
+.companion-settings-content .section-heading {
+  margin-block: 0;
+}
+
+.companion-settings .form-row > .editor-field {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.companion-bridge-state {
+  font-weight: 600;
+}
+
+.companion-steps {
+  margin: 0;
+  padding-inline-start: 20px;
+  line-height: 1.6;
+}
+
+.companion-origins,
+.companion-issues {
+  padding-inline-start: 24px;
+  overflow-wrap: anywhere;
+}

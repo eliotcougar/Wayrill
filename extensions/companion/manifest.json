@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Wayrill Companion",
+  "description": "See the domains requested by the current page and their last known routes observed by Wayrill.",
+  "version": "0.2.0",
+  "minimum_chrome_version": "120",
+  "permissions": ["webRequest", "storage", "nativeMessaging"],
+  "host_permissions": ["<all_urls>"],
+  "incognito": "not_allowed",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Wayrill Companion",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  },
+  "icons": {
+    "128": "icon.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwLY5yaRJzA/lnAvsPQaxmr+E+TmX6KeHCPCJnVfkZruIuHBNr2S02o3qxX3hTL8HN6nFQQMOCV7xYkJEIIQoc2MBTZ5Vh9Fvxk14xZ7M+Mod3tvfkOIUzvEPs4K+5nv1a+mGwMEbSFN+nAAgYVAmhde1qnrn4IK4AMt8wW1+CYaZCaOZikE70svP2q3C9rI79R3p67/ZebKxZsjm8XmK9cn3UoTTneSK4jTNQPfAFZSpXrhRnPrkVTmbJMJhWN800kjVG80rHTZhW5qBylh45YuPm6gF33f2JybqxI9TOFHzVELh2a27WK7b6RGioCcHWXjH+TcIBZDcl626k/EghwIDAQAB"
+}

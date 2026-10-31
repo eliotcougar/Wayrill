@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wayrill Companion</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <img src="mark.svg" width="28" height="28" alt="" />
+        <div><strong>Wayrill</strong><span>Companion</span></div>
+      </div>
+      <button id="setup-button" class="quiet" aria-expanded="false" aria-controls="setup">
+        Setup
+      </button>
+    </header>
+    <main>
+      <section class="page-heading" aria-label="Current tab">
+        <span class="eyebrow">CURRENT TAB</span>
+        <h1 id="page-host">Loading…</h1>
+        <p id="page-title" class="muted"></p>
+      </section>
+      <section id="setup" class="notice" hidden>
+        <strong>Connect to Wayrill</strong>
+        <p>
+          In Wayrill, open <strong>Settings → Browser Companion</strong> to enable or repair the
+          connection and open the extension manager or bundled folder. This copy’s extension ID is:
+        </p>
+        <code id="extension-id"></code>
+        <p>Wayrill must include Companion support and be routing your browser’s traffic.</p>
+      </section>
+      <div class="connection">
+        <span id="status-dot" class="dot"></span
+        ><span id="status" role="status">Connecting to Wayrill…</span
+        ><button id="refresh" class="quiet">Refresh</button>
+      </div>
+      <p id="connection-error" class="notice" hidden></p>
+      <div class="toolbar">
+        <label class="search"
+          ><span aria-hidden="true">⌕</span
+          ><input
+            id="search"
+            type="search"
+            placeholder="Filter domains"
+            aria-label="Filter domains" /></label
+        ><span id="count" class="muted"></span>
+      </div>
+      <div id="domains" aria-label="Requested domains"></div>
+      <p id="empty" class="empty" hidden></p>
+      <p id="capture-warning" class="notice" hidden></p>
+      <footer>
+        Last known routes are Wayrill observations, matched by destination across apps and tabs.
+        Expand a domain for its observation time and revision. They do not prove the route of an
+        individual request. Cached requests may have no connection to observe.
+      </footer>
+    </main>
+  </body>
+</html>

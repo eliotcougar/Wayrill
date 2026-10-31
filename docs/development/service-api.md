@@ -71,6 +71,15 @@ the applied config and uses this map to report Observatory results for plain
 outbounds and chains. It is presentation metadata, not a routing instruction;
 opaque compact aliases do not need to be decoded on each polling cycle.
 
+`companion.routes` accepts at most 128 exact ASCII/IDNA hosts or IP literals. It
+projects the memory-only routing log into bounded last known destination observations,
+with display names, observed Block actions and rule trails. Matches retain their
+own generation/revision and timestamp across activation and Stop, without an age
+expiry; a newly observed epoch replaces the older route set for that host. Log
+history/cache capacity and service restart still bound retention. Results are destination correlations across apps, not per-tab attribution
+or route predictions. The separate `wayrill-companion` native messaging host exposes
+only this read operation to the unpacked [browser Companion](../guide/browser-companion.md).
+
 `wayrillctl` is a diagnostic client of this same fixed API. For commands use its
 help and current schema; it is not a privileged shell. Exported profiles and
 diagnostics may contain sensitive data. Keep private test receipts outside Git.
