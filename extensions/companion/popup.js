@@ -9,7 +9,6 @@ function element(id) {
 }
 const client = new NativeClient();
 const domains = element('domains');
-const search = /** @type {HTMLInputElement} */ (element('search'));
 /** @type {Omit<import('./capture.js').Page, 'pending'>|null} */
 let page = null;
 /** @type {import('./native.js').Routes|null} */
@@ -139,10 +138,9 @@ function render() {
     [...domains.querySelectorAll('details')].map((row) => [row.dataset.host, row]),
   );
   const focused = document.activeElement;
-  const query = search.value.trim().toLowerCase();
-  const rows = (page?.domains ?? [])
-    .filter((row) => row.host.includes(query))
-    .sort((a, b) => b.count - a.count || a.host.localeCompare(b.host));
+  const rows = [...(page?.domains ?? [])].sort(
+    (a, b) => b.count - a.count || a.host.localeCompare(b.host),
+  );
   let cursor = domains.firstElementChild;
   for (const domain of rows) {
     const next = domainRow(domain);
@@ -168,11 +166,9 @@ function render() {
     document.activeElement !== focused
   )
     focused.focus({ preventScroll: true });
-  element('count').textContent = `${rows.length} / ${page?.domains.length ?? 0}`;
   element('empty').hidden = rows.length > 0;
-  element('empty').textContent = query
-    ? 'No domains match your filter.'
-    : 'No requests captured for this page yet. Reload the page to capture its domains.';
+  element('empty').textContent =
+    'No requests captured for this page yet. Reload the page to capture its domains.';
 }
 
 async function refresh() {
@@ -263,7 +259,6 @@ async function refresh() {
       }, 2000);
   }
 }
-search.addEventListener('input', render);
 element('refresh').addEventListener('click', () => {
   void refresh();
 });

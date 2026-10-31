@@ -120,12 +120,6 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     await settle();
     assert.match(text('domains'), /Last known: <img src=x onerror=alert\(1\)>/);
     assert.equal(document.querySelectorAll('#domains img').length, 0);
-    const search = document.getElementById('search');
-    search.value = 'missing';
-    search.dispatchEvent(new dom.window.Event('input'));
-    assert.equal(document.querySelectorAll('.domain').length, 0);
-    search.value = '';
-    search.dispatchEvent(new dom.window.Event('input'));
     document.getElementById('setup-button').click();
     assert.equal(document.getElementById('setup').hidden, false);
     assert.equal(text('extension-id'), 'extension-id');

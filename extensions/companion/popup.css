@@ -41,15 +41,8 @@ header {
 main {
   padding: 20px 22px 16px;
 }
-.muted {
-  color: #94a0b5;
-  font-size: 12px;
-}
-button,
-input {
-  font: inherit;
-}
 button {
+  font: inherit;
   cursor: pointer;
 }
 .quiet {
@@ -86,39 +79,6 @@ button {
 .dot.live {
   background: #74dab8;
   box-shadow: 0 0 8px #74dab833;
-}
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 16px 0 9px;
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid #343e51;
-  border-radius: 7px;
-  padding: 7px 10px;
-  flex: 1;
-}
-.search span {
-  font-size: 19px;
-  color: #94a0b5;
-  line-height: 12px;
-}
-input {
-  min-width: 0;
-  width: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 12px;
-}
-.search:focus-within {
-  outline: 2px solid #91b0ff;
 }
 #domains {
   max-height: 340px;
@@ -224,7 +184,6 @@ footer {
   .domain {
     border-color: #dce2eb;
   }
-  .muted,
   footer,
   .empty {
     color: #596b86;
@@ -238,10 +197,6 @@ footer {
   }
   .quiet:hover {
     background: #e8eef7;
-  }
-  .search {
-    border-color: #c8d2e2;
-    background: white;
   }
   .route-line {
     color: #5d6f8a;

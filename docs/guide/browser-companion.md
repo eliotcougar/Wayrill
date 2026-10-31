@@ -2,8 +2,8 @@
 
 Companion is a Manifest V3 extension for Chrome-based browsers on Windows. Click
 its toolbar button to inspect domains requested by the **current tab**, including
-subframes and WebSocket handshakes. Search the list and expand a domain for request
-types, counts, cache/error counts, and last known Wayrill routes, including Block.
+subframes and WebSocket handshakes. Expand a domain for request types, counts,
+cache/error counts, and last known Wayrill routes, including Block.
 
 ## Set up from the Windows app
 
