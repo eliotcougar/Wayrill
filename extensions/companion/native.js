@@ -1,4 +1,4 @@
-/** @typedef {{outbound:string, action?:'block'|'route', instanceId?:string, generation?:number, revision?:number, port:number, transport:string, timestampMs:number, source:string, path:{rule:string,output:string}[], pathTruncated:boolean}} Match */
+/** @typedef {{outbound:string, action?:'block'|'route', instanceId?:string, generation?:number, revision?:number, port:number, transport:string, timestampMs:number, source:string, path:{filterId?:string,ruleId?:string|null,rule:string,output:string}[], pathTruncated:boolean}} Match */
 /** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[], extensionVersion?:string}} Routes */
 
 /** The installed bridge identifies its matching package independently of the
@@ -38,12 +38,26 @@ export class NativeClient {
     /** @type {chrome.runtime.Port|null} */
     this.port = null;
     this.sequence = 0;
-    /** @type {{id:number, resolve:(value:Routes)=>void, reject:(error:Error)=>void, timer:ReturnType<typeof setTimeout>}|null} */
+    /** @type {{id:number, method:string, resolve:(value:Routes|{opened:boolean})=>void, reject:(error:Error)=>void, timer:ReturnType<typeof setTimeout>}|null} */
     this.pending = null;
   }
   /** @param {string[]} hosts @returns {Promise<Routes>} */
   routes(hosts) {
-    if (this.pending) return Promise.reject(new Error('A route lookup is already in progress.'));
+    return this.request('routes', { hosts }).then((result) => {
+      if (!('hosts' in result)) throw new Error('Invalid routes response.');
+      return result;
+    });
+  }
+  /** @param {string} host @param {string[]} filterIds */
+  async editDomain(host, filterIds) {
+    await this.request('editDomain', { host, filterIds });
+  }
+  /** @param {'routes'|'editDomain'} method
+   * @param {{hosts:string[]}|{host:string,filterIds:string[]}} params
+   * @returns {Promise<Routes|{opened:boolean}>} */
+  request(method, params) {
+    if (this.pending)
+      return Promise.reject(new Error('A Companion request is already in progress.'));
     if (!this.port) {
       const port = chrome.runtime.connectNative('com.wayrill.companion');
       this.port = port;
@@ -53,7 +67,12 @@ export class NativeClient {
         if (!pending || message.id !== pending.id || message.version !== 1) return;
         clearTimeout(pending.timer);
         this.pending = null;
-        if (message.ok && Array.isArray(message.result?.hosts))
+        if (
+          message.ok &&
+          (pending.method === 'routes'
+            ? Array.isArray(message.result?.hosts)
+            : message.result?.opened === true)
+        )
           pending.resolve({
             ...message.result,
             ...(typeof message.extensionVersion === 'string'
@@ -85,6 +104,7 @@ export class NativeClient {
       const id = ++this.sequence;
       this.pending = {
         id,
+        method,
         resolve,
         reject,
         timer: setTimeout(() => {
@@ -95,7 +115,7 @@ export class NativeClient {
         }, 7000),
       };
       try {
-        this.port?.postMessage({ version: 1, id, method: 'routes', params: { hosts } });
+        this.port?.postMessage({ version: 1, id, method, params });
       } catch {
         this.fail(
           new Error('Companion bridge unavailable. Open Setup for installation instructions.'),

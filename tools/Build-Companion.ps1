@@ -63,6 +63,12 @@ Unknown does not mean Direct. Cache/coalescing or IP-only logs can prevent match
 IPIfNonMatch implicit defaults and native script routers have no inferred route
 observations; explicit IPIfNonMatch rule matches remain observable.
 
+Expand a hostname and choose Add to rule to open Wayrill's desktop editor,
+including when only its service is running. Choose a traffic filter and rule,
+an exact/domain/contains/custom entry, or find matching installed GeoSite groups.
+Additions are saved to the draft; Apply activates them. Synced rules retain the
+addition as a local override. The browser never edits or activates routing itself.
+
 Request metadata stays in browser session memory, without URL paths, queries,
 headers or bodies. No analytics or external uploads. Incognito is disabled.
 

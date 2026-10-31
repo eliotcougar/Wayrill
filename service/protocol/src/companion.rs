@@ -1,9 +1,37 @@
-//! Read-only browser Companion contract. Hosts are exact ASCII/IDNA names or IPs.
+//! Browser Companion lookups and bounded, normal-user desktop edit requests.
 use crate::{ApiError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 pub const MAX_HOSTS: usize = 128;
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuleRequest {
+    pub host: String,
+    #[serde(default)]
+    pub filter_ids: Vec<String>,
+}
+impl RuleRequest {
+    pub fn normalized(mut self) -> Result<Self> {
+        self.host = normalize_host(&self.host)?;
+        if self.host.parse::<std::net::IpAddr>().is_ok()
+            || self.filter_ids.len() > 8
+            || self
+                .filter_ids
+                .iter()
+                .any(|id| id.is_empty() || id.len() > 160 || id.chars().any(char::is_control))
+        {
+            return Err(ApiError::new(
+                "INVALID_PARAMS",
+                "Expected a domain and up to eight traffic filter IDs.",
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        self.filter_ids.retain(|id| seen.insert(id.clone()));
+        Ok(self)
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

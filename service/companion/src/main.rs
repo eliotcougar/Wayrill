@@ -3,6 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use wayrill_protocol::{companion::Lookup, ApiError, Result};
+mod desktop;
 
 const MAX_INPUT: usize = 64 * 1024;
 const MAX_OUTPUT: usize = 1024 * 1024;
@@ -13,19 +14,49 @@ struct Request {
     version: u32,
     id: u32,
     method: String,
-    params: Lookup,
+    params: Value,
 }
 fn decode(bytes: &[u8]) -> Result<Request> {
-    let request: Request = serde_json::from_slice(bytes)
+    let mut request: Request = serde_json::from_slice(bytes)
         .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid Companion request."))?;
-    if request.version != 1 || request.method != "routes" {
+    if request.version != 1 || !["routes", "editDomain"].contains(&request.method.as_str()) {
         return Err(ApiError::new(
             "UNSUPPORTED",
-            "Only Companion v1 routes lookups are supported.",
+            "Only Companion v1 routes and domain edit requests are supported.",
         ));
     }
-    request.params.normalized()?;
+    if request.method == "routes" {
+        let lookup: Lookup = serde_json::from_value(request.params.clone())
+            .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid routes request."))?;
+        lookup.normalized()?;
+    } else {
+        let edit: wayrill_protocol::companion::RuleRequest = serde_json::from_value(request.params)
+            .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid domain edit request."))?;
+        request.params = json!(edit.normalized()?);
+    }
     Ok(request)
+}
+fn edit_domain(params: &Value) -> Result<Value> {
+    let exe = std::env::current_exe()
+        .map_err(|_| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot locate Wayrill."))?;
+    let directory = exe
+        .parent()
+        .ok_or_else(|| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot locate Wayrill."))?;
+    let desktop = [
+        directory.join("wayrill.exe"),
+        directory.parent().unwrap_or(directory).join("wayrill.exe"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .ok_or_else(|| {
+        ApiError::new(
+            "DESKTOP_UNAVAILABLE",
+            "Use the Companion bridge bundled with the installed Wayrill app.",
+        )
+    })?;
+    desktop::launch(&desktop, &["--companion-domain", &params.to_string()])
+        .map_err(|_| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot open Wayrill's rule editor."))?;
+    Ok(json!({"opened":true}))
 }
 fn read_frame(reader: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
     let mut header = [0; 4];
@@ -76,17 +107,21 @@ async fn run() -> io::Result<()> {
     while let Some(bytes) = read_frame(&mut input)? {
         let (id, result) = match decode(&bytes) {
             Ok(request) => {
-                let result = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    wayrill_ipc::windows::request("companion.routes", json!(request.params)),
-                )
-                .await
-                .unwrap_or_else(|_| {
-                    Err(ApiError::new(
-                        "TIMEOUT",
-                        "Wayrill is busy. Try again shortly.",
-                    ))
-                });
+                let result = if request.method == "editDomain" {
+                    edit_domain(&request.params)
+                } else {
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        wayrill_ipc::windows::request("companion.routes", json!(request.params)),
+                    )
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(ApiError::new(
+                            "TIMEOUT",
+                            "Wayrill is busy. Try again shortly.",
+                        ))
+                    })
+                };
                 (request.id, result)
             }
             Err(error) => (0, Err(error)),
@@ -96,7 +131,8 @@ async fn run() -> io::Result<()> {
             Ok(result) => json!({"version":1,"id":id,"ok":true,"result":result}),
             Err(error) => json!({"version":1,"id":id,"ok":false,"error":{
                 "code":error.code,
-                "message":if error.code == "METHOD_NOT_FOUND" { "Update Wayrill to a Companion-compatible build." }
+                "message":if error.code == "DESKTOP_UNAVAILABLE" { &error.message }
+                    else if error.code == "METHOD_NOT_FOUND" { "Update Wayrill to a Companion-compatible build." }
                     else { "Cannot read Wayrill routes. Check the service and Companion setup." }
             }}),
         };
@@ -109,6 +145,116 @@ async fn run() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::{Command, Stdio};
+    #[test]
+    fn desktop_children_do_not_hold_browser_pipes() {
+        use std::{
+            fs,
+            sync::mpsc,
+            thread,
+            time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        };
+        const ROLE: &str = "WAYRILL_STDIO_TEST_ROLE";
+        const ROOT: &str = "WAYRILL_STDIO_TEST_ROOT";
+        let wait = |path: &std::path::Path| {
+            let deadline = Instant::now() + Duration::from_secs(15);
+            while !path.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(path.exists(), "Child rendezvous failed");
+        };
+        if let Ok(role) = std::env::var(ROLE) {
+            let root = std::path::PathBuf::from(std::env::var_os(ROOT).unwrap());
+            if role == "desktop" {
+                assert_eq!(
+                    std::env::args().next_back().unwrap(),
+                    r#"{"domain":"пример.test","id":"a\\b\"c\\"}"#
+                );
+                fs::write(root.join("ready"), b"ready").unwrap();
+                wait(&root.join("release"));
+                fs::write(root.join("exited"), b"exited").unwrap();
+            } else {
+                use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+                use windows_sys::Win32::{
+                    Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS},
+                    System::Threading::GetCurrentProcess,
+                };
+                let mut extra = std::ptr::null_mut();
+                // SAFETY: duplicate this process's live stdout as an extra,
+                // inheritable handle, like Chromium's non-stdio control pipes.
+                assert_ne!(
+                    unsafe {
+                        DuplicateHandle(
+                            GetCurrentProcess(),
+                            io::stdout().as_raw_handle(),
+                            GetCurrentProcess(),
+                            &mut extra,
+                            0,
+                            1,
+                            DUPLICATE_SAME_ACCESS,
+                        )
+                    },
+                    0
+                );
+                // SAFETY: DuplicateHandle transferred this new handle to us.
+                let _extra = unsafe { OwnedHandle::from_raw_handle(extra) };
+                std::env::set_var(ROLE, "desktop"); // Isolated helper process, no concurrent work.
+                desktop::launch(
+                    &std::env::current_exe().unwrap(),
+                    &[
+                        "--exact",
+                        "tests::desktop_children_do_not_hold_browser_pipes",
+                        r#"{"domain":"пример.test","id":"a\\b\"c\\"}"#,
+                    ],
+                )
+                .unwrap();
+                wait(&root.join("ready"));
+                println!("bridge-finished");
+            }
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "wayrill-bridge-pipes-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let mut bridge = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::desktop_children_do_not_hold_browser_pipes",
+                "--nocapture",
+            ])
+            .env(ROLE, "bridge")
+            .env(ROOT, &root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut output = bridge.stdout.take().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader = thread::spawn(move || {
+            let mut text = String::new();
+            let result = output.read_to_string(&mut text).map(|_| text);
+            let _ = sender.send(result);
+        });
+        let eof = receiver.recv_timeout(Duration::from_secs(10));
+        // Always release the child, including when a regression retains the pipe.
+        fs::write(root.join("release"), b"release").unwrap();
+        reader.join().unwrap();
+        let status = bridge.wait().unwrap();
+        wait(&root.join("exited"));
+        fs::remove_dir_all(&root).unwrap();
+        assert!(status.success());
+        assert!(eof
+            .expect("Browser pipe remained open while the desktop was alive")
+            .unwrap()
+            .contains("bridge-finished"));
+    }
     #[test]
     fn chromium_frames_support_multiple_messages_unicode_and_clean_eof() {
         let value = json!({"name":"Выход 🌍"});
@@ -138,6 +284,10 @@ mod tests {
             json!({"version":1,"id":1,"method":"core.stop","params":{"hosts":[]}}),
             json!({"version":2,"id":1,"method":"routes","params":{"hosts":[]}}),
             json!({"version":1,"id":1,"method":"routes","params":{"hosts":[],"config":{}}}),
+            json!({"version":1,"id":1,"method":"editDomain","params":{"host":"a.test","command":"core.stop"}}),
+            json!({"version":1,"id":1,"method":"editDomain","params":{"host":"https://a.test/private"}}),
+            json!({"version":1,"id":1,"method":"editDomain","params":{"host":"127.0.0.1"}}),
+            json!({"version":1,"id":1,"method":"editDomain","params":{"host":"a.test","filterIds":["a".repeat(161)]}}),
         ] {
             assert!(decode(&serde_json::to_vec(&request).unwrap()).is_err());
         }
@@ -145,5 +295,10 @@ mod tests {
             br#"{"version":1,"id":3,"method":"routes","params":{"hosts":["example.org"]}}"#
         )
         .is_ok());
+        let edit = decode(br#"{"version":1,"id":4,"method":"editDomain","params":{"host":"EXAMPLE.org.","filterIds":["b","a","b"]}}"#).unwrap();
+        assert_eq!(
+            edit.params,
+            json!({"host":"example.org","filterIds":["b","a"]})
+        );
     }
 }

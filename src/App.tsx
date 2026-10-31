@@ -151,6 +151,9 @@ import useGraphEditor from './useGraphEditor';
 import useTheme from './useTheme';
 import AppearanceSettings from './components/AppearanceSettings';
 import CompanionSettings from './components/CompanionSettings';
+import CompanionRuleDialog from './components/CompanionRuleDialog';
+import useCompanionRuleRequest from './useCompanionRuleRequest';
+import { addCompanionDomain } from './companionRules';
 import StartupSettings from './components/StartupSettings';
 import TunAdapterSettings from './components/TunAdapterSettings';
 import { MainOutboundContext } from './components/MainOutboundContext';
@@ -340,6 +343,12 @@ export default function App() {
     (message: string, error = false) => setFeedback({ message, error }),
     [],
   );
+  const companionRule = useCompanionRuleRequest(
+    editor.storageReady && stash.ready && !graphBlocked,
+  );
+  useEffect(() => {
+    if (companionRule.error) notify(companionRule.error, true);
+  }, [companionRule.error, notify]);
   const closeDesktop = useClosePersistence(
     editor.serializeForClose,
     editor.storageReady,
@@ -572,7 +581,8 @@ export default function App() {
       !tunAdaptersOpen &&
       !windowsCaptureOpen &&
       !icsSetupOpen &&
-      !backupOpen,
+      !backupOpen &&
+      !companionRule.request,
     onReplace: replaceFavorite,
     onBrowse: openStash,
     onError: (message) => switchFailed(message),
@@ -1221,6 +1231,21 @@ export default function App() {
                         <AppearanceSettings
                           theme={theme}
                           onClose={() => setAppearanceOpen(false)}
+                        />
+                      )}
+                      {companionRule.request && (
+                        <CompanionRuleDialog
+                          key={JSON.stringify(companionRule.request)}
+                          request={companionRule.request}
+                          graph={editor.graph}
+                          blocked={graphBlocked}
+                          onAdd={(addition) => {
+                            requireGraphSave(
+                              editor.change((current) => addCompanionDomain(current, addition)),
+                            );
+                            notify('Domain added to the draft.');
+                          }}
+                          onClose={companionRule.close}
                         />
                       )}
                       {companionOpen && (

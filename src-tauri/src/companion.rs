@@ -1,6 +1,61 @@
 //! Normal-user browser integration. Fixed bundled helper, no service activation.
 use serde_json::Value;
+use std::{collections::VecDeque, sync::Mutex};
 use std::{os::windows::process::CommandExt, path::PathBuf, process::Command};
+use tauri::{Emitter, Manager};
+use wayrill_protocol::companion::RuleRequest;
+
+#[derive(Default)]
+pub struct Requests(Mutex<VecDeque<RuleRequest>>);
+
+pub fn receive(app: &tauri::AppHandle, args: &[String]) {
+    let Some(raw) = args
+        .windows(2)
+        .find(|pair| pair[0] == "--companion-domain")
+        .map(|pair| &pair[1])
+    else {
+        return;
+    };
+    let request = serde_json::from_str::<RuleRequest>(raw)
+        .ok()
+        .and_then(|r| r.normalized().ok());
+    let Some(request) = request else {
+        wayrill_diagnostics::log(
+            "companion",
+            "warn",
+            "Rejected an invalid domain edit request.",
+        );
+        return;
+    };
+    let state = app.state::<Requests>();
+    if let Ok(mut queue) = state.inner().0.lock() {
+        if queue.len() < 16 && !queue.contains(&request) {
+            queue.push_back(request);
+        }
+    }
+    let _ = app.emit("wayrill-companion-request", ());
+}
+
+#[tauri::command]
+pub fn companion_rule_request(
+    state: tauri::State<Requests>,
+    completed: Option<RuleRequest>,
+) -> Result<Option<RuleRequest>, String> {
+    state
+        .inner()
+        .0
+        .lock()
+        .map(|mut queue| {
+            if completed
+                .as_ref()
+                .is_some_and(|request| queue.front() == Some(request))
+            {
+                queue.pop_front();
+            }
+            queue.front().cloned()
+        })
+        .map_err(|_| "Cannot read the Companion request.".into())
+}
 
 fn run(
     action: &str,

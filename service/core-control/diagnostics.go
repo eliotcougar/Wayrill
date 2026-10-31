@@ -34,6 +34,9 @@ import (
 )
 
 type diagnosticRequest struct {
+	File        string             `json:"file"`
+	Offset      int                `json:"offset"`
+	Limit       int                `json:"limit"`
 	Mode        string             `json:"mode"`
 	Config      json.RawMessage    `json:"config"`
 	Route       *diagnosticFlow    `json:"route"`
@@ -422,6 +425,8 @@ func diagnosticRun(input io.Reader) (any, error) {
 	logger := &diagnosticLogger{start: time.Now()}
 	xlog.RegisterHandler(logger)
 	switch request.Mode {
+	case "geosite":
+		return diagnosticGeosite(ctx, request)
 	case "route":
 		return diagnosticRoute(ctx, request)
 	case "dns":

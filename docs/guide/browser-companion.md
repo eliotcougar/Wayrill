@@ -107,6 +107,33 @@ traffic outside Wayrill capture may have no matching route. WebSocket messages
 and WebTransport traffic are not individually inspected. DNS resolution paths
 are not inferred from traffic routes. Request counts include redirect hops.
 
+## Add a domain to a traffic rule
+
+Expand a domain and choose **Add to rule…**. Wayrill opens even if only its
+networking service is running; an app already in the tray comes to the front.
+An open editor keeps its unsaved changes, and the request waits until you close it.
+
+Choose a traffic filter and an existing rule, or **New rule…** and an output.
+An observed Unmatched traffic path preselects its filter when that filter still
+exists in the draft. Choose an entry:
+
+- `full:example.net` matches that exact name.
+- `domain:example.net` matches the name and its subdomains.
+- `example.net` matches names containing that text.
+- **Custom** lets you edit a single Xray domain condition before adding it.
+
+**Find matching GeoSite groups** searches the selected installed resource file
+using the embedded core's string matchers, including regular expressions. It
+starts with the default geosite file and can search configured extra files too.
+Results show the matching entry and group size. Selecting a group adds the whole
+group, not just the current domain. A result from an extra file uses `ext:`.
+
+**Add to draft** preserves the rule's other conditions, priority and enabled state.
+Additions to a URL/file-synced rule become local overrides and survive refreshes.
+Routing continues unchanged until you **Apply** the graph. Existing observations
+may describe an older applied graph; they do not guarantee that a chosen rule in
+the draft will match every request from that domain.
+
 ## Privacy and limits
 
 The extension passively observes requests; it does not redirect or block them.
@@ -131,10 +158,11 @@ key. A separately extracted older copy is not overwritten, and an older bridge
 remains usable without automatic reload. Setup never edits browser profiles,
 approves extension permissions or restarts the browser.
 
-The normal-user bridge accepts only bounded `routes` lookups and calls the existing
-authenticated local service pipe. It exposes no activation, settings, profile or
-arbitrary-command interface and opens no HTTP listener. Registering the bridge
-does not grant a browser permission to change Wayrill's routing.
+The normal-user bridge accepts bounded `routes` lookups through the existing
+authenticated service pipe, and `editDomain` requests that open the installed
+desktop with a domain and optional filter IDs. The browser cannot select an
+executable, edit the graph itself or activate routing. The bridge opens no HTTP
+listener and exposes no arbitrary-command interface.
 
 The implementation follows Chromium's [request observation API](https://developer.chrome.com/docs/extensions/reference/api/webRequest),
 [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),

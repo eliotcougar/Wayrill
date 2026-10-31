@@ -39,6 +39,8 @@ pub struct Query {
     #[serde(default)]
     pub query: String,
     #[serde(default)]
+    pub domain: String,
+    #[serde(default)]
     pub offset: usize,
     #[serde(default = "page_size")]
     pub limit: usize,
@@ -58,6 +60,11 @@ impl Query {
                 .any(|a| a.is_empty() || a.len() > 128 || a.contains(['@', ':', '\n', '\r', '\0']))
             || self.cidr.len() > 256
             || self.query.len() > 256
+            || (!self.domain.is_empty()
+                && (self.kind != "geosite"
+                    || !self.group.is_empty()
+                    || !self.attributes.is_empty()
+                    || !self.query.is_empty()))
             || self.offset > 4_000_000
             || !(1..=100).contains(&self.limit)
             || (self.group.is_empty() && !self.attributes.is_empty())
@@ -67,6 +74,12 @@ impl Query {
             || (self.inverse && self.group.is_empty() && self.cidr.is_empty())
         {
             return Err(invalid("Invalid resource browser request."));
+        }
+        if !self.domain.is_empty() {
+            let domain = wayrill_protocol::companion::normalize_host(&self.domain)?;
+            if domain.parse::<std::net::IpAddr>().is_ok() {
+                return Err(invalid("Choose a hostname for GeoSite lookup."));
+            }
         }
         Ok(())
     }
@@ -390,6 +403,18 @@ impl Browser {
                                 break;
                             }
                             let result = (|| {
+                                if !q.domain.is_empty() {
+                                    let result = crate::routing_diagnostics::geosite(
+                                        &root, &q.file, &q.domain, q.offset, q.limit, &stop,
+                                    )?;
+                                    if stamp(&root, &q, key.generation)? != key {
+                                        return Err(ApiError::new(
+                                            "RESOURCE_CHANGED",
+                                            "Resource data changed. Retry the lookup.",
+                                        ));
+                                    }
+                                    return Ok(result);
+                                }
                                 if !q.cidr.is_empty() {
                                     return ip::page(&[ip::Prefix::parse(&q.cidr)?], &q, &stop);
                                 }
@@ -500,6 +525,7 @@ mod tests {
             inverse: false,
             cidr: String::new(),
             query: String::new(),
+            domain: String::new(),
             offset: 0,
             limit: 100,
         }

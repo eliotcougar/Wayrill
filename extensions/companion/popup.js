@@ -8,6 +8,7 @@ function element(id) {
   return value;
 }
 const client = new NativeClient();
+let editClient = /** @type {NativeClient|null} */ (null);
 const domains = element('domains');
 /** @type {Omit<import('./capture.js').Page, 'pending'>|null} */
 let page = null;
@@ -91,10 +92,11 @@ function domainRow(domain) {
   heading.append(node('span', domain.host, 'domain-name'), route);
   summary.append(heading, node('span', `${domain.count} req`, 'request-count'));
   const body = node('div', '', 'domain-body');
-  body.append(node('p', `Requests: ${domain.types.join(', ').replaceAll('_', ' ')}`));
-  body.append(node('p', `First ${time(domain.firstSeen)} · Last ${time(domain.lastSeen)}`));
+  const observations = node('div', '', 'domain-observations');
+  observations.append(node('p', `Requests: ${domain.types.join(', ').replaceAll('_', ' ')}`));
+  observations.append(node('p', `First ${time(domain.firstSeen)} · Last ${time(domain.lastSeen)}`));
   if (domain.cached || domain.errors)
-    body.append(node('p', `${domain.cached} from cache · ${domain.errors} failed`));
+    observations.append(node('p', `${domain.cached} from cache · ${domain.errors} failed`));
   for (const match of matches) {
     const detail = node('div', '', 'match');
     detail.append(
@@ -120,16 +122,26 @@ function domainRow(domain) {
       detail.append(node('p', 'Retained observation; the current route has not been observed.'));
     for (const hop of match.path) detail.append(node('p', `${hop.rule} → ${hop.output}`));
     if (match.pathTruncated) detail.append(node('p', 'Further routing steps omitted.'));
-    body.append(detail);
+    observations.append(detail);
   }
-  if (evidence?.truncated) body.append(node('p', 'Additional route observations omitted.'));
+  if (evidence?.truncated) observations.append(node('p', 'Additional route observations omitted.'));
   if (!matches.length)
-    body.append(
+    observations.append(
       node(
         'p',
         'This may be cached, outside Wayrill capture, or logged by IP instead of domain. No observation does not establish a direct route.',
       ),
     );
+  body.append(observations);
+  if (!domain.host.includes(':') && !/^[\d.]+$/.test(domain.host)) {
+    const add = /** @type {HTMLButtonElement} */ (
+      node('button', 'Add to rule…', 'quiet add-domain')
+    );
+    add.type = 'button';
+    add.dataset.domain = domain.host;
+    add.disabled = editClient !== null;
+    body.append(add);
+  }
   row.append(summary, body);
   return row;
 }
@@ -149,11 +161,15 @@ function render() {
     // counts and route observations update. Do not rebuild unrelated cards.
     if (row !== next) {
       for (let index = 0; index < next.children.length; index++) {
-        const current = row.children[index];
-        const replacement = next.children[index];
+        const current = index === 1 ? row.children[index].firstElementChild : row.children[index];
+        const replacement =
+          index === 1 ? next.children[index].firstElementChild : next.children[index];
+        if (!current || !replacement) continue;
         if (current.innerHTML !== replacement.innerHTML)
           current.replaceChildren(...replacement.childNodes);
       }
+      const add = row.querySelector('button');
+      if (add) add.disabled = editClient !== null;
     }
     if (row !== cursor) domains.insertBefore(row, cursor);
     cursor = row.nextElementSibling;
@@ -262,6 +278,44 @@ async function refresh() {
 element('refresh').addEventListener('click', () => {
   void refresh();
 });
+domains.addEventListener('click', (event) => {
+  const button =
+    event.target instanceof Element ? event.target.closest('button[data-domain]') : null;
+  const host = button instanceof HTMLButtonElement ? button.dataset.domain : undefined;
+  if (!host || editClient || closed) return;
+  const filterIds = [
+    ...new Set(
+      (routes?.hosts.find((row) => row.host === host)?.matches ?? [])
+        .flatMap((match) =>
+          match.path.filter((hop) => hop.ruleId === null).map((hop) => hop.filterId),
+        )
+        .filter((id) => typeof id === 'string'),
+    ),
+  ].slice(0, 8);
+  const editing = new NativeClient();
+  editClient = editing;
+  render();
+  const status = element('edit-status');
+  status.hidden = true;
+  void editing
+    .editDomain(host, /** @type {string[]} */ (filterIds))
+    .then(
+      () => {
+        status.textContent = 'Choose the filter and rule in Wayrill.';
+      },
+      (error) => {
+        status.textContent = error instanceof Error ? error.message : 'Cannot open Wayrill.';
+      },
+    )
+    .finally(() => {
+      editing.close();
+      editClient = null;
+      if (!closed) {
+        status.hidden = false;
+        render();
+      }
+    });
+});
 element('setup-button').addEventListener('click', () => {
   const setup = element('setup');
   setup.hidden = !setup.hidden;
@@ -272,5 +326,6 @@ window.addEventListener('pagehide', () => {
   closed = true;
   clearTimeout(timer);
   client.close();
+  editClient?.close();
 });
 void refresh();

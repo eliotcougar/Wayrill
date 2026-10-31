@@ -134,6 +134,9 @@ summary::-webkit-details-marker {
   margin: 2px 0;
   overflow-wrap: anywhere;
 }
+.add-domain {
+  margin-top: 10px;
+}
 .match {
   margin-top: 10px;
   border-left: 2px solid #3b5e62;

@@ -8,6 +8,8 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   globalThis.document = dom.window.document;
   globalThis.window = dom.window;
   globalThis.HTMLElement = dom.window.HTMLElement;
+  globalThis.Element = dom.window.Element;
+  globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
   let host = 'page.test';
   let failed = false;
   let empty = false;
@@ -16,6 +18,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   let captureUnavailable = false;
   let extensionVersion;
   let reloads = 0;
+  let editRequest;
   const originalFetch = globalThis.fetch;
   globalThis.chrome = {
     tabs: {
@@ -62,6 +65,13 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
           onDisconnect: { addListener() {} },
           disconnect() {},
           postMessage(message) {
+            if (message.method === 'editDomain') {
+              editRequest = message;
+              queueMicrotask(() =>
+                receive({ version: 1, id: message.id, ok: true, result: { opened: true } }),
+              );
+              return;
+            }
             queueMicrotask(() =>
               receive(
                 failed
@@ -98,7 +108,14 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
                                     transport: 'tcp',
                                     port: 443,
                                     timestampMs: 1,
-                                    path: [{ rule: 'Web', output: 'Work' }],
+                                    path: [
+                                      {
+                                        filterId: 'filter',
+                                        ruleId: null,
+                                        rule: 'Unmatched traffic',
+                                        output: 'Work',
+                                      },
+                                    ],
                                     source: 'Xray',
                                   },
                                 ],
@@ -120,6 +137,11 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     await settle();
     assert.match(text('domains'), /Last known: <img src=x onerror=alert\(1\)>/);
     assert.equal(document.querySelectorAll('#domains img').length, 0);
+    const add = document.querySelector('.add-domain');
+    add.click();
+    await settle();
+    assert.deepEqual(editRequest.params, { host: 'page.test', filterIds: ['filter'] });
+    assert.match(text('edit-status'), /Choose the filter and rule in Wayrill/);
     document.getElementById('setup-button').click();
     assert.equal(document.getElementById('setup').hidden, false);
     assert.equal(text('extension-id'), 'extension-id');
@@ -129,6 +151,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     document.getElementById('refresh').click();
     await settle();
     assert.equal(document.activeElement, summary);
+    assert.equal(document.querySelector('.add-domain'), add);
     assert.match(text('domains'), /Last known: Blocked \(Renamed deny output\)/);
     assert.ok(!text('domains').includes('Retained observation;'));
     empty = true;
@@ -177,6 +200,8 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     delete globalThis.document;
     delete globalThis.window;
     delete globalThis.HTMLElement;
+    delete globalThis.Element;
+    delete globalThis.HTMLButtonElement;
     globalThis.fetch = originalFetch;
   }
 });

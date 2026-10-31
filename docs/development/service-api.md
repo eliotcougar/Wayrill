@@ -78,11 +78,24 @@ own generation/revision and timestamp across activation and Stop, without an age
 expiry; a newly observed epoch replaces the older route set for that host. Log
 history/cache capacity and service restart still bound retention. Results are destination correlations across apps, not per-tab attribution
 or route predictions. The separate `wayrill-companion` native messaging host exposes
-only this read operation to the unpacked [browser Companion](../guide/browser-companion.md).
+this read operation to the unpacked [browser Companion](../guide/browser-companion.md).
+Its separate `editDomain` method validates one hostname and at most eight filter
+IDs, then launches the fixed installed desktop as the same Windows user. It does
+not forward a service mutation. The desktop queues the intent, waits for existing
+editors, and changes only its draft after user confirmation. Requests remain queued
+until dismissal so a renderer remount cannot consume an unseen intent.
+The desktop launch inherits no Windows handles from the bridge, so closing a
+browser cannot leave its messaging/control pipes held open by the desktop.
 Its native-messaging envelope reports the bridge's compiled `extensionVersion` in
 both success and error replies, independently of the routing service's availability.
 This is package identity, not a service command: an unpacked copy may use the
 browser's reload API only after its local manifest matches that version and key.
+
+`resources.browse` also accepts `domain` for an offline reverse GeoSite lookup.
+It is mutually exclusive with entry/group/attribute search. The existing bounded
+worker runs the private core's isolated matcher as LocalService, without starting
+a routing core or changing Windows settings. File generation and stamps guard the
+cached result, and the normal `ready`/pagination contract remains unchanged.
 
 `wayrillctl` is a diagnostic client of this same fixed API. For commands use its
 help and current schema; it is not a privileged shell. Exported profiles and

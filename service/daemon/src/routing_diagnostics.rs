@@ -410,11 +410,50 @@ fn run(
         }
     }
     let request = json!({"mode":input.mode,"config":input.config,"route":input.route,"resolvedIPs":input.resolved_ips,"process":input.application["lineage"].as_array().and_then(|v|v.first()).map(|p|json!({"name":p["name"].as_str().unwrap_or(""),"path":p["path"].as_str().unwrap_or("")})),"handler":input.handler,"domain":input.domain,"queryType":input.query_type,"server":input.server});
+    let mut reply = query_core(
+        exe.parent().unwrap(),
+        CoreIdentity::Owner(owner),
+        &request,
+        stop,
+    )?;
+    reply["warnings"] = json!(warnings);
+    Ok(reply)
+}
+
+pub(crate) fn geosite(
+    assets: &std::path::Path,
+    file: &str,
+    domain: &str,
+    offset: usize,
+    limit: usize,
+    stop: &AtomicBool,
+) -> Result<Value> {
+    let reply = query_core(
+        assets,
+        CoreIdentity::LocalService,
+        &json!({"mode":"geosite","file":file,"domain":domain,"offset":offset,"limit":limit}),
+        stop,
+    )?;
+    if let Some(error) = reply["error"].as_str() {
+        return Err(invalid(error));
+    }
+    Ok(reply)
+}
+
+fn query_core(
+    assets: &std::path::Path,
+    identity: CoreIdentity<'_>,
+    request: &Value,
+    stop: &AtomicBool,
+) -> Result<Value> {
+    let root = assets
+        .parent()
+        .ok_or_else(|| invalid("Invalid assets path."))?;
     let worker = crate::tun::worker_executable(root)?;
     let process = native::spawn_tun_with_token(
         &worker,
-        CoreIdentity::Owner(owner).token()?,
-        &request,
+        identity.token()?,
+        request,
         "wayrill-diagnose",
         None,
         0,
@@ -422,7 +461,7 @@ fn run(
             metadata: None,
             fakedns: None,
             reuse_settings: false,
-            assets: exe.parent().unwrap(),
+            assets,
         },
     )?;
     let deadline = Instant::now() + Duration::from_secs(18);
@@ -434,8 +473,7 @@ fn run(
             if code != 0 {
                 return Err(invalid("The isolated Xray diagnostic failed."));
             }
-            if let Some(mut reply) = process.private_reply()? {
-                reply["warnings"] = json!(warnings);
+            if let Some(reply) = process.private_reply()? {
                 return Ok(reply);
             }
         }

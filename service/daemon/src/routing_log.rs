@@ -435,7 +435,7 @@ impl Log {
                 .trail
                 .iter()
                 .take(8)
-                .map(|hop| json!({"rule":hop.rule,"output":hop.output}))
+                .map(|hop| json!({"filterId":hop.filter_id,"ruleId":hop.rule_id,"rule":hop.rule,"output":hop.output}))
                 .collect();
             if matches.iter().any(|m| {
                 m["outbound"] == row.outbound

@@ -244,6 +244,12 @@ quotes for both address families.
   loopback routing scopes, starting fresh observations only when a reachable
   rule still references a policy group. Native process evidence is required
   only when an otherwise matching rule could decide the simulated route.
+- The same diagnostic command supports offline reverse GeoSite lookup. It reads
+  one bounded installed DAT file, streams its groups and uses upstream
+  `strmatcher` for full, domain, substring and regex matches. It returns paged
+  matching group names and one matching entry per group, without initializing
+  routing, DNS, adapters or listeners. Invalid individual patterns are skipped
+  like upstream's geosite loader.
 
 The service binds an isolated DNS outbound's forwarded requests to the selected
 uplink (or loopback for a local resolver), as well as binding ordinary outbound
@@ -310,6 +316,8 @@ Broad upstream test audits remain separate from the contributor build gate.
 | `service/core-control/fakedns.go` | `main/wayrill_control_fakedns.go` | X12 |
 | `service/core-control/diagnostics.go` | `main/wayrill_control_diagnostics.go` | X12 isolated routing/DNS diagnostics |
 | `service/core-control/diagnostics_test.go` | `main/wayrill_control_diagnostics_test.go` | X12 matcher, DNS policy/fallback and cancellation tests |
+| `service/core-control/geosite.go` | `main/wayrill_control_geosite.go` | X12 offline reverse GeoSite lookup |
+| `service/core-control/geosite_test.go` | `main/wayrill_control_geosite_test.go` | X12 domain match boundaries, case, regex and cancellation tests |
 | `service/core-control/main.go` | `main/wayrill_control_main.go` | X12 |
 | `service/core-control/main_test.go` | `main/wayrill_control_main_test.go` | X12 tests |
 | `service/core-control/routing_test.go` | `main/wayrill_control_routing_test.go` | X12 tests |

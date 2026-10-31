@@ -2008,6 +2008,10 @@
                   "type": "string",
                   "maxLength": 256
                 },
+                "domain": {
+                  "type": "string",
+                  "maxLength": 253
+                },
                 "offset": {
                   "type": "integer",
                   "minimum": 0,

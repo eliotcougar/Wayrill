@@ -230,18 +230,21 @@ fn service_events_start(app: tauri::AppHandle, worker: tauri::State<shutdown::Sh
     });
 }
 fn main() {
+    let initial_args: Vec<String> = std::env::args().collect();
     let exit_only = std::env::args().skip(1).any(|arg| arg == "--exit");
     let mut context = tauri::generate_context!();
     if exit_only {
         context.config_mut().app.windows.clear();
     }
     tauri::Builder::default()
+        .manage(companion::Requests::default())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if args.iter().skip(1).any(|arg| arg == "--exit") {
                 if let Err(error) = shutdown::desktop_exit(app.clone()) {
                     wayrill_diagnostics::log("shutdown", "error", &error);
                 }
             } else {
+                companion::receive(app, &args);
                 tray::show(app);
             }
         }))
@@ -286,6 +289,7 @@ fn main() {
                 // cannot be initialized; never hide an inaccessible app.
                 wayrill_diagnostics::log("desktop", "error", &format!("Tray unavailable: {error}"));
             }
+            companion::receive(app.handle(), &initial_args);
             Ok(())
         })
         .manage(shutdown::Shutdown::default())
@@ -311,6 +315,7 @@ fn main() {
             companion::companion_register,
             companion::companion_unregister,
             companion::companion_open,
+            companion::companion_rule_request,
             service_request,
             service_events_start,
             tray::tray_quick_switch,
