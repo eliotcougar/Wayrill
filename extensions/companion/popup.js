@@ -181,10 +181,7 @@ async function refresh() {
   busy = true;
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const host = hostname(tab?.url ?? '');
-    element('page-host').textContent = host ?? 'Browser page';
-    element('page-title').textContent = tab?.title ?? '';
-    if (!host || tab?.id == null || tab.incognito) {
+    if (!hostname(tab?.url ?? '') || tab?.id == null || tab.incognito) {
       page = null;
       routes = null;
       render();

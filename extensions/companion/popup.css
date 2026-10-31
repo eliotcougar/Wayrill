@@ -41,24 +41,6 @@ header {
 main {
   padding: 20px 22px 16px;
 }
-.eyebrow {
-  color: #91a3c2;
-  font-size: 10px;
-  letter-spacing: 1.6px;
-  font-weight: 650;
-}
-h1 {
-  font-size: 21px;
-  margin: 7px 0 4px;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-.page-heading p {
-  margin: 0 0 18px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .muted {
   color: #94a0b5;
   font-size: 12px;
@@ -247,8 +229,7 @@ footer {
   .empty {
     color: #596b86;
   }
-  .brand span,
-  .eyebrow {
+  .brand span {
     color: #526582;
   }
   .quiet {

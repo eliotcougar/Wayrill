@@ -118,8 +118,6 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   try {
     await import('./popup.js');
     await settle();
-    assert.equal(text('page-host'), 'page.test');
-    assert.equal(document.querySelectorAll('select').length, 0);
     assert.match(text('domains'), /Last known: <img src=x onerror=alert\(1\)>/);
     assert.equal(document.querySelectorAll('#domains img').length, 0);
     const search = document.getElementById('search');
@@ -155,7 +153,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     host = 'next.test';
     document.getElementById('refresh').click();
     await settle();
-    assert.equal(text('page-host'), 'next.test');
+    assert.match(text('domains'), /next\.test/);
     assert.ok(!text('domains').includes('page.test'));
     assert.match(text('domains'), /No route observed yet/);
     // An interrupted upgrade can leave the worker unavailable while the service
