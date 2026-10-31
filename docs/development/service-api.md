@@ -79,7 +79,8 @@ expiry; a newly observed epoch replaces the older route set for that host. Log
 history/cache capacity and service restart still bound retention. Results are destination correlations across apps, not per-tab attribution
 or route predictions. The separate `wayrill-companion` native messaging host exposes
 only this read operation to the unpacked [browser Companion](../guide/browser-companion.md).
-Its native-messaging envelope also reports the bridge's compiled `extensionVersion`.
+Its native-messaging envelope reports the bridge's compiled `extensionVersion` in
+both success and error replies, independently of the routing service's availability.
 This is package identity, not a service command: an unpacked copy may use the
 browser's reload API only after its local manifest matches that version and key.
 

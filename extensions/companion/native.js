@@ -1,15 +1,18 @@
 /** @typedef {{outbound:string, action?:'block'|'route', instanceId?:string, generation?:number, revision?:number, port:number, transport:string, timestampMs:number, source:string, path:{rule:string,output:string}[], pathTruncated:boolean}} Match */
 /** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[], extensionVersion?:string}} Routes */
 
-/** The installed bridge identifies its matching package. Reload only after a
- * successful lookup and when this copy's files have actually been updated.
+/** The installed bridge identifies its matching package independently of the
+ * routing service. Reload only when this copy's files have actually been updated.
  * @param {string|undefined} version */
 export async function reloadUpdatedBundle(version) {
   if (!version) return false;
   const loaded = chrome.runtime.getManifest();
   if (version === loaded.version) return false;
   try {
-    const response = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
+    const response = await fetch(chrome.runtime.getURL('manifest.json'), {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(2000),
+    });
     if (!response.ok) return false;
     const installed = await response.json();
     if (installed.version !== version || installed.key !== loaded.key) return false;
@@ -17,6 +20,16 @@ export async function reloadUpdatedBundle(version) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** A valid bridge reply can identify an updated package even if routing is offline. */
+export class BridgeError extends Error {
+  /** @param {string} message @param {unknown} version */
+  constructor(message, version) {
+    super(message);
+    this.name = 'BridgeError';
+    this.extensionVersion = typeof version === 'string' ? version : undefined;
   }
 }
 
@@ -49,7 +62,10 @@ export class NativeClient {
           });
         else
           pending.reject(
-            new Error(message.error?.message ?? 'Wayrill returned an invalid response.'),
+            new BridgeError(
+              message.error?.message ?? 'Wayrill returned an invalid response.',
+              message.extensionVersion,
+            ),
           );
       });
       port.onDisconnect.addListener(() => {

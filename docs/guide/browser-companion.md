@@ -25,7 +25,8 @@ not required.
 4. Remove older Companion copies from the browser's Extensions page. The bundled
    extension has a fixed ID across installation paths. Future updates replace its
    files in the same installed folder. When Companion next connects, a matching
-   updated bridge and extension package trigger the browser's own extension reload.
+   updated bridge and extension package trigger the browser's own extension reload,
+   even if request capture failed to start or the networking service is offline.
    The popup may close once; reopen it. Reloading clears the captured request list;
    reload a webpage to capture requests it already made. If an older copy cannot
    reconnect, reload it manually from the browser's Extensions page.

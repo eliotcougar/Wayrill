@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { NativeClient, reloadUpdatedBundle } from './native.js';
+import { BridgeError, NativeClient, reloadUpdatedBundle } from './native.js';
 
 test('native connection correlates responses, fails closed on disconnect and reconnects', async () => {
   const ports = [];
@@ -52,8 +52,19 @@ test('native connection correlates responses, fails closed on disconnect and rec
   });
   assert.deepEqual(await next, { hosts: [], extensionVersion: '0.2.1' });
   const failed = client.routes([]);
-  ports[1].message({ version: 1, id: 3, ok: false, error: { message: 'Service unavailable' } });
-  await assert.rejects(failed, /Service unavailable/);
+  ports[1].message({
+    version: 1,
+    id: 3,
+    ok: false,
+    extensionVersion: '0.2.2',
+    error: { message: 'Service unavailable' },
+  });
+  await assert.rejects(failed, (error) => {
+    assert.ok(error instanceof BridgeError);
+    assert.equal(error.message, 'Service unavailable');
+    assert.equal(error.extensionVersion, '0.2.2');
+    return true;
+  });
   client.close();
   delete globalThis.chrome;
 });
@@ -92,6 +103,28 @@ test('an unpacked copy reloads only when the bridge and its on-disk files match'
     });
     assert.equal(await reloadUpdatedBundle('0.2.1'), true);
     assert.equal(reloads, 1);
+    // A file temporarily held by setup must not stall the popup indefinitely.
+    let aborted = false;
+    // Node unrefs AbortSignal.timeout; retain a handle for the pending fetch fixture.
+    const keepAlive = setTimeout(() => {}, 4000);
+    try {
+      globalThis.fetch = async (_url, { signal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              aborted = true;
+              reject(signal.reason);
+            },
+            { once: true },
+          );
+        });
+      assert.equal(await reloadUpdatedBundle('0.2.1'), false);
+      assert.equal(aborted, true);
+      assert.equal(reloads, 1);
+    } finally {
+      clearTimeout(keepAlive);
+    }
   } finally {
     globalThis.fetch = originalFetch;
     delete globalThis.chrome;

@@ -1,5 +1,5 @@
 import { hostname } from './capture.js';
-import { NativeClient, reloadUpdatedBundle } from './native.js';
+import { BridgeError, NativeClient, reloadUpdatedBundle } from './native.js';
 
 /** @param {string} id */
 function element(id) {
@@ -20,6 +20,41 @@ let connected = false;
 let pageKey = '';
 /** @type {ReturnType<typeof setTimeout>|undefined} */
 let timer;
+/** @typedef {{page:Omit<import('./capture.js').Page, 'pending'>|null, storageError:string}} Snapshot */
+/** @type {{tabId:number, promise:Promise<Snapshot|null>}|undefined} */
+let snapshotRequest;
+
+/** A worker that failed to start can leave its message channel pending. Keep
+ * one request per current tab rather than enqueue another on every refresh.
+ * @param {number} tabId @returns {Promise<Snapshot|null>} */
+async function readSnapshot(tabId) {
+  if (snapshotRequest?.tabId !== tabId) {
+    const promise = chrome.runtime.sendMessage({ type: 'snapshot', tabId }).catch(() => null);
+    snapshotRequest = { tabId, promise };
+    void promise.finally(() => {
+      if (snapshotRequest?.promise === promise) snapshotRequest = undefined;
+    });
+  }
+  /** @type {ReturnType<typeof setTimeout>|undefined} */
+  let timeout;
+  try {
+    /** @type {Promise<null>} */
+    const expired = new Promise((resolve) => {
+      timeout = setTimeout(() => resolve(null), 3000);
+    });
+    return await Promise.race([snapshotRequest.promise, expired]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** @param {string|undefined} version */
+async function tryReloadBundle(version) {
+  if (closed || !(await reloadUpdatedBundle(version))) return false;
+  closed = true;
+  client.close();
+  return true;
+}
 
 /** @param {string} tag @param {string} text @param {string} [className] */
 function node(tag, text, className = '') {
@@ -162,8 +197,10 @@ async function refresh() {
       client.close();
       return;
     }
-    const snapshot = await chrome.runtime.sendMessage({ type: 'snapshot', tabId: tab.id });
-    page = snapshot.page;
+    // A repaired package must still be able to reload when its old worker could
+    // not start. Capture and the native bridge are independent observations.
+    const snapshot = await readSnapshot(tab.id);
+    page = snapshot?.page ?? null;
     const key = `${tab.id}/${page?.startedAt ?? 0}`;
     if (key !== pageKey) {
       domains.replaceChildren();
@@ -172,7 +209,9 @@ async function refresh() {
     }
     render();
     const warnings = [
-      snapshot.storageError,
+      snapshot
+        ? snapshot.storageError
+        : 'Request capture is unavailable. Reload the extension to resume.',
       page?.dropped
         ? `Domain limit reached (128). ${page.dropped} further requests were omitted.`
         : '',
@@ -181,11 +220,7 @@ async function refresh() {
     element('capture-warning').textContent = warnings.join(' ');
     try {
       const next = await client.routes((page?.domains ?? []).map((row) => row.host));
-      if (await reloadUpdatedBundle(next.extensionVersion)) {
-        closed = true;
-        client.close();
-        return;
-      }
+      if (await tryReloadBundle(next.extensionVersion)) return;
       for (const host of next.hosts)
         for (const match of host.matches) match.instanceId = next.instanceId;
       // An empty lookup is not a new routing decision. Keep evidence already
@@ -206,6 +241,8 @@ async function refresh() {
             ? 'Wayrill routing is stopped'
             : 'Wayrill route observations unavailable';
     } catch (error) {
+      if (closed) return;
+      if (error instanceof BridgeError && (await tryReloadBundle(error.extensionVersion))) return;
       connected = false;
       element('status-dot').classList.remove('live');
       element('status').textContent = 'Wayrill disconnected';

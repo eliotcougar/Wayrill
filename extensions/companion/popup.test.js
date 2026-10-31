@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
-test('current-tab popup retains last known Block through empty lookups and failures, and resets on navigation', async () => {
+test('current-tab popup retains last known Block, preserves focus, and recovers a failed worker after upgrade', async (context) => {
   const dom = new JSDOM(readFileSync(new URL('./popup.html', import.meta.url), 'utf8'));
   globalThis.document = dom.window.document;
   globalThis.window = dom.window;
@@ -13,6 +13,10 @@ test('current-tab popup retains last known Block through empty lookups and failu
   let empty = false;
   let blocked = false;
   let instanceId = 'instance-a';
+  let captureUnavailable = false;
+  let extensionVersion;
+  let reloads = 0;
+  const originalFetch = globalThis.fetch;
   globalThis.chrome = {
     tabs: {
       async query() {
@@ -21,7 +25,14 @@ test('current-tab popup retains last known Block through empty lookups and failu
     },
     runtime: {
       id: 'extension-id',
+      getManifest: () => ({ version: '0.2.1', key: 'bundled-key' }),
+      getURL: (path) => `chrome-extension://extension-id/${path}`,
+      reload() {
+        reloads++;
+      },
       async sendMessage() {
+        if (captureUnavailable === 'pending') return new Promise(() => {});
+        if (captureUnavailable) throw new Error('Receiving end does not exist.');
         return {
           page: {
             startedAt: host === 'page.test' ? 1 : 2,
@@ -56,12 +67,14 @@ test('current-tab popup retains last known Block through empty lookups and failu
                 failed
                   ? {
                       version: 1,
+                      extensionVersion,
                       id: message.id,
                       ok: false,
                       error: { message: 'Service unavailable' },
                     }
                   : {
                       version: 1,
+                      extensionVersion,
                       id: message.id,
                       ok: true,
                       result: {
@@ -145,6 +158,26 @@ test('current-tab popup retains last known Block through empty lookups and failu
     assert.equal(text('page-host'), 'next.test');
     assert.ok(!text('domains').includes('page.test'));
     assert.match(text('domains'), /No route observed yet/);
+    // An interrupted upgrade can leave the worker unavailable while the service
+    // is still stopped. The repaired local package must not depend on either.
+    captureUnavailable = true;
+    document.getElementById('refresh').click();
+    await settle();
+    assert.match(text('capture-warning'), /Request capture is unavailable/);
+    assert.match(text('status'), /Wayrill connected/);
+    context.mock.timers.enable({ apis: ['setTimeout'] });
+    captureUnavailable = 'pending';
+    failed = true;
+    extensionVersion = '0.2.2';
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({ version: '0.2.2', key: 'bundled-key' }),
+    });
+    document.getElementById('refresh').click();
+    await settle();
+    context.mock.timers.tick(60_000);
+    await settle();
+    assert.equal(reloads, 1);
   } finally {
     window.dispatchEvent(new dom.window.Event('pagehide'));
     dom.window.close();
@@ -152,5 +185,6 @@ test('current-tab popup retains last known Block through empty lookups and failu
     delete globalThis.document;
     delete globalThis.window;
     delete globalThis.HTMLElement;
+    globalThis.fetch = originalFetch;
   }
 });
