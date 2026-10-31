@@ -12,6 +12,67 @@ beforeEach(() => {
   mock.call.mockReset();
 });
 
+it('coalesces pending context without holding saves or route assignments behind its job', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let upload = '',
+    job = 0;
+  const contexts: unknown[] = [];
+  mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
+    if (method === 'subscriptions.uploadStart') {
+      upload = '';
+      return { token: String(p.kind), chunkBytes: 512 };
+    }
+    if (method === 'subscriptions.uploadChunk') {
+      upload += String(p.text);
+      return {};
+    }
+    if (method === 'subscriptions.uploadCommit') {
+      if (p.token === 'context') contexts.push(JSON.parse(upload));
+      return { job: ++job };
+    }
+    if (method === 'subscriptions.job') {
+      if (p.job === 1) {
+        await held;
+        return { busy: false, error: { code: 'CANCELLED', message: 'Interrupted' } };
+      }
+      return { busy: false, error: null };
+    }
+    if (method === 'subscriptions.read')
+      return { initialized: true, text: 'library', nextOffset: 7, totalBytes: 7, version: 1 };
+    if (method === 'subscriptions.replace') return { job: 999 };
+    throw new Error('Unexpected ' + method);
+  });
+  const { sendSubscriptionContext, writeServiceStash, replaceRunningOutbound } =
+    await import('./serviceSubscriptions');
+  const pending = [sendSubscriptionContext({ draft: 'first' })];
+  await vi.waitFor(() => expect(mock.call).toHaveBeenCalledWith('subscriptions.job', { job: 1 }));
+  pending.push(sendSubscriptionContext({ testUrl: 'https://test.example' }));
+  for (let i = 0; i < 50; i++) pending.push(sendSubscriptionContext({ draft: `draft-${i}` }));
+  const saving = writeServiceStash('library');
+  const replacing = replaceRunningOutbound('main', { groupId: 'g', entryId: 'e' });
+  try {
+    await vi.waitFor(() =>
+      expect(mock.call).toHaveBeenCalledWith('subscriptions.replace', {
+        nodeId: 'main',
+        groupId: 'g',
+        entryId: 'e',
+      }),
+    );
+    expect(contexts).toEqual([{ draft: 'first' }]);
+  } finally {
+    release();
+    await Promise.allSettled([...pending, saving, replacing]);
+  }
+  await expect(Promise.all(pending)).resolves.toBeDefined();
+  expect(contexts).toEqual([
+    { draft: 'first' },
+    { testUrl: 'https://test.example', draft: 'draft-49' },
+  ]);
+});
+
 it('orders identity-only replacement after the saved library without staging a runtime graph', async () => {
   let finish!: () => void;
   const saved = new Promise<void>((resolve) => {

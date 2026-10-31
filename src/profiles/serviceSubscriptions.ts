@@ -1,5 +1,5 @@
 import type { StashLink } from '../graph/types';
-import { serviceCall, type ServiceError } from '../serviceClient';
+import { errorText, serviceCall, type ServiceError } from '../serviceClient';
 import { confirmServiceStashSave } from './importClient';
 export type { SubscriptionStatus } from '../serviceClient';
 
@@ -197,11 +197,38 @@ export function refreshServiceStash(expectedVersion: number) {
     }
   });
 }
-export const sendSubscriptionContext = (value: {
+interface SubscriptionContext {
   draft?: string;
   testUrl?: string;
   testContext?: string;
-}) => enqueue(() => uploadSubscriptionDocument('context', value));
+}
+let pendingContext: SubscriptionContext | undefined, contextOperation: Promise<void> | undefined;
+
+/** Context is a latest-value view, not a library edit. Waiting for its job must
+ * not hold saves or route assignments behind a long manual maintenance run.
+ */
+export function sendSubscriptionContext(value: SubscriptionContext): Promise<void> {
+  pendingContext = { ...pendingContext, ...value };
+  contextOperation ??= (async () => {
+    try {
+      let failure: Error | undefined;
+      while (pendingContext) {
+        const next = pendingContext;
+        pendingContext = undefined;
+        try {
+          await uploadSubscriptionDocument('context', next);
+          failure = undefined;
+        } catch (error) {
+          failure = error instanceof Error ? error : new Error(errorText(error), { cause: error });
+        }
+      }
+      if (failure) throw failure;
+    } finally {
+      contextOperation = undefined;
+    }
+  })();
+  return contextOperation;
+}
 export const stageSubscriptionGraph = (text: string) => uploadSubscriptionDocument('source', text);
 
 /** An explicit assignment, ordered after library saves, resolved by the service. */

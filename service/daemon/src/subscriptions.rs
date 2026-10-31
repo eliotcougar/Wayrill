@@ -460,12 +460,13 @@ impl Manager {
                 let id = u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
                     .map_err(|_| invalid("Cannot create subscription job identity."))?
                     .max(1);
+                let automatic_only = upload.kind == "context";
                 state.queue.push_back(Work::Upload {
                     id,
                     kind: upload.kind,
                     text: upload.text,
                 });
-                cancel_automatic(&state);
+                interrupt_maintenance(&state, automatic_only);
                 Ok(json!({"job":id}))
             }
             "subscriptions.replace" => {
@@ -505,7 +506,7 @@ impl Manager {
                     .map_err(|_| invalid("Cannot create subscription job identity."))?
                     .max(1);
                 state.queue.push_back(Work::Replace { id, selection });
-                cancel_automatic(&state);
+                interrupt_maintenance(&state, false);
                 Ok(json!({"job":id}))
             }
             "subscriptions.run" => {
@@ -528,7 +529,7 @@ impl Manager {
                     operation: p.operation,
                     entries: p.entry_ids,
                 });
-                cancel_automatic(&state);
+                interrupt_maintenance(&state, true);
                 Ok(json!({"job":id}))
             }
             "subscriptions.job" => {
@@ -743,9 +744,12 @@ impl Manager {
             .is_some_and(|a| a.cancelled_by_user)
     }
 }
-fn cancel_automatic(state: &State) {
+// Authored library changes and route assignments take precedence over checks or
+// downloads. The actor drains the interrupted work before accepting the edit;
+// uploads and an in-flight route commit retain their ordered transaction.
+fn interrupt_maintenance(state: &State, automatic_only: bool) {
     if let Some(active) = &state.active {
-        if active.automatic {
+        if active.automatic || !automatic_only && active.group.is_some() {
             active.stop.store(true, Ordering::Release);
         }
     }
@@ -1176,29 +1180,43 @@ mod tests {
         assert!(two.handle("subscriptions.job", json!({"job":a})).is_err());
     }
     #[test]
-    fn saving_context_does_not_cancel_a_manual_run() {
-        let manager = manager();
-        let stop = Arc::new(AtomicBool::new(false));
-        manager.begin(1, Some("manual".into()), false, stop.clone());
-        let upload = manager
-            .handle(
-                "subscriptions.uploadStart",
-                json!({"kind":"context","bytes":2}),
-            )
-            .unwrap();
-        manager
-            .handle(
-                "subscriptions.uploadChunk",
-                json!({"token":upload["token"],"offset":0,"text":"{}"}),
-            )
-            .unwrap();
-        manager
-            .handle(
-                "subscriptions.uploadCommit",
-                json!({"token":upload["token"]}),
-            )
-            .unwrap();
-        assert!(!stop.load(Ordering::Acquire));
-        assert_eq!(manager.state.lock().unwrap().queue.len(), 1);
+    fn authored_mutations_interrupt_manual_maintenance_but_context_does_not() {
+        for kind in ["context", "save", "replace"] {
+            for group in [Some("manual".into()), None] {
+                let manager = manager();
+                let stop = Arc::new(AtomicBool::new(false));
+                manager.begin(1, group.clone(), false, stop.clone());
+                if kind == "replace" {
+                    manager
+                        .handle(
+                            "subscriptions.replace",
+                            json!({"nodeId":"n","groupId":"g","entryId":"e"}),
+                        )
+                        .unwrap();
+                } else {
+                    let upload = manager
+                        .handle("subscriptions.uploadStart", json!({"kind":kind,"bytes":2}))
+                        .unwrap();
+                    manager
+                        .handle(
+                            "subscriptions.uploadChunk",
+                            json!({"token":upload["token"],"offset":0,"text":"{}"}),
+                        )
+                        .unwrap();
+                    manager
+                        .handle(
+                            "subscriptions.uploadCommit",
+                            json!({"token":upload["token"]}),
+                        )
+                        .unwrap();
+                }
+                assert_eq!(
+                    stop.load(Ordering::Acquire),
+                    kind != "context" && group.is_some(),
+                    "{kind}"
+                );
+                assert_eq!(manager.state.lock().unwrap().queue.len(), 1);
+            }
+        }
     }
 }

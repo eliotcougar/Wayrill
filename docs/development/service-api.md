@@ -41,6 +41,9 @@ merging a concurrent edit; never retry a stale save as an unconditional overwrit
 Large subscription documents use bounded reads/staging and a validated commit.
 The accepted source/hash and applied revision distinguish library changes from
 activation. A disconnected UI does not cancel healthy service-owned maintenance.
+Background context updates coalesce without holding the library-save lane.
+Explicit library saves and outbound assignments interrupt maintenance checks or
+downloads; their completed work is retained and drained before the edit runs.
 
 Settings methods select Windows scope explicitly. Clear/Restore are distinct:
 clear changes the selected channel, restore checks its owned snapshot. Resource
