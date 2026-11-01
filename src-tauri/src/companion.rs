@@ -154,7 +154,7 @@ pub async fn companion_open(target: String, browser: Option<String>) -> Result<(
         || browser.as_ref().is_some_and(|b| {
             !matches!(
                 b.as_str(),
-                "edge" | "chrome" | "opera" | "brave" | "vivaldi" | "chromium"
+                "edge" | "chrome" | "opera" | "brave" | "vivaldi" | "chromium" | "firefox"
             )
         })
     {

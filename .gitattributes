@@ -2,6 +2,7 @@
 *.png binary
 *.ico binary
 *.wasm binary
+*.xpi binary
 # The core build verifies these exact source bytes, not normalized text.
 service/xray-patches/*.patch -text -whitespace
 service/core-init/*.go -text whitespace=cr-at-eol

@@ -24,6 +24,7 @@ sharing boundaries and capture behavior.
 | Import subscriptions and build reusable groups/chains | [Stash and subscriptions](guide/stash.md) |
 | Test a route or inspect traffic rates/history | [Testing and statistics](guide/testing-statistics.md) |
 | Inspect a browser page's domains and recent routes | [Browser Companion preview](guide/browser-companion.md) |
+| Understand Companion's local data use | [Companion privacy](guide/companion-privacy.md) |
 | Select/update GeoSite/GeoIP files or change shared defaults | [Resources and defaults](guide/resources-defaults.md) |
 | Back up, move or restore a configuration/filter | [Backup and restore](guide/backups.md) |
 | Find a failed route, read logs or report a bug | [Troubleshooting](guide/troubleshooting.md) |
@@ -49,6 +50,8 @@ The development references cover [tests](development/testing.md),
 [graph compilation](development/graph-compiler.md) and
 [connection layout](development/edge-routing.md). Frontend appearance follows the
 [styling guide](development/styling.md).
+Firefox add-on builds, validation and submission follow the
+[signing guide](development/firefox-signing.md).
 
 Core contributors should read the [integration guide](development/xray-integration.md),
 [customization inventory](development/xray-customizations.md),

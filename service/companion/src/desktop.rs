@@ -8,7 +8,10 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::CloseHandle,
-    System::Threading::{CreateProcessW, CREATE_NO_WINDOW, PROCESS_INFORMATION, STARTUPINFOW},
+    System::Threading::{
+        CreateProcessW, CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, PROCESS_INFORMATION,
+        STARTUPINFOW,
+    },
 };
 
 pub fn locate(directory: &Path, program_files: Option<&OsStr>) -> Option<PathBuf> {
@@ -52,7 +55,7 @@ fn command_line(exe: &Path, args: &[&str]) -> Vec<u16> {
     line
 }
 
-pub fn launch(exe: &Path, args: &[&str]) -> io::Result<()> {
+pub fn launch(exe: &Path, args: &[&str], breakaway: bool) -> io::Result<()> {
     let app: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
     let mut line = command_line(exe, args);
     let startup = STARTUPINFOW {
@@ -71,7 +74,14 @@ pub fn launch(exe: &Path, args: &[&str]) -> io::Result<()> {
             ptr::null(),
             ptr::null(),
             0,
-            CREATE_NO_WINDOW,
+            // Firefox kills its native host job on disconnect. The desktop
+            // must outlive that job. Chromium does not require breakaway.
+            CREATE_NO_WINDOW
+                | if breakaway {
+                    CREATE_BREAKAWAY_FROM_JOB
+                } else {
+                    0
+                },
             ptr::null(),
             ptr::null(),
             &startup,

@@ -1,22 +1,25 @@
 /** @typedef {{outbound:string, action?:'block'|'route', instanceId?:string, generation?:number, revision?:number, port:number, transport:string, timestampMs:number, source:string, path:{filterId?:string,ruleId?:string|null,rule:string,output:string}[], pathTruncated:boolean}} Match */
 /** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[], extensionVersion?:string}} Routes */
 
+import { extensionApi } from './api.js';
+
 /** The installed bridge identifies its matching package independently of the
  * routing service. Reload only when this copy's files have actually been updated.
  * @param {string|undefined} version */
 export async function reloadUpdatedBundle(version) {
   if (!version) return false;
-  const loaded = chrome.runtime.getManifest();
+  const api = extensionApi();
+  const loaded = api.runtime.getManifest();
   if (version === loaded.version) return false;
   try {
-    const response = await fetch(chrome.runtime.getURL('manifest.json'), {
+    const response = await fetch(api.runtime.getURL('manifest.json'), {
       cache: 'no-store',
       signal: AbortSignal.timeout(2000),
     });
     if (!response.ok) return false;
     const installed = await response.json();
     if (installed.version !== version || installed.key !== loaded.key) return false;
-    chrome.runtime.reload();
+    api.runtime.reload();
     return true;
   } catch {
     return false;
@@ -59,7 +62,8 @@ export class NativeClient {
     if (this.pending)
       return Promise.reject(new Error('A Companion request is already in progress.'));
     if (!this.port) {
-      const port = chrome.runtime.connectNative('com.wayrill.companion');
+      const api = extensionApi();
+      const port = api.runtime.connectNative('com.wayrill.companion');
       this.port = port;
       port.onMessage.addListener((message) => {
         if (this.port !== port) return;
@@ -88,7 +92,7 @@ export class NativeClient {
           );
       });
       port.onDisconnect.addListener(() => {
-        const error = chrome.runtime.lastError?.message;
+        const error = api.runtime.lastError?.message;
         if (this.port !== port) return;
         this.fail(
           new Error(

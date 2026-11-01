@@ -29,15 +29,21 @@ try{
  $hash=[Security.Cryptography.SHA256]::Create();try{$hex=([BitConverter]::ToString($hash.ComputeHash([Convert]::FromBase64String($manifest.key)))).Replace('-','').Substring(0,32)}finally{$hash.Dispose()}
  $computed=-join @($hex.ToCharArray()|ForEach-Object {[char](97+[Convert]::ToInt32([string]$_,16))})
  Assert-Companion ($computed -ceq $script:CompanionId) 'Bundled manifest must retain the registered stable ID.'
+ $firefox=Get-Content -Raw -Encoding UTF8 (Join-Path $project 'extensions/companion/firefox.json')|ConvertFrom-Json
+ Assert-Companion ($firefox.gecko.id -ceq $script:CompanionFirefoxId) 'The Firefox native allowlist must match the signing identity.'
  foreach($share in @($false,$true)){
   $script:shared=$share;$script:registry=@{};$script:writes=0
   $state=Set-CompanionRegistration
   Assert-Companion $state.registered 'All shared browser families must be registered.'
+  $firefoxNative=Get-Content -Raw -Encoding UTF8 (Join-Path $script:CompanionRoot 'com.wayrill.companion.firefox.json')|ConvertFrom-Json
+  Assert-Companion ($firefoxNative.allowed_extensions.Count -eq 1 -and $firefoxNative.allowed_extensions[0] -ceq $script:CompanionFirefoxId -and -not $firefoxNative.allowed_origins) 'Firefox authorizes only its signed add-on ID, never Chromium origins.'
   Assert-Companion ($state.origins.Count -eq 1 -and $state.origins[0] -ceq $script:CompanionId) 'Only stable origin is enabled by default.'
   $state=Set-CompanionRegistration -Id ('b'*32)
   Assert-Companion ($state.origins.Count -eq 2) 'An explicitly supplied legacy ID is allowed.'
   $state=Set-CompanionRegistration -Id ('c'*32)
   Assert-Companion ($state.origins.Count -eq 3 -and $state.origins -contains ('b'*32)) 'Connecting an Opera copy preserves the already authorized Chrome copy.'
+  $firefoxNative=Get-Content -Raw -Encoding UTF8 (Join-Path $script:CompanionRoot 'com.wayrill.companion.firefox.json')|ConvertFrom-Json
+  Assert-Companion ($firefoxNative.allowed_extensions.Count -eq 1 -and $firefoxNative.allowed_extensions[0] -ceq $script:CompanionFirefoxId) 'Adding Chromium copies does not broaden Firefox authorization.'
   $state=Set-CompanionRegistration
   Assert-Companion ($state.origins.Count -eq 1) 'Use bundled copy revokes older IDs.'
   $state=Set-CompanionRegistration -Remove

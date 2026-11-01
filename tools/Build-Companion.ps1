@@ -21,9 +21,11 @@ try {
 } finally { $env:RUSTFLAGS = $taskPreviousFlags }
 $taskExtension = Join-Path $taskOutput 'extension'
 New-Item -ItemType Directory -Path $taskExtension -Force | Out-Null
-foreach ($taskFile in @('manifest.json', 'background.js', 'capture.js', 'native.js', 'popup.js', 'popup.html', 'popup.css', 'mark.svg', 'icon.png')) {
-    Copy-Item -LiteralPath (Join-Path $taskProject "extensions/companion/$taskFile") -Destination $taskExtension -Force
-}
+& node (Join-Path $PSScriptRoot 'Build-CompanionExtension.mjs') --browser chromium --output $taskExtension
+if ($LASTEXITCODE) { throw 'Chromium extension packaging failed.' }
+& node (Join-Path $PSScriptRoot 'Build-CompanionExtension.mjs') --browser firefox --output (Join-Path $taskOutput 'firefox-extension')
+if ($LASTEXITCODE) { throw 'Firefox extension packaging failed.' }
+& (Join-Path $PSScriptRoot 'Copy-FirefoxCompanion.ps1') -SourceDirectory (Join-Path $taskOutput 'firefox-extension') -Destination (Join-Path $taskOutput 'companion-firefox.xpi')
 Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release/wayrill-companion.exe') -Destination $taskOutput -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Register-Companion.ps1') -Destination $taskOutput -Force
 Copy-Item -LiteralPath (Join-Path $taskProject 'service/scripts/Companion-Setup.ps1') -Destination $taskOutput -Force
@@ -38,13 +40,19 @@ The installed app includes these files. Prefer Settings > Browser Companion to
 enable/repair or disconnect the shared native bridge and open the extension manager.
 
 Standalone setup:
+Firefox: install `companion-firefox.xpi` through about:addons. The `firefox-extension`
+folder is readable source for temporary development loading via about:debugging,
+not a permanently installable signed add-on. Native bridge registration below is
+shared by Firefox and Chromium. Data stays local; Firefox's browsingActivity
+declaration covers destination hostnames sent to the local Wayrill app.
+
 1. Open chrome://extensions, edge://extensions or opera://extensions and enable Developer mode.
 2. Choose Load unpacked and select this package's `extension` folder.
 3. From this package folder, run Windows PowerShell:
 
    powershell -NoProfile -ExecutionPolicy Bypass -File ./Register-Companion.ps1
 
-   Edge, Chrome, Opera, Chromium and compatible browsers share this connection.
+   Firefox, Edge, Chrome, Opera, Chromium and compatible browsers share this connection.
    Registration is for the current
    Windows user only, with host manifests under LocalAppData\Wayrill\Companion.
    For the installed host, pass -HostPath "C:\Program Files\Wayrill\Service\wayrill-companion.exe".

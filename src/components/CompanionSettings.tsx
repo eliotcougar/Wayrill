@@ -69,6 +69,8 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
   const blocked = !desktop || busy;
   const available = !!status?.available;
   const selected = status?.browsers.find((item) => item.id === browser);
+  const firefox = browser === 'firefox';
+  const extensionPath = firefox ? status?.firefoxPath : status?.extensionPath;
   const customId = legacyId.trim();
   const validCustomId = /^[a-p]{32}$/.test(customId);
   const hasCustomCopies = status?.origins.some((id) => id !== status.extensionId);
@@ -101,7 +103,7 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
                 : 'Bridge status unavailable'}
           </p>
           <p className="field-help">
-            The bridge is shared by Chromium browsers. Disconnecting affects all of them.
+            Firefox and Chromium browsers share this bridge. Disconnecting affects all of them.
           </p>
           <div className="action-row">
             <button
@@ -145,7 +147,9 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
         </section>
 
         <section className="companion-section" aria-labelledby="companion-browser-heading">
-          <h3 id="companion-browser-heading">Load the extension</h3>
+          <h3 id="companion-browser-heading">
+            {firefox ? 'Install the extension' : 'Load the extension'}
+          </h3>
           <div className="form-row">
             <label className="editor-field">
               <span>Browser</span>
@@ -173,14 +177,23 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
             </button>
           </div>
           <ol className="companion-steps">
-            <li>In the browser, enable Developer mode and choose Load unpacked.</li>
-            <li>Select the bundled extension folder. Remove older Companion copies there.</li>
+            {firefox ? (
+              <>
+                <li>In Add-ons Manager, choose Install Add-on From File.</li>
+                <li>Select the Mozilla-signed Wayrill Companion XPI.</li>
+              </>
+            ) : (
+              <>
+                <li>In the browser, enable Developer mode and choose Load unpacked.</li>
+                <li>Select the bundled extension folder. Remove older Companion copies there.</li>
+              </>
+            )}
           </ol>
           <div className="form-row">
             <label className="editor-field">
-              <span>Extension folder</span>
+              <span>{firefox ? 'Signed extension' : 'Extension folder'}</span>
               <input
-                value={status?.extensionPath ?? ''}
+                value={extensionPath ?? ''}
                 readOnly
                 spellCheck={false}
                 onFocus={(event) => event.currentTarget.select()}
@@ -188,12 +201,14 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
             </label>
             <button
               className="icon-button"
-              aria-label="Copy extension folder"
-              disabled={blocked || !status?.extensionPath}
+              aria-label={firefox ? 'Copy signed extension path' : 'Copy extension folder'}
+              disabled={blocked || !extensionPath}
               onClick={() =>
                 void perform(async () => {
-                  await navigator.clipboard.writeText(status!.extensionPath);
-                  setMessage('Extension folder copied.');
+                  await navigator.clipboard.writeText(extensionPath!);
+                  setMessage(
+                    firefox ? 'Signed extension path copied.' : 'Extension folder copied.',
+                  );
                 })
               }
             >
@@ -201,8 +216,10 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
             </button>
             <button
               className="secondary-button"
-              disabled={blocked || !available}
-              onClick={() => void perform(() => openCompanion('folder'))}
+              disabled={blocked || !extensionPath}
+              onClick={() =>
+                void perform(() => openCompanion('folder', firefox ? 'firefox' : undefined))
+              }
             >
               <FolderOpen size={16} />
               Open folder
@@ -214,7 +231,7 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
         </section>
 
         <details className="editor-advanced settings-advanced">
-          <summary>Older or custom copy</summary>
+          <summary>Older or custom Chromium copy</summary>
           <p className="field-help">Paste the ID of an already loaded copy to authorize it.</p>
           <div className="form-row">
             <label className="editor-field">

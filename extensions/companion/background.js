@@ -1,9 +1,12 @@
 import { Capture } from './capture.js';
+import { extensionApi } from './api.js';
+
+const api = extensionApi();
 
 /** @type {Capture} */
 let capture;
 let storageError = '';
-const ready = Promise.all([chrome.storage.session.get('pages'), chrome.tabs.query({})])
+const ready = Promise.all([api.storage.session.get('pages'), api.tabs.query({})])
   .then(([saved, tabs]) => {
     const open = new Set(tabs.filter((tab) => !tab.incognito).map((tab) => tab.id));
     const pages = /** @type {import('./capture.js').Page[]} */ (
@@ -33,7 +36,7 @@ function change(action) {
           writes = writes
             .then(async () => {
               await lane;
-              await chrome.storage.session.set({ pages: [...capture.pages.values()] });
+              await api.storage.session.set({ pages: [...capture.pages.values()] });
               storageError = '';
             })
             .catch(() => {
@@ -50,43 +53,43 @@ function change(action) {
 
 const filter = { urls: ['<all_urls>'] };
 // An unpacked upgrade can start new code before its cached manifest is reloaded.
-chrome.webNavigation?.onCommitted.addListener((navigation) => {
+api.webNavigation.onCommitted.addListener((navigation) => {
   change(() => {
     capture.committed(navigation);
   });
 });
-chrome.webRequest.onBeforeRequest.addListener((request) => {
+api.webRequest.onBeforeRequest.addListener((request) => {
   if (request.tabId < 0) return;
   change(() => {
     capture.before(request);
   });
 }, filter);
-chrome.webRequest.onCompleted.addListener((request) => {
+api.webRequest.onCompleted.addListener((request) => {
   if (request.tabId < 0) return;
   change(() => {
     capture.finish(request, false);
   });
 }, filter);
-chrome.webRequest.onErrorOccurred.addListener((request) => {
+api.webRequest.onErrorOccurred.addListener((request) => {
   if (request.tabId < 0) return;
   change(() => {
     capture.finish(request, true);
   });
 }, filter);
-chrome.tabs.onRemoved.addListener((tabId) => {
+api.tabs.onRemoved.addListener((tabId) => {
   change(() => {
     capture.pages.delete(tabId);
   });
 });
-chrome.tabs.onReplaced.addListener((_added, removed) => {
+api.tabs.onReplaced?.addListener((_added, removed) => {
   change(() => {
     capture.pages.delete(removed);
   });
 });
-chrome.runtime.onMessage.addListener((message, sender, respond) => {
+api.runtime.onMessage.addListener((message, sender, respond) => {
   if (
-    sender.id !== chrome.runtime.id ||
-    sender.url !== chrome.runtime.getURL('popup.html') ||
+    sender.id !== api.runtime.id ||
+    sender.url !== api.runtime.getURL('popup.html') ||
     message?.type !== 'snapshot' ||
     !Number.isInteger(message.tabId)
   )

@@ -1,4 +1,4 @@
-//! Chromium native messaging host. No arbitrary service calls, shell, or HTTP listener.
+//! Browser native messaging host. No arbitrary service calls, shell, or HTTP listener.
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
@@ -36,7 +36,7 @@ fn decode(bytes: &[u8]) -> Result<Request> {
     }
     Ok(request)
 }
-fn edit_domain(params: &Value) -> Result<Value> {
+fn edit_domain(params: &Value, firefox: bool) -> Result<Value> {
     let exe = std::env::current_exe()
         .map_err(|_| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot locate Wayrill."))?;
     let directory = exe
@@ -52,8 +52,12 @@ fn edit_domain(params: &Value) -> Result<Value> {
             "Install Wayrill to use its rule editor.",
         )
     })?;
-    desktop::launch(&desktop, &["--companion-domain", &params.to_string()])
-        .map_err(|_| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot open Wayrill's rule editor."))?;
+    desktop::launch(
+        &desktop,
+        &["--companion-domain", &params.to_string()],
+        firefox,
+    )
+    .map_err(|_| ApiError::new("DESKTOP_UNAVAILABLE", "Cannot open Wayrill's rule editor."))?;
     Ok(json!({"opened":true}))
 }
 fn read_frame(reader: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
@@ -88,7 +92,7 @@ fn write_frame(writer: &mut impl Write, value: &Value) -> io::Result<()> {
 }
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // Chrome enforces the manifest's exact extension-origin allowlist. The service
+    // Browsers enforce the manifest's exact extension allowlist. The service
     // independently authenticates this normal-user process via its existing pipe.
     // stdout belongs exclusively to binary-framed messages, including on failure.
     if let Err(error) = run().await {
@@ -100,13 +104,20 @@ async fn run() -> io::Result<()> {
     // bridge remains compatible; upgraded files can reload their unpacked copy.
     let extension: Value =
         serde_json::from_str(include_str!("../../../extensions/companion/manifest.json"))?;
+    let gecko: Value =
+        serde_json::from_str(include_str!("../../../extensions/companion/firefox.json"))?;
+    // Firefox passes the host manifest path, then the add-on ID. This selects
+    // its job-lifetime behavior, not authorization or a caller-supplied command.
+    let firefox = std::env::args()
+        .nth(2)
+        .is_some_and(|id| gecko["gecko"]["id"] == id);
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
     while let Some(bytes) = read_frame(&mut input)? {
         let (id, result) = match decode(&bytes) {
             Ok(request) => {
                 let result = if request.method == "editDomain" {
-                    edit_domain(&request.params)
+                    edit_domain(&request.params, firefox)
                 } else {
                     tokio::time::timeout(
                         std::time::Duration::from_secs(5),
@@ -228,6 +239,7 @@ mod tests {
                         "tests::desktop_children_do_not_hold_browser_pipes",
                         r#"{"domain":"пример.test","id":"a\\b\"c\\"}"#,
                     ],
+                    false,
                 )
                 .unwrap();
                 wait(&root.join("ready"));

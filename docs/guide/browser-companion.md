@@ -1,6 +1,6 @@
 # Wayrill Companion (preview)
 
-Companion is a Manifest V3 extension for Chrome-based browsers on Windows. Click
+Companion is a Manifest V3 extension for Firefox and Chrome-based browsers on Windows. Click
 its toolbar button to inspect domains requested by the **current tab**, including
 subframes and WebSocket handshakes. Expand a domain for request types, counts,
 cache/error counts, and last known Wayrill routes, including Block.
@@ -10,6 +10,23 @@ cache/error counts, and last known Wayrill routes, including Block.
 Open **Settings > Browser Companion** in Wayrill. The installer includes the
 extension and bridge; downloading a separate package or running PowerShell is
 not required.
+
+### Firefox
+
+Choose **Enable bridge**, select Firefox and open its Add-ons Manager. Choose
+**Install Add-on From File** and select the bundled `companion-firefox.xpi`.
+Wayrill's **Open folder** button selects this signed file in Explorer; the path
+can also be copied into Firefox's file picker. Accept
+the requested permissions, reload a webpage and click Companion's toolbar button.
+Firefox does not use the Chromium unpacked folder or Developer mode. The unsigned
+signing ZIP is for Mozilla submission, not permanent installation.
+
+Firefox's **Browsing activity** permission covers sending destination hostnames
+to the local Wayrill app. It does not authorize remote uploads; see
+[Companion privacy](companion-privacy.md). A signed Firefox update is installed
+by Firefox or from a newer signed XPI, independently of Windows app updates.
+
+### Chromium browsers
 
 1. Choose **Enable bridge**. Setup registers the native host for the current
    Windows user; it does not require Administrator privileges or restart routing.
@@ -33,7 +50,8 @@ not required.
    An app upgrade disconnects open bridge sessions before replacing their files;
    browsers can stay open. The popup reconnects when the new bridge is available.
 
-The native bridge is shared: Chrome and Opera use the same registry location,
+The native bridge is shared: Firefox has a separate Mozilla registration and
+add-on allowlist; Chrome and Opera use the same registry location,
 while Edge can also use fallback registrations. **Bridge registered** reports
 registration, not proof that an extension is loaded or that browser traffic is
 routed through Wayrill. Open the Companion popup to verify its connection.

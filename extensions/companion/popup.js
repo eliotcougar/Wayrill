@@ -1,5 +1,8 @@
 import { hostname } from './capture.js';
+import { extensionApi } from './api.js';
 import { BridgeError, NativeClient, reloadUpdatedBundle } from './native.js';
+
+const api = extensionApi();
 
 /** @param {string} id */
 function element(id) {
@@ -29,7 +32,7 @@ let snapshotRequest;
  * @param {number} tabId @returns {Promise<Snapshot|null>} */
 async function readSnapshot(tabId) {
   if (snapshotRequest?.tabId !== tabId) {
-    const promise = chrome.runtime.sendMessage({ type: 'snapshot', tabId }).catch(() => null);
+    const promise = api.runtime.sendMessage({ type: 'snapshot', tabId }).catch(() => null);
     snapshotRequest = { tabId, promise };
     void promise.finally(() => {
       if (snapshotRequest?.promise === promise) snapshotRequest = undefined;
@@ -204,7 +207,7 @@ async function refresh() {
   clearTimeout(timer);
   busy = true;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await api.tabs.query({ active: true, currentWindow: true });
     if (!hostname(tab?.url ?? '') || tab?.id == null || tab.incognito) {
       page = null;
       routes = null;
@@ -330,7 +333,7 @@ element('setup-button').addEventListener('click', () => {
   setup.hidden = !setup.hidden;
   element('setup-button').setAttribute('aria-expanded', String(!setup.hidden));
 });
-element('extension-id').textContent = chrome.runtime.id;
+element('extension-id').textContent = api.runtime.id;
 window.addEventListener('pagehide', () => {
   closed = true;
   clearTimeout(timer);

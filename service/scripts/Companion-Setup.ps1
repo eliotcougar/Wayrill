@@ -2,19 +2,21 @@ param(
  [ValidateSet('Status','Register','Unregister','Open')][string]$Action='Status',
  [string]$ExtensionId,
  [ValidateSet('folder','browser')][string]$Target='folder',
- [ValidateSet('edge','chrome','opera','brave','vivaldi','chromium')][string]$Browser='edge',
+ [ValidateSet('edge','chrome','opera','brave','vivaldi','chromium','firefox')][string]$Browser='edge',
  [string]$PackageRoot,
  [string]$HostPath
 )
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $script:CompanionId='hkhklldpeeeofokflocodjhfifcbpicc'
+$script:CompanionFirefoxId='wayrill-companion@eliotcougar.github.io'
 $script:CompanionName='com.wayrill.companion'
-$script:CompanionFamilies=[ordered]@{chrome='Software\Google\Chrome';edge='Software\Microsoft\Edge';chromium='Software\Chromium';brave='Software\BraveSoftware\Brave-Browser'}
+$script:CompanionFamilies=[ordered]@{chrome='Software\Google\Chrome';edge='Software\Microsoft\Edge';chromium='Software\Chromium';brave='Software\BraveSoftware\Brave-Browser';firefox='Software\Mozilla'}
 if(-not $PackageRoot){$PackageRoot=Split-Path $PSScriptRoot -Parent}
 $script:CompanionPackage=[IO.Path]::GetFullPath($PackageRoot)
 $script:CompanionHost=if($HostPath){[IO.Path]::GetFullPath($HostPath)}else{Join-Path $script:CompanionPackage 'wayrill-companion.exe'}
 $script:CompanionExtension=Join-Path $script:CompanionPackage 'companion-extension'
+$script:CompanionFirefox=Join-Path $script:CompanionPackage 'companion-firefox.xpi'
 if(-not(Test-Path -LiteralPath $script:CompanionExtension)){$script:CompanionExtension=Join-Path $script:CompanionPackage 'extension'}
 $script:CompanionRoot=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Wayrill\Companion'
 function Test-CompanionId([string]$Id){return $Id -cmatch '^[a-p]{32}$'}
@@ -53,7 +55,7 @@ function Read-CompanionManifest([string]$Path){
 function Test-CompanionOwnedPath([string]$Path){
  if(-not(Test-CompanionLocalPath $Path)){return $false}
  $full=[IO.Path]::GetFullPath($Path)
- return (Split-Path $full -Parent) -ieq $script:CompanionRoot -and (Split-Path $full -Leaf) -match '^com\.wayrill\.companion\.(chrome|edge|chromium|brave|opera)\.json$'
+ return (Split-Path $full -Parent) -ieq $script:CompanionRoot -and (Split-Path $full -Leaf) -match '^com\.wayrill\.companion\.(chrome|edge|chromium|brave|opera|firefox)\.json$'
 }
 function Test-CompanionOwned($Slot){
  if($Slot.extra){return $false}
@@ -64,20 +66,21 @@ function Test-CompanionOwned($Slot){
  if(Test-CompanionOwnedPath ([string]$Slot.value)){
   return -not $manifest -or (-not $manifest.name -or $manifest.name -eq $script:CompanionName)
  }
- if(-not $manifest -and (Test-CompanionLocalPath ([string]$Slot.value)) -and (Split-Path ([string]$Slot.value) -Leaf) -match '^com\.wayrill\.companion(\.(chrome|edge|chromium|brave|opera))?\.json$'){return $true}
+ if(-not $manifest -and (Test-CompanionLocalPath ([string]$Slot.value)) -and (Split-Path ([string]$Slot.value) -Leaf) -match '^com\.wayrill\.companion(\.(chrome|edge|chromium|brave|opera|firefox))?\.json$'){return $true}
  return $manifest -and $manifest.name -eq $script:CompanionName -and $manifest.type -eq 'stdio' -and
   $manifest.description -eq 'Wayrill Companion read-only route observations' -and
   (Split-Path ([string]$manifest.path) -Leaf) -ieq 'wayrill-companion.exe' -and
-  @($manifest.allowed_origins).Count -ge 1 -and @($manifest.allowed_origins|Where-Object {$_ -cnotmatch '^chrome-extension://[a-p]{32}/$'}).Count -eq 0
+  ((-not $manifest.allowed_extensions -and @($manifest.allowed_origins).Count -ge 1 -and @($manifest.allowed_origins|Where-Object {$_ -cnotmatch '^chrome-extension://[a-p]{32}/$'}).Count -eq 0) -or
+   (-not $manifest.allowed_origins -and @($manifest.allowed_extensions).Count -eq 1 -and $manifest.allowed_extensions[0] -ceq $script:CompanionFirefoxId))
 }
 function Find-CompanionBrowser([string]$Id){
- $exe=switch($Id){edge{'msedge.exe'}chrome{'chrome.exe'}opera{'opera.exe'}brave{'brave.exe'}vivaldi{'vivaldi.exe'}chromium{'chrome.exe'}}
+ $exe=switch($Id){edge{'msedge.exe'}chrome{'chrome.exe'}opera{'opera.exe'}brave{'brave.exe'}vivaldi{'vivaldi.exe'}chromium{'chrome.exe'}firefox{'firefox.exe'}}
  $paths=@()
  foreach($hive in @('CurrentUser','LocalMachine')){foreach($view in @('Registry64','Registry32')){
   $base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$hive,[Microsoft.Win32.RegistryView]::$view)
   try{$key=$base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\App Paths\'+$exe);try{if($key){$candidate=([string]$key.GetValue('')).Trim('"');if($Id -ne 'chromium' -or $candidate -match '[\\/]Chromium[\\/]'){$paths+=$candidate}}}finally{if($key){$key.Dispose()}}}finally{$base.Dispose()}
  }}
- $relative=switch($Id){edge{'Microsoft\Edge\Application\msedge.exe'}chrome{'Google\Chrome\Application\chrome.exe'}opera{'Programs\Opera\launcher.exe';'Opera\launcher.exe'}brave{'BraveSoftware\Brave-Browser\Application\brave.exe'}vivaldi{'Vivaldi\Application\vivaldi.exe'}chromium{'Chromium\Application\chrome.exe'}}
+ $relative=switch($Id){edge{'Microsoft\Edge\Application\msedge.exe'}chrome{'Google\Chrome\Application\chrome.exe'}opera{'Programs\Opera\launcher.exe';'Opera\launcher.exe'}brave{'BraveSoftware\Brave-Browser\Application\brave.exe'}vivaldi{'Vivaldi\Application\vivaldi.exe'}chromium{'Chromium\Application\chrome.exe'}firefox{'Mozilla Firefox\firefox.exe'}}
  foreach($root in @($env:ProgramFiles,${env:ProgramFiles(x86)},$env:LOCALAPPDATA)){if($root){foreach($rel in $relative){$paths+=Join-Path $root $rel}}}
  foreach($path in $paths|Select-Object -Unique){if((Test-CompanionLocalPath $path) -and (Test-Path -LiteralPath $path -PathType Leaf)){return $path}}
  return $null
@@ -94,11 +97,12 @@ function Get-CompanionStatus {
   if(-not(Test-CompanionOwned $slot)){$issues+='An unrelated registration was preserved: '+$slot.family+' ('+$slot.view+').';$registered=$false;continue}
   $manifest=Read-CompanionManifest ([string]$slot.value)
   if($manifest){$origins+=@($manifest.allowed_origins|Where-Object {$_ -cmatch '^chrome-extension://[a-p]{32}/$'}|ForEach-Object {$_.Substring(19,32)})}
-  if(-not $manifest -or $manifest.path -ine $script:CompanionHost -or $manifest.name -ne $script:CompanionName -or $manifest.type -ne 'stdio' -or @($manifest.allowed_origins) -cnotcontains ('chrome-extension://'+$script:CompanionId+'/')){$registered=$false}
+  $authorized=if($slot.family -eq 'firefox'){@($manifest.allowed_extensions) -ccontains $script:CompanionFirefoxId}else{@($manifest.allowed_origins) -ccontains ('chrome-extension://'+$script:CompanionId+'/')}
+  if(-not $manifest -or $manifest.path -ine $script:CompanionHost -or $manifest.name -ne $script:CompanionName -or $manifest.type -ne 'stdio' -or -not $authorized){$registered=$false}
  }
  $manifest=Read-CompanionManifest (Join-Path $script:CompanionExtension 'manifest.json')
  $available=(Test-Path -LiteralPath $script:CompanionHost -PathType Leaf) -and $manifest.name -eq 'Wayrill Companion' -and [bool]$manifest.key
- return [ordered]@{extensionId=$script:CompanionId;version=if($manifest){$manifest.version}else{''};extensionPath=$script:CompanionExtension;hostPath=$script:CompanionHost;available=[bool]$available;registered=[bool]$registered;origins=@($origins|Sort-Object -Unique);issues=$issues;browsers=@(foreach($id in @('edge','chrome','opera','brave','vivaldi','chromium')){[ordered]@{id=$id;name=@{edge='Microsoft Edge';chrome='Google Chrome';opera='Opera';brave='Brave';vivaldi='Vivaldi';chromium='Chromium'}[$id];installed=[bool](Find-CompanionBrowser $id)}})}
+ return [ordered]@{extensionId=$script:CompanionId;version=if($manifest){$manifest.version}else{''};extensionPath=$script:CompanionExtension;firefoxPath=if(Test-Path -LiteralPath $script:CompanionFirefox -PathType Leaf){$script:CompanionFirefox}else{''};hostPath=$script:CompanionHost;available=[bool]$available;registered=[bool]$registered;origins=@($origins|Sort-Object -Unique);issues=$issues;browsers=@(foreach($id in @('edge','chrome','opera','brave','vivaldi','chromium','firefox')){[ordered]@{id=$id;name=@{edge='Microsoft Edge';chrome='Google Chrome';opera='Opera';brave='Brave';vivaldi='Vivaldi';chromium='Chromium';firefox='Mozilla Firefox'}[$id];installed=[bool](Find-CompanionBrowser $id)}})}
 }
 function Write-CompanionFile([string]$Path,[byte[]]$Bytes){
  $temporary=$Path+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
@@ -135,7 +139,9 @@ function Set-CompanionRegistration([switch]$Remove,[string]$Id){
    foreach($family in $script:CompanionFamilies.Keys){
     $path=Join-Path $script:CompanionRoot ($script:CompanionName+'.'+$family+'.json')
     if(-not(Test-CompanionBytes (Read-CompanionBytes $path) $files[$path])){throw 'A manifest changed during setup. Refresh and retry.'}
-    $text=[ordered]@{name=$script:CompanionName;description='Wayrill Companion read-only route observations';path=$script:CompanionHost;type='stdio';allowed_origins=@($ids|ForEach-Object {'chrome-extension://'+$_+'/'})}|ConvertTo-Json -Depth 4
+    $native=[ordered]@{name=$script:CompanionName;description='Wayrill Companion read-only route observations';path=$script:CompanionHost;type='stdio'}
+    if($family -eq 'firefox'){$native.allowed_extensions=@($script:CompanionFirefoxId)}else{$native.allowed_origins=@($ids|ForEach-Object {'chrome-extension://'+$_+'/'})}
+    $text=$native|ConvertTo-Json -Depth 4
     $written[$path]=[Text.UTF8Encoding]::new($false).GetBytes($text)
     $changedFiles+=$path;Write-CompanionFile $path $written[$path]
    }
@@ -167,10 +173,13 @@ function Set-CompanionRegistration([switch]$Remove,[string]$Id){
  return Get-CompanionStatus
 }
 function Open-Companion([string]$Kind,[string]$Id){
- if($Kind -eq 'folder'){if(-not(Test-Path -LiteralPath $script:CompanionExtension -PathType Container)){throw 'Bundled extension folder is unavailable.'};Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -ArgumentList ('"'+$script:CompanionExtension+'"')|Out-Null;return}
+ if($Kind -eq 'folder'){
+  $arguments=if($Id -eq 'firefox'){if(-not(Test-Path -LiteralPath $script:CompanionFirefox -PathType Leaf)){throw 'Bundled signed Firefox extension is unavailable.'};'/select,"'+$script:CompanionFirefox+'"'}else{if(-not(Test-Path -LiteralPath $script:CompanionExtension -PathType Container)){throw 'Bundled extension folder is unavailable.'};'"'+$script:CompanionExtension+'"'}
+  Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -ArgumentList $arguments|Out-Null;return
+ }
  $exe=Find-CompanionBrowser $Id
  if(-not $exe){throw 'Browser was not found. Open its Extensions page and load the displayed Companion folder.'}
- $url=switch($Id){edge{'edge://extensions/'}opera{'opera://extensions/'}brave{'brave://extensions/'}vivaldi{'vivaldi://extensions/'}default{'chrome://extensions/'}}
+ $url=switch($Id){edge{'edge://extensions/'}opera{'opera://extensions/'}brave{'brave://extensions/'}vivaldi{'vivaldi://extensions/'}firefox{'about:addons'}default{'chrome://extensions/'}}
  Start-Process -FilePath $exe -ArgumentList $url|Out-Null
 }
 if($MyInvocation.InvocationName -ne '.'){

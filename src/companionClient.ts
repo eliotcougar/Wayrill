@@ -5,6 +5,7 @@ export type CompanionStatus = {
   extensionId: string;
   version: string;
   extensionPath: string;
+  firefoxPath: string;
   hostPath: string;
   available: boolean;
   registered: boolean;

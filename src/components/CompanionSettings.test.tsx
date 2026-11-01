@@ -16,6 +16,7 @@ const status = (patch: Partial<CompanionStatus> = {}): CompanionStatus => ({
   extensionId: stableId,
   version: '0.2.0',
   extensionPath: 'C:\\测试\\Wayrill\\Service\\companion-extension',
+  firefoxPath: 'C:\\测试\\Wayrill\\Service\\companion-firefox.xpi',
   hostPath: 'C:\\测试\\Wayrill\\Service\\wayrill-companion.exe',
   available: true,
   registered: false,
@@ -25,6 +26,7 @@ const status = (patch: Partial<CompanionStatus> = {}): CompanionStatus => ({
     { id: 'edge', name: 'Microsoft Edge', installed: true },
     { id: 'opera', name: 'Opera', installed: true },
     { id: 'brave', name: 'Brave', installed: false },
+    { id: 'firefox', name: 'Mozilla Firefox', installed: true },
   ],
   ...patch,
 });
@@ -178,4 +180,23 @@ it('opens the selected browser, copies the real folder, and explicitly authorize
   expect(invoke).toHaveBeenLastCalledWith('companion_register', { extensionId: customId });
   expect(host.textContent).toContain(customId);
   expect(host.textContent).toContain('resets authorizations for older and custom copies');
+  await act(async () => {
+    browser.value = 'firefox';
+    browser.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click('Open extensions');
+  expect(invoke).toHaveBeenLastCalledWith('companion_open', {
+    target: 'browser',
+    browser: 'firefox',
+  });
+  expect(host.textContent).toContain('Mozilla-signed Wayrill Companion XPI');
+  expect(host.textContent).not.toContain('Load unpacked');
+  expect(host.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe(status().firefoxPath);
+  await click('Open folder');
+  expect(invoke).toHaveBeenLastCalledWith('companion_open', {
+    target: 'folder',
+    browser: 'firefox',
+  });
+  await click('Copy signed extension path');
+  expect(copy).toHaveBeenCalledWith(status().firefoxPath);
 });
