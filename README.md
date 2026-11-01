@@ -41,6 +41,23 @@ another exit, and use a local DNS resolver only for particular domains. A separa
 sharing path can route streaming destinations for a connected TV while leaving
 other shared traffic direct.
 
+## From a webpage to its routing rules
+
+**Browser Companion** brings the graph into your browser. Open it on a page to
+see the domains that page requests, TCP/UDP activity, and Wayrill's last observed
+rule, output and outbound for each destination—including Block decisions.
+
+Found a domain that needs a different route? **Add to rule** opens Wayrill's
+editor, even when only the service is running. Choose an exact-domain or
+subdomain match, edit the entry yourself, or find a GeoSite group containing it.
+Review the change in your draft, then **Apply** when ready.
+
+Companion is bundled with Wayrill for **Firefox and Chromium browsers**. Firefox
+uses a Mozilla-signed add-on; Chromium browsers load the included extension
+folder. Destination data stays on your computer. Route labels are observations
+across this PC's apps and tabs, rather than proof of an individual request's
+route. [Set up Companion](docs/guide/browser-companion.md).
+
 ## What you can do
 
 ### Build rules, then see why a connection took its route
