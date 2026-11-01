@@ -1,7 +1,7 @@
 {
   "name": "wayrill",
   "private": true,
-  "version": "0.32.20",
+  "version": "0.32.21",
   "type": "module",
   "engines": {
     "node": "26.x"

@@ -137,6 +137,11 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   };
   const text = (id) => document.getElementById(id).textContent;
   const settle = () => new Promise((resolve) => setImmediate(resolve));
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const poll = async () => {
+    context.mock.timers.tick(2000);
+    await settle();
+  };
   try {
     await import('./popup.js');
     await settle();
@@ -161,8 +166,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     transports = ['udp'];
     const summary = document.querySelector('.domain summary');
     summary.focus();
-    document.getElementById('refresh').click();
-    await settle();
+    await poll();
     assert.equal(document.activeElement, summary);
     assert.equal(document.querySelector('.add-domain'), add);
     assert.match(
@@ -177,19 +181,16 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     empty = true;
     // A service restart can reuse both generation and applied revision.
     instanceId = 'instance-b';
-    document.getElementById('refresh').click();
-    await settle();
+    await poll();
     assert.match(text('domains'), /Blocked \(Renamed deny output\)/);
     assert.match(text('domains'), /Retained observation; the current route has not been observed/);
     failed = true;
-    document.getElementById('refresh').click();
-    await settle();
+    await poll();
     assert.match(text('domains'), /Blocked \(Renamed deny output\)/);
     assert.equal(text('connection-error'), 'Service unavailable');
     failed = false;
     host = 'next.test';
-    document.getElementById('refresh').click();
-    await settle();
+    await poll();
     assert.match(text('domains'), /next\.test/);
     assert.ok(!text('domains').includes('page.test'));
     assert.match(text('domains'), /No route observed yet/);
@@ -197,11 +198,9 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     // An interrupted upgrade can leave the worker unavailable while the service
     // is still stopped. The repaired local package must not depend on either.
     captureUnavailable = true;
-    document.getElementById('refresh').click();
-    await settle();
+    await poll();
     assert.match(text('capture-warning'), /Request capture is unavailable/);
     assert.match(text('status'), /Wayrill connected/);
-    context.mock.timers.enable({ apis: ['setTimeout'] });
     captureUnavailable = 'pending';
     failed = true;
     extensionVersion = '0.2.2';
@@ -209,8 +208,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
       ok: true,
       json: async () => ({ version: '0.2.2', key: 'bundled-key' }),
     });
-    document.getElementById('refresh').click();
-    await settle();
+    await poll();
     context.mock.timers.tick(60_000);
     await settle();
     assert.equal(reloads, 1);

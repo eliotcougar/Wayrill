@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Wayrill Companion",
   "description": "See the domains requested by the current page and their last known routes observed by Wayrill.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "minimum_chrome_version": "120",
   "permissions": ["webRequest", "webNavigation", "storage", "nativeMessaging"],
   "host_permissions": ["<all_urls>"],

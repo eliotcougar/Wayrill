@@ -67,9 +67,6 @@ button {
   font-size: 12px;
   min-height: 28px;
 }
-.connection button {
-  margin-left: auto;
-}
 .dot {
   flex: 0 0 6px;
   height: 6px;

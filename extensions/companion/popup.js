@@ -287,9 +287,6 @@ async function refresh() {
       }, 2000);
   }
 }
-element('refresh').addEventListener('click', () => {
-  void refresh();
-});
 domains.addEventListener('click', (event) => {
   const button =
     event.target instanceof Element ? event.target.closest('button[data-domain]') : null;
