@@ -102,8 +102,9 @@ The verified installer helper arms this boundary before retiring older services,
 whose legacy Stop may otherwise briefly activate native sharing. A canceled or
 failed upgrade retains protection until routing resumes or explicit handback.
 The coordinator reconciles prior sharing ownership. A fresh keeper only loads
-that state during construction; its native operations run inside the correlated
-command handler, where progress can renew the caller's inactivity timeout.
+that state during construction. Foreground native work runs inside its correlated
+command handler; periodic inspection reports separate maintenance activity while
+a command waits for that inspection to finish.
 
 Opt-in app protection adds a separate service-owned WFP barrier around disruptive
 transitions. Arm it before retiring routing; readiness and owned Windows settings
@@ -218,8 +219,11 @@ There is no total native completion deadline. Private adapter readiness is
 observed until its expected state is stable; the previous four-second failure
 window has been removed. Ownership guards still reject definite foreign changes.
 Reports renew inactivity waits through the contained worker, sharing keeper and
-public service IPC. Short write/silence bounds remain. Only correctly correlated,
-valid phase reports renew them; a progress frame never acknowledges success.
+public service IPC. Short write/silence bounds remain. Matching command reports
+and explicitly typed keeper maintenance reports renew them; neither acknowledges
+success. Maintenance uses reserved ID zero on the private keeper pipe, while only
+a completion matching the outstanding request can commit its observed outcome.
+The keeper response queue is bounded and preserves completions under backpressure.
 
 Scoped observers send a bounded latest-value response channel and lightweight
 `runtime.activity` events without borrowing the kernel again. The UI shows the

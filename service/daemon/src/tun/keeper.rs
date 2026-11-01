@@ -109,10 +109,24 @@ struct Response {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 enum Reply {
+    // Native monitoring can already be running when a request arrives. This
+    // keeps its caller informed while queued; it never acknowledges a command.
+    Maintenance {
+        activity: wayrill_protocol::NativeActivity,
+    },
     Progress {
         activity: wayrill_protocol::NativeActivity,
     },
     Complete(Box<Completion>),
+}
+impl Response {
+    fn activity(&self, request: u64) -> Option<&wayrill_protocol::NativeActivity> {
+        match &self.reply {
+            Reply::Maintenance { activity } if self.id == 0 => Some(activity),
+            Reply::Progress { activity } if self.id == request => Some(activity),
+            _ => None,
+        }
+    }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -128,6 +142,30 @@ struct State {
 struct Completion {
     state: State,
     outcome: Result<Value>,
+}
+fn wait_completion(
+    replies: &mpsc::Receiver<Result<Response>>,
+    id: u64,
+    duration: Duration,
+) -> Result<Completion> {
+    let mut until = Instant::now() + duration;
+    loop {
+        let response = replies
+            .recv_timeout(until.saturating_duration_since(Instant::now()))
+            .map_err(|_| {
+                failure("Sharing operation timed out; its adapter and journal were retained.")
+            })??;
+        if let Some(activity) = response.activity(id) {
+            crate::activity::report(activity.clone());
+            until = Instant::now() + duration;
+            continue;
+        }
+        if response.id == id {
+            if let Reply::Complete(completion) = response.reply {
+                return Ok(*completion);
+            }
+        }
+    }
 }
 type WriteRequest = (Vec<u8>, mpsc::Sender<Result<()>>);
 
@@ -187,7 +225,9 @@ impl Client {
                 }
             }
         });
-        let (outgoing, replies) = mpsc::channel();
+        // Monitoring may report while the coordinator is occupied elsewhere.
+        // Backpressure bounds that history without dropping command completions.
+        let (outgoing, replies) = mpsc::sync_channel(128);
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -329,18 +369,19 @@ impl Client {
         };
         for _ in 0..128 {
             match self.replies.try_recv() {
-                Ok(Ok(Response {
-                    id: response_id,
-                    reply,
-                })) if response_id == id => match reply {
-                    Reply::Progress { activity } => crate::activity::report(activity),
-                    Reply::Complete(completion) => {
-                        self.state = Some(completion.state);
-                        self.uncertain = None;
-                        self.in_flight = None;
-                        return Ok(());
+                Ok(Ok(response)) => {
+                    if let Some(activity) = response.activity(id) {
+                        crate::activity::report(activity.clone());
                     }
-                },
+                    if response.id == id {
+                        if let Reply::Complete(completion) = response.reply {
+                            self.state = Some(completion.state);
+                            self.uncertain = None;
+                            self.in_flight = None;
+                            return Ok(());
+                        }
+                    }
+                }
                 Ok(_) => continue,
                 Err(_) => break,
             }
@@ -372,7 +413,6 @@ impl Client {
                 25
             },
         );
-        let mut until = Instant::now() + duration;
         let (done, written) = mpsc::channel();
         self.writes
             .as_ref()
@@ -383,27 +423,9 @@ impl Client {
         written
             .recv_timeout(duration)
             .map_err(|_| failure("Sharing request timed out; inspect before retrying."))??;
-        loop {
-            let response = self
-                .replies
-                .recv_timeout(until.saturating_duration_since(Instant::now()))
-                .map_err(|_| {
-                    failure("Sharing operation timed out; its adapter and journal were retained.")
-                })??;
-            if response.id != id {
-                continue; // A late completion cannot acknowledge a later mutation.
-            }
-            match response.reply {
-                Reply::Progress { activity } => {
-                    crate::activity::report(activity);
-                    until = Instant::now() + duration;
-                }
-                Reply::Complete(completion) => {
-                    self.in_flight = None;
-                    return Ok(*completion);
-                }
-            }
-        }
+        let completion = wait_completion(&self.replies, id, duration)?;
+        self.in_flight = None;
+        Ok(completion)
     }
     pub(super) fn pid(&self) -> u32 {
         self.child.id()
@@ -1164,7 +1186,19 @@ pub(crate) fn run() -> Result<()> {
             }
             Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let Err(error) = runtime.poll() {
+                let result = crate::activity::observe(
+                    |activity| {
+                        let frame = serde_json::to_string(&Response {
+                            id: 0,
+                            reply: Reply::Maintenance { activity },
+                        })
+                        .unwrap();
+                        let _ = writeln!(std::io::stdout(), "{frame}")
+                            .and_then(|_| std::io::stdout().flush());
+                    },
+                    || runtime.poll(),
+                );
+                if let Err(error) = result {
                     runtime.poll_failure = Some(error);
                     if let Some(advertiser) = runtime.advertiser.take() {
                         if let Err(error) = advertiser.withdraw() {
@@ -1214,6 +1248,46 @@ pub(crate) fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn queued_command_waits_through_native_maintenance_without_treating_it_as_completion() {
+        let (send, replies) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            for elapsed_ms in (50..=300).step_by(50) {
+                std::thread::sleep(Duration::from_millis(50));
+                if send
+                    .send(Ok(Response {
+                        id: 0,
+                        reply: Reply::Maintenance {
+                            activity: wayrill_protocol::NativeActivity {
+                                phase: wayrill_protocol::SharingPhase::CheckSharing,
+                                elapsed_ms,
+                            },
+                        },
+                    }))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            let _ = send.send(Ok(Response {
+                id: 7,
+                reply: Reply::Complete(Box::new(Completion {
+                    state: test_state(false),
+                    outcome: Ok(json!({"completed":true})),
+                })),
+            }));
+        });
+        let observed = std::rc::Rc::new(std::cell::Cell::new(0));
+        let count = observed.clone();
+        let result = crate::activity::observe(
+            move |_| count.set(count.get() + 1),
+            || wait_completion(&replies, 7, Duration::from_millis(250)),
+        );
+        drop(replies);
+        worker.join().unwrap();
+        assert_eq!(result.unwrap().outcome.unwrap(), json!({"completed":true}));
+        assert_eq!(observed.get(), 6);
+    }
     #[test]
     fn exited_keeper_does_not_require_an_impossible_stop_reply() {
         let mut child = Command::new(std::env::current_exe().unwrap())
