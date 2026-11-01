@@ -101,6 +101,7 @@ export class RuntimeSession {
   };
   private listeners = new Set<() => void>();
   private epoch = 0;
+  private transportEpoch = 0;
   private cursor = { instanceId: '', sequence: 0 };
   private fetching: Promise<void> | null = null;
   private refreshRequested = false;
@@ -124,6 +125,7 @@ export class RuntimeSession {
   };
 
   transport = (state: TransportState) => {
+    this.transportEpoch++;
     this.update({
       connected: state.connected,
       ...(!state.connected ? { nativeActivity: undefined } : {}),
@@ -190,7 +192,25 @@ export class RuntimeSession {
       while (this.refreshRequested) {
         this.refreshRequested = false;
         requestEpoch = this.epoch;
-        const view = await this.request<ServiceView>('service.sync');
+        const transportEpoch = this.transportEpoch;
+        let view: ServiceView;
+        try {
+          view = await this.request<ServiceView>('service.sync');
+        } catch (error) {
+          // A reconnect/manual refresh queued behind this request still needs
+          // its turn, even when the old pipe fails instead of returning a view.
+          if (this.refreshRequested) continue;
+          throw error;
+        }
+        if (transportEpoch !== this.transportEpoch) {
+          if (this.state.connected || this.refreshRequested) {
+            this.refreshRequested = true;
+            continue;
+          }
+          throw Object.assign(new Error('Service disconnected during synchronization.'), {
+            code: 'DISCONNECTED',
+          });
+        }
         const { snapshot, profile, hello, subscriptions, sequence } = view;
         const newer =
           snapshot.instanceId === this.cursor.instanceId && sequence < this.cursor.sequence;

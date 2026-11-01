@@ -168,6 +168,56 @@ describe('runtime synchronization', () => {
     expect(env.session.getSnapshot().snapshot?.instanceId).toBe('service-b');
     expect(env.session.getSnapshot().savedRevision).toBe(0);
   });
+  it.each([false, true])(
+    'discards a pre-disconnect reply and honors a fresh queued read (%s)',
+    async (queued) => {
+      const env = service();
+      await env.session.refresh();
+      const delayed = deferred<ServiceView>();
+      env.request.mockImplementationOnce(() => delayed.promise);
+      const refreshing = env.session.refresh();
+      env.session.transport({
+        connected: false,
+        error: { code: 'DISCONNECTED', message: 'Service closed.', retryable: true },
+      });
+      if (queued) {
+        env.set(snapshot(2, 'running'));
+        void env.session.refresh();
+      }
+      delayed.resolve(view(snapshot(1, 'running')));
+      if (queued) {
+        await refreshing;
+        expect(env.session.getSnapshot()).toMatchObject({ connected: true, savedRevision: 2 });
+        return;
+      }
+      await expect(refreshing).rejects.toMatchObject({ code: 'DISCONNECTED' });
+      expect(env.session.getSnapshot().connected).toBe(false);
+      expect(env.session.getSnapshot().snapshot?.core.state).toBe('stopped');
+    },
+  );
+  it('services the reconnect refresh even when the old in-flight sync fails', async () => {
+    const env = service();
+    await env.session.refresh();
+    const delayed = deferred<ServiceView>();
+    env.request.mockImplementationOnce(() => delayed.promise);
+    const refreshing = env.session.refresh();
+    env.session.transport({ connected: false });
+    env.set(snapshot(2, 'running', 'service-b'));
+    env.session.transport({ connected: true });
+    env.session.message({
+      type: 'response',
+      ok: true,
+      result: { snapshot: snapshot(2, 'running', 'service-b'), sequence: 1000 },
+    });
+    delayed.reject(Object.assign(new Error('Old pipe closed.'), { code: 'DISCONNECTED' }));
+    await refreshing;
+    expect(env.session.getSnapshot()).toMatchObject({
+      connected: true,
+      savedRevision: 2,
+      snapshot: { instanceId: 'service-b' },
+    });
+    expect(env.request.mock.calls.filter(([method]) => method === 'service.sync')).toHaveLength(3);
+  });
   it('does not overwrite newer subscription progress with an in-flight refresh', async () => {
     const env = service(),
       old = deferred<ServiceView>();
