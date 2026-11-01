@@ -55,7 +55,8 @@ Standalone setup:
 
 The popup applies to the current tab. Expand a domain for request types/counts
 and last known Wayrill routes, including Block. Observations are matched by exact
-destination across apps/tabs; they do not prove an individual request's route.
+destination across this PC's apps/tabs, excluding Internet-sharing clients;
+they do not prove an individual request's route.
 They retain their observation time/revision across route changes and Stop. They
 remain available in bounded per-domain service memory until eviction or restart;
 an open popup also keeps its last route through empty lookups or bridge failures.

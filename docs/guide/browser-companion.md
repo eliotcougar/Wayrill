@@ -81,16 +81,20 @@ simple graphs show the observed outbound.
 
 The browser associates requests with a tab. Wayrill's in-memory routing log
 records destinations and selected outbounds, without browser tab/request IDs.
-Companion correlates **exact destination hostnames**, including normalized IP
-literals. It shows up to three distinct routes from the last observed revision
-per domain, their port and
-TCP/UDP transport, and the matching rule/output trail. The main core may reveal
-a selected policy member; a capture worker can report only its graph output.
+Companion correlates **exact destination hostnames** from this PC's traffic,
+including normalized IP literals. It shows up to three distinct routes from the
+last observed revision per domain, their port and TCP/UDP transport, and the
+matching rule/output trail. The main core may reveal a selected policy member;
+a capture worker can report only its graph output.
 
-These are observations across applications and tabs, not proof of which route
-carried an individual browser request. **Last known** observations do not expire
-with age. A route change or Stop retains the old observation with its original
-time, revision and generation until a new matching decision is observed. Block
+Internet-sharing clients are excluded, including shared IPv6 handled by the host
+TUN. Their decisions remain in the filters' traffic logs and do not replace this
+PC's retained observations when a TV or another device accesses the same domain.
+
+These are observations across applications and tabs on this PC, not proof of
+which route carried an individual browser request. **Last known** observations
+do not expire with age. A route change or Stop retains the old observation with
+its original time, revision and generation until a new matching decision is observed. Block
 is identified from the observed outbound's protocol, including renamed outputs;
 a browser request failure alone is not evidence of Block.
 

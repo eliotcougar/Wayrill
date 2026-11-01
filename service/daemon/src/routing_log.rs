@@ -73,6 +73,7 @@ struct Route {
     trail: Arc<Vec<Hop>>,
     target: String,
     weight: usize,
+    shared: bool,
 }
 pub struct Session {
     generation: u64,
@@ -83,9 +84,12 @@ pub struct Session {
     blocked: BTreeSet<String>,
 }
 impl Session {
-    pub fn include_aliases(&mut self, aliases: &[(String, String)]) {
+    pub fn include_shared_aliases(&mut self, aliases: &[(String, String)]) {
         for (alias, original) in aliases {
-            if let Some(route) = self.routes.get(original).cloned() {
+            if let Some(mut route) = self.routes.get(original).cloned() {
+                // Shared IPv6 is routed by the host worker; its process/source
+                // alone cannot distinguish it from this PC's traffic.
+                route.shared = true;
                 self.routes.insert(alias.clone(), route);
             }
         }
@@ -190,6 +194,7 @@ pub fn instrument(
                 trail: Arc::new(trail.clone()),
                 target,
                 weight: serde_json::to_vec(trail).map_or(0, |b| b.len()),
+                shared: false,
             },
         );
     }
@@ -207,6 +212,7 @@ struct Row {
     connection_id: Option<String>,
     transport: &'static str,
     source: &'static str,
+    shared: bool,
     event: Option<Arc<(u32, String)>>,
     weight: usize,
 }
@@ -219,8 +225,9 @@ struct State {
     sequence: u64,
     bytes: usize,
     rows: VecDeque<Arc<Row>>,
-    // Retain one last decision per destination independently of connection-log
-    // churn. Both stores have explicit row and byte bounds.
+    // Retain one last host decision per destination independently of log churn.
+    // Shared clients must neither replace nor evict this Companion history.
+    // Both stores have explicit row and byte bounds.
     known: BTreeMap<String, Arc<Row>>,
     known_order: BTreeMap<u64, String>,
     known_bytes: usize,
@@ -340,6 +347,7 @@ impl Log {
                 .map(|id| format!("{generation}/{origin}/{id}")),
             transport: decision.transport,
             source,
+            shared: route.shared || source == "ICS TUN",
             event,
             weight,
         };
@@ -350,6 +358,9 @@ impl Log {
         state.bytes += weight;
         let row = Arc::new(row);
         if let Some(host) = row.destination.rsplit_once(':').and_then(|(host, port)| {
+            if row.shared {
+                return None;
+            }
             port.parse::<u16>().ok()?;
             wayrill_protocol::companion::normalize_host(host).ok()
         }) {
@@ -392,7 +403,7 @@ impl Log {
         rows.reverse();
         json!({"instanceId":instance,"generation":session.map(|s|s.generation),"revision":session.map(|s|s.revision),"state":if state.collecting && configured {"collecting"} else if configured {"stopped"} else {"unconfigured"},"capacity":PAGE,"rows":rows})
     }
-    /// Destination correlation, never an assertion about a browser tab or socket.
+    /// Host destination correlation, never proof about a browser tab or socket.
     /// Keep last known decisions in a bounded per-destination history, including Block.
     /// Each match carries its own revision/generation, even after Stop or activation.
     pub fn companion(&self, hosts: &BTreeSet<String>, instance: &str, now: u64) -> Value {
@@ -404,13 +415,19 @@ impl Log {
         let mut truncated = BTreeSet::new();
         let mut bytes = 0;
         let mut epochs = BTreeMap::new();
-        for row in state.rows.iter().rev().chain(
-            state
-                .known_order
-                .values()
-                .rev()
-                .filter_map(|host| state.known.get(host)),
-        ) {
+        for row in state
+            .rows
+            .iter()
+            .rev()
+            .chain(
+                state
+                    .known_order
+                    .values()
+                    .rev()
+                    .filter_map(|host| state.known.get(host)),
+            )
+            .filter(|row| !row.shared)
+        {
             let Some((host, port)) = row.destination.rsplit_once(':') else {
                 continue;
             };
@@ -705,6 +722,66 @@ mod tests {
         assert_eq!(snapshot["hosts"][0]["matches"][0]["action"], "block");
     }
     #[test]
+    fn companion_excludes_shared_clients_without_losing_local_history() {
+        let log = Log::default();
+        let mut config = config();
+        config["routing"]["rules"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"outboundTag":"block"}));
+        let mut metadata = names();
+        let mut shared = metadata.routing["0"].clone();
+        for hop in &mut shared {
+            hop.filter_id = "tv".into();
+            hop.rule = "TV streaming".into();
+        }
+        metadata.routing.insert("1".into(), shared);
+        log.begin(instrument(&mut config, &metadata, 1, 7));
+        let hosts = BTreeSet::from(["example.org".into(), "tv-only.test".into()]);
+        log.ingest_from(1, 100, "TUN", &line(1, "tcp:example.org:443", "direct"));
+        let shared_line =
+            |destination: &str| line(1, destination, "block").replace("wrr-AQcA", "wrr-AQcB");
+        for destination in ["udp:example.org:443", "tcp:tv-only.test:443"] {
+            log.ingest_from(1, 200, "ICS TUN", &shared_line(destination));
+        }
+        let snapshot = log.companion(&hosts, "instance", 0);
+        assert_eq!(snapshot["hosts"][0]["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["hosts"][0]["matches"][0]["outbound"], "Direct");
+        assert_eq!(
+            snapshot["hosts"][0]["matches"][0]["path"][0]["filterId"],
+            "parent"
+        );
+        assert_eq!(snapshot["hosts"][1]["matches"], json!([]));
+        // Shared-client decisions still belong in their own filter traffic log.
+        assert_eq!(
+            log.snapshot("tv", "instance")["rows"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        for port in 1..=CAPACITY + 10 {
+            log.ingest_from(
+                1,
+                200,
+                "ICS TUN",
+                &shared_line(&format!("udp:example.org:{port}")),
+            );
+        }
+        assert!(!log
+            .state
+            .lock()
+            .unwrap()
+            .rows
+            .iter()
+            .any(|row| row.source == "TUN"));
+        // ICS traffic must neither replace nor evict the retained PC observation.
+        assert_eq!(
+            log.companion(&hosts, "instance", 0)["hosts"],
+            snapshot["hosts"]
+        );
+    }
+    #[test]
     fn live_revisions_keep_late_old_decisions_and_rollback_metadata() {
         let log = Log::default();
         log.begin(instrument(&mut config(), &names(), 1, 7));
@@ -800,16 +877,23 @@ mod tests {
     fn shared_ipv6_alias_keeps_the_original_filter_decision() {
         let log = Log::default();
         let mut session = instrument(&mut config(), &names(), 1, 7).unwrap();
-        session.include_aliases(&[("wrr-AQcA-ics6".into(), "wrr-AQcA".into())]);
+        session.include_shared_aliases(&[("wrr-AQcA-ics6".into(), "wrr-AQcA".into())]);
         log.begin(Some(session));
-        assert!(log.ingest(
+        assert!(log.ingest_from(
             1,
+            100,
+            "TUN",
             &line(1, "tcp:[2001:db8::1]:443", "wi6-A").replace("[wrr-AQcA]", "[wrr-AQcA-ics6]")
         ));
         let rows = log.snapshot("parent", "test");
         assert_eq!(rows["rows"].as_array().unwrap().len(), 1);
         assert_eq!(rows["rows"][0]["rule"], "Web 🌍");
         assert_eq!(rows["rows"][0]["revision"], 7);
+        assert_eq!(
+            log.companion(&BTreeSet::from(["2001:db8::1".into()]), "test", 0)["hosts"][0]
+                ["matches"],
+            json!([])
+        );
     }
     fn names() -> DisplayNames {
         serde_json::from_value(json!({"outbound":{"direct":"Direct","block":"Block"},"routing":{"0":[{"filterId":"parent","ruleId":"web","rule":"Web 🌍","outputId":"inspect","output":"Inspect"},{"filterId":"child","ruleId":null,"rule":"Unmatched traffic","outputId":"direct","output":"Direct"}]}})).unwrap()

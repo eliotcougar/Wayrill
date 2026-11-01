@@ -1984,7 +1984,7 @@ impl Kernel {
             if let Some(plan) = &mut tun_plan {
                 plan.monitor_routing();
                 if let Some(session) = &mut routing_log {
-                    session.include_aliases(&plan.routing_aliases);
+                    session.include_shared_aliases(&plan.routing_aliases);
                 }
             }
         }

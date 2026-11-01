@@ -182,7 +182,7 @@ impl<'a> KernelActivation<'a> {
             return Ok(None);
         };
         if let Some(session) = &mut session {
-            session.include_aliases(&routes.aliases);
+            session.include_shared_aliases(&routes.aliases);
         }
         let new_main = control.routing(&crate::live::main_routing(
             &self.kernel.statistics_bridge.as_ref().unwrap().control_rule,
