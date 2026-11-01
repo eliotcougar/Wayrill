@@ -84,6 +84,8 @@ button {
   max-height: 340px;
   overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  padding-right: 10px;
 }
 .domain {
   border-bottom: 1px solid #283041;
@@ -99,23 +101,58 @@ summary {
 summary::-webkit-details-marker {
   display: none;
 }
+.domain-heading {
+  min-width: 0;
+}
+.domain-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+}
 .domain-name {
   font-weight: 550;
   overflow-wrap: anywhere;
 }
+.protocols {
+  display: inline-flex;
+  align-self: center;
+  gap: 4px;
+}
+.protocol-badge {
+  border: 1px solid #3b506c;
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: #94b9ef;
+  background: #203047;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+}
+.protocol-badge.udp {
+  color: #c0a5ed;
+  border-color: #514165;
+  background: #2c233b;
+}
 .request-count {
+  flex-shrink: 0;
   color: #7f8da5;
   font-size: 11px;
   white-space: nowrap;
   padding-top: 2px;
 }
 .route-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 6px;
   align-items: baseline;
   color: #9babc7;
   font-size: 11px;
   margin-top: 5px;
+}
+.route-line > span {
+  overflow-wrap: anywhere;
 }
 .route-line.observed {
   color: #83d9bd;
@@ -206,6 +243,16 @@ footer {
   }
   .route-line.observed {
     color: #19735c;
+  }
+  .protocol-badge {
+    color: #315d96;
+    border-color: #b3c7e2;
+    background: #e9f0fb;
+  }
+  .protocol-badge.udp {
+    color: #6d4999;
+    border-color: #cbb7e1;
+    background: #f1eafa;
   }
   .domain-body {
     color: #4a5f7c;

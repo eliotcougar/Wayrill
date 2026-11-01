@@ -14,6 +14,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   let failed = false;
   let empty = false;
   let blocked = false;
+  let transports = ['udp', 'tcp', 'udp'];
   let instanceId = 'instance-a';
   let captureUnavailable = false;
   let extensionVersion;
@@ -97,28 +98,32 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
                             host: 'page.test',
                             matches: empty
                               ? []
-                              : [
-                                  {
-                                    outbound: blocked
-                                      ? 'Renamed deny output'
-                                      : '<img src=x onerror=alert(1)>',
-                                    action: blocked ? 'block' : 'route',
-                                    generation: 1,
-                                    revision: 4,
-                                    transport: 'tcp',
-                                    port: 443,
-                                    timestampMs: 1,
-                                    path: [
-                                      {
-                                        filterId: 'filter',
-                                        ruleId: null,
-                                        rule: 'Unmatched traffic',
-                                        output: 'Work',
-                                      },
-                                    ],
-                                    source: 'Xray',
-                                  },
-                                ],
+                              : transports.map((transport) => ({
+                                  outbound: blocked
+                                    ? 'Renamed deny output'
+                                    : '<img src=x onerror=alert(1)>',
+                                  action: blocked ? 'block' : 'route',
+                                  generation: 1,
+                                  revision: 4,
+                                  transport,
+                                  port: 443,
+                                  timestampMs: 1,
+                                  path: [
+                                    {
+                                      filterId: 'filter',
+                                      ruleId: null,
+                                      rule: 'Unmatched traffic',
+                                      output: 'Work',
+                                    },
+                                    {
+                                      filterId: 'regional',
+                                      ruleId: 'foreign',
+                                      rule: 'Foreign sites',
+                                      output: 'US',
+                                    },
+                                  ],
+                                  source: 'Xray',
+                                })),
                           },
                         ],
                       },
@@ -135,7 +140,14 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   try {
     await import('./popup.js');
     await settle();
-    assert.match(text('domains'), /Last known: <img src=x onerror=alert\(1\)>/);
+    assert.equal(
+      document.querySelector('.route-line').textContent,
+      'Unmatched traffic → Work → Foreign sites → US → <img src=x onerror=alert(1)>',
+    );
+    assert.deepEqual(
+      [...document.querySelectorAll('.protocol-badge')].map((badge) => badge.textContent),
+      ['TCP', 'UDP'],
+    );
     assert.equal(document.querySelectorAll('#domains img').length, 0);
     const add = document.querySelector('.add-domain');
     add.click();
@@ -146,25 +158,33 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     assert.equal(document.getElementById('setup').hidden, false);
     assert.equal(text('extension-id'), 'extension-id');
     blocked = true;
+    transports = ['udp'];
     const summary = document.querySelector('.domain summary');
     summary.focus();
     document.getElementById('refresh').click();
     await settle();
     assert.equal(document.activeElement, summary);
     assert.equal(document.querySelector('.add-domain'), add);
-    assert.match(text('domains'), /Last known: Blocked \(Renamed deny output\)/);
+    assert.match(
+      document.querySelector('.route-line').textContent,
+      /US → Blocked \(Renamed deny output\)$/,
+    );
+    assert.deepEqual(
+      [...document.querySelectorAll('.protocol-badge')].map((badge) => badge.textContent),
+      ['UDP'],
+    );
     assert.ok(!text('domains').includes('Retained observation;'));
     empty = true;
     // A service restart can reuse both generation and applied revision.
     instanceId = 'instance-b';
     document.getElementById('refresh').click();
     await settle();
-    assert.match(text('domains'), /Last known: Blocked \(Renamed deny output\)/);
+    assert.match(text('domains'), /Blocked \(Renamed deny output\)/);
     assert.match(text('domains'), /Retained observation; the current route has not been observed/);
     failed = true;
     document.getElementById('refresh').click();
     await settle();
-    assert.match(text('domains'), /Last known: Blocked \(Renamed deny output\)/);
+    assert.match(text('domains'), /Blocked \(Renamed deny output\)/);
     assert.equal(text('connection-error'), 'Service unavailable');
     failed = false;
     host = 'next.test';
@@ -173,6 +193,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     assert.match(text('domains'), /next\.test/);
     assert.ok(!text('domains').includes('page.test'));
     assert.match(text('domains'), /No route observed yet/);
+    assert.equal(document.querySelectorAll('.protocol-badge').length, 0);
     // An interrupted upgrade can leave the worker unavailable while the service
     // is still stopped. The repaired local package must not depend on either.
     captureUnavailable = true;

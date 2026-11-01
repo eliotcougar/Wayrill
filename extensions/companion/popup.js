@@ -79,17 +79,29 @@ function domainRow(domain) {
   const summary = document.createElement('summary');
   const evidence = routes?.hosts.find((item) => item.host === domain.host);
   const matches = evidence?.matches ?? [];
-  const names = [
+  const paths = [
     ...new Set(
       matches.map((match) =>
-        match.action === 'block' ? `Blocked (${match.outbound})` : match.outbound,
+        [
+          ...match.path.flatMap((hop) => [hop.rule, hop.output]),
+          match.action === 'block' ? `Blocked (${match.outbound})` : match.outbound,
+        ].join(' → '),
       ),
     ),
   ];
-  const label = names.length ? `Last known: ${names.join(' · ')}` : 'No route observed yet';
-  const route = node('div', label, `route-line${matches.length ? ' observed' : ''}`);
-  const heading = document.createElement('div');
-  heading.append(node('span', domain.host, 'domain-name'), route);
+  const label = paths.length ? paths.join(' · ') : 'No route observed yet';
+  const route = node('div', '', `route-line${matches.length ? ' observed' : ''}`);
+  route.append(node('span', label));
+  const title = node('div', '', 'domain-title');
+  title.append(node('span', domain.host, 'domain-name'));
+  const transports = new Set(matches.map((match) => match.transport.toLowerCase()));
+  const protocols = node('span', '', 'protocols');
+  for (const protocol of ['tcp', 'udp'])
+    if (transports.has(protocol))
+      protocols.append(node('span', protocol.toUpperCase(), `protocol-badge ${protocol}`));
+  if (protocols.childElementCount) title.append(protocols);
+  const heading = node('div', '', 'domain-heading');
+  heading.append(title, route);
   summary.append(heading, node('span', `${domain.count} req`, 'request-count'));
   const body = node('div', '', 'domain-body');
   const observations = node('div', '', 'domain-observations');
