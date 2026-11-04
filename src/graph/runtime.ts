@@ -39,8 +39,12 @@ import { captureRuleVariants, hasCaptureOnlyApplications, type TableRule } from 
 import { effectiveDefaults, factoryDefaults } from './defaults';
 import { udpListenerEnvironment } from './udpListeners';
 import type { GraphState, RuleNode } from './types';
+import { getRoutingInput, type RoutingInput } from './routingTrace';
+import { jsonRecord } from './xrayJson';
 
 export interface RuntimeCompilation {
+  /** Editor-only provenance, retained across analysis-worker structured cloning. */
+  activityInputs?: Record<string, RoutingInput>;
   resources?: ResourceFilePlan[];
   displayNames?: DisplayNames;
   capture?: CapturePlan;
@@ -81,7 +85,16 @@ export function compileResolvedRuntimeGraph(
   source: GraphState,
   generated = false,
 ): RuntimeCompilation {
-  return sharingIntent(source, compileActiveRuntimeGraph(source, generated));
+  const result = sharingIntent(source, compileActiveRuntimeGraph(source, generated));
+  const routing = result.config.routing;
+  if (jsonRecord(routing) && Array.isArray(routing.rules)) {
+    result.activityInputs = {};
+    routing.rules.forEach((rule: unknown, index: number) => {
+      const input = jsonRecord(rule) ? getRoutingInput(rule) : undefined;
+      if (input) result.activityInputs![index] = input;
+    });
+  }
+  return result;
 }
 function compileActiveRuntimeGraph(source: GraphState, generated: boolean): RuntimeCompilation {
   const active = enabledInboundGraph(source);
@@ -243,6 +256,7 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
     )) {
       rules.push(
         ...paths.expand(paths.connected(input, branch.branch), branch.match, {
+          input: { nodeId: input.id, port: branch.branch },
           terminal: (node) => terminal(node, branch.branch === 'dns'),
           project: (node, row) => project(input, node, row),
         }),
@@ -254,6 +268,7 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
     const target = paths.connected(input, isProtocolInbound(input.data.kind) ? 'traffic' : 'data');
     rules.push(
       ...paths.expand(target, scope, {
+        input: { nodeId: input.id, port: isProtocolInbound(input.data.kind) ? 'traffic' : 'data' },
         terminal,
         project: (node, row) => project(input, node, row),
         onRule: (node, row, fields) => {

@@ -8,8 +8,15 @@ import {
 } from '../outboundTestSettings';
 import { TRAFFIC_UNITS_KEY } from '../trafficUnits';
 import { TRAFFIC_SORTING_KEY } from '../trafficSorting';
+import { GRAPH_ACTIVITY_KEY } from '../graph/activity';
 
-const keys = [THEME_STORAGE_KEY, testSettingsKey, TRAFFIC_UNITS_KEY, TRAFFIC_SORTING_KEY] as const;
+const keys = [
+  THEME_STORAGE_KEY,
+  testSettingsKey,
+  TRAFFIC_UNITS_KEY,
+  TRAFFIC_SORTING_KEY,
+  GRAPH_ACTIVITY_KEY,
+] as const;
 export type Preferences = Partial<Record<(typeof keys)[number], string | null>>;
 
 export function validatePreferences(value: unknown): Preferences {
@@ -24,6 +31,10 @@ export function validatePreferences(value: unknown): Preferences {
       throw new Error('Invalid application preference.');
     if (key === THEME_STORAGE_KEY) {
       if (!['light', 'dark', 'system'].includes(text)) throw new Error('Invalid theme preference.');
+      continue;
+    }
+    if (key === GRAPH_ACTIVITY_KEY) {
+      if (!['true', 'false'].includes(text)) throw new Error('Invalid traffic glow preference.');
       continue;
     }
     let parsed: unknown;

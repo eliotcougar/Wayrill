@@ -57,14 +57,22 @@ export function compileNatRouting(
         ...paths.expand(
           paths.connected(input, dnsPort),
           { inboundTag: [NAT_ROUTING_TAG], network: 'tcp,udp', port: '53' },
-          { terminal: (node) => terminal(node, true), project },
+          {
+            terminal: (node) => terminal(node, true),
+            project,
+            input: { nodeId: input.id, port: dnsPort },
+          },
         ),
       );
     rules.push(
       ...paths.expand(
         paths.connected(input, dataPort),
         { inboundTag: [NAT_ROUTING_TAG] },
-        { terminal: (node) => terminal(node, false), project },
+        {
+          terminal: (node) => terminal(node, false),
+          project,
+          input: { nodeId: input.id, port: dataPort },
+        },
       ),
     );
   }

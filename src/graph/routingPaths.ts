@@ -1,4 +1,9 @@
-import { setRoutingTrace, type RoutingHop } from './routingTrace';
+import {
+  setRoutingInput,
+  setRoutingTrace,
+  type RoutingHop,
+  type RoutingInput,
+} from './routingTrace';
 import { LIMITS } from '../limits';
 import { intersectNativeProcesses, intersectProtocolPrefixes } from './nativePredicates';
 import {
@@ -206,6 +211,7 @@ export function routingPaths(graph: GraphState, initialRules = 0) {
     scope: Fields,
     options: {
       terminal: (node: RuleNode) => Fields;
+      input?: RoutingInput;
       /** A separate authenticated TUN identity follows only explicit ambiguity paths. */
       tunAmbiguity?: { blockTag: string };
       project?: (node: RuleNode, row: TableRule) => Fields | Fields[];
@@ -357,7 +363,7 @@ export function routingPaths(graph: GraphState, initialRules = 0) {
       active.delete(node.id);
     };
     visit(start, scope, true);
-    return rules;
+    return rules.map((rule) => setRoutingInput(rule, options.input));
   }
   return {
     connected,

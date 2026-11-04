@@ -465,6 +465,7 @@ export function compileXrayGraph(
       start,
       { inboundTag: [String(input.data.settings.tag)] },
       {
+        input: { nodeId: input.id, port: 'traffic' },
         terminal: (destination) => ({
           [destination.data.kind === 'policy-group' ? 'balancerTag' : 'outboundTag']: String(
             destination.data.settings.tag,

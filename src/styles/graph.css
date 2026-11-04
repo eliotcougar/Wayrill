@@ -216,6 +216,42 @@
 .react-flow__edge-interaction {
   stroke-width: 18px;
 }
+/* Layered strokes give a soft halo without a per-edge SVG blur/filter surface.
+   Only opacity transitions; no frame loop, moving dashes or layout animation. */
+.edge-activity,
+.rule-node .react-flow__handle {
+  --activity-heat: color-mix(in oklab, currentColor 25%, var(--graph-heat));
+  --activity-core: color-mix(in oklab, currentColor 15%, var(--graph-heat-core));
+}
+.edge-activity {
+  stroke: var(--activity-heat);
+  transition: opacity 1.8s ease-in-out;
+}
+.rule-node .react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: var(--activity-core);
+  box-shadow:
+    0 0 7px 3px var(--activity-heat),
+    0 0 17px 5px var(--activity-heat);
+  opacity: var(--traffic-glow, 0);
+  pointer-events: none;
+  transition: opacity 1.8s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-activity,
+  .rule-node .react-flow__handle::after {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .edge-activity,
+  .rule-node .react-flow__handle::after {
+    display: none;
+  }
+}
 .canvas-controls {
   bottom: 7px !important;
   right: 7px !important;
