@@ -1,7 +1,7 @@
 import { inboundPreFilters } from './inbounds';
 import type { RuleNode } from './types';
 import { LIMITS } from '../limits';
-import { copyRoutingTrace } from './routingTrace';
+import { copyRoutingTrace, setRoutingInput } from './routingTrace';
 import { jsonArray, parseJson } from './xrayJson';
 import { isDisabledInbound } from './inboundState';
 import type { GraphState } from './types';
@@ -348,16 +348,28 @@ function ambiguousTunRules(
     const route = (
       destination: RuleNode,
       match: Record<string, unknown>,
+      port: string,
       allowUnfiltered = false,
     ) => {
       if (destination.data.kind === 'routing-filter')
-        rules.push(...paths.expand(destination, match, { tunAmbiguity: { blockTag }, terminal }));
+        rules.push(
+          ...paths.expand(destination, match, {
+            tunAmbiguity: { blockTag },
+            terminal,
+            input: { nodeId: source.id, port },
+          }),
+        );
       else
-        rules.push({
-          type: 'field',
-          ...match,
-          ...(allowUnfiltered ? terminal(destination) : { outboundTag: blockTag }),
-        });
+        rules.push(
+          setRoutingInput(
+            {
+              type: 'field',
+              ...match,
+              ...(allowUnfiltered ? terminal(destination) : { outboundTag: blockTag }),
+            },
+            allowUnfiltered ? { nodeId: source.id, port } : undefined,
+          ),
+        );
     };
     const dataAllows =
       target.data.kind === 'routing-filter' &&
@@ -369,10 +381,11 @@ function ambiguousTunRules(
         route(
           paths.connected(source, branch.branch),
           { ...branch.match, user: scope.user },
+          branch.branch,
           dataAllows,
         );
     }
-    route(target, scope);
+    route(target, scope, 'traffic');
   }
   return rules;
 }

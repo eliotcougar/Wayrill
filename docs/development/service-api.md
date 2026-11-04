@@ -71,6 +71,16 @@ the applied config and uses this map to report Observatory results for plain
 outbounds and chains. It is presentation metadata, not a routing instruction;
 opaque compact aliases do not need to be decoded on each polling cycle.
 
+`routing.activity` is an optional read-only graph decoration feed. It returns
+counts by compiled rule index over the previous two seconds, scoped to the
+current routing generation and revision. It reuses the bounded routing log and
+monotonic arrival times; it neither drains the log nor includes destinations.
+The editor polls once a second only while the glow is enabled and visible,
+rejects stale replies, and fades after telemetry loss. Compiler provenance maps
+each matched rule to its selected wires; sharing an outbound is not evidence of
+activity on another branch. Primary inbound Data ports reuse byte-rate telemetry.
+No Xray modification or routing configuration change is needed for collection.
+
 `companion.routes` accepts at most 128 exact ASCII/IDNA hosts or IP literals. It
 projects the memory-only routing log into bounded last known destination observations,
 with display names, observed Block actions and rule trails. Matches retain their

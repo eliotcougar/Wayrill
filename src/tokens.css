@@ -55,6 +55,8 @@
   --connection-dns: #e6c278;
   --connection-resolver: #bb9cf5;
   --connection-observation: #b7c3d8;
+  --graph-heat: #ffae45;
+  --graph-heat-core: #fff0c7;
   --chart-upload: #64d7c0;
   --chart-download: #bb9ef4;
   --canvas-center: #182231;
@@ -112,6 +114,8 @@
   --connection-dns: #916400;
   --connection-resolver: #7446b5;
   --connection-observation: #586a82;
+  --graph-heat: #e67b24;
+  --graph-heat-core: #ffce81;
   --chart-upload: #006b58;
   --chart-download: #7446b5;
   --canvas-center: #f7f9fc;

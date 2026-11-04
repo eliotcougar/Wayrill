@@ -42,6 +42,8 @@ import useWorkspaceViewport from './useWorkspaceViewport';
 import useEdgeRouting from './useEdgeRouting';
 import { connectionTypes, sourceConnectionKind } from './graph/connectionTypes';
 import SchematicEdge, { EdgeRoutesContext } from './components/SchematicEdge';
+import { GraphActivityProvider } from './components/GraphActivity';
+import { useGraphActivityPreference } from './useGraphActivity';
 import { appVersion } from './version';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
@@ -75,6 +77,7 @@ import {
   Undo2,
   ZoomIn,
   ZoomOut,
+  Sparkles,
 } from 'lucide-react';
 import Dialog from './components/Dialog';
 import XrayImportDialog from './components/XrayImportDialog';
@@ -171,6 +174,7 @@ type DialogKind = 'help' | 'about' | 'validation' | null;
 export default function App() {
   const trafficUnits = useTrafficUnits();
   const theme = useTheme();
+  const trafficGlow = useGraphActivityPreference();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [companionOpen, setCompanionOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
@@ -1230,6 +1234,7 @@ export default function App() {
                       {appearanceOpen && (
                         <AppearanceSettings
                           theme={theme}
+                          trafficGlow={trafficGlow}
                           onClose={() => setAppearanceOpen(false)}
                         />
                       )}
@@ -1521,178 +1526,198 @@ export default function App() {
                               </button>
                             </div>
                           )}
-                          <EdgeRoutesContext.Provider value={edgeRoutes}>
-                            {!hasIcsCapture(editor.graph) &&
-                              sharingDismissed !== sharingKey &&
-                              (sharing.value?.pair || sharing.value?.recoveryPending) && (
-                                <div className="ics-notice" role="status">
-                                  <span>
-                                    {sharing.error
-                                      ? `Windows sharing: ${sharing.error}`
-                                      : sharing.value?.pair && !sharing.value.recoveryPending
-                                        ? `Windows Internet sharing: ${sharing.value.pair.public.name} → ${sharing.value.pair.private.name}`
-                                        : 'Windows sharing needs recovery'}
-                                  </span>
-                                  <button
-                                    className="secondary-button"
-                                    disabled={sharing.busy}
-                                    onClick={() => {
-                                      const existing = editor.graph.nodes.find(
-                                        (n) => n.data.kind === 'ics-tun',
-                                      );
-                                      if (existing) openNodeEditor(existing.id);
-                                      else setIcsSetupOpen(true);
+                          <GraphActivityProvider
+                            enabled={trafficGlow.enabled}
+                            graph={executionGraph}
+                            compilation={
+                              runtimeView.appliedMatch && !analysis.pending
+                                ? graphCompilation
+                                : null
+                            }
+                            runtime={runtime}
+                          >
+                            <EdgeRoutesContext.Provider value={edgeRoutes}>
+                              {!hasIcsCapture(editor.graph) &&
+                                sharingDismissed !== sharingKey &&
+                                (sharing.value?.pair || sharing.value?.recoveryPending) && (
+                                  <div className="ics-notice" role="status">
+                                    <span>
+                                      {sharing.error
+                                        ? `Windows sharing: ${sharing.error}`
+                                        : sharing.value?.pair && !sharing.value.recoveryPending
+                                          ? `Windows Internet sharing: ${sharing.value.pair.public.name} → ${sharing.value.pair.private.name}`
+                                          : 'Windows sharing needs recovery'}
+                                    </span>
+                                    <button
+                                      className="secondary-button"
+                                      disabled={sharing.busy}
+                                      onClick={() => {
+                                        const existing = editor.graph.nodes.find(
+                                          (n) => n.data.kind === 'ics-tun',
+                                        );
+                                        if (existing) openNodeEditor(existing.id);
+                                        else setIcsSetupOpen(true);
+                                      }}
+                                    >
+                                      {sharing.value?.recoveryPending
+                                        ? 'Review sharing'
+                                        : sharingAction(editor.graph)}
+                                    </button>
+                                    <button
+                                      className="icon-button"
+                                      aria-label="Dismiss sharing notice"
+                                      onClick={() => setSharingDismissed(sharingKey)}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                )}
+                              <FakeDnsUsageContext.Provider
+                                value={fakeDnsUsageSummary(
+                                  runtime.connected,
+                                  runtime.snapshot,
+                                  graphCompilation?.config,
+                                  runtime.savedConfig,
+                                  runtime.savedRevision,
+                                )}
+                              >
+                                <div className="canvas-flow" ref={canvas}>
+                                  <ReactFlow<RuleNodeType, RuleEdge>
+                                    nodes={editor.graph.nodes}
+                                    edges={decoratedEdges}
+                                    nodeTypes={nodeTypes}
+                                    edgeTypes={edgeTypes}
+                                    onNodesChange={editor.onNodesChange}
+                                    onEdgesChange={editor.onEdgesChange}
+                                    onConnect={onConnect}
+                                    onReconnect={onReconnect}
+                                    isValidConnection={isValidConnection}
+                                    onReconnectStart={(_, edge) => {
+                                      reconnectingEdge.current = edge.id;
+                                    }}
+                                    onReconnectEnd={() => {
+                                      reconnectingEdge.current = null;
+                                    }}
+                                    onNodeDragStart={editor.beginDrag}
+                                    onNodeDragStop={editor.endDrag}
+                                    onSelectionDragStart={editor.beginDrag}
+                                    onSelectionDragStop={editor.endDrag}
+                                    onEdgeClick={() => setInspectorVisible(true)}
+                                    onEdgeDoubleClick={(_, edge) => {
+                                      editor.selectEdge(edge.id);
+                                      openConnection({ edgeId: edge.id });
+                                    }}
+                                    onNodeContextMenu={(event, node) => {
+                                      event.preventDefault();
+                                      const opener = (
+                                        event.target as HTMLElement
+                                      ).closest<HTMLElement>('.react-flow__node');
+                                      if (opener)
+                                        openNodeContext(
+                                          node.id,
+                                          opener,
+                                          event.clientX,
+                                          event.clientY,
+                                        );
+                                    }}
+                                    onMoveStart={() => closeNodeContext()}
+                                    onNodeClick={() => setInspectorVisible(true)}
+                                    onNodeDoubleClick={(_, node) => {
+                                      if (hasNodeEditor(node.data)) openNodeEditor(node.id);
+                                    }}
+                                    onMoveEnd={(_, viewport) => {
+                                      setView(viewport);
+                                      editor.setViewport(viewport);
+                                    }}
+                                    minZoom={0.25}
+                                    maxZoom={2}
+                                    deleteKeyCode={null}
+                                    nodesDraggable={!pan}
+                                    panOnDrag={pan ? true : [1, 2]}
+                                    selectionOnDrag={!pan}
+                                    selectionMode={SelectionMode.Partial}
+                                    snapToGrid
+                                    snapGrid={[16, 16]}
+                                    colorMode={theme.resolved}
+                                    elevateEdgesOnSelect={false}
+                                    connectionLineStyle={{
+                                      stroke: 'var(--node-output)',
+                                      strokeWidth: 2,
+                                    }}
+                                    proOptions={{ hideAttribution: true }}
+                                    ariaLabelConfig={{
+                                      'node.a11yDescription.default':
+                                        'Press Enter to select a node. Use arrow keys to move it; Shift+F10 opens node actions; Delete removes the selection.',
                                     }}
                                   >
-                                    {sharing.value?.recoveryPending
-                                      ? 'Review sharing'
-                                      : sharingAction(editor.graph)}
-                                  </button>
-                                  <button
-                                    className="icon-button"
-                                    aria-label="Dismiss sharing notice"
-                                    onClick={() => setSharingDismissed(sharingKey)}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              )}
-                            <FakeDnsUsageContext.Provider
-                              value={fakeDnsUsageSummary(
-                                runtime.connected,
-                                runtime.snapshot,
-                                graphCompilation?.config,
-                                runtime.savedConfig,
-                                runtime.savedRevision,
-                              )}
-                            >
-                              <div className="canvas-flow" ref={canvas}>
-                                <ReactFlow<RuleNodeType, RuleEdge>
-                                  nodes={editor.graph.nodes}
-                                  edges={decoratedEdges}
-                                  nodeTypes={nodeTypes}
-                                  edgeTypes={edgeTypes}
-                                  onNodesChange={editor.onNodesChange}
-                                  onEdgesChange={editor.onEdgesChange}
-                                  onConnect={onConnect}
-                                  onReconnect={onReconnect}
-                                  isValidConnection={isValidConnection}
-                                  onReconnectStart={(_, edge) => {
-                                    reconnectingEdge.current = edge.id;
-                                  }}
-                                  onReconnectEnd={() => {
-                                    reconnectingEdge.current = null;
-                                  }}
-                                  onNodeDragStart={editor.beginDrag}
-                                  onNodeDragStop={editor.endDrag}
-                                  onSelectionDragStart={editor.beginDrag}
-                                  onSelectionDragStop={editor.endDrag}
-                                  onEdgeClick={() => setInspectorVisible(true)}
-                                  onEdgeDoubleClick={(_, edge) => {
-                                    editor.selectEdge(edge.id);
-                                    openConnection({ edgeId: edge.id });
-                                  }}
-                                  onNodeContextMenu={(event, node) => {
-                                    event.preventDefault();
-                                    const opener = (
-                                      event.target as HTMLElement
-                                    ).closest<HTMLElement>('.react-flow__node');
-                                    if (opener)
-                                      openNodeContext(
-                                        node.id,
-                                        opener,
-                                        event.clientX,
-                                        event.clientY,
-                                      );
-                                  }}
-                                  onMoveStart={() => closeNodeContext()}
-                                  onNodeClick={() => setInspectorVisible(true)}
-                                  onNodeDoubleClick={(_, node) => {
-                                    if (hasNodeEditor(node.data)) openNodeEditor(node.id);
-                                  }}
-                                  onMoveEnd={(_, viewport) => {
-                                    setView(viewport);
-                                    editor.setViewport(viewport);
-                                  }}
-                                  minZoom={0.25}
-                                  maxZoom={2}
-                                  deleteKeyCode={null}
-                                  nodesDraggable={!pan}
-                                  panOnDrag={pan ? true : [1, 2]}
-                                  selectionOnDrag={!pan}
-                                  selectionMode={SelectionMode.Partial}
-                                  snapToGrid
-                                  snapGrid={[16, 16]}
-                                  colorMode={theme.resolved}
-                                  elevateEdgesOnSelect={false}
-                                  connectionLineStyle={{
-                                    stroke: 'var(--node-output)',
-                                    strokeWidth: 2,
-                                  }}
-                                  proOptions={{ hideAttribution: true }}
-                                  ariaLabelConfig={{
-                                    'node.a11yDescription.default':
-                                      'Press Enter to select a node. Use arrow keys to move it; Shift+F10 opens node actions; Delete removes the selection.',
-                                  }}
-                                >
-                                  <Panel position="bottom-right" className="canvas-controls">
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Zoom out"
-                                      onClick={() => void flow.zoomOut({ duration: 150 })}
-                                    >
-                                      <ZoomOut size={16} />
-                                    </button>
-                                    <span>{Math.round(view.zoom * 100)}%</span>
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Zoom in"
-                                      onClick={() => void flow.zoomIn({ duration: 150 })}
-                                    >
-                                      <ZoomIn size={16} />
-                                    </button>
-                                    <button
-                                      className="icon-button fit-button"
-                                      onClick={fit}
-                                      title="Fit graph (F)"
-                                      aria-label="Fit graph"
-                                    >
-                                      <Expand size={16} />
-                                    </button>
-                                  </Panel>
-                                </ReactFlow>
-                                {!editor.graph.nodes.length && (
-                                  <div className="empty-canvas">
-                                    <div className="empty-canvas-symbol">
-                                      <span className="brand-mark" aria-hidden="true" />
+                                    <Panel position="bottom-right" className="canvas-controls">
+                                      <button
+                                        className={`icon-button${trafficGlow.enabled ? ' active' : ''}`}
+                                        aria-label="Traffic glow"
+                                        aria-pressed={trafficGlow.enabled}
+                                        title="Traffic glow"
+                                        onClick={() => trafficGlow.setEnabled(!trafficGlow.enabled)}
+                                      >
+                                        <Sparkles size={16} />
+                                      </button>
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Zoom out"
+                                        onClick={() => void flow.zoomOut({ duration: 150 })}
+                                      >
+                                        <ZoomOut size={16} />
+                                      </button>
+                                      <span>{Math.round(view.zoom * 100)}%</span>
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Zoom in"
+                                        onClick={() => void flow.zoomIn({ duration: 150 })}
+                                      >
+                                        <ZoomIn size={16} />
+                                      </button>
+                                      <button
+                                        className="icon-button fit-button"
+                                        onClick={fit}
+                                        title="Fit graph (F)"
+                                        aria-label="Fit graph"
+                                      >
+                                        <Expand size={16} />
+                                      </button>
+                                    </Panel>
+                                  </ReactFlow>
+                                  {!editor.graph.nodes.length && (
+                                    <div className="empty-canvas">
+                                      <div className="empty-canvas-symbol">
+                                        <span className="brand-mark" aria-hidden="true" />
+                                      </div>
+                                      <h1>A route starts here.</h1>
+                                      <p>
+                                        Add an input, connect a condition,
+                                        <br />
+                                        and choose where the path leads.
+                                      </p>
+                                      <button className="primary-button" onClick={showNodeLibrary}>
+                                        <Plus size={16} /> Add your first node
+                                      </button>
                                     </div>
-                                    <h1>A route starts here.</h1>
-                                    <p>
-                                      Add an input, connect a condition,
-                                      <br />
-                                      and choose where the path leads.
-                                    </p>
-                                    <button className="primary-button" onClick={showNodeLibrary}>
-                                      <Plus size={16} /> Add your first node
-                                    </button>
-                                  </div>
-                                )}
-                                {feedback && (
-                                  <div
-                                    className={`canvas-feedback${feedback.error ? ' is-error' : ''}`}
-                                    role={feedback.error ? 'alert' : 'status'}
-                                  >
-                                    {feedback.error ? (
-                                      <AlertCircle size={14} />
-                                    ) : (
-                                      <Check size={14} />
-                                    )}
-                                    {feedback.message}
-                                  </div>
-                                )}
-                              </div>
-                            </FakeDnsUsageContext.Provider>
-                          </EdgeRoutesContext.Provider>
+                                  )}
+                                  {feedback && (
+                                    <div
+                                      className={`canvas-feedback${feedback.error ? ' is-error' : ''}`}
+                                      role={feedback.error ? 'alert' : 'status'}
+                                    >
+                                      {feedback.error ? (
+                                        <AlertCircle size={14} />
+                                      ) : (
+                                        <Check size={14} />
+                                      )}
+                                      {feedback.message}
+                                    </div>
+                                  )}
+                                </div>
+                              </FakeDnsUsageContext.Provider>
+                            </EdgeRoutesContext.Provider>
+                          </GraphActivityProvider>
                         </main>
                         {inspectorVisible && (
                           <Inspector

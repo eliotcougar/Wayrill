@@ -7,7 +7,8 @@ import {
 } from '../outboundInterfaces';
 import { isDisabledInbound } from '../graph/inboundState';
 import { memo, useContext, useEffect } from 'react';
-import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
+import { Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
+import { ActivityHandle } from './GraphActivity';
 import {
   getDefinition,
   getOutputPorts,
@@ -199,7 +200,8 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
         </>
       )}
       {hasInputPort(data.kind) && (
-        <Handle
+        <ActivityHandle
+          nodeId={id}
           type="target"
           position={Position.Left}
           id="in"
@@ -221,7 +223,8 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
         />
       )}
       {ports.map((port, index) => (
-        <Handle
+        <ActivityHandle
+          nodeId={id}
           key={port}
           type="source"
           position={Position.Right}

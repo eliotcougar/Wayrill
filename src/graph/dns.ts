@@ -1,5 +1,6 @@
 import { enabledInboundGraph } from './inboundState';
 import { generatedTag } from './tags';
+import { setRoutingInput } from './routingTrace';
 import { capturesSystemDns } from './dnsCapture';
 import { jsonArray, jsonRecord, parseJson } from './xrayJson';
 import { validateRuleSource, type RuleSource } from './ruleSourceModel';
@@ -738,7 +739,12 @@ export function compileDnsGraph(
         !isLocalResolver(entry.address) &&
         !routing.some((r) => jsonArray(r.inboundTag) && r.inboundTag.includes(tag))
       )
-        routing.push({ type: 'field', inboundTag: [tag], ...destination });
+        routing.push(
+          setRoutingInput(
+            { type: 'field', inboundTag: [tag], ...destination },
+            { nodeId: id, port: 'queries' },
+          ),
+        );
       servers.push({
         address: entry.address,
         ...(literal(entry.address) ? { port: entry.port } : {}),

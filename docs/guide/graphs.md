@@ -45,6 +45,14 @@ Inbounds and Local capture nodes can be disabled without losing their settings
 or links. Their cards are hatched and their links subdued. Check and execution
 use enabled sources.
 
+For an optional activity display, enable **Traffic glow** beside the zoom controls
+or in **Settings → Appearance**. Inbound and Local capture Data points brighten
+with throughput; links and downstream connection points brighten with recent
+routing matches. Shared outbounds do not light unrelated branches. The glow fades
+when idle and pauses for unapplied drafts; resolver and Observation links remain
+unlit. It is a visual aid, not a replacement for traffic statistics or the filter's
+Traffic log.
+
 ## Save an editor, then activate the graph
 
 Accepting changes inside a node editor saves them into the graph. It is separate

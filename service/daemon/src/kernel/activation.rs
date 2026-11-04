@@ -114,6 +114,7 @@ impl<'a> KernelActivation<'a> {
         Ok(())
     }
     fn finish_restore(&mut self) -> Result<()> {
+        self.kernel.events.routing.revision(self.kernel.revision());
         if let Some(previous) = &self.kernel.profile {
             self.kernel.proxy.reapply(
                 &self.capture_settings,
@@ -438,6 +439,7 @@ impl crate::activation::Activation for KernelActivation<'_> {
         self.kernel.profile_recovery = None;
         self.kernel.resource_issues = self.resource_report.clone();
         self.kernel.resource_issues_generation = self.kernel.resources.generation();
+        self.kernel.events.routing.revision(self.kernel.revision());
         self.kernel.changed("config.recoveryCompleted");
         Ok(())
     }

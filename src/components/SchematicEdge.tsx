@@ -2,6 +2,7 @@ import { createContext, memo, useContext } from 'react';
 import { BaseEdge, EdgeText, type EdgeProps } from '@xyflow/react';
 import type { EdgePath } from '../graph/edgePaths';
 import { connectionTypes } from '../graph/connectionKinds';
+import { EdgeActivity } from './GraphActivity';
 
 export const EdgeRoutesContext = createContext<ReadonlyMap<string, EdgePath>>(new Map());
 
@@ -12,6 +13,7 @@ function SchematicEdge(props: EdgeProps) {
   if (!route || route.blocked) return null;
   return (
     <>
+      <EdgeActivity id={props.id} path={route.path} color={props.style?.stroke} />
       <BaseEdge
         id={props.id}
         path={route.path}

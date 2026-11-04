@@ -167,11 +167,14 @@ it('preserves a connected DNS branch before the ambiguous Data output', () => {
   const g = fixture();
   g.edges.push(edge('tun', 'dns', 'direct'));
   policy(g, { action: 'allow', output: 'selected' });
-  const rules = rulesOf(g);
+  const compiled = compileRuntimeGraph(g);
+  const rules = (compiled.config.routing as { rules: Record<string, unknown>[] }).rules;
   expect(rules[0]).toMatchObject({
     port: '53',
     outboundTag: 'direct',
     user: ['regexp:^wr-1-[0-9a-f]{48}$'],
   });
   expect(rules[1]).toMatchObject({ outboundTag: 'block', user: ['regexp:^wr-1-[0-9a-f]{48}$'] });
+  expect(compiled.activityInputs?.[0]).toEqual({ nodeId: 'tun', port: 'dns' });
+  expect(compiled.activityInputs?.[1]).toEqual({ nodeId: 'tun', port: 'traffic' });
 });

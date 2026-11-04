@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 use wayrill_protocol::{ApiError, Result};
 
@@ -70,6 +71,7 @@ impl Request {
 }
 #[derive(Clone)]
 struct Route {
+    index: usize,
     trail: Arc<Vec<Hop>>,
     target: String,
     weight: usize,
@@ -191,6 +193,7 @@ pub fn instrument(
         session.routes.insert(
             tag,
             Route {
+                index,
                 trail: Arc::new(trail.clone()),
                 target,
                 weight: serde_json::to_vec(trail).map_or(0, |b| b.len()),
@@ -201,6 +204,8 @@ pub fn instrument(
     Some(session)
 }
 struct Row {
+    rule_index: usize,
+    observed_at: Instant,
     id: u64,
     generation: u64,
     timestamp: u64,
@@ -273,6 +278,17 @@ impl Log {
     pub fn stop(&self) {
         self.state.lock().unwrap().collecting = false;
     }
+    /// An in-place activation may advance the profile while retaining Xray's
+    /// existing rule tags. Only subsequent observations belong to that revision.
+    pub fn revision(&self, revision: u64) {
+        let mut state = self.state.lock().unwrap();
+        if !state.collecting {
+            return;
+        }
+        if let Some(session) = &mut state.session {
+            session.revision = revision;
+        }
+    }
     /// Consume monitored Info messages before the generic core-log event/tail.
     /// Only dispatcher decisions are retained; account/relay diagnostic messages are discarded.
     #[cfg(test)]
@@ -333,6 +349,8 @@ impl Log {
             });
         let weight = decision.destination.len() + outbound.len() + route.weight + text.len() + 256;
         let row = Row {
+            rule_index: route.index,
+            observed_at: Instant::now(),
             id: state.sequence + 1,
             generation: session.generation,
             timestamp: crate::traffic::timestamp_ms(),
@@ -391,6 +409,28 @@ impl Log {
             }
         }
         true
+    }
+    /// Decorative graph activity, using the existing bounded decision ring.
+    /// No destinations, new log stream, draining cursor, or per-packet work.
+    pub fn activity(&self, instance: &str) -> Value {
+        self.activity_at(instance, Instant::now())
+    }
+    fn activity_at(&self, instance: &str, now: Instant) -> Value {
+        let state = self.state.lock().unwrap();
+        let session = state.session.as_ref();
+        let mut matches = BTreeMap::<usize, usize>::new();
+        if let Some(session) = session.filter(|_| state.collecting) {
+            for row in state.rows.iter().rev().take_while(|row| {
+                now.saturating_duration_since(row.observed_at) < Duration::from_secs(2)
+            }) {
+                if row.generation == session.generation && row.revision == session.revision {
+                    *matches.entry(row.rule_index).or_default() += 1;
+                }
+            }
+        }
+        json!({"instanceId":instance,"generation":session.map(|s|s.generation),
+            "revision":session.map(|s|s.revision),"state":if state.collecting {"collecting"} else {"stopped"},
+            "rules":matches.into_iter().map(|(index, matches)|json!({"index":index,"matches":matches})).collect::<Vec<_>>()})
     }
     pub fn snapshot(&self, filter: &str, instance: &str) -> Value {
         let state = self.state.lock().unwrap();
@@ -542,6 +582,48 @@ pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn graph_activity_is_bounded_ephemeral_and_scoped_to_the_active_rules() {
+        let log = Log::default();
+        let mut config = config();
+        config["routing"]["rules"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"domain":["domain:other.test"],"outboundTag":"direct"}));
+        log.begin(instrument(&mut config.clone(), &names(), 1, 7));
+        let first = line(1, "tcp:example.org:443", "direct");
+        log.ingest(1, &first);
+        log.ingest(1, &first); // Exact duplicate reports are not new matches.
+        let other = first
+            .replace("wrr-AQcA", "wrr-AQcB")
+            .replace("[345]", "[346]");
+        log.ingest(1, &other);
+        let now = Instant::now();
+        let expected = json!([{"index":0,"matches":1},{"index":1,"matches":1}]);
+        assert_eq!(log.activity_at("test", now)["rules"], expected);
+        // Reading is non-destructive, and no destinations or log contents escape.
+        assert_eq!(log.activity_at("test", now)["rules"], expected);
+        assert!(!log
+            .activity_at("test", now)
+            .to_string()
+            .contains("example.org"));
+        assert_eq!(
+            log.activity_at("test", now + Duration::from_secs(3))["rules"],
+            json!([])
+        );
+        log.live(instrument(&mut config.clone(), &names(), 1, 8));
+        log.ingest(1, &first.replace("example.org", "late-old.test"));
+        assert_eq!(log.activity("test")["rules"], json!([]));
+        log.ingest(1, &first.replace("wrr-AQcA", "wrr-AQgA"));
+        assert_eq!(
+            log.activity("test")["rules"],
+            json!([{"index":0,"matches":1}])
+        );
+        log.stop();
+        assert_eq!(log.activity("test")["rules"], json!([]));
+        log.begin(instrument(&mut config, &names(), 2, 8));
+        assert_eq!(log.activity("test")["rules"], json!([]));
+    }
     fn ip_retry_config() -> Value {
         json!({"log":{"loglevel":"info"},"dns":{"hosts":{"ip-retry.companion.test":"127.0.0.1"}},
             "inbounds":[{"tag":"browser","protocol":"http","listen":"127.0.0.1","port":28974}],
@@ -803,6 +885,31 @@ mod tests {
         assert_eq!(
             log.snapshot("parent", "instance")["rows"][2]["rule"],
             "New rule"
+        );
+        // Rollback restores the previous rules under a new applied revision.
+        // Their installed rule tags are deliberately unchanged.
+        log.revision(9);
+        log.ingest(1, &old.replace("old.example", "restored.example"));
+        let restored = log.snapshot("parent", "instance");
+        assert_eq!(restored["revision"], 9);
+        assert_eq!(restored["rows"][3]["revision"], 9);
+        assert_eq!(restored["rows"][3]["rule"], "Web 🌍");
+        assert_eq!(restored["rows"][1]["revision"], 7);
+        log.ingest(1, &new.replace("new.example", "still-pending.example"));
+        assert_eq!(log.snapshot("parent", "instance")["rows"][4]["revision"], 8);
+        assert_eq!(
+            log.activity("test")["rules"],
+            json!([{"index":0,"matches":1}])
+        );
+        // Renaming an adapter also retains these tags without reloading rules.
+        log.revision(10);
+        log.ingest(1, &old.replace("old.example", "renamed.example"));
+        let renamed = log.companion(&BTreeSet::from(["renamed.example".into()]), "test", 0);
+        assert_eq!(renamed["revision"], 10);
+        assert_eq!(renamed["hosts"][0]["matches"][0]["revision"], 10);
+        assert_eq!(
+            log.activity("test")["rules"],
+            json!([{"index":0,"matches":1}])
         );
     }
     #[test]

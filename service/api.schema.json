@@ -15,6 +15,17 @@
     }
   ],
   "$defs": {
+    "routingActivity": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "const": 1 },
+        "id": { "type": "integer", "minimum": 0 },
+        "method": { "const": "routing.activity" },
+        "params": { "type": "object", "additionalProperties": false }
+      },
+      "required": ["apiVersion", "id", "method"],
+      "additionalProperties": false
+    },
     "companionRoutes": {
       "type": "object",
       "properties": {
@@ -102,6 +113,7 @@
     },
     "request": {
       "oneOf": [
+        { "$ref": "#/$defs/routingActivity" },
         { "$ref": "#/$defs/companionRoutes" },
         { "$ref": "#/$defs/diagnosticStart" },
         { "$ref": "#/$defs/diagnosticJob" },
