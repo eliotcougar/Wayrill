@@ -226,8 +226,9 @@ Error replies preserve a bounded quote of the original request: the IPv4 header
 and eight payload bytes for IPv4, and at most 1,232 quoted bytes for IPv6. The
 IPv6 reply, including its outer header, fits the 1,280-byte minimum MTU. The
 maintained ICMP regression checks short, Ethernet-sized and maximum-sized request
-quotes for both address families. Error construction appends the bounded quote
-to a fixed header without calculating an allocation size from packet data.
+quotes for both address families. Error construction concatenates the fixed
+header and bounded quote with one allocation, without calculating its size from
+packet data.
 
 ### X12 — Private executable commands
 

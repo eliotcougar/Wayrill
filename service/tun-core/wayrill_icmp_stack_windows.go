@@ -5,6 +5,7 @@ package tun
 import (
 	"bytes"
 	"encoding/binary"
+	"slices"
 )
 
 // Only the service's real TUN Handler enables native echo forwarding. The
@@ -119,5 +120,5 @@ func wayrillICMPMessage(r wayrillEchoRequest, response wayrillEchoResponse) []by
 		maximum = 1232
 	}
 	quote := r.quote[:min(len(r.quote), maximum)]
-	return append([]byte{kind, code, 0, 0, 0, 0, 0, 0}, quote...)
+	return slices.Concat([]byte{kind, code, 0, 0, 0, 0, 0, 0}, quote)
 }
