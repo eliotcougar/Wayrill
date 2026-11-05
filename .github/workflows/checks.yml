@@ -30,6 +30,11 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - run: npm run aquifer:check
+      - run: npm run aquifer:test
+      - run: npm run aquifer:build
+      - name: Aquifer remote-worker tests
+        run: python -m unittest discover -s aquifer/tests -v
 
   native:
     name: Native (${{ matrix.component }})
@@ -38,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [service, desktop, capture]
+        component: [service, desktop, capture, aquifer]
     defaults:
       run:
         shell: pwsh

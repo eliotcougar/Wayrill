@@ -26,3 +26,5 @@ foreach($taskEntry in $taskManifest.files){
  if($taskCovered.Count -ne 1){throw ('Installer resource mapping is missing or ambiguous: '+$taskRelative)}
 }
 Write-Host ('Installer payload mappings verified: '+$taskManifest.files.Count+' files.')
+
+& (Join-Path $PSScriptRoot 'Check-AquiferPayload.ps1')

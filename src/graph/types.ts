@@ -1,26 +1,10 @@
 import type { Edge, Node, Viewport } from '@xyflow/react';
 
-export type ProtocolInboundKind =
-  | 'tunnel-inbound'
-  | 'vless-inbound'
-  | 'vmess-inbound'
-  | 'trojan-inbound'
-  | 'shadowsocks-inbound'
-  | 'wireguard-inbound'
-  | 'hysteria-inbound'
-  | 'masque-inbound'
-  | 'tun-inbound'
-  | 'ics-tun';
-export type ProtocolOutboundKind =
-  | 'http-outbound'
-  | 'vmess-outbound'
-  | 'trojan-outbound'
-  | 'shadowsocks-outbound'
-  | 'wireguard-outbound'
-  | 'hysteria-outbound'
-  | 'masque-outbound'
-  | 'loopback-outbound'
-  | 'dns-outbound';
+import type { ProtocolInboundKind, ProtocolOutboundKind } from '@wayrill/core/protocolCatalog';
+export type { ProtocolInboundKind, ProtocolOutboundKind } from '@wayrill/core/protocolCatalog';
+import type { SettingValue, SettingDefinition, SettingSection } from '@wayrill/core/settings';
+export type { SettingValue, SettingDefinition, SettingSection } from '@wayrill/core/settings';
+
 export type NodeKind =
   | ProtocolInboundKind
   | ProtocolOutboundKind
@@ -43,7 +27,6 @@ export type NodeKind =
   | 'socks-outbound'
   | 'direct-outbound'
   | 'block-outbound';
-export type SettingValue = string | number | boolean;
 export interface StashLink {
   groupId: string;
   entryId: string;
@@ -109,32 +92,6 @@ export interface XrayGraphMetadata {
 export interface GraphDocument extends GraphState {
   format: 'wayrill.graph';
   version: 2;
-}
-export interface SettingDefinition {
-  key: string;
-  label: string;
-  type: 'text' | 'number' | 'select' | 'boolean' | 'password' | 'textarea' | 'json';
-  options?: string[];
-  optionLabels?: Record<string, string>;
-  placeholder?: string;
-  min?: number;
-  max?: number;
-  maxLength?: number;
-  required?: boolean;
-  /** Omission is meaningful and handled by the owning module. */
-  optional?: boolean;
-  section?: string;
-  help?: string;
-  defaultValue?: SettingValue;
-  visibleWhen?: Record<string, SettingValue | SettingValue[]>;
-  jsonShape?: 'object' | 'array';
-  jsonItems?: 'nonemptyStrings';
-}
-export interface SettingSection {
-  id: string;
-  title: string;
-  description?: string;
-  advanced?: boolean;
 }
 export interface NodeDefinition {
   kind: NodeKind;

@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { EdgeRoutingClient } from './edgeRoutingClient';
 const geometry = { edges: [], nodes: [] };
 class WorkerStub {
-  onmessage?: (event: { data: { id: number; paths: []; error?: string } }) => void;
+  onmessage?: (event: { data: { id?: number; paths?: unknown; error?: string } | null }) => void;
   onerror?: (event: { preventDefault: () => void }) => void;
   onmessageerror?: () => void;
   postMessage = vi.fn();
@@ -69,5 +69,32 @@ it('continues routing during uninterrupted pointer movement rather than debounci
   expect(worker.postMessage.mock.calls.length).toBeLessThanOrEqual(32);
   vi.advanceTimersByTime(16);
   expect(worker.postMessage.mock.calls.at(-1)?.[0].nodes[0].x).toBe(49);
+  client.dispose();
+});
+
+it('ignores unsolicited replies and recovers a malformed result without losing the latest job', () => {
+  vi.useFakeTimers();
+  const workers: WorkerStub[] = [];
+  const client = new EdgeRoutingClient(() => {
+    const worker = new WorkerStub();
+    workers.push(worker);
+    return worker as unknown as Worker;
+  });
+  const first = vi.fn(),
+    latest = vi.fn();
+  client.request(geometry, first);
+  vi.advanceTimersByTime(16);
+  const id = workers[0].postMessage.mock.calls[0][0].id;
+  expect(() => workers[0].onmessage?.({ data: null })).not.toThrow();
+  client.request(geometry, latest);
+  workers[0].onmessage?.({ data: { id, paths: [null] } });
+  expect(first.mock.calls[0][1]).toContain('unreadable');
+  expect(workers[0].terminate).toHaveBeenCalledOnce();
+  expect(workers).toHaveLength(2);
+  const nextId = workers[1].postMessage.mock.calls[0][0].id;
+  workers[1].onmessage?.({ data: { id: nextId, paths: [] } });
+  expect(latest).toHaveBeenCalledOnce();
+  expect(() => workers[1].onmessage?.({ data: {} })).not.toThrow();
+  expect(latest).toHaveBeenCalledOnce();
   client.dispose();
 });

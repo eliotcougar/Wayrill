@@ -1,0 +1,1 @@
+import '@wayrill/ui/libavoidTypes';

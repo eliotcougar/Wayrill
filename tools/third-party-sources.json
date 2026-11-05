@@ -1,5 +1,5 @@
 {
-  "component": "libavoid-js 0.4.5",
+  "component": "Wayrill and Aquifer redistributable dependencies",
   "files": [
     {
       "name": "libavoid-js-0.4.5.tgz",
@@ -16,6 +16,11 @@
       "name": "adaptagrams-source.zip",
       "url": "https://codeload.github.com/Aksem/adaptagrams/zip/refs/tags/v1.0.4",
       "sha256": "1440E68F95C3B85BCB27B558C4162518243EC2A6AB50B2AF331676BC27689A62"
+    },
+    {
+      "name": "WinSCP-6.5.7-source.zip",
+      "url": "https://codeload.github.com/winscp/winscp/zip/d0b87ea398708ad1cfd254c8126a7603c3efdc3f",
+      "sha256": "297c60314401b448ec50fc0715ed5563766b370ce1dadcd9823a8efdb39c7539"
     }
   ]
 }

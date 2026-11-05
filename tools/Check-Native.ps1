@@ -1,6 +1,6 @@
 param(
-    [ValidateSet('service', 'desktop', 'capture')]
-    [string[]]$Component = @('service', 'desktop', 'capture'),
+    [ValidateSet('service', 'desktop', 'capture', 'aquifer')]
+    [string[]]$Component = @('service', 'desktop', 'capture', 'aquifer'),
     [switch]$SkipTests,
     [string]$CurlPath
 )
@@ -13,6 +13,7 @@ try {
             service { 'service/Cargo.toml' }
             desktop { 'src-tauri/Cargo.toml' }
             capture { 'service/capture/Cargo.toml' }
+            aquifer { 'aquifer/src-tauri/Cargo.toml' }
         }
         $taskManifest = Join-Path $taskProject $taskRelativeManifest
         $taskPreviousTauri = $env:TAURI_CONFIG

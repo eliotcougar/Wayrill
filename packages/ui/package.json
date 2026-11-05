@@ -1,0 +1,30 @@
+{
+  "name": "@wayrill/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./MenuBar": "./src/MenuBar.tsx",
+    "./NodeContextMenu": "./src/NodeContextMenu.tsx",
+    "./focusBoundary": "./src/focusBoundary.ts",
+    "./menus.css": "./src/menus.css",
+    "./schematic/edgeGeometry": "./src/schematic/edgeGeometry.ts",
+    "./schematic/edgePaths": "./src/schematic/edgePaths.ts",
+    "./schematic/edgeRoutePreview": "./src/schematic/edgeRoutePreview.ts",
+    "./schematic/edgeRoutingClient": "./src/schematic/edgeRoutingClient.ts",
+    "./schematic/libavoid": "./src/schematic/libavoid.ts",
+    "./schematic/connectionKinds": "./src/schematic/connectionKinds.ts",
+    "./schematic/useEdgeRouting": "./src/schematic/useEdgeRouting.ts",
+    "./schematic/SchematicEdge": "./src/schematic/SchematicEdge.tsx",
+    "./EditorTabs": "./src/EditorTabs.tsx",
+    "./browserTestSetup": "./src/browserTestSetup.ts",
+    "./libavoidTypes": "./src/libavoidTypes.d.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "lucide-react": "^1.66.0",
+    "@xyflow/react": "^12.12.0",
+    "libavoid-js": "0.4.5"
+  }
+}

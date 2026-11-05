@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
+mod aquifer;
 mod companion;
 mod diagnostics;
 mod export;
@@ -311,6 +312,7 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            aquifer::aquifer_open,
             companion::companion_status,
             companion::companion_register,
             companion::companion_unregister,

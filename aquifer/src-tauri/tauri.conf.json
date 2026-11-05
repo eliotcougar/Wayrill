@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Wayrill Aquifer",
+  "version": "0.2.2",
+  "identifier": "app.wayrill.aquifer",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1461",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wayrill Aquifer 0.2.2 · SSH / SFTP",
+        "width": 1200,
+        "height": 680,
+        "minWidth": 940,
+        "minHeight": 640,
+        "center": true,
+        "dragDropEnabled": false,
+        "backgroundColor": "#101722"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}

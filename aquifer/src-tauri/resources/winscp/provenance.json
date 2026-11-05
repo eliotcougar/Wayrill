@@ -1,0 +1,13 @@
+{
+  "project": "WinSCP console interface",
+  "version": "6.5.7",
+  "sourceCommit": "d0b87ea398708ad1cfd254c8126a7603c3efdc3f",
+  "sourceUrl": "https://github.com/winscp/winscp/tree/6.5.7",
+  "sourceArchive": "WinSCP-6.5.7-source.zip",
+  "sourceArchiveSha256": "297c60314401b448ec50fc0715ed5563766b370ce1dadcd9823a8efdb39c7539",
+  "binaryStatus": "Unmodified upstream helper; Authenticode verified as Martin Prikryl before embedding.",
+  "files": {
+    "WinSCP.com": "b00eac71cf7b4c06c159d9a3f100dbc3bf2d8e695a9591b8d8f6da0f956d5d19",
+    "LICENSE.txt": "38493e2a77946bb116831c1a394b5f9d073b8490be20ebc6b5e42df64237dbaa"
+  }
+}

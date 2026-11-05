@@ -1,0 +1,18 @@
+{
+  "name": "@wayrill/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./xrayJson": "./src/xrayJson.ts",
+    "./portRanges": "./src/portRanges.ts",
+    "./prefixSelectors": "./src/prefixSelectors.ts",
+    "./addressValidation": "./src/addressValidation.ts",
+    "./text": "./src/text.ts",
+    "./nativeFields": "./src/nativeFields.ts",
+    "./protocolFields": "./src/protocolFields.ts",
+    "./settings": "./src/settings.ts",
+    "./protocolCatalog": "./src/protocolCatalog.ts",
+    "./nativeProperties": "./src/nativeProperties.ts"
+  }
+}

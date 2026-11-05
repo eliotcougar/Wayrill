@@ -29,7 +29,7 @@ vi.mock('@xyflow/react', async (importOriginal) => ({
     return selected;
   },
 }));
-vi.mock('./graph/edgeRoutingClient', () => ({
+vi.mock('@wayrill/ui/schematic/edgeRoutingClient', () => ({
   EdgeRoutingClient: class {
     request(
       geometry: RoutingGeometry,

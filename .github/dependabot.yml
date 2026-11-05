@@ -27,6 +27,7 @@ updates:
       - /service
       - /service/capture
       - /src-tauri
+      - /aquifer/src-tauri
     schedule:
       interval: weekly
       day: tuesday

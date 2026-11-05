@@ -2,7 +2,8 @@ import RuntimeProgressOverlay from './components/RuntimeProgressOverlay';
 import BackupDialog, { type BackupRequestState } from './components/BackupDialog';
 import { isBackupFilter } from './backup/model';
 import { writePreferences } from './backup/preferences';
-import { errorText } from './serviceClient';
+import { errorText, desktopServiceAvailable } from './serviceClient';
+import { openAquifer } from './openAquifer';
 import { runtimeProgress } from './runtimeProgress';
 import useSubscriptionMaintenance, {
   SubscriptionMaintenanceContext,
@@ -988,6 +989,13 @@ export default function App() {
           action: () => void exportXray(),
         },
         { label: '', separator: true },
+        {
+          label: 'Wayrill Aquifer…',
+          disabled: !desktopServiceAvailable(),
+          action: () => {
+            void openAquifer().catch((reason) => notify(errorText(reason)));
+          },
+        },
         {
           label: 'Load Example',
           items: bundledExamples.flatMap((example, index) => [

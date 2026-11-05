@@ -7,7 +7,7 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: 'node',
-      include: ['src/**/*.test.{ts,tsx}'],
+      include: ['src/**/*.test.{ts,tsx}', 'packages/**/*.test.{ts,tsx}'],
       exclude: [...configDefaults.exclude, 'src/**/*.integration.test.ts'],
       setupFiles: ['./src/test/browserSetup.ts'],
     },

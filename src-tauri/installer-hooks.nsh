@@ -1,3 +1,30 @@
+!macro WayrillAquiferGuard Prefix
+Function ${Prefix}WayrillCheckAquiferClosed
+  aquifer_retry:
+  IfFileExists "$INSTDIR\Aquifer\wayrill-aquifer.exe" 0 aquifer_closed
+  ; Request write access without creating or changing the file. Windows denies
+  ; this while its image is running. Only this installation's binary is checked.
+  System::Call 'kernel32::CreateFileW(w "$INSTDIR\Aquifer\wayrill-aquifer.exe", i 0x40000000, i 7, p 0, i 3, i 0, p 0) p.r0'
+  ${If} $0 != -1
+    System::Call 'kernel32::CloseHandle(p r0)'
+    Goto aquifer_closed
+  ${EndIf}
+  System::Call 'kernel32::GetLastError() i.r1'
+  ${If} $1 = 2
+  ${OrIf} $1 = 3
+    Goto aquifer_closed
+  ${EndIf}
+  IfSilent aquifer_abort
+  MessageBox MB_ICONEXCLAMATION|MB_RETRYCANCEL "Close Wayrill Aquifer before continuing. Save or export any edited configuration first.$\r$\n$\r$\nIf Aquifer is already closed, check that its installed executable can be updated." IDRETRY aquifer_retry
+  aquifer_abort:
+    SetErrorLevel 1
+    Abort
+  aquifer_closed:
+FunctionEnd
+!macroend
+!insertmacro WayrillAquiferGuard ""
+!insertmacro WayrillAquiferGuard "un."
+
 !include TextFunc.nsh
 !define WAYRILL_HOOK_DIR "${__FILEDIR__}"
 !macro WayrillReadInstallerLog Action LogPath
@@ -39,6 +66,7 @@
     SetErrorLevel 1
     Abort
   ${EndIf}
+  Call WayrillCheckAquiferClosed
   Call WayrillPrepareResources
   Call WayrillUninstallPreviousVersion
   InitPluginsDir
@@ -55,6 +83,18 @@
   SetOutPath "$INSTDIR"
 !macroend
 !macro NSIS_HOOK_POSTINSTALL
+  ${If} $NoShortcutMode <> 1
+    !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+      IfFileExists "$INSTDIR\Aquifer\wayrill-aquifer.exe" 0 aquifer_shortcut_done
+      !if "${STARTMENUFOLDER}" != ""
+        CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
+        CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
+      !else
+        CreateShortcut "$SMPROGRAMS\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
+      !endif
+      aquifer_shortcut_done:
+    !insertmacro MUI_STARTMENU_WRITE_END
+  ${EndIf}
   !insertmacro MUI_HEADER_TEXT "Restarting Wayrill service" "Starting the networking service and restoring the previous routing state."
   DetailPrint "Restarting Wayrill service"
   SetOutPath "$INSTDIR\Service\windivert"
@@ -77,6 +117,18 @@
   SetOutPath "$INSTDIR"
 !macroend
 !macro NSIS_HOOK_PREUNINSTALL
+  Call un.WayrillCheckAquiferClosed
+  !insertmacro MUI_STARTMENU_GETFOLDER Application $AppStartMenuFolder
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
+  Pop $0
+  ${If} $0 = 1
+    Delete "$SMPROGRAMS\$AppStartMenuFolder\Wayrill Aquifer.lnk"
+  ${EndIf}
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
+  Pop $0
+  ${If} $0 = 1
+    Delete "$SMPROGRAMS\Wayrill Aquifer.lnk"
+  ${EndIf}
   InitPluginsDir
   CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Service.ps1" "$PLUGINSDIR\Installer-Service.ps1"
   CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Lifecycle.ps1" "$PLUGINSDIR\Installer-Lifecycle.ps1"

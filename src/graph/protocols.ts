@@ -12,7 +12,6 @@ import { omitCoreDefaults } from './coreDefaults';
 import { protocolSource } from './protocolSource';
 import {
   checkJson,
-  cloneJson,
   jsonEqual,
   jsonRecord,
   parseXrayJson,
@@ -25,246 +24,38 @@ import type {
   Diagnostic,
   NodeDefinition,
   NodeKind,
-  ProtocolInboundKind,
   ProtocolOutboundKind,
   RuleNodeData,
   SettingDefinition,
   SettingValue,
 } from './types';
 
-export type ProtocolKind = ProtocolInboundKind | ProtocolOutboundKind;
-export interface ProtocolSpec {
-  kind: NodeKind;
-  protocol: string;
-  title: string;
-  direction: 'inbound' | 'outbound';
-  structure: keyof typeof protocolSource;
-  aliases?: string[];
-  note?: string;
-}
-export const protocolSpecs: ProtocolSpec[] = [
-  {
-    kind: 'tunnel-inbound',
-    protocol: 'tunnel',
-    title: 'Tunnel',
-    direction: 'inbound',
-    structure: 'DokodemoConfig',
-    aliases: ['dokodemo-door'],
-    note: 'Forwards TCP/UDP to a configured destination or the original destination. followRedirect needs platform capture support; this node does not install capture rules.',
-  },
-  {
-    kind: 'proxy-inbound',
-    protocol: 'mixed',
-    title: 'Proxy',
-    direction: 'inbound',
-    structure: 'SocksServerConfig',
-  },
-  {
-    kind: 'proxy-inbound',
-    protocol: 'socks',
-    title: 'Proxy',
-    direction: 'inbound',
-    structure: 'SocksServerConfig',
-  },
-  {
-    kind: 'proxy-inbound',
-    protocol: 'http',
-    title: 'Proxy',
-    direction: 'inbound',
-    structure: 'HTTPServerConfig',
-  },
-  {
-    kind: 'vless-inbound',
-    protocol: 'vless',
-    title: 'VLESS',
-    direction: 'inbound',
-    structure: 'VLessInboundConfig',
-  },
-  {
-    kind: 'vmess-inbound',
-    protocol: 'vmess',
-    title: 'VMess',
-    direction: 'inbound',
-    structure: 'VMessInboundConfig',
-  },
-  {
-    kind: 'trojan-inbound',
-    protocol: 'trojan',
-    title: 'Trojan',
-    direction: 'inbound',
-    structure: 'TrojanServerConfig',
-  },
-  {
-    kind: 'shadowsocks-inbound',
-    protocol: 'shadowsocks',
-    title: 'Shadowsocks',
-    direction: 'inbound',
-    structure: 'ShadowsocksServerConfig',
-  },
-  {
-    kind: 'wireguard-inbound',
-    protocol: 'wireguard',
-    title: 'WireGuard',
-    direction: 'inbound',
-    structure: 'WireGuardConfig',
-    note: 'Uses Xray’s userspace WireGuard stack on Windows. Peers define authentication and allowed source addresses.',
-  },
-  {
-    kind: 'hysteria-inbound',
-    protocol: 'hysteria',
-    title: 'Hysteria 2',
-    direction: 'inbound',
-    structure: 'HysteriaServerConfig',
-  },
-  {
-    kind: 'masque-inbound',
-    protocol: 'masque',
-    title: 'MASQUE',
-    direction: 'inbound',
-    structure: 'MasqueServerConfig',
-  },
-  {
-    kind: 'tun-inbound',
-    protocol: 'tun',
-    title: 'TUN adapter',
-    direction: 'inbound',
-    structure: 'TunConfig',
-    note: 'Capture this PC through a service-managed Windows adapter.',
-  },
-  {
-    kind: 'ics-tun',
-    protocol: 'tun',
-    title: 'ICS TUN',
-    direction: 'inbound',
-    structure: 'TunConfig',
-    note: 'Route Windows Internet sharing through its own traffic path.',
-  },
-  {
-    kind: 'direct-outbound',
-    protocol: 'freedom',
-    title: 'Direct',
-    direction: 'outbound',
-    structure: 'FreedomConfig',
-    aliases: ['direct'],
-  },
-  {
-    kind: 'block-outbound',
-    protocol: 'blackhole',
-    title: 'Block',
-    direction: 'outbound',
-    structure: 'BlackholeConfig',
-    aliases: ['block'],
-  },
-  {
-    kind: 'socks-outbound',
-    protocol: 'socks',
-    title: 'SOCKS',
-    direction: 'outbound',
-    structure: 'SocksClientConfig',
-  },
-  {
-    kind: 'vless-outbound',
-    protocol: 'vless',
-    title: 'VLESS',
-    direction: 'outbound',
-    structure: 'VLessOutboundConfig',
-  },
-  {
-    kind: 'http-outbound',
-    protocol: 'http',
-    title: 'HTTP CONNECT',
-    direction: 'outbound',
-    structure: 'HTTPClientConfig',
-  },
-  {
-    kind: 'vmess-outbound',
-    protocol: 'vmess',
-    title: 'VMess',
-    direction: 'outbound',
-    structure: 'VMessOutboundConfig',
-  },
-  {
-    kind: 'trojan-outbound',
-    protocol: 'trojan',
-    title: 'Trojan',
-    direction: 'outbound',
-    structure: 'TrojanClientConfig',
-  },
-  {
-    kind: 'shadowsocks-outbound',
-    protocol: 'shadowsocks',
-    title: 'Shadowsocks',
-    direction: 'outbound',
-    structure: 'ShadowsocksClientConfig',
-  },
-  {
-    kind: 'wireguard-outbound',
-    protocol: 'wireguard',
-    title: 'WireGuard',
-    direction: 'outbound',
-    structure: 'WireGuardConfig',
-  },
-  {
-    kind: 'hysteria-outbound',
-    protocol: 'hysteria',
-    title: 'Hysteria 2',
-    direction: 'outbound',
-    structure: 'HysteriaClientConfig',
-  },
-  {
-    kind: 'masque-outbound',
-    protocol: 'masque',
-    title: 'MASQUE',
-    direction: 'outbound',
-    structure: 'MasqueClientConfig',
-    note: 'CONNECT-IP over HTTP/3. Credentials belong to masqueSettings. Xray rejects mux for this protocol.',
-  },
-  {
-    kind: 'loopback-outbound',
-    protocol: 'loopback',
-    title: 'Loopback',
-    direction: 'outbound',
-    structure: 'LoopbackConfig',
-    note: 'Reinjects traffic with the chosen inbound tag. Routing rules must terminate that traffic instead of returning it to this same loopback.',
-  },
-  {
-    kind: 'dns-outbound',
-    protocol: 'dns',
-    title: 'DNS',
-    direction: 'outbound',
-    structure: 'DNSOutboundConfig',
-    note: 'A DNS traffic handler, distinct from the global DNS resolver settings. Rewrite settings and request rules use native Xray semantics.',
-  },
-];
-export const protocolInboundKinds: ProtocolInboundKind[] = [
-  'tunnel-inbound',
-  'vless-inbound',
-  'vmess-inbound',
-  'trojan-inbound',
-  'shadowsocks-inbound',
-  'wireguard-inbound',
-  'hysteria-inbound',
-  'masque-inbound',
-  'tun-inbound',
-  'ics-tun',
-];
-export const protocolOutboundKinds: ProtocolOutboundKind[] = [
-  'http-outbound',
-  'vmess-outbound',
-  'trojan-outbound',
-  'shadowsocks-outbound',
-  'wireguard-outbound',
-  'hysteria-outbound',
-  'masque-outbound',
-  'loopback-outbound',
-  'dns-outbound',
-];
-export const isProtocolInbound = (kind: string): kind is ProtocolInboundKind =>
-  (protocolInboundKinds as string[]).includes(kind);
-export const isProtocolOutbound = (kind: string): kind is ProtocolOutboundKind =>
-  (protocolOutboundKinds as string[]).includes(kind);
-export const isProtocolKind = (kind: string): kind is ProtocolKind =>
-  isProtocolInbound(kind) || isProtocolOutbound(kind);
+import {
+  protocolSpecs as sharedSpecs,
+  isProtocolInbound,
+  isProtocolOutbound,
+  isProtocolKind,
+  type ProtocolSpec as SharedProtocolSpec,
+} from '@wayrill/core/protocolCatalog';
+export {
+  protocolInboundKinds,
+  protocolOutboundKinds,
+  isProtocolInbound,
+  isProtocolOutbound,
+  isProtocolKind,
+  type ProtocolKind,
+} from '@wayrill/core/protocolCatalog';
+export type ProtocolSpec = SharedProtocolSpec<NodeKind, keyof typeof protocolSource>;
+export const protocolSpecs: readonly ProtocolSpec[] = sharedSpecs;
+import {
+  nativeValue,
+  setNative,
+  commonPath,
+  getNativePath as getPath,
+  putNativePath as putPath,
+} from '@wayrill/core/nativeProperties';
+export { nativeValue, setNative, commonPath } from '@wayrill/core/nativeProperties';
+
 export const specForKind = (kind: NodeKind) => protocolSpecs.find((s) => s.kind === kind);
 export const specForProtocol = (protocol: unknown, direction: ProtocolSpec['direction']) =>
   protocolSpecs.find(
@@ -272,20 +63,6 @@ export const specForProtocol = (protocol: unknown, direction: ProtocolSpec['dire
       s.direction === direction &&
       [s.protocol, ...(s.aliases ?? [])].includes(String(protocol).toLowerCase()),
   );
-export const nativeValue = (o: Record<string, unknown>, key: string): unknown =>
-  o[Object.keys(o).find((k) => k.toLowerCase() === key.toLowerCase()) ?? key];
-export function setNative(
-  o: Record<string, unknown>,
-  key: string,
-  value: unknown,
-): Record<string, unknown> {
-  const result = cloneJson(o),
-    aliases = Object.keys(result).filter((k) => k.toLowerCase() === key.toLowerCase());
-  if (aliases.length > 1) throw new Error(`Resolve competing ${key} spellings in Native JSON.`);
-  if (value === undefined) delete result[aliases[0] ?? key];
-  else result[aliases[0] ?? key] = cloneJson(value);
-  return result;
-}
 export function protocolJson(data: RuleNodeData): Record<string, unknown> {
   const value = parseXrayJson(String(data.settings.json));
   if (!jsonRecord(value)) throw new Error('Protocol options must be a JSON object.');
@@ -305,189 +82,6 @@ export function protocolJson(data: RuleNodeData): Record<string, unknown> {
   return value;
 }
 
-// Paths are source-defined; only active transport/security defaults are applied.
-// Imported omissions remain native until an override is edited or Use default is chosen.
-export function commonPath(
-  key: string,
-  raw: Record<string, unknown>,
-  direction: ProtocolSpec['direction'],
-): string[] | undefined {
-  const stream = jsonRecord(nativeValue(raw, 'streamSettings'))
-      ? (nativeValue(raw, 'streamSettings') as Record<string, unknown>)
-      : {},
-    network = jsonText(
-      nativeValue(stream, 'method') ?? nativeValue(stream, 'network') ?? 'raw',
-    ).toLowerCase(),
-    security = jsonText(nativeValue(stream, 'security') ?? 'none').toLowerCase();
-  const socket: Record<string, string> = {
-    interface: 'interface',
-    domainStrategy: 'domainStrategy',
-    dialerProxy: 'dialerProxy',
-    tcpFastOpen: 'tcpFastOpen',
-    tcpKeepAliveIdle: 'tcpKeepAliveIdle',
-    tcpKeepAliveInterval: 'tcpKeepAliveInterval',
-    tcpUserTimeout: 'tcpUserTimeout',
-  };
-  if (socket[key]) return ['streamSettings', 'sockopt', socket[key]];
-  if (key === 'sendThrough' || key === 'targetStrategy') return [key];
-  const mux: Record<string, string> = {
-    muxEnabled: 'enabled',
-    muxConcurrency: 'concurrency',
-    xudpConcurrency: 'xudpConcurrency',
-    xudpProxyUDP443: 'xudpProxyUDP443',
-  };
-  if (mux[key] && network !== 'xhttp' && network !== 'splithttp') return ['mux', mux[key]];
-  const tls: Record<string, string> = {
-    fingerprint: 'fingerprint',
-    alpn: 'alpn',
-    tlsMinVersion: 'minVersion',
-    tlsMaxVersion: 'maxVersion',
-    sessionResumption: 'enableSessionResumption',
-    disableSystemRoot: 'disableSystemRoot',
-    cipherSuites: 'cipherSuites',
-    curvePreferences: 'curvePreferences',
-    certificates: 'certificates',
-    echSockopt: 'echSockopt',
-  };
-  if (tls[key] && security === 'tls') return ['streamSettings', 'tlsSettings', tls[key]];
-  if (key === 'fingerprint' && security === 'reality')
-    return ['streamSettings', 'realitySettings', 'fingerprint'];
-  if (key === 'realityShow' && security === 'reality')
-    return ['streamSettings', 'realitySettings', 'show'];
-  const sniff: Record<string, string> = {
-    sniffing: 'enabled',
-    routeOnly: 'routeOnly',
-    metadataOnly: 'metadataOnly',
-    domainsExcluded: 'domainsExcluded',
-    ipsExcluded: 'ipsExcluded',
-  };
-  if (direction === 'inbound' && sniff[key]) return ['sniffing', sniff[key]];
-  if (direction === 'inbound' && key === 'streamSettings') return ['streamSettings'];
-  if (key === 'userLevel') {
-    const protocol = String(nativeValue(raw, 'protocol')).toLowerCase();
-    if (['tunnel', 'dokodemo-door', 'tun', 'dns'].includes(protocol))
-      return ['settings', 'userLevel'];
-    if (['http', 'vmess', 'trojan', 'shadowsocks'].includes(protocol) && direction === 'outbound') {
-      const settings = nativeValue(raw, 'settings');
-      if (jsonRecord(settings) && nativeValue(settings, 'address') === undefined) {
-        const endpoints = protocol === 'vmess' ? 'vnext' : 'servers';
-        if (jsonArray(nativeValue(settings, endpoints)))
-          return ['settings', endpoints, '*', 'users', '*', 'level'];
-      }
-      return ['settings', 'level'];
-    }
-  }
-  if (key === 'userAgent') {
-    const paths: Record<string, string[]> = {
-      ws: ['wsSettings', 'headers', 'User-Agent'],
-      httpupgrade: ['httpupgradeSettings', 'headers', 'User-Agent'],
-      grpc: ['grpcSettings', 'user_agent'],
-      xhttp: ['xhttpSettings', 'extra', 'headers', 'User-Agent'],
-      splithttp: ['splithttpSettings', 'extra', 'headers', 'User-Agent'],
-    };
-    if (paths[network]) return ['streamSettings', ...paths[network]];
-    const tcp = network === 'tcp' ? 'tcpSettings' : 'rawSettings',
-      options = nativeValue(stream, tcp);
-    if (
-      ['raw', 'tcp'].includes(network) &&
-      jsonRecord(options) &&
-      jsonRecord(nativeValue(options, 'header')) &&
-      nativeValue(nativeValue(options, 'header') as Record<string, unknown>, 'type') === 'http'
-    )
-      return ['streamSettings', tcp, 'header', 'request', 'headers', 'User-Agent'];
-  }
-  const tune: Record<string, [string, string, string[]]> = {
-    wsHeartbeat: ['ws', 'heartbeatPeriod', ['wsSettings']],
-    xhttpMode: ['xhttp', 'mode', ['xhttpSettings']],
-    grpcIdleTimeout: ['grpc', 'idle_timeout', ['grpcSettings']],
-    grpcHealthTimeout: ['grpc', 'health_check_timeout', ['grpcSettings']],
-    grpcPermitWithoutStream: ['grpc', 'permit_without_stream', ['grpcSettings']],
-    grpcInitialWindow: ['grpc', 'initial_windows_size', ['grpcSettings']],
-    kcpMtu: ['kcp', 'mtu', ['kcpSettings']],
-    kcpTti: ['kcp', 'tti', ['kcpSettings']],
-    kcpUp: ['kcp', 'uplinkCapacity', ['kcpSettings']],
-    kcpDown: ['kcp', 'downlinkCapacity', ['kcpSettings']],
-    kcpCwnd: ['kcp', 'cwndMultiplier', ['kcpSettings']],
-    kcpWindow: ['kcp', 'maxSendingWindow', ['kcpSettings']],
-    hysteriaUdpTimeout: ['hysteria', 'udpIdleTimeout', ['hysteriaSettings']],
-  };
-  if (tune[key]) {
-    const [n, k, path] = tune[key];
-    if (network === n || (network === 'splithttp' && n === 'xhttp'))
-      return ['streamSettings', ...path, k];
-  }
-  if (network === 'hysteria' && ['hysteriaUp', 'hysteriaDown'].includes(key))
-    return [
-      'streamSettings',
-      'finalmask',
-      'quicParams',
-      key === 'hysteriaUp' ? 'brutalUp' : 'brutalDown',
-    ];
-  if (network === 'hysteria' && key === 'hysteriaHopInterval') {
-    const mask = nativeValue(stream, 'finalmask'),
-      udp = jsonRecord(mask) ? nativeValue(mask, 'udp') : undefined,
-      index = jsonArray(udp)
-        ? udp.findIndex((m) => jsonRecord(m) && nativeValue(m, 'type') === 'udphop')
-        : -1;
-    if (index >= 0)
-      return ['streamSettings', 'finalmask', 'udp', String(index), 'settings', 'interval'];
-  }
-  const objects: Record<string, [string, string]> = {
-    sockoptExtra: ['', 'sockopt'],
-    tlsExtra: ['tls', 'tlsSettings'],
-    realityExtra: ['reality', 'realitySettings'],
-    xhttpExtra: ['xhttp', 'xhttpSettings.extra'],
-    finalmask: ['', 'finalmask'],
-  };
-  if (objects[key]) {
-    const [mode, name] = objects[key];
-    if (!mode || mode === security || mode === network)
-      return ['streamSettings', ...name.split('.')];
-  }
-  if (key.startsWith('happyEyeballs')) {
-    const k = (
-      {
-        happyEyeballsEnabled: '',
-        happyEyeballsDelay: 'tryDelayMs',
-        happyEyeballsIPv6: 'prioritizeIPv6',
-        happyEyeballsInterleave: 'interleave',
-        happyEyeballsMax: 'maxConcurrentTry',
-      } as Record<string, string>
-    )[key];
-    if (k !== undefined) return ['streamSettings', 'sockopt', 'happyEyeballs', ...(k ? [k] : [])];
-  }
-  return undefined;
-}
-function getPath(o: unknown, path: string[]): unknown {
-  for (const key of path) {
-    if (key === '*' || /^\d+$/.test(key)) {
-      if (!jsonArray(o)) return undefined;
-      o = o[key === '*' ? 0 : Number(key)];
-    } else {
-      if (!jsonRecord(o)) return undefined;
-      o = nativeValue(o, key);
-    }
-  }
-  return o;
-}
-function putPath(
-  o: Record<string, unknown>,
-  path: string[],
-  v: unknown,
-  replace: boolean,
-): Record<string, unknown> {
-  const update = (value: unknown, keys: string[]): unknown => {
-    const [key, ...rest] = keys;
-    if (key === '*') return jsonArray(value) ? value.map((entry) => update(entry, rest)) : value;
-    if (/^\d+$/.test(key) && jsonArray(value))
-      return value.map((entry, index) => (index === Number(key) ? update(entry, rest) : entry));
-    const obj = jsonRecord(value) ? value : {};
-    if (!rest.length)
-      return replace || nativeValue(obj, key) === undefined ? setNative(obj, key, v) : obj;
-    return setNative(obj, key, update(nativeValue(obj, key), rest));
-  };
-  return update(o, path) as Record<string, unknown>;
-}
 const listKeys = ['alpn', 'curvePreferences'];
 const jsonKeys = [
   'certificates',

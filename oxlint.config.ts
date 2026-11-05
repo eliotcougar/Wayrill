@@ -179,10 +179,14 @@ export default defineConfig({
   },
   rules: baseRules,
   overrides: [
-    { files: ['src/**/*.{ts,tsx}'], env: { browser: true } },
+    { files: ['src/**/*.{ts,tsx}', 'packages/*/src/**/*.{ts,tsx}'], env: { browser: true } },
     {
-      files: ['src/**/*.{ts,tsx}'],
-      excludeFiles: ['src/**/*.test.{ts,tsx}'],
+      files: ['src/**/*.{ts,tsx}', 'packages/*/src/**/*.{ts,tsx}'],
+      excludeFiles: [
+        'src/**/*.test.{ts,tsx}',
+        'packages/**/*.test.{ts,tsx}',
+        'packages/ui/src/browserTestSetup.ts',
+      ],
       rules: productionRules,
     },
     { files: ['src/**/*.test.{ts,tsx}'], rules: { 'typescript/no-explicit-any': 'off' } },

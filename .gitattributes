@@ -14,3 +14,6 @@ docs/licenses/* -text -whitespace
 service/capture/LICENSE -text -whitespace
 service/routing-assets/*LICENSE -text -whitespace
 service/daemon/fixtures/*.txt -text -whitespace
+# Aquifer verifies these unmodified upstream helper bytes against provenance.
+aquifer/src-tauri/resources/winscp/WinSCP.com binary
+aquifer/src-tauri/resources/winscp/LICENSE.txt -text -whitespace
