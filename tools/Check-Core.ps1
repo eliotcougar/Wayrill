@@ -42,7 +42,9 @@ try {
     Write-Host "Core integration checks passed. Generated configurations and logs: $taskFixture"
 } finally {
     foreach ($taskName in $taskEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable($taskName, $taskEnvironment[$taskName], 'Process')
+        # An ordinary $null binds as "" here; Xray treats that as an explicit path.
+        $taskValue = if ($null -eq $taskEnvironment[$taskName]) { [NullString]::Value } else { $taskEnvironment[$taskName] }
+        [Environment]::SetEnvironmentVariable($taskName, $taskValue, 'Process')
     }
     Pop-Location
 }

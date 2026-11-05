@@ -8,8 +8,12 @@ if ((Get-FileHash -LiteralPath $CorePath).Hash -ine $taskPins.xray.executableSha
 $CorePath = (Resolve-Path -LiteralPath $CorePath).Path
 $taskFixture = Join-Path $taskProject ('.tools/aquifer-core-tests/' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $taskFixture -Force | Out-Null
+& (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1')
+foreach ($taskFile in $taskPins.resourceData.files) {
+    Copy-Item -LiteralPath (Join-Path $taskProject ('service/resource-assets/' + $taskFile.path)) -Destination $taskFixture
+}
 $taskEnvironment = @{}
-foreach ($taskKey in @('WAYRILL_REMOTE_TEST_CORE','WAYRILL_REMOTE_EDITOR_CORE','WAYRILL_REMOTE_TEST_CERTIFICATE','WAYRILL_REMOTE_TEST_KEY')) { $taskEnvironment[$taskKey] = [Environment]::GetEnvironmentVariable($taskKey,'Process') }
+foreach ($taskKey in @('WAYRILL_REMOTE_TEST_CORE','WAYRILL_REMOTE_EDITOR_CORE','WAYRILL_REMOTE_TEST_CERTIFICATE','WAYRILL_REMOTE_TEST_KEY','XRAY_LOCATION_ASSET')) { $taskEnvironment[$taskKey] = [Environment]::GetEnvironmentVariable($taskKey,'Process') }
 Push-Location $taskFixture
 try {
     & $CorePath tls cert -domain=localhost -file=server *> cert-generation.log
@@ -18,12 +22,17 @@ try {
     $env:WAYRILL_REMOTE_EDITOR_CORE = $CorePath
     $env:WAYRILL_REMOTE_TEST_CERTIFICATE = Join-Path $taskFixture 'server.crt'
     $env:WAYRILL_REMOTE_TEST_KEY = Join-Path $taskFixture 'server.key'
+    $env:XRAY_LOCATION_ASSET = $taskFixture
     if (-not (Test-Path -LiteralPath $env:WAYRILL_REMOTE_TEST_CERTIFICATE) -or -not (Test-Path -LiteralPath $env:WAYRILL_REMOTE_TEST_KEY)) { throw 'The synthetic TLS certificate was not generated.' }
     Push-Location (Join-Path $taskProject 'aquifer')
     try { & npm.cmd exec -- vitest run --config vitest.core.config.ts }
     finally { Pop-Location }
     if ($LASTEXITCODE) { throw 'Aquifer Xray acceptance checks failed.' }
 } finally {
-    foreach ($taskKey in $taskEnvironment.Keys) { [Environment]::SetEnvironmentVariable($taskKey,$taskEnvironment[$taskKey],'Process') }
+    foreach ($taskKey in $taskEnvironment.Keys) {
+        # Preserve absent variables instead of leaving an empty Xray override.
+        $taskValue = if ($null -eq $taskEnvironment[$taskKey]) { [NullString]::Value } else { $taskEnvironment[$taskKey] }
+        [Environment]::SetEnvironmentVariable($taskKey,$taskValue,'Process')
+    }
     Pop-Location
 }
