@@ -359,7 +359,7 @@ fn detect_executable(preferences: &Preferences) -> Option<PathBuf> {
 // Keep the user's portable installation untouched. Only the small, signed
 // upstream console wrapper is cached here; it launches the selected EXE.
 fn cached_console(cache: &Path) -> Result<PathBuf> {
-    let digest = format!("{:x}", Sha256::digest(CONSOLE_HELPER));
+    let digest = hex::encode(Sha256::digest(CONSOLE_HELPER));
     let directory = cache.join(format!("helpers/winscp-6.5.7-{}", &digest[..16]));
     let destination = directory.join("WinSCP.com");
     let matches = || {
@@ -626,7 +626,7 @@ fn sessions_from(sites: Vec<Site>, source: &str, executable: Option<&Path>) -> V
             site.name
         );
         sessions.push(SavedSession {
-            id: format!("{:x}", Sha256::digest(identity.as_bytes())),
+            id: hex::encode(Sha256::digest(identity.as_bytes())),
             name: site.name.clone(),
             host,
             user,
