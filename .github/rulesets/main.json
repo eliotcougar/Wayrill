@@ -37,6 +37,7 @@
           { "context": "Native (service)", "integration_id": 15368 },
           { "context": "Native (desktop)", "integration_id": 15368 },
           { "context": "Native (capture)", "integration_id": 15368 },
+          { "context": "Native (aquifer)", "integration_id": 15368 },
           { "context": "Dependency review", "integration_id": 15368 },
           { "context": "Analyze (actions)", "integration_id": 15368 },
           { "context": "Analyze (javascript-typescript)", "integration_id": 15368 },
