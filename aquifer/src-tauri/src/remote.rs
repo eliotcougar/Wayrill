@@ -571,8 +571,7 @@ pub fn validate_config(
     if validation.version != 1
         || validation.path != request.path
         || validation.service != request.service
-        || validation.config_sha256
-            != format!("{:x}", Sha256::digest(request.config_text.as_bytes()))
+        || validation.config_sha256 != hex::encode(Sha256::digest(request.config_text.as_bytes()))
         || validation.source_sha256 != request.expected_sha256
         || validation.expires_at <= validation.checked_at
         || validation.logs.len() > 40
@@ -835,7 +834,7 @@ fn parse_discovery(output: &[u8]) -> Result<Discovery> {
 pub fn read_config(operation: Permit, session: &str, path: &str) -> Result<ConfigSnapshot> {
     validate_path(path)?;
     let bytes = run(&operation, session, &format!("get \"{path}\" -"), true)?;
-    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let sha256 = hex::encode(Sha256::digest(&bytes));
     let len = bytes.len();
     let text = String::from_utf8(bytes).map_err(|_| {
         RemoteError::new(
@@ -893,7 +892,7 @@ fn read_companion(operation: &Operation, session: &str, path: &str) -> Result<Wa
             &format!("get \"{}\" -", companion.path),
             true,
         ) {
-            Ok(data) if format!("{:x}", Sha256::digest(&data)) == *expected => {
+            Ok(data) if hex::encode(Sha256::digest(&data)) == *expected => {
                 match String::from_utf8(data) {
                     Ok(text) => companion.text = Some(text),
                     Err(_) => companion.error = Some("The Wayrill file is not UTF-8.".into()),

@@ -13,10 +13,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 flate2 = "1.1.10"
-sha2 = "0.10"
+sha2 = "0.11"
+hex = "0.4"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Environment", "Win32_Globalization", "Win32_UI_Controls_Dialogs", "Win32_Security", "Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
 
-tauri-plugin-single-instance = "=2.5.2"
+tauri-plugin-single-instance = "=2.5.5"
 
 [profile.release]
 codegen-units = 1
