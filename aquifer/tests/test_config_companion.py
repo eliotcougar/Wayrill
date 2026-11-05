@@ -20,7 +20,7 @@ class CompanionReadTests(unittest.TestCase):
 
     def test_config_names_and_directories_have_independent_companions(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             for name in ('server-a', 'server-b'):
                 directory = root / name
                 directory.mkdir()
@@ -36,7 +36,7 @@ class CompanionReadTests(unittest.TestCase):
 
     def test_missing_companion_is_normal_and_changes_no_files(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             target = root / 'config.json'
             target.write_text('{}', encoding='utf-8')
             result = self.probe(target)
@@ -46,9 +46,9 @@ class CompanionReadTests(unittest.TestCase):
 
     def test_unreadable_companion_is_distinct_from_missing(self):
         with tempfile.TemporaryDirectory() as temporary:
-            target = Path(temporary) / 'config.json'
+            target = Path(temporary).resolve() / 'config.json'
             target.write_text('{}', encoding='utf-8')
-            (Path(temporary) / 'config.wayrill.json').mkdir()
+            (target.parent / 'config.wayrill.json').mkdir()
             result = self.probe(target)
             self.assertIsNone(result['sha256'])
             self.assertIn('error', result)

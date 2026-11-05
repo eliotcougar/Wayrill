@@ -24,7 +24,8 @@ class DeploymentTests(unittest.TestCase):
         self.ns = load_deployment()
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
-        self.base = Path(self.folder.name)
+        # deploy_target returns canonical paths, including on short-alias TEMP roots.
+        self.base = Path(self.folder.name).resolve()
         self.target = self.base / 'config.json'
         self.original = b'{"outbounds":[{"protocol":"freedom"}]}\r\n'
         self.candidate = b'{"outbounds":[{"protocol":"blackhole"}]}'
