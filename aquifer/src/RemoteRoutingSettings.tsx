@@ -105,7 +105,7 @@ export default function RemoteRoutingSettings({
             {field.label} <span className="muted">(none selected = any)</span>
           </legend>
           {values.map(({ value, label }) => (
-            <label key={value} className="check-label">
+            <label key={value} className="check-control check-control--compact">
               <input
                 type="checkbox"
                 checked={items.includes(value)}
@@ -126,7 +126,7 @@ export default function RemoteRoutingSettings({
       );
     }
     return (
-      <label key={field.key} data-setting-path={path}>
+      <label className="editor-field" key={field.key} data-setting-path={path}>
         {field.label}
         {field.list ? (
           <ListInput
@@ -140,6 +140,7 @@ export default function RemoteRoutingSettings({
           />
         ) : (
           <input
+            className="text-control"
             aria-label={field.label}
             value={jsonText(entry ?? '')}
             placeholder={field.hint}
@@ -166,6 +167,7 @@ export default function RemoteRoutingSettings({
     <div className="remote-routing-editor">
       <div className="remote-rule-sidebar">
         <input
+          className="text-control"
           aria-label="Find routing rules"
           placeholder="Find rules"
           value={query}
@@ -228,7 +230,7 @@ export default function RemoteRoutingSettings({
               key={index}
               type="button"
               aria-pressed={selected === index}
-              className={selected === index ? 'active' : ''}
+              className={selected === index ? 'secondary-button active' : 'secondary-button'}
               onClick={() => setSelected(index)}
             >
               <span>
@@ -244,10 +246,11 @@ export default function RemoteRoutingSettings({
       </div>
       {rule && target && (
         <div className="remote-rule-fields">
-          <div className="server-fields-grid">
-            <label data-setting-path={`rules.${selected}.destination`}>
+          <div className="field-grid server-fields-grid">
+            <label className="editor-field" data-setting-path={`rules.${selected}.destination`}>
               Destination
               <select
+                className="text-control"
                 aria-label="Rule destination"
                 value={JSON.stringify([target.group, target.tag])}
                 onChange={(event) => {
@@ -282,9 +285,10 @@ export default function RemoteRoutingSettings({
                   ))}
               </select>
             </label>
-            <label>
+            <label className="editor-field">
               Rule name
               <input
+                className="text-control"
                 aria-label="Rule name"
                 value={jsonText(get(rule, 'ruleTag') ?? '')}
                 onChange={(event) =>
@@ -298,7 +302,7 @@ export default function RemoteRoutingSettings({
               .filter(({ key }) => ['domain', 'ip', 'port', 'network', 'protocol'].includes(key))
               .map(renderCondition)}
           </div>
-          <details className="server-advanced" key={selected}>
+          <details className="editor-advanced server-advanced" key={selected}>
             <summary>
               Source & advanced conditions
               {advanced.some(({ key }) => rule[conditionKey(rule, key)] !== undefined) ||

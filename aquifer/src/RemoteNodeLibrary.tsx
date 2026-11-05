@@ -19,9 +19,10 @@ export default function RemoteNodeLibrary({
   );
   return (
     <section className="node-library" aria-label="Node library">
-      <div className="search-field">
+      <div className="search-control">
         <Search size={15} />
         <input
+          className="text-control"
           id="node-search"
           aria-label="Search node library"
           placeholder="Search nodes"
@@ -46,7 +47,7 @@ export default function RemoteNodeLibrary({
               {items.map((entry) => (
                 <button
                   key={entry.id}
-                  className={`node-library-item ${group === 'Inbounds' ? 'inbound' : group === 'Outbounds' ? 'outbound' : group === 'User sets' ? 'users' : 'filter'}`}
+                  className={`secondary-button node-library-item ${group === 'Inbounds' ? 'inbound' : group === 'Outbounds' ? 'outbound' : group === 'User sets' ? 'users' : 'filter'}`}
                   disabled={disabled}
                   draggable={!disabled}
                   title="Click to add, or drag onto the graph"

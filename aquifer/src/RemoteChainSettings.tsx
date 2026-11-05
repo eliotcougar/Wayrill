@@ -29,27 +29,28 @@ export default function RemoteChainSettings({
   return (
     <dialog
       ref={dialog}
-      className="user-library-dialog remote-chain-dialog"
+      className="rule-editor-window user-library-dialog remote-chain-dialog"
       aria-label="Edit proxy chain"
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
     >
-      <header className="user-dialog-header">
+      <header className="dialog-header">
         <h2>Edit proxy chain · {title}</h2>
         <button className="icon-button" aria-label="Close proxy chain" onClick={close}>
           <X size={18} />
         </button>
       </header>
-      <div className="remote-settings-body server-inbound-editor">
+      <div className="dialog-body remote-settings-body server-inbound-editor">
         <ol className="chain-hops">
           {path.indices.map((index, position) => (
             <li key={index}>
               <strong>{jsonText(get(draft[index], 'tag')) || `Outbound ${index + 1}`}</strong>
-              <label>
+              <label className="editor-field">
                 Route through
                 <select
+                  className="text-control"
                   aria-label={`Next outbound for ${jsonText(get(draft[index], 'tag'))}`}
                   value={primaryProxy(draft[index])}
                   onChange={(event) =>
@@ -96,8 +97,10 @@ export default function RemoteChainSettings({
           </p>
         )}
       </div>
-      <footer className="user-dialog-footer">
-        <button onClick={close}>Cancel</button>
+      <footer className="dialog-footer">
+        <button className="secondary-button" onClick={close}>
+          Cancel
+        </button>
         <button className="primary-button" disabled={!!path.error} onClick={() => onSave(draft)}>
           Apply changes
         </button>

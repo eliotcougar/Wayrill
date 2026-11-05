@@ -1,12 +1,17 @@
 # Styling
 
-`src/main.tsx` loads `src/styles.css`, the single stylesheet entry point. Its
-explicit import order keeps the cascade independent of React component imports.
-Add feature sheets there rather than importing CSS from components.
+Wayrill and Aquifer each load one stylesheet entry point: `src/styles.css` and
+`aquifer/src/styles.css`. Both import `@wayrill/ui/styles.css` before their own
+layout sheets. Explicit import order keeps the cascade independent of React
+component imports. Add app-specific sheets to the owning entry point rather than
+importing CSS from components or copying shared primitives.
 
 ## Shared foundation
 
-- `tokens.css` defines semantic colors, spacing, control dimensions and the
+The foundation lives under `packages/ui/src/`; paths in this section are relative
+to that directory. It has no dependency on either app or its networking behavior.
+
+- `styles/tokens.css` defines semantic colors, spacing, control dimensions and the
   monospace font. Light/dark and forced-color themes share the same dimensions.
   Use the semantic token directly rather than adding aliases or unused palettes.
 - `styles/base.css` owns element defaults, focus, native checkbox/radio accents,
@@ -113,6 +118,10 @@ Add feature sheets there rather than importing CSS from components.
   nested editors. A flex-column `editor-field` supplies its own feedback gap;
   do not add a paragraph margin to that gap. Invalid controls and composite
   secret fields use their `aria-invalid` state for the shared error border.
+- `styles/graph.css` owns `node-card` surfaces, borders, selection and elevation.
+  Each app keeps node contents, category metadata and port geometry in its own
+  graph sheet. `segmented-tools` in the shared controls sheet styles canvas mode
+  buttons without tying them to either app's toolbar.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`
@@ -148,15 +157,16 @@ sizing in feature sheets. Features own spacing between expanded content rows.
 
 ## Feature ownership
 
-The sheets under `styles/` separate workspace chrome/library/inspector, menus,
+Wayrill's sheets under `src/styles/` separate workspace chrome/library/inspector, menus,
 graph cards/canvas, routing/DNS editors, runtime, resources and protocol editors.
 The remaining feature sheets cover Stash, policies, traffic, system capture and
 other individual dialogs. Feature sheets should define their own layout and
 states, reusing shared control appearance and semantic tokens.
 
-Keep graph card states together in `styles/graph.css`. Selection owns elevation
-and its outline; validation and the Main role share a separate ring so that
-errors cannot remove selection feedback. Neither changes card or port geometry.
+Common graph-card selection owns elevation and its outline in the shared
+foundation; Wayrill's validation and Main role share a separate ring in
+`src/styles/graph.css` so errors cannot remove selection feedback. Neither changes
+card or port geometry.
 Node cards use named output rows. Handle colors come from connection-type
 metadata, also used by the editor and connection checks; do not duplicate that
 mapping in port-name CSS classes. Keep the semantic data attributes for inspection.
@@ -174,6 +184,15 @@ their base rule. Avoid appending a second definition of the same selector, copyi
 input appearance into a dialog sheet, or using `!important` to fix precedence.
 Existing vendor/platform overrides are narrow exceptions.
 
+Aquifer's `aquifer/src/styles/` separates workspace chrome, graph content,
+structured editors, user/Stash libraries and server deployment/status. Its markup
+uses the same button, field, tab, table and dialog classes as Wayrill. These sheets
+own layout, not another set of control defaults. Aquifer adds only the semantic
+User-set connection colors; avoid reviving hardcoded palettes or global button,
+input and label rules. Group labels and their controls explicitly so adjacent
+actions align to the input, and keep dialog headers/footers outside the scrolling
+body.
+
 `accessibility.css` is loaded last for cross-feature reflow, forced colors and
 keyboard behavior. Check it when changing shell dimensions or overflow. Scope
 main-workspace reflow to the app shell: dialogs reuse the progress overlay's
@@ -181,7 +200,9 @@ workspace wrapper and must retain their bounded, scrolling content area.
 
 ## Verification
 
-`npm run check` includes TypeScript/React linting, CSS error checks and formatting.
+`npm run check:all` checks both apps' TypeScript/React, CSS and formatting. The main
+CSS check includes shared package styles; Aquifer's check includes all its own
+layout sheets using the same Stylelint configuration.
 Stylelint rejects duplicate rules/declarations, unknown CSS and invalid values;
 Prettier owns formatting. Descending-specificity linting is disabled because it
 cannot distinguish unrelated component subtrees.

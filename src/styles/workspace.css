@@ -77,18 +77,6 @@
 .toolbar-spacer {
   flex: 1;
 }
-.segmented-tools {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface-sunken);
-}
-.segmented-tools .icon-button {
-  width: 29px;
-  height: 27px;
-}
 .library-toggle {
   position: relative;
   flex-shrink: 0;

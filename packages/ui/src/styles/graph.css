@@ -1,0 +1,26 @@
+/* Card decoration is shared; node content and port geometry belong to each app. */
+.node-card {
+  --node-ring: 0 0 0 0 transparent;
+  --node-elevation: 0 5px 14px var(--shadow);
+
+  position: relative;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: var(--node-ring), var(--node-elevation);
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.node-card:hover {
+  border-color: var(--node-color);
+}
+.node-card.is-selected {
+  --node-elevation: 0 3px 6px var(--shadow), 0 14px 28px var(--shadow);
+
+  /* A thicker visible stroke without changing card or port measurements. */
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}

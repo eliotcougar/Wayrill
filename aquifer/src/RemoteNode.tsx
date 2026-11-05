@@ -38,7 +38,7 @@ function RemoteNode({ id, data, selected, isConnectable }: NodeProps<ViewNode>) 
                   : Settings2;
   return (
     <article
-      className={`remote-node ${selected ? 'is-selected' : ''}`}
+      className={`node-card remote-node ${selected ? 'is-selected' : ''}`}
       data-category={data.category}
     >
       {data.hasInput && (

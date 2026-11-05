@@ -199,6 +199,7 @@ function RoutedCanvas({
       </EdgeRoutesContext>
       <div className="canvas-zoom">
         <button
+          className="icon-button"
           title="Zoom out"
           aria-label="Zoom out"
           onClick={() => {
@@ -208,6 +209,7 @@ function RoutedCanvas({
           <Minus size={17} />
         </button>
         <button
+          className="icon-button"
           title="Fit graph"
           aria-label="Fit graph"
           onClick={() => {
@@ -217,6 +219,7 @@ function RoutedCanvas({
           <Maximize size={17} />
         </button>
         <button
+          className="icon-button"
           title="Zoom in"
           aria-label="Zoom in"
           onClick={() => {
@@ -229,7 +232,7 @@ function RoutedCanvas({
       {error && (
         <div className="canvas-error" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={retry}>
+          <button className="secondary-button" type="button" onClick={retry}>
             Retry layout
           </button>
         </div>

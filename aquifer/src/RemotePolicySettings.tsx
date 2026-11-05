@@ -74,10 +74,11 @@ export default function RemotePolicySettings({
     fallback = jsonText(get(value, 'fallbackTag') ?? '');
   return (
     <div className="server-inbound-editor">
-      <div className="server-fields-grid">
-        <label data-setting-path="tag">
+      <div className="field-grid server-fields-grid">
+        <label className="editor-field" data-setting-path="tag">
           Group tag
           <input
+            className="text-control"
             aria-label="Group tag"
             value={jsonText(get(value, 'tag') ?? '')}
             onChange={(event) =>
@@ -85,9 +86,10 @@ export default function RemotePolicySettings({
             }
           />
         </label>
-        <label>
+        <label className="editor-field">
           Selection strategy
           <select
+            className="text-control"
             aria-label="Selection strategy"
             value={type}
             onChange={(event) =>
@@ -124,9 +126,10 @@ export default function RemotePolicySettings({
           </select>
         </label>
       </div>
-      <label>
+      <label className="editor-field">
         Candidate selection
         <select
+          className="text-control"
           aria-label="Candidate selection"
           value={all ? 'all' : 'prefixes'}
           onChange={(event) =>
@@ -138,7 +141,7 @@ export default function RemotePolicySettings({
         </select>
       </label>
       {!all && (
-        <label data-setting-path="selector">
+        <label className="editor-field" data-setting-path="selector">
           Outbound tag prefixes
           <ListInput
             aria-label="Outbound tag prefixes"
@@ -146,17 +149,18 @@ export default function RemotePolicySettings({
             trim
             onChange={(next) => onChange(setProperty(value, 'selector', next))}
           />
-          <span className="server-field-hint">
+          <span className="field-help">
             Each prefix matches outbound tags starting with it. Matching is case-sensitive.
           </span>
         </label>
       )}
-      <section className="policy-preview">
+      <section className="editor-panel policy-preview">
         <header>
           <strong>
             {matches.length} matching {matches.length === 1 ? 'outbound' : 'outbounds'}
           </strong>
           <input
+            className="text-control"
             aria-label="Find matching outbounds"
             placeholder="Find in matches"
             value={query}
@@ -172,19 +176,25 @@ export default function RemotePolicySettings({
           ))}
         </ul>
         {!filtered.length && (
-          <p className="server-field-hint">
+          <p className="field-help">
             {matches.length ? 'No matching outbounds.' : 'No outbounds match these prefixes.'}
           </p>
         )}
         {filtered.length > 100 && (
           <div className="user-pagination">
-            <button type="button" disabled={!active} onClick={() => setPage(active - 1)}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!active}
+              onClick={() => setPage(active - 1)}
+            >
               Previous
             </button>
             <span>
               {active + 1} / {Math.ceil(filtered.length / 100)}
             </span>
             <button
+              className="secondary-button"
               type="button"
               disabled={(active + 1) * 100 >= filtered.length}
               onClick={() => setPage(active + 1)}
@@ -195,13 +205,14 @@ export default function RemotePolicySettings({
         )}
       </section>
       {(type === 'leastping' || type === 'leastload') && (
-        <p className="server-field-hint">
+        <p className="field-help">
           Uses the server’s observatory results. Configure observation on the Observatory node.
         </p>
       )}
-      <label data-setting-path="fallbackTag">
+      <label className="editor-field" data-setting-path="fallbackTag">
         Fallback outbound
         <select
+          className="text-control"
           aria-label="Fallback outbound"
           value={fallback}
           onChange={(event) =>
@@ -220,7 +231,7 @@ export default function RemotePolicySettings({
         </select>
       </label>
       {type === 'leastload' && (
-        <details className="server-advanced">
+        <details className="editor-advanced server-advanced">
           <summary>Least-load tuning</summary>
           {tuning(objectAt(strategy, 'settings'), (next) =>
             onChange(setProperty(value, 'strategy', setProperty(strategy, 'settings', next))),

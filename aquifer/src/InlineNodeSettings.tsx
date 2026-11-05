@@ -62,7 +62,7 @@ export default function InlineNodeSettings({
         showProtocolAdvanced={false}
       />
       {schema === 'OutboundDetourConfig' && (
-        <details className="inline-advanced">
+        <details className="editor-advanced inline-advanced">
           <summary>Advanced</summary>
           <ServerFields
             schema={protocol.schema}
@@ -94,10 +94,11 @@ export default function InlineNodeSettings({
       )}
       {error && <p role="alert">{error}</p>}
       <div className="inline-settings-actions">
-        <button className="primary" type="submit" disabled={!dirty}>
+        <button className="primary-button" type="submit" disabled={!dirty}>
           Apply changes
         </button>
         <button
+          className="secondary-button"
           type="button"
           disabled={!dirty}
           onClick={() => {

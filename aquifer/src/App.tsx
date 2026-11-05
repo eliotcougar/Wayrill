@@ -954,9 +954,12 @@ export default function App({
               <Server size={17} />
               Server
             </h2>
-            <label htmlFor="saved-session">WinSCP session</label>
+            <label className="field-label" htmlFor="saved-session">
+              WinSCP session
+            </label>
             <div className="field-with-button">
               <select
+                className="text-control"
                 id="saved-session"
                 value={session}
                 disabled={!!busy || setupBusy}
@@ -991,7 +994,7 @@ export default function App({
               </p>
             )}
             <button
-              className="primary connect-button"
+              className="primary-button connect-button"
               disabled={!session || !sshAvailable || !!busy || setupBusy}
               onClick={() => {
                 void connect();
@@ -1001,7 +1004,7 @@ export default function App({
               {snapshot && sourceSession === session ? 'Refresh from server' : 'Read server'}
             </button>
             <button
-              className="status-open"
+              className="secondary-button status-open"
               disabled={!session || !sshAvailable || !!busy || setupBusy}
               onClick={() => {
                 openStatus();
@@ -1050,8 +1053,11 @@ export default function App({
             <div hidden={!filesOpen}>
               {discovery && discovery.files.length > 0 && (
                 <>
-                  <label htmlFor="detected-files">Detected files</label>
+                  <label className="field-label" htmlFor="detected-files">
+                    Detected files
+                  </label>
                   <select
+                    className="text-control"
                     id="detected-files"
                     value={discovery.files.some((f) => f.path === path) ? path : ''}
                     disabled={!!busy}
@@ -1077,8 +1083,11 @@ export default function App({
                   </select>
                 </>
               )}
-              <label htmlFor="remote-path">Remote file path</label>
+              <label className="field-label" htmlFor="remote-path">
+                Remote file path
+              </label>
               <input
+                className="text-control"
                 id="remote-path"
                 value={path}
                 placeholder="/usr/local/etc/xray/config.json"
@@ -1091,7 +1100,7 @@ export default function App({
                 }}
               />
               <button
-                className="secondary path-read"
+                className="secondary-button path-read"
                 disabled={!session || !sshAvailable || !path.trim() || !!busy || setupBusy}
                 onClick={() => {
                   void openPath();
@@ -1109,6 +1118,7 @@ export default function App({
             disabled={!view || blocked}
           />
           <input
+            className="text-control"
             ref={fileInput}
             type="file"
             accept=".json,.jsonc,application/json"
@@ -1132,7 +1142,7 @@ export default function App({
               >
                 <PanelLeft size={17} />
               </button>
-              <div className="canvas-tools" role="group" aria-label="Canvas tools">
+              <div className="segmented-tools" role="group" aria-label="Canvas tools">
                 <button
                   className="icon-button"
                   title="Select"
@@ -1154,11 +1164,19 @@ export default function App({
                   <Hand size={17} />
                 </button>
               </div>
-              <button disabled={!view || blocked} onClick={() => setInformation('check')}>
+              <button
+                className="secondary-button"
+                disabled={!view || blocked}
+                onClick={() => setInformation('check')}
+              >
                 <CheckCheck size={17} />
                 Check
               </button>
-              <button disabled={!canPrepareDeployment} onClick={() => void prepareDeployment()}>
+              <button
+                className="secondary-button"
+                disabled={!canPrepareDeployment}
+                onClick={() => void prepareDeployment()}
+              >
                 Apply…
               </button>
             </div>
@@ -1171,11 +1189,18 @@ export default function App({
                 <span className="users-draft-label">Local draft</span>
               )}
               {notices.length > 0 && (
-                <button className="notice-button" onClick={() => setNoticesOpen(!noticesOpen)}>
+                <button
+                  className="secondary-button notice-button"
+                  onClick={() => setNoticesOpen(!noticesOpen)}
+                >
                   {notices.length} import {notices.length === 1 ? 'note' : 'notes'}
                 </button>
               )}
-              <button disabled={!view || blocked} onClick={() => setShowStash(true)}>
+              <button
+                className="secondary-button"
+                disabled={!view || blocked}
+                onClick={() => setShowStash(true)}
+              >
                 <Archive size={16} />
                 Stash
               </button>
@@ -1197,7 +1222,11 @@ export default function App({
           {error && (
             <div className="error-message" role="alert">
               {error}
-              <button aria-label="Dismiss error" onClick={() => setError('')}>
+              <button
+                className="secondary-button"
+                aria-label="Dismiss error"
+                onClick={() => setError('')}
+              >
                 <X size={16} />
               </button>
             </div>
@@ -1252,10 +1281,14 @@ export default function App({
               </p>
               {!snapshot && (
                 <div className="empty-canvas-actions">
-                  <button className="primary" disabled={blocked} onClick={newConfiguration}>
+                  <button className="primary-button" disabled={blocked} onClick={newConfiguration}>
                     New configuration
                   </button>
-                  <button disabled={blocked} onClick={() => loadExample()}>
+                  <button
+                    className="secondary-button"
+                    disabled={blocked}
+                    onClick={() => loadExample()}
+                  >
                     Explore an example
                   </button>
                 </div>
@@ -1268,6 +1301,7 @@ export default function App({
                 <RefreshCw className="spin" size={25} />
                 <strong>{busy}…</strong>
                 <button
+                  className="secondary-button"
                   onClick={() => {
                     requests.cancelled = true;
                     void client.cancel().catch(() => {});
@@ -1299,7 +1333,7 @@ export default function App({
               </button>
             </header>
             {!showConfig && node && (
-              <div className="inspector-tabs" role="tablist">
+              <div className="editor-tab-list inspector-tabs" role="tablist">
                 <button
                   role="tab"
                   aria-selected={propertiesTab === 'properties'}
@@ -1324,7 +1358,11 @@ export default function App({
                 <div className="remote-node-actions">
                   {nodeSettings(view, node.id) &&
                     !inlineSettings(node.id, nodeSettings(view, node.id)?.value) && (
-                      <button disabled={!!busy} onClick={() => openNode(node.id)}>
+                      <button
+                        className="secondary-button"
+                        disabled={!!busy}
+                        onClick={() => openNode(node.id)}
+                      >
                         Edit…
                       </button>
                     )}
@@ -1332,11 +1370,14 @@ export default function App({
               )}
               {showConfig || (node && propertiesTab === 'json') ? (
                 <>
-                  <button className="reveal-button" onClick={() => setReveal(!reveal)}>
+                  <button
+                    className="secondary-button reveal-button"
+                    onClick={() => setReveal(!reveal)}
+                  >
                     {reveal ? <EyeOff size={15} /> : <Eye size={15} />}{' '}
                     {reveal ? 'Hide credentials' : 'Reveal credentials'}
                   </button>
-                  <pre className="json-view" tabIndex={0}>
+                  <pre className="code-block json-view" tabIndex={0}>
                     {visibleJson}
                   </pre>
                 </>
@@ -1398,7 +1439,9 @@ export default function App({
                             </p>
                             <details>
                               <summary>JSON</summary>
-                              <pre>{JSON.stringify(reveal ? rule : redact(rule), null, 2)}</pre>
+                              <pre className="code-block">
+                                {JSON.stringify(reveal ? rule : redact(rule), null, 2)}
+                              </pre>
                             </details>
                           </article>
                         ))}

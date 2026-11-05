@@ -27,7 +27,7 @@ function Changes({
       </h4>
       {matching.length ? (
         <>
-          <table className="status-table upgrade-plan-table">
+          <table className="data-table status-table upgrade-plan-table">
             <thead>
               <tr>
                 <th>Package</th>
@@ -51,6 +51,7 @@ function Changes({
           {pages > 1 && (
             <div className="status-pagination">
               <button
+                className="secondary-button"
                 disabled={!current}
                 onClick={() => setPage(current - 1)}
                 aria-label={`Previous ${title.toLowerCase()}`}
@@ -61,6 +62,7 @@ function Changes({
                 {current + 1} / {pages}
               </span>
               <button
+                className="secondary-button"
                 disabled={current + 1 >= pages}
                 onClick={() => setPage(current + 1)}
                 aria-label={`Next ${title.toLowerCase()}`}
@@ -84,9 +86,10 @@ export default function UpgradePlanPreview({ plan }: { plan: UpgradePlan }) {
       <p className="muted">
         {plan.hostname} · Preview expires {new Date(plan.expiresAt * 1000).toLocaleTimeString()}
       </p>
-      <div className="search-field">
+      <div className="search-control">
         <Search size={15} />
         <input
+          className="text-control"
           aria-label="Search proposed package changes"
           placeholder="Search package changes"
           value={query}

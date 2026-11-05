@@ -45,7 +45,7 @@ export function Toggle({
   disabled?: boolean;
 }) {
   return (
-    <label className="check-label">
+    <label className="check-control">
       <input
         aria-label={label}
         type="checkbox"
@@ -211,9 +211,10 @@ export default function RemoteCoreSettings({
     const level = jsonText(get(log, 'loglevel') ?? '');
     return (
       <div className="server-inbound-editor">
-        <label className="server-choice">
+        <label className="editor-field server-choice">
           Log level
           <select
+            className="text-control"
             aria-label="Log level"
             value={level}
             onChange={(event) => change(['log', 'loglevel'], event.target.value || undefined)}
@@ -237,7 +238,7 @@ export default function RemoteCoreSettings({
           </select>
         </label>
         <fieldset className="settings-unboxed" disabled={off}>
-          <div className="server-fields-grid">
+          <div className="field-grid server-fields-grid">
             {(['access', 'error'] as const).map((key) => {
               const entry = get(log, key),
                 name = key === 'access' ? 'Access log' : 'Error log';
@@ -251,9 +252,10 @@ export default function RemoteCoreSettings({
                       : 'file';
               return (
                 <div className="server-choice" key={key}>
-                  <label>
+                  <label className="editor-field">
                     {name}
                     <select
+                      className="text-control"
                       aria-label={name}
                       value={mode}
                       onChange={(event) =>
@@ -279,9 +281,10 @@ export default function RemoteCoreSettings({
                     </select>
                   </label>
                   {mode === 'file' && (
-                    <label>
+                    <label className="editor-field">
                       Path on server
                       <input
+                        className="text-control"
                         aria-label={`${name} path on server`}
                         value={jsonText(entry)}
                         onChange={(event) => change(['log', key], event.target.value || null)}
@@ -300,9 +303,7 @@ export default function RemoteCoreSettings({
           />
         </fieldset>
         {off && (
-          <p className="server-field-hint">
-            All logging is disabled. Destination settings are retained.
-          </p>
+          <p className="field-help">All logging is disabled. Destination settings are retained.</p>
         )}
         <ServerFields
           object={log}
@@ -341,11 +342,12 @@ export default function RemoteCoreSettings({
       change(['policy', 'levels'], { ...levels, [level]: next });
     return (
       <div className="server-inbound-editor">
-        <p className="server-field-hint">Each user’s policy level selects its connection limits.</p>
-        <div className="settings-inline-row">
-          <label>
+        <p className="field-help">Each user’s policy level selects its connection limits.</p>
+        <div className="form-row settings-inline-row">
+          <label className="editor-field">
             User policy level
             <select
+              className="text-control"
               aria-label="User policy level"
               value={level}
               onChange={(event) => setLevel(event.target.value)}
@@ -360,6 +362,7 @@ export default function RemoteCoreSettings({
           </label>
           {Object.hasOwn(levels, level) && (
             <button
+              className="secondary-button"
               type="button"
               onClick={() => {
                 const next = { ...levels };
@@ -373,13 +376,17 @@ export default function RemoteCoreSettings({
           )}
         </div>
         {fields('ConnectionPolicy', selected, ['policy', 'levels', level], updateLevel)}
-        <p className="server-field-hint">
+        <p className="field-help">
           Buffer default depends on the server platform and XRAY_BUFFER_SIZE.
         </p>
         <fieldset className="settings-checkboxes">
           <legend>Per-user counters</legend>
           {!enabled('stats') && (
-            <button type="button" onClick={() => toggle('stats', true, {})}>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => toggle('stats', true, {})}
+            >
               Enable traffic statistics
             </button>
           )}
@@ -398,10 +405,11 @@ export default function RemoteCoreSettings({
             />
           ))}
         </fieldset>
-        <div className="settings-inline-row">
-          <label>
+        <div className="form-row settings-inline-row">
+          <label className="editor-field">
             New policy level
             <input
+              className="text-control"
               aria-label="New policy level"
               inputMode="numeric"
               value={newLevel}
@@ -412,6 +420,7 @@ export default function RemoteCoreSettings({
             />
           </label>
           <button
+            className="secondary-button"
             type="button"
             disabled={!newLevel}
             onClick={() => {
@@ -434,7 +443,7 @@ export default function RemoteCoreSettings({
           </button>
         </div>
         {levelError && (
-          <p role="alert" className="server-field-error">
+          <p role="alert" className="field-message error">
             {levelError}
           </p>
         )}
@@ -486,13 +495,14 @@ export default function RemoteCoreSettings({
                 existingListeners={apiListeners.length > 0}
               />
               {apiListeners.map((listener) => (
-                <section key={listener.index} className="server-collection-item">
+                <section key={listener.index} className="editor-panel server-collection-item">
                   <header>
                     <strong>
                       API listener
                       {apiListeners.length > 1 ? ` ${apiListeners.indexOf(listener) + 1}` : ''}
                     </strong>
                     <button
+                      className="secondary-button"
                       type="button"
                       onClick={() =>
                         onApiListenersChange?.(
@@ -563,10 +573,11 @@ export default function RemoteCoreSettings({
             }}
           />
           {cron != null && (
-            <div className="server-fields-grid">
-              <label>
+            <div className="field-grid server-fields-grid">
+              <label className="editor-field">
                 Update schedule
                 <select
+                  className="text-control"
                   aria-label="Update schedule"
                   value={custom ? 'custom' : jsonText(cron)}
                   onChange={(event) => {
@@ -584,14 +595,15 @@ export default function RemoteCoreSettings({
                 </select>
               </label>
               {custom && (
-                <label data-setting-path="geodata.cron">
+                <label className="editor-field" data-setting-path="geodata.cron">
                   Cron schedule
                   <input
+                    className="text-control"
                     aria-label="Cron schedule"
                     value={jsonText(cron)}
                     onChange={(event) => change(['geodata', 'cron'], event.target.value)}
                   />
-                  <span className="server-field-hint">
+                  <span className="field-help">
                     Minute hour day month weekday · server time zone.
                   </span>
                 </label>
@@ -638,7 +650,7 @@ export default function RemoteCoreSettings({
           />
           {fake != null && (
             <>
-              <p className="server-field-hint">Requires a DNS server entry using fakedns.</p>
+              <p className="field-help">Requires a DNS server entry using fakedns.</p>
               <ServerFields
                 schema="FakeDNSPools"
                 object={{ pools }}

@@ -92,7 +92,7 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
   }, [id, portSignature, updateInternals]);
   return (
     <article
-      className={`rule-node category-${definition.category}${errors.length ? ' has-errors' : ''}${selected ? ' is-selected' : ''}${main ? ' is-main' : ''}${disabled || data.settings.enabled === false ? ' is-disabled' : ''}`}
+      className={`node-card rule-node category-${definition.category}${errors.length ? ' has-errors' : ''}${selected ? ' is-selected' : ''}${main ? ' is-main' : ''}${disabled || data.settings.enabled === false ? ' is-disabled' : ''}`}
       data-inbound-disabled={disabled || undefined}
       aria-label={`${name}, ${definition.title}${disabled ? ', disabled' : ''}${main ? ', Main outbound' : ''}`}
     >

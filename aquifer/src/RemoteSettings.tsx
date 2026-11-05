@@ -191,7 +191,7 @@ export default function RemoteSettings({
   return (
     <dialog
       ref={dialog}
-      className={`user-library-dialog remote-settings-dialog${schema === 'Config' ? ' core-settings-dialog' : ''}`}
+      className="rule-editor-window user-library-dialog remote-settings-dialog"
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
@@ -209,9 +209,10 @@ export default function RemoteSettings({
           );
         }}
       >
-        <header className="user-dialog-header">
+        <header className="dialog-header">
           <h2 id={titleId}>{editorTitle(schema, title)}</h2>
           <button
+            className="secondary-button"
             type="button"
             onClick={() => {
               if (!form.current?.reportValidity()) return;
@@ -236,18 +237,19 @@ export default function RemoteSettings({
             tabs={editorTabs}
             panelId={`${editorTabs.id}-panel`}
             label="Settings sections"
-            className="inspector-tabs remote-settings-tabs"
+            className="editor-tab-list inspector-tabs remote-settings-tabs"
           />
         )}
         <div
           ref={body}
-          className="remote-settings-body"
+          className="dialog-body remote-settings-body"
           id={`${editorTabs.id}-panel`}
           role={json === null && tabs.length > 1 ? 'tabpanel' : undefined}
           aria-labelledby={json === null && tabs.length > 1 ? editorTabs.tabId(tab) : undefined}
         >
           {json !== null ? (
             <textarea
+              className="code-control text-control"
               aria-label="Node settings JSON"
               spellCheck={false}
               rows={20}
@@ -331,7 +333,11 @@ export default function RemoteSettings({
                 onChange={updateDraft}
               />
             ) : (
-              <button type="button" onClick={() => setJson(JSON.stringify(draft, null, 2))}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setJson(JSON.stringify(draft, null, 2))}
+              >
                 Edit native options in JSON…
               </button>
             ))
@@ -343,6 +349,7 @@ export default function RemoteSettings({
               </strong>
               {issues.map((issue) => (
                 <button
+                  className="secondary-button"
                   type="button"
                   key={issue.path + issue.message}
                   onClick={() => {
@@ -360,8 +367,8 @@ export default function RemoteSettings({
             </p>
           )}
         </div>
-        <footer className="user-dialog-footer">
-          <button type="button" onClick={close}>
+        <footer className="dialog-footer">
+          <button className="secondary-button" type="button" onClick={close}>
             Cancel
           </button>
           <button type="submit" className="primary-button">

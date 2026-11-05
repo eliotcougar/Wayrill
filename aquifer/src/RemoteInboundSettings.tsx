@@ -65,9 +65,10 @@ export default function RemoteInboundSettings({
       <div className="server-inbound-editor">
         <Section title={protocol === 'tun' ? 'TUN interface on server' : 'Listener'}>
           {['mixed', 'socks', 'http'].includes(protocol) ? (
-            <label className="server-choice">
+            <label className="editor-field server-choice">
               Proxy mode
               <select
+                className="text-control"
                 aria-label="Proxy mode"
                 value={protocol}
                 onChange={(event) => {
@@ -95,7 +96,7 @@ export default function RemoteInboundSettings({
           {fields(protocol === 'tun' ? 'Interface' : 'Listener', value, '', onChange)}
         </Section>
         {accounts && (
-          <section className="server-user-summary">
+          <section className="editor-panel server-user-summary">
             <div>
               <strong>Users</strong>
               <span>
@@ -103,7 +104,7 @@ export default function RemoteInboundSettings({
               </span>
             </div>
             {onManageUsers ? (
-              <button type="button" onClick={onManageUsers}>
+              <button className="secondary-button" type="button" onClick={onManageUsers}>
                 Manage users
               </button>
             ) : (
@@ -127,7 +128,7 @@ export default function RemoteInboundSettings({
           </Section>
         )}
         {protocol === 'http' && (
-          <p className="server-field-hint">
+          <p className="field-help">
             {count
               ? 'HTTP authentication uses the connected User sets.'
               : 'No accounts: HTTP authentication is off.'}
@@ -139,10 +140,11 @@ export default function RemoteInboundSettings({
     return (
       <div className="server-inbound-editor">
         <Section title="Transport">
-          <div className="server-fields-grid">
-            <label className="server-choice">
+          <div className="field-grid server-fields-grid">
+            <label className="editor-field server-choice">
               Transport
               <select
+                className="text-control"
                 aria-label="Transport"
                 value={network}
                 onChange={(event) => {
@@ -192,9 +194,10 @@ export default function RemoteInboundSettings({
                 ))}
               </select>
             </label>
-            <label className="server-choice">
+            <label className="editor-field server-choice">
               Security
               <select
+                className="text-control"
                 aria-label="Security"
                 aria-invalid={issues.some((issue) => issue.path === 'streamSettings.security')}
                 value={security}
@@ -230,7 +233,7 @@ export default function RemoteInboundSettings({
             </label>
           </div>
           {transportNotice && (
-            <p className="server-field-hint" role="status">
+            <p className="field-help" role="status">
               {transportNotice}
             </p>
           )}
@@ -283,7 +286,7 @@ export default function RemoteInboundSettings({
         <fieldset className="server-protocol-options">
           <legend>Detected protocols</legend>
           {['http', 'tls', 'quic', 'fakedns'].map((protocol) => (
-            <label className="check-label" key={protocol}>
+            <label className="check-control" key={protocol}>
               <input
                 type="checkbox"
                 checked={protocols.some((name) => (aliases[protocol] ?? [protocol]).includes(name))}
@@ -329,7 +332,7 @@ export default function RemoteInboundSettings({
           />
         </Section>
       )}
-      <p className="server-field-hint">
+      <p className="field-help">
         {extras.length ? `${extras.length} additional listener settings are preserved. ` : ''}Use
         Edit JSON for fields specific to another Xray version.
       </p>

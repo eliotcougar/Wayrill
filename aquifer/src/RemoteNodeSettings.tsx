@@ -69,10 +69,14 @@ export default function RemoteNodeSettings({
     return (
       <div className="server-inbound-editor">
         {entries.map((entry, index) => (
-          <section className="server-collection-item" key={index}>
+          <section className="editor-panel server-collection-item" key={index}>
             <header>
               <strong>DNS server {index + 1}</strong>
-              <button type="button" onClick={() => update(entries.filter((_, i) => i !== index))}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => update(entries.filter((_, i) => i !== index))}
+              >
                 Remove server
               </button>
             </header>
@@ -95,7 +99,7 @@ export default function RemoteNodeSettings({
             )}
           </section>
         ))}
-        <button type="button" onClick={() => update([...entries, ''])}>
+        <button className="secondary-button" type="button" onClick={() => update([...entries, ''])}>
           Add DNS server
         </button>
       </div>
@@ -137,9 +141,10 @@ export default function RemoteNodeSettings({
     );
     return (
       <div className="server-inbound-editor">
-        <label>
+        <label className="editor-field">
           Observed outbounds
           <select
+            className="text-control"
             aria-label="Observed outbounds"
             value={all ? 'all' : 'prefixes'}
             onChange={(event) =>
@@ -153,7 +158,7 @@ export default function RemoteNodeSettings({
           </select>
         </label>
         {!all && (
-          <label>
+          <label className="editor-field">
             Outbound tag prefixes
             <ListInput
               aria-label="Observed outbound tag prefixes"
@@ -161,13 +166,14 @@ export default function RemoteNodeSettings({
               trim
               onChange={(next) => onChange(setProperty(value, 'subjectSelector', next))}
             />
-            <span className="server-field-hint">Case-sensitive prefixes, one per line.</span>
+            <span className="field-help">Case-sensitive prefixes, one per line.</span>
           </label>
         )}
-        <section className="policy-preview">
+        <section className="editor-panel policy-preview">
           <header>
             <strong>Matching outbounds</strong>
             <input
+              className="text-control"
               aria-label="Find observed outbounds"
               placeholder="Find in matches"
               value={query}
@@ -179,9 +185,9 @@ export default function RemoteNodeSettings({
               <li key={tag}>{tag}</li>
             ))}
           </ul>
-          {!matches.length && <p className="server-field-hint">No matching outbounds</p>}
+          {!matches.length && <p className="field-help">No matching outbounds</p>}
           {matches.length > 100 && (
-            <p className="server-field-hint">
+            <p className="field-help">
               Showing 100 of {matches.length}. Use search to narrow the list.
             </p>
           )}
@@ -250,10 +256,11 @@ export default function RemoteNodeSettings({
     return (
       <div className="server-inbound-editor">
         <Section title="Transport">
-          <div className="server-fields-grid">
-            <label>
+          <div className="field-grid server-fields-grid">
+            <label className="editor-field">
               Transport
               <select
+                className="text-control"
                 aria-label="Transport"
                 value={network}
                 onChange={(event) =>
@@ -282,9 +289,10 @@ export default function RemoteNodeSettings({
                 ))}
               </select>
             </label>
-            <label>
+            <label className="editor-field">
               Security
               <select
+                className="text-control"
                 aria-label="Security"
                 value={security}
                 onChange={(event) =>

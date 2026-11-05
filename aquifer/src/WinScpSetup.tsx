@@ -28,61 +28,72 @@ export default function WinScpSetup({
   return (
     <dialog
       ref={dialog}
-      className="workspace-dialog winscp-setup-dialog"
+      className="app-dialog workspace-dialog winscp-setup-dialog"
       aria-label="WinSCP setup"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
-      <header className="user-dialog-header">
+      <header className="dialog-header">
         <h2>WinSCP setup</h2>
         <button className="icon-button" aria-label="Close WinSCP setup" onClick={onClose}>
           <X size={18} />
         </button>
       </header>
-      <div className="workspace-dialog-body">
+      <div className="dialog-body workspace-dialog-body">
         <fieldset className="settings-unboxed" disabled={busy || !available}>
-          <label>WinSCP executable</label>
-          <div className="field-with-button">
-            <input
-              readOnly
-              aria-label="Detected WinSCP executable"
-              value={inventory?.executable ?? 'Not found'}
-              title={inventory?.executable ?? undefined}
-            />
-            <button aria-label="Locate WinSCP" onClick={() => onChoose('executable')}>
-              <FolderOpen size={15} />
-              Browse…
-            </button>
+          <div className="editor-field">
+            <label htmlFor="winscp-executable">WinSCP executable</label>
+            <div className="field-with-button">
+              <input
+                className="text-control"
+                id="winscp-executable"
+                readOnly
+                aria-label="Detected WinSCP executable"
+                value={inventory?.executable ?? 'Not found'}
+                title={inventory?.executable ?? undefined}
+              />
+              <button
+                className="secondary-button"
+                aria-label="Locate WinSCP"
+                onClick={() => onChoose('executable')}
+              >
+                <FolderOpen size={15} />
+                Browse…
+              </button>
+            </div>
           </div>
           {inventory?.executableVersion && (
             <p className="muted">WinSCP {inventory.executableVersion}</p>
           )}
-          <label htmlFor="session-storage">Session storage</label>
-          <div className="field-with-button">
-            <select
-              id="session-storage"
-              value={inventory?.selectedConfig ?? 'auto'}
-              onChange={(event) => onConfig(event.target.value)}
-            >
-              <option value="auto">Automatic</option>
-              {inventory?.configs.map((path) => (
-                <option key={path} value={path}>
-                  {path}
-                </option>
-              ))}
-            </select>
-            <button
-              className="icon-button"
-              aria-label="Choose WinSCP INI file"
-              title="Choose WinSCP INI file"
-              onClick={() => onChoose('ini')}
-            >
-              <FolderOpen size={17} />
-            </button>
+          <div className="editor-field">
+            <label htmlFor="session-storage">Session storage</label>
+            <div className="field-with-button">
+              <select
+                className="text-control"
+                id="session-storage"
+                value={inventory?.selectedConfig ?? 'auto'}
+                onChange={(event) => onConfig(event.target.value)}
+              >
+                <option value="auto">Automatic</option>
+                {inventory?.configs.map((path) => (
+                  <option key={path} value={path}>
+                    {path}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="icon-button"
+                aria-label="Choose WinSCP INI file"
+                title="Choose WinSCP INI file"
+                onClick={() => onChoose('ini')}
+              >
+                <FolderOpen size={17} />
+              </button>
+            </div>
           </div>
-          <button className="setup-reset" onClick={onReset}>
+          <button className="secondary-button setup-reset" onClick={onReset}>
             Reset detection
           </button>
         </fieldset>
@@ -114,9 +125,11 @@ export default function WinScpSetup({
           </p>
         )}
       </div>
-      <footer className="user-dialog-footer">
+      <footer className="dialog-footer">
         <span className="muted">Connection settings apply immediately.</span>
-        <button onClick={onClose}>Close</button>
+        <button className="secondary-button" onClick={onClose}>
+          Close
+        </button>
       </footer>
     </dialog>
   );

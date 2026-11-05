@@ -1,0 +1,342 @@
+/* Aquifer editors: app-specific layout only; primitives come from @wayrill/ui. */
+.chain-hops {
+  margin: 0;
+  padding-left: 26px;
+  display: grid;
+  gap: 20px;
+}
+.remote-chain-dialog .remote-settings-body {
+  display: block;
+}
+.remote-chain-dialog .remote-settings-body > p {
+  margin-top: 20px;
+}
+.remote-chain-dialog .dialog-footer {
+  justify-content: flex-end;
+}
+.chain-hops li {
+  padding-left: 8px;
+}
+.chain-hops li > strong {
+  display: block;
+  margin-bottom: 10px;
+}
+.settings-error-count {
+  color: var(--danger);
+  font-size: 11px;
+}
+.settings-issues {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  margin-top: 16px;
+  background: var(--danger-soft);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.settings-issues button {
+  justify-content: flex-start;
+  text-align: left;
+  padding: 4px 0;
+  color: var(--danger);
+  border: none;
+  background: transparent;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.server-key-tools {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.server-key-tools > button {
+  justify-self: start;
+}
+.remote-routing-editor {
+  display: grid;
+  grid-template-columns: minmax(175px, 1fr) minmax(0, 2fr);
+  gap: 18px;
+}
+.remote-rule-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.remote-rule-list {
+  margin-top: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.node-list > button {
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  background: transparent;
+  border-color: transparent;
+}
+.node-list > button[aria-pressed='true'] {
+  border-color: var(--success-border);
+  background: var(--accent-soft);
+}
+.node-list > button > small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.remote-rule-sidebar > input {
+  margin-bottom: 10px;
+}
+.remote-rule-fields {
+  min-width: 0;
+}
+.remote-rule-fields > [data-setting-path] {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+.remote-settings-dialog .server-list-input {
+  min-height: 78px;
+}
+.server-inbound-editor > label {
+  margin: 0;
+}
+.remote-rule-fields .server-protocol-options {
+  margin: 0;
+}
+.remote-rule-fields .server-advanced > label {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+.remote-rule-fields .server-advanced .server-field {
+  margin-top: 14px;
+}
+.policy-preview > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.policy-preview input {
+  width: auto;
+  min-width: 160px;
+}
+.policy-preview ul {
+  max-height: 180px;
+  overflow: auto;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.policy-preview li {
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+.remote-settings-dialog > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.remote-settings-dialog .dialog-header,
+.remote-settings-dialog .dialog-footer {
+  flex-shrink: 0;
+}
+.remote-settings-body {
+  flex: 1;
+}
+.remote-settings-body textarea {
+  width: 100%;
+  resize: vertical;
+}
+.server-inbound-editor {
+  display: grid;
+  gap: 22px;
+}
+.server-section > h3 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text);
+}
+.server-fields-grid {
+  row-gap: var(--space-4);
+}
+.server-fields-grid > .editor-field,
+.remote-rule-fields > [data-setting-path] > .editor-field {
+  margin: 0;
+}
+.settings-inline-row > label {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}
+.settings-inline-row > button {
+  min-height: var(--control-size);
+}
+.settings-checkboxes {
+  border: 0;
+  padding: 0;
+  margin: 18px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.settings-checkboxes > legend {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.settings-checkboxes > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.settings-checkboxes > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+.settings-checkboxes .check-control {
+  margin: 0;
+}
+.settings-unboxed {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.settings-unboxed > .check-control {
+  margin-top: 20px;
+}
+.settings-unboxed:disabled,
+.settings-checkboxes:disabled {
+  opacity: 0.6;
+}
+.server-section > .server-inbound-editor,
+.server-section > .server-fields-grid,
+.server-section > .server-field {
+  margin-top: 14px;
+}
+.server-field-wide {
+  grid-column: 1 / -1;
+}
+.server-field,
+.server-choice {
+  min-width: 0;
+  margin: 0;
+}
+.server-choice {
+  display: grid;
+  gap: 7px;
+}
+.server-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--space-6);
+  margin-bottom: 5px;
+}
+.server-field-label > label {
+  margin: 0;
+}
+.server-field-label > span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.server-reset {
+  min-height: 24px;
+  height: 24px;
+  width: 24px;
+  padding: 3px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.server-advanced {
+  grid-column: 1 / -1;
+}
+.server-advanced > summary > span {
+  margin-left: 9px;
+  font-size: 10px;
+  color: var(--accent);
+}
+.server-advanced[open] > .server-fields-grid {
+  margin-top: 14px;
+}
+.server-protocol {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--node-input);
+  margin-bottom: 12px;
+}
+.server-collection,
+.server-map {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+.server-collection-item {
+  width: 100%;
+}
+.server-collection-item > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  margin: -3px 0 8px;
+}
+.server-map-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+.server-protocol-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+  border: 0;
+  margin: 18px 0;
+  padding: 0;
+}
+.server-protocol-options > legend {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 9px;
+}
+.server-protocol-options > label {
+  margin: 0;
+}
+.required-mark {
+  color: var(--accent);
+}
+.inline-node-settings {
+  display: grid;
+  gap: 20px;
+}
+.inline-node-settings .server-fields-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+.inline-settings-actions,
+.empty-canvas-actions {
+  display: flex;
+  gap: 8px;
+}
+.inline-settings-errors {
+  color: var(--danger);
+  font-size: 12px;
+  padding-left: 18px;
+}

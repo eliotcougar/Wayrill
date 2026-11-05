@@ -136,7 +136,7 @@ export default function ServerStatusDialog({
   return (
     <dialog
       ref={dialog}
-      className="server-status-dialog"
+      className="rule-editor-window server-status-dialog"
       aria-labelledby="server-status-title"
       onCancel={(event) => {
         if (confirmation) {
@@ -145,12 +145,16 @@ export default function ServerStatusDialog({
         } else close();
       }}
     >
-      <header>
+      <header className="dialog-header">
         <div>
           <h2 id="server-status-title">Server status</h2>
           <p className="muted">{status?.hostname ?? session}</p>
         </div>
-        <button disabled={locked || !!confirmation} onClick={onRefresh}>
+        <button
+          className="secondary-button"
+          disabled={locked || !!confirmation}
+          onClick={onRefresh}
+        >
           <RefreshCw size={16} className={busy ? 'spin' : undefined} />
           Refresh
         </button>
@@ -158,7 +162,7 @@ export default function ServerStatusDialog({
           <X size={18} />
         </button>
       </header>
-      <div className="server-status-body" aria-busy={busy}>
+      <div className="dialog-body server-status-body" aria-busy={busy}>
         {error && (
           <p className="status-error" role="alert">
             {error}
@@ -166,12 +170,18 @@ export default function ServerStatusDialog({
         )}
         {busy && (
           <p className="status-loading" role="status">
-            Reading server status… <button onClick={onCancel}>Cancel</button>
+            Reading server status…{' '}
+            <button className="secondary-button" onClick={onCancel}>
+              Cancel
+            </button>
           </p>
         )}
         {previewing && (
           <p className="status-loading" role="status">
-            Reading full-upgrade plan… <button onClick={cancelPreview}>Cancel</button>
+            Reading full-upgrade plan…{' '}
+            <button className="secondary-button" onClick={cancelPreview}>
+              Cancel
+            </button>
           </p>
         )}
         {previewError && (
@@ -221,17 +231,21 @@ export default function ServerStatusDialog({
             {operation.retry && (
               <div className="server-actions">
                 <button
+                  className="secondary-button"
                   onClick={() => {
                     void operation.retryRequest();
                   }}
                 >
                   Retry same request
                 </button>
-                <button onClick={operation.dismiss}>Dismiss</button>
+                <button className="secondary-button" onClick={operation.dismiss}>
+                  Dismiss
+                </button>
               </div>
             )}
             {['PLAN_CHANGED', 'PLAN_EXPIRED'].includes(operation.job?.errorCode ?? '') && (
               <button
+                className="secondary-button"
                 disabled={locked || !!confirmation}
                 onClick={() => {
                   void previewUpgrade();
@@ -261,9 +275,11 @@ export default function ServerStatusDialog({
             <p id="server-confirm-detail">{confirmation.detail}</p>
             {confirmation.plan && <UpgradePlanPreview plan={confirmation.plan} />}
             <div className="server-actions">
-              <button onClick={() => setConfirmation(null)}>Cancel</button>
+              <button className="secondary-button" onClick={() => setConfirmation(null)}>
+                Cancel
+              </button>
               <button
-                className="primary"
+                className="primary-button"
                 disabled={
                   locked ||
                   (!!confirmation.plan &&
@@ -305,6 +321,7 @@ export default function ServerStatusDialog({
               {status.reboot.error && <p className="status-warning">{status.reboot.error}</p>}
               <div className="server-actions">
                 <button
+                  className="secondary-button"
                   disabled={locked || !!confirmation}
                   onClick={() =>
                     setConfirmation({
@@ -332,7 +349,7 @@ export default function ServerStatusDialog({
               {xray?.versionError && <p className="status-warning">{xray.versionError}</p>}
               {xray?.error && <p className="status-warning">{xray.error}</p>}
               {!!xray?.services.length && (
-                <table className="status-table">
+                <table className="data-table status-table">
                   <thead>
                     <tr>
                       <th>Service</th>
@@ -340,7 +357,7 @@ export default function ServerStatusDialog({
                       <th>PID</th>
                       <th>Active since</th>
                       <th>
-                        <span className="visually-hidden">Actions</span>
+                        <span className="sr-only">Actions</span>
                       </th>
                     </tr>
                   </thead>
@@ -361,6 +378,7 @@ export default function ServerStatusDialog({
                         <td>{service.startedAt ?? '—'}</td>
                         <td>
                           <button
+                            className="secondary-button"
                             disabled={locked || !!confirmation}
                             aria-label={`Restart ${service.name}`}
                             onClick={() =>
@@ -417,6 +435,7 @@ export default function ServerStatusDialog({
               </p>
               <div className="server-actions">
                 <button
+                  className="secondary-button"
                   disabled={locked || !!confirmation || !status.apt.available}
                   onClick={() => {
                     void operation.start({ action: 'refreshApt' });
@@ -426,6 +445,7 @@ export default function ServerStatusDialog({
                   Refresh package lists
                 </button>
                 <button
+                  className="secondary-button"
                   disabled={locked || !!confirmation || !!status.apt.error || !status.apt.upgraded}
                   onClick={() =>
                     setConfirmation({
@@ -440,6 +460,7 @@ export default function ServerStatusDialog({
                   Install updates
                 </button>
                 <button
+                  className="secondary-button"
                   disabled={locked || !!confirmation || !status.apt.available}
                   onClick={() => {
                     void previewUpgrade();
@@ -460,9 +481,10 @@ export default function ServerStatusDialog({
                   {status.apt.packages.length > 0 && (
                     <>
                       <div className="status-package-tools">
-                        <div className="search-field">
+                        <div className="search-control">
                           <Search size={15} />
                           <input
+                            className="text-control"
                             aria-label="Search packages"
                             placeholder="Search packages"
                             value={query}
@@ -474,14 +496,14 @@ export default function ServerStatusDialog({
                         </div>
                         <span>{packages.length} packages</span>
                       </div>
-                      <table className="status-table package-table">
+                      <table className="data-table status-table package-table">
                         <thead>
                           <tr>
                             <th>Package</th>
                             <th>Installed</th>
                             <th>Available</th>
                             <th>
-                              <span className="visually-hidden">Actions</span>
+                              <span className="sr-only">Actions</span>
                             </th>
                           </tr>
                         </thead>
@@ -495,6 +517,7 @@ export default function ServerStatusDialog({
                                 <td>{item.candidateVersion}</td>
                                 <td>
                                   <button
+                                    className="secondary-button"
                                     disabled={locked || !!confirmation}
                                     aria-label={`Install update for ${item.name}`}
                                     onClick={() =>
@@ -520,6 +543,7 @@ export default function ServerStatusDialog({
                       {pages > 1 && (
                         <div className="status-pagination">
                           <button
+                            className="secondary-button"
                             disabled={currentPage === 0}
                             onClick={() => setPage(currentPage - 1)}
                           >
@@ -529,6 +553,7 @@ export default function ServerStatusDialog({
                             {currentPage + 1} / {pages}
                           </span>
                           <button
+                            className="secondary-button"
                             disabled={currentPage + 1 >= pages}
                             onClick={() => setPage(currentPage + 1)}
                           >

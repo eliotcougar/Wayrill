@@ -1,4 +1,4 @@
-/* A common frame for grouped settings and summaries, independent of their layout. */
+/* Shared frames for grouped settings and summaries, independent of layout. */
 .editor-panel {
   min-width: 0;
   padding: var(--space-3);

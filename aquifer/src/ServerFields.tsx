@@ -119,7 +119,7 @@ function Field({
         {value !== undefined && !field.required && (
           <button
             type="button"
-            className="server-reset"
+            className="icon-button server-reset"
             aria-label={`Use default for ${field.label}`}
             title="Use default"
             onClick={reset}
@@ -142,7 +142,7 @@ function Field({
       ) : field.type === 'collection' ? (
         <div className="server-collection">
           {(jsonArray(value) ? value : []).map((item, index) => (
-            <section className="server-collection-item" key={index}>
+            <section className="editor-panel server-collection-item" key={index}>
               <header>
                 <strong>
                   {field.schema === 'ShortId'
@@ -161,6 +161,7 @@ function Field({
               {field.schema === 'ShortId' ? (
                 <>
                   <input
+                    className="text-control"
                     aria-label={`Short ID ${index + 1}`}
                     value={String(item)}
                     placeholder="Empty ID"
@@ -177,7 +178,7 @@ function Field({
                   {issues
                     .filter((issue) => issue.path === `${at}.${index}`)
                     .map((issue) => (
-                      <span className="server-field-error" key={issue.path}>
+                      <span className="field-message error" key={issue.path}>
                         {issue.message}
                       </span>
                     ))}
@@ -199,6 +200,7 @@ function Field({
             </section>
           ))}
           <button
+            className="secondary-button"
             type="button"
             onClick={() =>
               change([
@@ -236,6 +238,7 @@ function Field({
         />
       ) : field.type === 'boolean' ? (
         <select
+          className="text-control"
           {...inputProps}
           value={value === undefined ? '' : jsonText(value)}
           onChange={(event) =>
@@ -248,6 +251,7 @@ function Field({
         </select>
       ) : field.type === 'select' ? (
         <select
+          className="text-control"
           {...inputProps}
           value={value === undefined ? '' : jsonText(value)}
           onChange={(event) =>
@@ -273,8 +277,9 @@ function Field({
           ))}
         </select>
       ) : (
-        <div className={field.type === 'secret' ? 'field-with-button' : undefined}>
+        <div className={field.type === 'secret' ? 'secret-setting' : undefined}>
           <input
+            className="text-control"
             {...inputProps}
             type={field.type === 'secret' && !reveal ? 'password' : 'text'}
             inputMode={field.type === 'number' || field.type === 'port' ? 'numeric' : undefined}
@@ -315,13 +320,14 @@ function Field({
         </div>
       )}
       {field.hint && (
-        <span className="server-field-hint" id={id + '-hint'}>
+        <span className="field-help" id={id + '-hint'}>
           {field.hint}
         </span>
       )}
       {field.type === 'secret' && (field.key === 'privateKey' || field.key === 'secretKey') && (
         <div className="server-key-tools">
           <button
+            className="secondary-button"
             type="button"
             disabled={generating}
             onClick={() => {
@@ -351,7 +357,12 @@ function Field({
           </button>
           {generated && value === generated.privateKey && (
             <div className="field-with-button">
-              <input aria-label="Generated public key" readOnly value={generated.publicKey} />
+              <input
+                className="text-control"
+                aria-label="Generated public key"
+                readOnly
+                value={generated.publicKey}
+              />
               <button
                 type="button"
                 className="icon-button"
@@ -369,14 +380,14 @@ function Field({
             </div>
           )}
           {keyError && (
-            <span className="server-field-error" role="status">
+            <span className="field-message error" role="status">
               {keyError}
             </span>
           )}
         </div>
       )}
       {error && (
-        <span className="server-field-error" id={id + '-error'}>
+        <span className="field-message error" id={id + '-error'}>
           {error}
         </span>
       )}
@@ -416,7 +427,7 @@ export default function ServerFields({
     if (advancedError) setOpenAdvanced(true);
   }, [advancedError]);
   const render = (fields: ServerField[]) => (
-    <div className="server-fields-grid">
+    <div className="field-grid server-fields-grid">
       {fields.map((source) => {
         const field = {
           ...source,
@@ -441,7 +452,7 @@ export default function ServerFields({
       {render(regular)}
       {advanced.length > 0 && (
         <details
-          className="server-advanced"
+          className="editor-advanced server-advanced"
           open={openAdvanced}
           onToggle={(event) => setOpenAdvanced(event.currentTarget.open)}
         >

@@ -1,4 +1,4 @@
-/* Shared feedback. Features own placement and interactive layouts. */
+/* Shared feedback. Apps own placement and interactive layouts. */
 .field-help,
 .field-message,
 :where(.editor-field > small) {

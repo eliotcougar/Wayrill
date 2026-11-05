@@ -8,6 +8,7 @@
     "./NodeContextMenu": "./src/NodeContextMenu.tsx",
     "./focusBoundary": "./src/focusBoundary.ts",
     "./menus.css": "./src/menus.css",
+    "./styles.css": "./src/styles.css",
     "./schematic/edgeGeometry": "./src/schematic/edgeGeometry.ts",
     "./schematic/edgePaths": "./src/schematic/edgePaths.ts",
     "./schematic/edgeRoutePreview": "./src/schematic/edgeRoutePreview.ts",

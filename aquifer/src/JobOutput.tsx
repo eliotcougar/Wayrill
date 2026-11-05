@@ -18,6 +18,7 @@ export default function JobOutput({ logs }: { logs: string[] }) {
     >
       <summary>Job output</summary>
       <pre
+        className="code-block"
         ref={output}
         tabIndex={0}
         onScroll={(event) => {

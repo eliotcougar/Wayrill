@@ -1,0 +1,218 @@
+/* Aquifer server: app-specific layout only; primitives come from @wayrill/ui. */
+.config-deploy-body {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+}
+.config-deploy-target {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+.config-deploy-target > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+}
+.config-deploy-target dt {
+  color: var(--text-muted);
+}
+.config-deploy-target dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.config-deploy-body pre {
+  max-height: 240px;
+}
+.config-deploy-body progress {
+  width: 100%;
+  margin-top: 10px;
+}
+.config-deploy-spacer {
+  flex: 1;
+}
+.status-open {
+  width: 100%;
+  margin-top: 8px;
+}
+.server-status-dialog > header > div {
+  flex: 1;
+  min-width: 0;
+}
+.server-status-dialog > header p {
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}
+.server-status-body {
+  flex: 1;
+}
+.status-timestamp {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.server-status-body section {
+  padding-top: 22px;
+}
+.server-status-body h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+  margin: 0 0 9px;
+}
+.server-status-body h3 > span {
+  font-size: 12px;
+  font-weight: 500;
+}
+.status-warning {
+  color: var(--warning);
+}
+.status-success {
+  color: var(--accent);
+}
+.status-error {
+  color: var(--danger);
+}
+.status-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.status-package-names {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.status-table {
+  margin-top: var(--space-3);
+}
+.status-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.status-table small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+.status-table small.status-warning {
+  color: var(--warning);
+}
+.status-processes {
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.status-package-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+}
+.status-package-tools .search-control {
+  flex: 1;
+  margin: 0;
+}
+.status-package-tools > span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.package-table {
+  table-layout: fixed;
+}
+.status-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.server-actions,
+.server-job-title,
+.xray-version {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.server-actions {
+  margin-top: 12px;
+  margin-bottom: 10px;
+}
+.server-job,
+.server-confirm {
+  padding: 14px;
+  margin: 10px 0 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  font-size: 12px;
+}
+.server-confirm {
+  border-color: var(--warning-border);
+}
+.server-job-title {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.server-job progress {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--accent);
+  margin-bottom: 8px;
+}
+.server-job details {
+  margin-top: 8px;
+}
+.server-job summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.server-job pre {
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.xray-version {
+  margin: 8px 0;
+}
+.xray-version code {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.status-table button {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.package-table th:first-child {
+  width: 30%;
+}
+.package-table th:last-child {
+  width: 80px;
+}
+.upgrade-plan > .search-control {
+  margin-top: 14px;
+}
+.upgrade-plan-group h4 {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.upgrade-plan-group[data-removals='true'] h4 {
+  color: var(--danger);
+}
+.upgrade-plan-table {
+  table-layout: fixed;
+}
+.upgrade-plan-table td,
+.upgrade-plan-table th {
+  overflow-wrap: anywhere;
+}

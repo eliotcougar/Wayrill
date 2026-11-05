@@ -1,4 +1,4 @@
-/* Shared rows and form grids. Feature sheets own placement and grouping. */
+/* Shared rows and form grids. Apps own placement and grouping. */
 .field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

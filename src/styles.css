@@ -1,16 +1,6 @@
 /* The only application stylesheet entry point. Keep the cascade order explicit. */
 @import url('@xyflow/react/dist/style.css');
-@import url('./tokens.css');
-@import url('./styles/base.css');
-@import url('./styles/controls.css');
-@import url('./styles/lists.css');
-@import url('./styles/choices.css');
-@import url('./styles/code.css');
-@import url('./styles/layout.css');
-@import url('./styles/panels.css');
-@import url('./styles/tables.css');
-@import url('./styles/feedback.css');
-@import url('./styles/dialogs.css');
+@import url('@wayrill/ui/styles.css');
 @import url('./styles/workspace.css');
 @import url('./styles/menus.css');
 @import url('./styles/graph.css');

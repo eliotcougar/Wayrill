@@ -1,4 +1,4 @@
-/* Native data tables share density and headers; features own columns and overflow. */
+/* Shared table density and headers; apps own columns and overflow. */
 .data-table {
   --table-cell-padding: var(--space-3);
   width: 100%;

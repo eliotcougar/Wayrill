@@ -1,4 +1,4 @@
-/* Element defaults and platform behavior. */
+/* Shared element defaults and platform behavior. */
 * {
   box-sizing: border-box;
 }
@@ -45,7 +45,8 @@ button:disabled {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+.code-block:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }

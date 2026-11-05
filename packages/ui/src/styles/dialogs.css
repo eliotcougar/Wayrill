@@ -1,4 +1,4 @@
-/* Dialog and editor shells, including their shared headers, tabs and actions. */
+/* Shared dialog and editor shells, headers, tabs and actions. */
 .app-dialog,
 .rule-editor-window {
   color: var(--text);

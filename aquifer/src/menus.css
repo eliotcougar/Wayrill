@@ -17,14 +17,6 @@
   mask: url('/brand/aquifer-mark.svg') center / contain no-repeat;
   background: var(--accent);
 }
-.popover-surface {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 6px;
-  box-shadow: 0 12px 28px #0008;
-  font-size: 12px;
-}
 .menu-items {
   overflow-y: auto;
   max-height: inherit;

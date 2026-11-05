@@ -29,7 +29,7 @@ export function InboundUserAssignments({
           <Users size={16} />
           User sets
         </h3>
-        <button onClick={onChoose}>
+        <button className="secondary-button" onClick={onChoose}>
           <Plus size={15} />
           Assign set
         </button>
@@ -40,7 +40,7 @@ export function InboundUserAssignments({
           return (
             set && (
               <div key={b.set}>
-                <button className="assigned-set" onClick={() => onEdit(set)}>
+                <button className="secondary-button assigned-set" onClick={() => onEdit(set)}>
                   <strong>{set.name}</strong>
                   <span>{set.users.filter((u) => u.enabled).length} enabled users</span>
                 </button>
@@ -82,7 +82,9 @@ export function UserSetDetails({
     <div className="user-set-details">
       <div className="user-assignment-heading">
         <h3>{userProtocols[set.protocol]}</h3>
-        <button onClick={onEdit}>Edit users</button>
+        <button className="secondary-button" onClick={onEdit}>
+          Edit users
+        </button>
       </div>
       <p className="muted">
         {set.users.filter((u) => u.enabled).length} enabled · {set.users.length} total
@@ -92,7 +94,7 @@ export function UserSetDetails({
         {inboundObjects(config).map(
           (inbound, index) =>
             inboundUserProtocol(inbound) === set.protocol && (
-              <label className="check-label" key={index}>
+              <label className="check-control" key={index}>
                 <input
                   type="checkbox"
                   checked={workspace.bindings.some((b) => b.inbound === index && b.set === set.id)}
@@ -121,7 +123,7 @@ export function UserSetDetails({
           <p className="muted">Use Edit users to browse all {set.users.length} users.</p>
         )}
       </div>
-      <button className="path-read" onClick={onRemove}>
+      <button className="secondary-button path-read" onClick={onRemove}>
         Remove from graph
       </button>
     </div>

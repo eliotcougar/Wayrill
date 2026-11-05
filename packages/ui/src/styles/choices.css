@@ -1,4 +1,4 @@
-/* Rich native checkbox/radio rows extend check-control without changing selection. */
+/* Shared native checkbox/radio rows extend check-control without changing selection. */
 .choice-group {
   display: grid;
   gap: var(--space-2);

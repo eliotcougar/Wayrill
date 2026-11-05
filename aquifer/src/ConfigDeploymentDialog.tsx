@@ -189,7 +189,7 @@ export default function ConfigDeploymentDialog({
   return (
     <dialog
       ref={dialog}
-      className="user-library-dialog config-deploy-dialog"
+      className="rule-editor-window user-library-dialog config-deploy-dialog"
       aria-label="Validate and apply configuration"
       onCancel={(event) => {
         event.preventDefault();
@@ -197,7 +197,7 @@ export default function ConfigDeploymentDialog({
         else onClose();
       }}
     >
-      <header className="user-dialog-header">
+      <header className="dialog-header">
         <h2>Validate and apply configuration</h2>
         <button
           className="icon-button"
@@ -207,7 +207,7 @@ export default function ConfigDeploymentDialog({
           <X size={18} />
         </button>
       </header>
-      <div className="remote-settings-body config-deploy-body">
+      <div className="dialog-body remote-settings-body config-deploy-body">
         <dl className="config-deploy-target">
           <div>
             <dt>Server</dt>
@@ -224,9 +224,10 @@ export default function ConfigDeploymentDialog({
             </div>
           )}
         </dl>
-        <label>
+        <label className="editor-field">
           Xray service
           <input
+            className="text-control"
             aria-label="Xray service"
             list="deployment-services"
             value={service}
@@ -281,7 +282,9 @@ export default function ConfigDeploymentDialog({
             {!!validation.logs.length && (
               <details>
                 <summary>Validation output</summary>
-                <pre tabIndex={0}>{validation.logs.join('\n')}</pre>
+                <pre className="code-block" tabIndex={0}>
+                  {validation.logs.join('\n')}
+                </pre>
               </details>
             )}
           </section>
@@ -320,9 +323,14 @@ export default function ConfigDeploymentDialog({
               </p>
             )}
             {job?.configResult && (
-              <label>
+              <label className="editor-field">
                 Backup on server
-                <input aria-label="Backup on server" readOnly value={job.configResult.backupPath} />
+                <input
+                  className="text-control"
+                  aria-label="Backup on server"
+                  readOnly
+                  value={job.configResult.backupPath}
+                />
               </label>
             )}
             {operation.error && (
@@ -333,20 +341,27 @@ export default function ConfigDeploymentDialog({
             {operation.retry ? (
               <div className="server-actions">
                 <button
+                  className="secondary-button"
                   onClick={() => {
                     void operation.retryRequest();
                   }}
                 >
                   Retry same request
                 </button>
-                <button onClick={operation.dismiss}>Dismiss</button>
+                <button className="secondary-button" onClick={operation.dismiss}>
+                  Dismiss
+                </button>
               </div>
             ) : (
               operation.active && (
                 <p className="muted">Closing this window does not cancel the server job.</p>
               )
             )}
-            {!operation.active && <button onClick={operation.dismiss}>Dismiss result</button>}
+            {!operation.active && (
+              <button className="secondary-button" onClick={operation.dismiss}>
+                Dismiss result
+              </button>
+            )}
             {!!operation.job?.logs.length && (
               <JobOutput key={operation.job.id} logs={operation.job.logs} />
             )}
@@ -369,7 +384,9 @@ export default function ConfigDeploymentDialog({
                 : 'The Wayrill file will be backed up. No Xray restart is needed.'}
             </p>
             <div className="server-actions">
-              <button onClick={() => setConfirming(false)}>Cancel apply</button>
+              <button className="secondary-button" onClick={() => setConfirming(false)}>
+                Cancel apply
+              </button>
               <button
                 className="primary-button"
                 disabled={!ready}
@@ -385,8 +402,9 @@ export default function ConfigDeploymentDialog({
           </section>
         )}
       </div>
-      <footer className="user-dialog-footer">
+      <footer className="dialog-footer">
         <button
+          className="secondary-button"
           disabled={
             !companionAvailable || locked || !/^[A-Za-z0-9_@.-]{1,180}\.service$/.test(service)
           }
@@ -398,7 +416,9 @@ export default function ConfigDeploymentDialog({
           Validate on server
         </button>
         <span className="config-deploy-spacer" />
-        <button onClick={onClose}>Close</button>
+        <button className="secondary-button" onClick={onClose}>
+          Close
+        </button>
         <button
           className="primary-button"
           disabled={!ready || confirming}

@@ -69,14 +69,14 @@ export default function RemoteStash({
   return (
     <dialog
       ref={dialog}
-      className="user-library-dialog remote-stash-dialog"
+      className="rule-editor-window user-library-dialog remote-stash-dialog"
       aria-label="Configuration stash"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
-      <header className="user-dialog-header">
+      <header className="dialog-header">
         <h2>
           <Archive size={18} />
           Configuration stash
@@ -89,10 +89,11 @@ export default function RemoteStash({
         tabs={editorTabs}
         panelId={`${editorTabs.id}-panel`}
         label="Stash categories"
-        className="inspector-tabs stash-tabs"
+        className="editor-tab-list inspector-tabs stash-tabs"
       />
       <div className="user-library-tools">
         <input
+          className="text-control"
           aria-label="Find stashed configurations"
           placeholder={`Search ${stashTabs.find((item) => item.key === tab)!.label.toLowerCase()}`}
           value={query}
@@ -106,12 +107,12 @@ export default function RemoteStash({
         </span>
       </div>
       <div
-        className="remote-stash-body"
+        className="dialog-body remote-stash-body"
         id={`${editorTabs.id}-panel`}
         role="tabpanel"
         aria-labelledby={editorTabs.tabId(tab)}
       >
-        <table>
+        <table className="data-table">
           <thead>
             <tr>
               <th>
@@ -137,12 +138,13 @@ export default function RemoteStash({
                 <td>
                   <div className="remote-stash-actions">
                     <button
+                      className="secondary-button"
                       aria-label={`Edit ${data.title}`}
                       onClick={() => (tab === 'proxyChains' ? onEditChain(id) : onEdit(id))}
                     >
                       Edit…
                     </button>
-                    <button onClick={() => onShow(id)}>
+                    <button className="secondary-button" onClick={() => onShow(id)}>
                       {visible.has(id) ? 'Locate on graph' : 'Add to graph'}
                     </button>
                   </div>
@@ -159,22 +161,30 @@ export default function RemoteStash({
           </p>
         )}
       </div>
-      <footer className="user-dialog-footer stash-pagination">
+      <footer className="dialog-footer stash-pagination">
         {filtered.length > 100 && (
           <>
-            <button disabled={!active} onClick={() => setPage(active - 1)}>
+            <button
+              className="secondary-button"
+              disabled={!active}
+              onClick={() => setPage(active - 1)}
+            >
               Previous
             </button>
             <span>
               {active * 100 + 1}–{Math.min((active + 1) * 100, filtered.length)} of{' '}
               {filtered.length}
             </span>
-            <button disabled={active === pages - 1} onClick={() => setPage(active + 1)}>
+            <button
+              className="secondary-button"
+              disabled={active === pages - 1}
+              onClick={() => setPage(active + 1)}
+            >
               Next
             </button>
           </>
         )}
-        <button className="stash-close" onClick={onClose}>
+        <button className="secondary-button stash-close" onClick={onClose}>
           Close
         </button>
       </footer>

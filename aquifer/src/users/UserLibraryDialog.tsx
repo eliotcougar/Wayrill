@@ -114,14 +114,14 @@ export default function UserLibraryDialog({
   return (
     <dialog
       ref={dialog}
-      className="user-library-dialog"
+      className="rule-editor-window user-library-dialog"
       aria-label="User sets"
       onCancel={(e) => {
         e.preventDefault();
         if (!busy) close();
       }}
     >
-      <header className="user-dialog-header">
+      <header className="dialog-header">
         <h2>
           <Users size={19} />
           User sets{targetName && <small>Assign to {targetName}</small>}
@@ -137,6 +137,7 @@ export default function UserLibraryDialog({
       </header>
       <div className="user-library-tools">
         <button
+          className="secondary-button"
           disabled={busy}
           onClick={() => {
             if (dirty && !window.confirm('Discard unsaved changes to this user set?')) return;
@@ -148,11 +149,12 @@ export default function UserLibraryDialog({
           <Plus size={16} />
           New set
         </button>
-        <button disabled={busy} onClick={() => file.current?.click()}>
+        <button className="secondary-button" disabled={busy} onClick={() => file.current?.click()}>
           <Upload size={16} />
           Import
         </button>
         <button
+          className="secondary-button"
           disabled={busy || !library.sets.length}
           onClick={() => {
             void perform(() =>
@@ -164,6 +166,7 @@ export default function UserLibraryDialog({
           Export library
         </button>
         <input
+          className="text-control"
           hidden
           ref={file}
           type="file"
@@ -179,6 +182,7 @@ export default function UserLibraryDialog({
       <div className="user-library-body">
         <nav aria-label="User sets library">
           <input
+            className="text-control"
             aria-label="Find user sets"
             placeholder="Find sets"
             value={query}
@@ -189,7 +193,7 @@ export default function UserLibraryDialog({
               <button
                 key={set.id}
                 disabled={busy}
-                className={draft?.id === set.id ? 'active' : ''}
+                className={draft?.id === set.id ? 'secondary-button active' : 'secondary-button'}
                 aria-pressed={draft?.id === set.id}
                 onClick={() => choose(set)}
               >
@@ -214,10 +218,18 @@ export default function UserLibraryDialog({
           {draft && stored && graphSet && !sameSet(stored, graphSet) && (
             <div className="user-version-actions">
               <span>Graph and library versions differ.</span>
-              <button disabled={busy || sameSet(draft, stored)} onClick={() => choose(stored)}>
+              <button
+                className="secondary-button"
+                disabled={busy || sameSet(draft, stored)}
+                onClick={() => choose(stored)}
+              >
                 Load library version
               </button>
-              <button disabled={busy || sameSet(draft, graphSet)} onClick={() => choose(graphSet)}>
+              <button
+                className="secondary-button"
+                disabled={busy || sameSet(draft, graphSet)}
+                onClick={() => choose(graphSet)}
+              >
                 Load graph version
               </button>
             </div>
@@ -246,10 +258,11 @@ export default function UserLibraryDialog({
           {error || problem || notice}
         </div>
       )}
-      <footer className="user-dialog-footer">
+      <footer className="dialog-footer">
         <div className="user-set-extra-actions">
           {draft && (
             <button
+              className="secondary-button"
               disabled={busy || !!problem || pendingJson}
               onClick={() => {
                 void perform(() =>
@@ -265,6 +278,7 @@ export default function UserLibraryDialog({
           )}
           {draft && library.sets.some((s) => s.id === draft.id) && (
             <button
+              className="secondary-button"
               disabled={busy}
               onClick={() => {
                 if (
@@ -290,11 +304,11 @@ export default function UserLibraryDialog({
             workspace &&
             `${workspace.bindings.filter((b) => b.set === draft.id).length} connected inbounds`}
         </span>
-        <button disabled={busy} onClick={close}>
+        <button className="secondary-button" disabled={busy} onClick={close}>
           Close
         </button>
         <button
-          className={!workspace ? 'primary-button' : undefined}
+          className={!workspace ? 'primary-button' : 'secondary-button'}
           disabled={busy || !draft || !!problem || pendingJson || !libraryChanged}
           onClick={() => {
             if (draft)
@@ -312,7 +326,7 @@ export default function UserLibraryDialog({
         </button>
         {workspace && (
           <button
-            className={workspace ? 'primary-button' : undefined}
+            className={workspace ? 'primary-button' : 'secondary-button'}
             disabled={
               busy ||
               !draft ||

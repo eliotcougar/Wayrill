@@ -71,18 +71,20 @@ export default function UserSetEditor({
   return (
     <div className="user-set-editor">
       <div className="user-set-heading">
-        <label>
+        <label className="editor-field">
           Set name
           <input
+            className="text-control"
             aria-label="Set name"
             value={value.name}
             maxLength={128}
             onChange={(e) => onChange({ ...value, name: e.target.value })}
           />
         </label>
-        <label>
+        <label className="editor-field">
           Credential type
           <select
+            className="text-control"
             aria-label="Credential type"
             value={value.protocol}
             disabled={!isNew || invalidJson}
@@ -113,6 +115,7 @@ export default function UserSetEditor({
         <div className="users-editor-list">
           <div className="user-list-tools">
             <input
+              className="text-control"
               aria-label="Find users"
               placeholder="Find users"
               value={query}
@@ -122,6 +125,7 @@ export default function UserSetEditor({
               }}
             />
             <button
+              className="secondary-button"
               aria-label="Add user"
               title="Add user"
               disabled={invalidJson || value.users.length >= USER_LIMITS.users}
@@ -146,7 +150,7 @@ export default function UserSetEditor({
                 key={item.id}
                 disabled={invalidJson}
                 aria-pressed={item.id === selected}
-                className={item.id === selected ? 'active' : ''}
+                className={item.id === selected ? 'secondary-button active' : 'secondary-button'}
                 onClick={() => changeSelection(item.id)}
               >
                 <strong>{item.name}</strong>
@@ -161,13 +165,18 @@ export default function UserSetEditor({
           </div>
           {matching.length > PAGE && (
             <div className="user-pagination">
-              <button disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>
+              <button
+                className="secondary-button"
+                disabled={!currentPage}
+                onClick={() => setPage(currentPage - 1)}
+              >
                 Previous
               </button>
               <span>
                 {currentPage + 1} / {Math.ceil(matching.length / PAGE)}
               </span>
               <button
+                className="secondary-button"
                 disabled={(currentPage + 1) * PAGE >= matching.length}
                 onClick={() => setPage(currentPage + 1)}
               >
@@ -195,16 +204,17 @@ export default function UserSetEditor({
                 <Trash2 size={16} />
               </button>
             </div>
-            <label>
+            <label className="editor-field">
               Display name
               <input
+                className="text-control"
                 aria-label="User display name"
                 value={user.name}
                 maxLength={128}
                 onChange={(e) => update({ ...user, name: e.target.value })}
               />
             </label>
-            <label className="check-label">
+            <label className="check-control">
               <input
                 type="checkbox"
                 checked={user.enabled}
@@ -215,9 +225,10 @@ export default function UserSetEditor({
             {advanced === null && (
               <>
                 {value.protocol === 'password' && (
-                  <label>
+                  <label className="editor-field">
                     Username
                     <input
+                      className="text-control"
                       aria-label="Username"
                       autoComplete="off"
                       value={scalarText(user.account.user ?? '')}
@@ -225,7 +236,7 @@ export default function UserSetEditor({
                     />
                   </label>
                 )}
-                <label>
+                <label className="editor-field">
                   {secretField === 'id'
                     ? 'UUID / user ID'
                     : secretField === 'auth'
@@ -233,8 +244,9 @@ export default function UserSetEditor({
                       : value.protocol.startsWith('ss2022')
                         ? 'Client key'
                         : 'Password'}
-                  <div className="field-with-button">
+                  <div className="secret-setting">
                     <input
+                      className="text-control"
                       aria-label="User credential"
                       type={reveal ? 'text' : 'password'}
                       autoComplete="new-password"
@@ -243,6 +255,7 @@ export default function UserSetEditor({
                       onChange={(e) => accountField(secretField, e.target.value)}
                     />
                     <button
+                      className="icon-button"
                       aria-label={reveal ? 'Hide user credential' : 'Reveal user credential'}
                       title={reveal ? 'Hide credential' : 'Reveal credential'}
                       onClick={() => setReveal(!reveal)}
@@ -250,6 +263,7 @@ export default function UserSetEditor({
                       {reveal ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                     <button
+                      className="icon-button"
                       aria-label="Generate credential"
                       title="Generate credential"
                       onClick={() =>
@@ -262,17 +276,19 @@ export default function UserSetEditor({
                 </label>
                 {value.protocol !== 'password' && (
                   <>
-                    <label>
+                    <label className="editor-field">
                       Email / Xray user label
                       <input
+                        className="text-control"
                         aria-label="User email"
                         value={scalarText(user.account.email ?? '')}
                         onChange={(e) => accountField('email', e.target.value)}
                       />
                     </label>
-                    <label>
+                    <label className="editor-field">
                       User level
                       <input
+                        className="text-control"
                         aria-label="User level"
                         type="number"
                         min={0}
@@ -290,9 +306,10 @@ export default function UserSetEditor({
                   </>
                 )}
                 {value.protocol === 'vless' && (
-                  <label>
+                  <label className="editor-field">
                     Flow
                     <select
+                      className="text-control"
                       aria-label="User flow"
                       value={scalarText(user.account.flow ?? '')}
                       onChange={(e) => accountField('flow', e.target.value)}
@@ -308,9 +325,10 @@ export default function UserSetEditor({
                   </label>
                 )}
                 {value.protocol === 'shadowsocks' && (
-                  <label>
+                  <label className="editor-field">
                     Cipher
                     <select
+                      className="text-control"
                       aria-label="User cipher"
                       value={scalarText(user.account.method ?? '')}
                       onChange={(e) => accountField('method', e.target.value)}
@@ -334,6 +352,7 @@ export default function UserSetEditor({
               </>
             )}
             <button
+              className="secondary-button"
               type="button"
               onClick={() => {
                 if (advanced !== null && invalidJson) return;
@@ -347,6 +366,7 @@ export default function UserSetEditor({
             {advanced !== null && (
               <>
                 <textarea
+                  className="code-control text-control"
                   aria-label="Account JSON"
                   spellCheck={false}
                   value={advanced}
@@ -373,6 +393,7 @@ export default function UserSetEditor({
                       {jsonError}
                     </p>
                     <button
+                      className="secondary-button"
                       type="button"
                       onClick={() => {
                         setAdvanced(JSON.stringify(user.account, null, 2));

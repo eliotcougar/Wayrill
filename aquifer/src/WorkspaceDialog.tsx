@@ -28,20 +28,20 @@ export default function WorkspaceDialog({
   return (
     <dialog
       ref={dialog}
-      className="workspace-dialog"
+      className="app-dialog workspace-dialog"
       aria-labelledby="workspace-dialog-title"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
-      <header className="user-dialog-header">
+      <header className="dialog-header">
         <h2 id="workspace-dialog-title">{title}</h2>
         <button className="icon-button" aria-label={`Close ${title}`} onClick={onClose}>
           <X size={17} />
         </button>
       </header>
-      <div className="workspace-dialog-body">
+      <div className="dialog-body workspace-dialog-body">
         {mode === 'check' ? (
           <>
             <strong>
@@ -107,8 +107,10 @@ export default function WorkspaceDialog({
           </>
         )}
       </div>
-      <footer className="user-dialog-footer">
-        <button onClick={onClose}>Close</button>
+      <footer className="dialog-footer">
+        <button className="secondary-button" onClick={onClose}>
+          Close
+        </button>
         {mode === 'check' && onValidate && (
           <button className="primary-button" disabled={!!errors.length} onClick={onValidate}>
             Validate on server…

@@ -3,11 +3,11 @@
 These private npm workspaces are consumed from source by Wayrill and Aquifer. Run `npm ci` at the repository root. Each executable bundles what it uses; installed apps require neither Node nor a shared runtime directory.
 
 - `@wayrill/core`: strict JSON/JSONC parsing/helpers, protocol catalog and kind types, native property/path projection, schema-driven field discovery and nested validation, native DNS/policy/log field metadata and editing, settings contracts/validation, IP/domain/resolver validation, port ranges, policy-prefix selection and Unicode-safe text handling.
-- `@wayrill/ui`: menus/context menus, focus boundaries, editor tabs and schematic connections. The schematic module owns obstacle routing, drag previews, worker lifecycle, the pinned libavoid binding, shared wire rendering and connection-kind presentation. Wayrill supplies its traffic-activity overlay through a renderer slot; Aquifer uses the same edge view directly.
+- `@wayrill/ui`: the visual foundation (semantic theme tokens, controls, forms, dialogs, tables, lists, feedback and graph-card decoration), menus/context menus, focus boundaries, editor tabs and schematic connections. The schematic module owns obstacle routing, drag previews, worker lifecycle, the pinned libavoid binding, shared wire rendering and connection-kind presentation. Wayrill supplies its traffic-activity overlay through a renderer slot; Aquifer uses the same edge view directly.
 
 ## Boundaries
 
-Shared code must not import either app, Tauri IPC, Windows service operations, SSH credentials or server deployment logic. Branding/theme tokens and app-specific controls stay in the apps. React and React Flow are peers supplied by the root workspace lock, avoiding duplicate contexts.
+Shared code must not import either app, Tauri IPC, Windows service operations, SSH credentials or server deployment logic. Both apps import `@wayrill/ui/styles.css` before their own layouts. Branding, additional semantic colors and app-specific controls stay in the apps; the common appearance has one owner in `packages/ui/src/styles/`. React and React Flow are peers supplied by the root workspace lock, avoiding duplicate contexts.
 
 The protocol field engine accepts the owning app's versioned schema. Native field editing accepts its bounded JSON parser. Config byte budgets and reserved runtime tag prefixes remain explicit app adapters. Do not silently substitute the client core schema for a remote server schema or add app-name switches to the shared engine.
 
@@ -25,7 +25,7 @@ Editor tabs use manual activation: arrows/Home/End explore; Enter/Space activate
 
 1. Reconcile versioned protocol/default catalogs and their generation guards. The actual generated catalogs still reflect separate core snapshots; their interpreter is shared.
 2. Reconcile graph import/export behavior with client graph and real server round-trip cases before extracting the compiler. Preserve API and VLESS reverse-user targets, native field preservation, disabled inbounds and Windows capture extensions.
-3. Extract common form controls, rule-list editing and Stash selection models. Keep client inheritance and server configuration semantics explicit.
+3. Reconcile rule-list editing and Stash selection models. Keep client inheritance and server configuration semantics explicit; use the shared visual primitives for their controls.
 4. Consolidate remaining protocol-link import and outbound/policy resolution helpers in cohesive modules, with shared acceptance cases before replacing either implementation.
 
 The graph compilers still differ. `aquifer/vendor-source.json` records the imported baseline. Prefer moving a cohesive implementation over copying fixes or introducing a universal editor with app-specific branches.

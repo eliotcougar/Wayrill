@@ -24,7 +24,9 @@ export default function ListInput({
   return (
     <textarea
       {...props}
-      className={['server-list-input', props.className].filter(Boolean).join(' ')}
+      className={['text-control', 'code-control', 'server-list-input', props.className]
+        .filter(Boolean)
+        .join(' ')}
       rows={3}
       value={text}
       onChange={(event) => {

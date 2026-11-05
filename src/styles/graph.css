@@ -23,22 +23,8 @@
   width: 212px;
 }
 .rule-node {
-  --node-ring: 0 0 0 0 transparent;
-  --node-elevation: 0 5px 14px var(--shadow);
-
   width: 212px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
   padding: 13px 15px 0;
-  box-shadow: var(--node-ring), var(--node-elevation);
-  transition:
-    border-color 0.12s,
-    box-shadow 0.12s;
-  position: relative;
-}
-.rule-node:hover {
-  border-color: var(--node-color);
 }
 /* Main, selection and validation decorate the same card independently. */
 .rule-node.is-main {
@@ -53,14 +39,6 @@
       transparent 60%
     ),
     var(--surface-raised);
-}
-.rule-node.is-selected {
-  --node-elevation: 0 3px 6px var(--shadow), 0 14px 28px var(--shadow);
-
-  /* Two-pixel visible stroke without changing card or port measurements. */
-  border-color: var(--accent);
-  outline: 1px solid var(--accent);
-  outline-offset: 0;
 }
 .rule-node.is-main.is-selected {
   border-color: var(--main-outbound);

@@ -25,6 +25,7 @@ export default function MapInput({
       {Object.entries(object).map(([key, entry], index) => (
         <div className="server-map-row" key={index}>
           <input
+            className="text-control"
             aria-label={`${label} name ${index + 1}`}
             placeholder="Name"
             value={key}
@@ -47,6 +48,7 @@ export default function MapInput({
             />
           ) : (
             <input
+              className="text-control"
               aria-label={`${label} value ${index + 1}`}
               placeholder="Value"
               value={jsonText(entry ?? '')}
@@ -66,6 +68,7 @@ export default function MapInput({
         </div>
       ))}
       <button
+        className="secondary-button"
         type="button"
         disabled={Object.hasOwn(object, '')}
         onClick={() => onChange({ ...object, '': lists ? [] : '' })}

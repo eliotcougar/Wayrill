@@ -1,4 +1,4 @@
-/* Shared controls and form primitives. Feature layouts belong in their own sheets. */
+/* Shared controls and form primitives. App layouts belong in their own sheets. */
 .compact-controls {
   --control-size: var(--control-size-compact);
   --control-text-size: 11px;
@@ -27,6 +27,23 @@
 }
 .icon-button.active-subtle {
   color: var(--text);
+}
+.segmented-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-sunken);
+}
+.segmented-tools .icon-button {
+  width: 29px;
+  height: 27px;
+}
+.segmented-tools .icon-button[aria-pressed='true'] {
+  color: var(--success);
+  background: var(--success-soft);
 }
 .primary-button,
 .secondary-button {
@@ -123,6 +140,7 @@
   color-scheme: inherit;
 }
 /* A placeholder belongs to its field, not to nested editors or dialogs. */
+:where(.text-control)::placeholder,
 :is(.field, .editor-field) > :where(input, textarea)::placeholder,
 :is(.field, .editor-field) > :where(div) > :where(input, textarea)::placeholder {
   color: var(--text-muted);
@@ -200,6 +218,7 @@ select.text-control {
 }
 :is(.field, .editor-field) > :is(input, textarea, select)[aria-invalid='true'],
 :is(.field, .editor-field) > div > :is(input, textarea, select)[aria-invalid='true'],
+.text-control[aria-invalid='true'],
 .editable-select:has(> input[aria-invalid='true']) > .editable-select-toggle,
 .secret-setting:has(> input[aria-invalid='true']) {
   border-color: var(--danger-border);
