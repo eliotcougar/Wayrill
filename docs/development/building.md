@@ -30,8 +30,9 @@ require Node.js.
 `@typescript/native` package alias. Linting uses Oxlint with its native type-aware
 backend. The `typescript` 6.x library and ESLint peer dependency remain for the
 React JavaScript plugins that check component lifecycles and resource cleanup;
-routine checks do not invoke the TypeScript 6 compiler or the ESLint CLI.
-Use the npm scripts so compiler selection is explicit.
+the main app's checks do not invoke the TypeScript 6 compiler or the ESLint CLI.
+Aquifer currently uses TypeScript 6 and ESLint. Use the npm scripts so compiler
+selection is explicit for each workspace.
 
 ## Windows desktop and native components
 
@@ -127,8 +128,9 @@ executable. Missing or mismatched inputs are errors, not skipped tests.
 `.tools/` is disposable build output/cache. It is never a required checked-in
 toolchain. The optional portable MSVC cache is supported for local development;
 standard Visual Studio installations are the public build path. No .NET SDK is
-needed. Python is needed only when regenerating source/default catalogues, not
-for normal checks or installer builds.
+needed. Python is needed for Aquifer's remote-worker tests and when regenerating
+source/default catalogues. The main app's frontend checks and installer builds do
+not require it.
 
 Core and capture builds regenerate worker-integrity manifests in
 `service/daemon/src/`. Review these changes when altering those components; never

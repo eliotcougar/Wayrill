@@ -119,8 +119,5 @@ func wayrillICMPMessage(r wayrillEchoRequest, response wayrillEchoResponse) []by
 		maximum = 1232
 	}
 	quote := r.quote[:min(len(r.quote), maximum)]
-	message := make([]byte, 8+len(quote))
-	message[0], message[1] = kind, code
-	copy(message[8:], quote)
-	return message
+	return append([]byte{kind, code, 0, 0, 0, 0, 0, 0}, quote...)
 }

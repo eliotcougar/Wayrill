@@ -27,5 +27,15 @@ export default defineConfig({
     // Native builds must not reload the frontend or watch the toolchain tree.
     watch: { ignored: ['**/.tools/**', '**/service/**', '**/src-tauri/**'] },
   },
-  build: { target: 'chrome105' },
+  build: {
+    target: 'chrome105',
+    rolldownOptions: {
+      output: {
+        strictExecutionOrder: true,
+        codeSplitting: {
+          groups: [{ name: 'app', test: () => true, minSize: 100_000, maxSize: 900_000 }],
+        },
+      },
+    },
+  },
 });

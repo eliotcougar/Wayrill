@@ -5,7 +5,7 @@ use crate::{lifecycle::SharingExit, native::wide, storage};
 use serde::{Deserialize, Serialize};
 use std::{
     path::Path,
-    ptr::{null, null_mut},
+    ptr::{null, null_mut, NonNull},
 };
 use wayrill_protocol::{ApiError, Result};
 use windows_sys::{
@@ -135,6 +135,14 @@ impl Drop for Engine {
         }
     }
 }
+struct Filter(NonNull<FWPM_FILTER0>);
+impl Drop for Filter {
+    fn drop(&mut self) {
+        let mut allocation = self.0.as_ptr().cast();
+        // SAFETY: the successful filter query transfers one WFP allocation.
+        unsafe { FwpmFreeMemory0(&mut allocation) };
+    }
+}
 fn equal(a: GUID, b: GUID) -> bool {
     a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
 }
@@ -187,16 +195,17 @@ fn replace(interfaces: Option<(u64, u64, bool)>) -> Result<()> {
             let code = unsafe { FwpmFilterGetByKey0(engine.0, &key, &mut old) };
             if code != FWP_E_FILTER_NOT_FOUND as u32 {
                 check(code)?;
-                let owned = unsafe {
-                    !(*old).providerKey.is_null()
-                        && equal(*(*old).providerKey, PROVIDER)
-                        && equal((*old).subLayerKey, SUBLAYER)
-                        && equal((*old).layerKey, layer)
-                        && (*old).action.r#type == FWP_ACTION_BLOCK
-                };
-                unsafe {
-                    FwpmFreeMemory0((&mut old as *mut *mut FWPM_FILTER0).cast());
-                }
+                let old = Filter(
+                    NonNull::new(old)
+                        .ok_or_else(|| error("Windows returned no sharing filter."))?,
+                );
+                // SAFETY: old owns the query result and its nested provider key.
+                let filter = unsafe { old.0.as_ref() };
+                let provider = unsafe { filter.providerKey.as_ref() };
+                let owned = provider.is_some_and(|key| equal(*key, PROVIDER))
+                    && equal(filter.subLayerKey, SUBLAYER)
+                    && equal(filter.layerKey, layer)
+                    && filter.action.r#type == FWP_ACTION_BLOCK;
                 if !owned {
                     return Err(error(
                         "Sharing protection filters changed outside Wayrill; they were preserved.",

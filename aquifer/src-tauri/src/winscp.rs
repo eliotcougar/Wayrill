@@ -71,39 +71,47 @@ fn wide(value: &str) -> Vec<u16> {
 fn file_version(path: &Path) -> Option<[u16; 4]> {
     use std::os::windows::ffi::OsStrExt;
     let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-    unsafe {
-        let size = GetFileVersionInfoSizeW(path.as_ptr(), std::ptr::null_mut());
-        if size == 0 || size > 1024 * 1024 {
-            return None;
-        }
-        let mut data = vec![0u64; (size as usize).div_ceil(8)];
-        if GetFileVersionInfoW(path.as_ptr(), 0, size, data.as_mut_ptr().cast()) == 0 {
-            return None;
-        }
-        let mut info = std::ptr::null_mut();
-        let mut len = 0;
-        if VerQueryValueW(
+    // SAFETY: terminated path and an owned buffer sized by the version API.
+    let size = unsafe { GetFileVersionInfoSizeW(path.as_ptr(), std::ptr::null_mut()) };
+    if size == 0 || size > 1024 * 1024 {
+        return None;
+    }
+    let mut data = vec![0u8; size as usize];
+    if unsafe { GetFileVersionInfoW(path.as_ptr(), 0, size, data.as_mut_ptr().cast()) } == 0 {
+        return None;
+    }
+    let mut info = std::ptr::null_mut();
+    let mut len = 0;
+    // SAFETY: the populated version buffer stays alive through the query.
+    let found = unsafe {
+        VerQueryValueW(
             data.as_ptr().cast(),
             wide("\\").as_ptr(),
             &mut info,
             &mut len,
-        ) == 0
-            || info.is_null()
-            || len < std::mem::size_of::<VS_FIXEDFILEINFO>() as u32
-        {
-            return None;
-        }
-        let info = std::ptr::read_unaligned(info.cast::<VS_FIXEDFILEINFO>());
-        if info.dwSignature != 0xfeef04bd {
-            return None;
-        }
-        Some([
-            (info.dwFileVersionMS >> 16) as u16,
-            info.dwFileVersionMS as u16,
-            (info.dwFileVersionLS >> 16) as u16,
-            info.dwFileVersionLS as u16,
-        ])
+        )
+    };
+    if found == 0 || info.is_null() {
+        return None;
     }
+    // VerQueryValue returns a view into data. Resolve it back to our owned
+    // bytes so parsing never dereferences a foreign pointer.
+    let offset = (info as usize).checked_sub(data.as_ptr() as usize)?;
+    fixed_version(data.get(offset..)?.get(..len as usize)?)
+}
+fn fixed_version(data: &[u8]) -> Option<[u16; 4]> {
+    let data = data.get(..std::mem::size_of::<VS_FIXEDFILEINFO>())?;
+    let dword = |offset| {
+        Some(u32::from_le_bytes(
+            data.get(offset..offset + 4)?.try_into().ok()?,
+        ))
+    };
+    if dword(std::mem::offset_of!(VS_FIXEDFILEINFO, dwSignature))? != 0xfeef04bd {
+        return None;
+    }
+    let ms = dword(std::mem::offset_of!(VS_FIXEDFILEINFO, dwFileVersionMS))?;
+    let ls = dword(std::mem::offset_of!(VS_FIXEDFILEINFO, dwFileVersionLS))?;
+    Some([(ms >> 16) as u16, ms as u16, (ls >> 16) as u16, ls as u16])
 }
 fn version_text(version: [u16; 4]) -> String {
     format!(
@@ -827,6 +835,33 @@ pub fn choose(kind: &str, owner: usize) -> Result<Option<Inventory>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_version_uses_bounded_bytes_without_alignment_assumptions() {
+        let mut data = vec![0; 1 + std::mem::size_of::<VS_FIXEDFILEINFO>()];
+        for (offset, value) in [
+            (
+                std::mem::offset_of!(VS_FIXEDFILEINFO, dwSignature),
+                0xfeef04bdu32,
+            ),
+            (
+                std::mem::offset_of!(VS_FIXEDFILEINFO, dwFileVersionMS),
+                0x0006_0005,
+            ),
+            (
+                std::mem::offset_of!(VS_FIXEDFILEINFO, dwFileVersionLS),
+                0x0007_ffff,
+            ),
+        ] {
+            data[1 + offset..1 + offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let info = &data[1..];
+        assert_eq!(fixed_version(info), Some([6, 5, 7, u16::MAX]));
+        for size in 0..info.len() {
+            assert_eq!(fixed_version(&info[..size]), None);
+        }
+        data[1] = 0;
+        assert_eq!(fixed_version(&data[1..]), None);
+    }
     #[test]
     fn streaming_requires_a_version_that_supports_it() {
         for version in [None, Some([5, 13, 9, 9343]), Some([5, 17, 10, 9999])] {
