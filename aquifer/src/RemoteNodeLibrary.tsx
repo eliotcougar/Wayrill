@@ -1,4 +1,5 @@
-import { ArrowDownToLine, ArrowUpFromLine, Filter, Plus, Search, Users } from 'lucide-react';
+import { Search } from 'lucide-react';
+import NodeLibraryItem from '@wayrill/ui/NodeLibraryItem';
 import { nodeLibrary } from './remoteCreation';
 
 export default function RemoteNodeLibrary({
@@ -19,35 +20,29 @@ export default function RemoteNodeLibrary({
   );
   return (
     <section className="node-library" aria-label="Node library">
-      <div className="search-control">
-        <Search size={15} />
+      <label className="compact-controls search-control">
+        <Search size={15} aria-hidden="true" />
         <input
-          className="text-control"
+          autoComplete="off"
           id="node-search"
           aria-label="Search node library"
-          placeholder="Search nodes"
+          placeholder="Find a node…"
           value={query}
           onChange={(event) => onQuery(event.target.value)}
         />
-      </div>
+      </label>
       <div className="node-library-items">
         {(['Inbounds', 'Rules & filters', 'Outbounds', 'User sets'] as const).map((group) => {
           const items = entries.filter((entry) => entry.group === group);
-          const Icon =
-            group === 'Inbounds'
-              ? ArrowDownToLine
-              : group === 'Outbounds'
-                ? ArrowUpFromLine
-                : group === 'User sets'
-                  ? Users
-                  : Filter;
           return items.length ? (
-            <section key={group} className="node-library-group">
+            <section key={group} className="palette-group">
               <h3>{group}</h3>
               {items.map((entry) => (
-                <button
+                <NodeLibraryItem
                   key={entry.id}
-                  className={`secondary-button node-library-item ${group === 'Inbounds' ? 'inbound' : group === 'Outbounds' ? 'outbound' : group === 'User sets' ? 'users' : 'filter'}`}
+                  kind={entry.kind}
+                  label={entry.title}
+                  category={entry.category}
                   disabled={disabled}
                   draggable={!disabled}
                   title="Click to add, or drag onto the graph"
@@ -55,18 +50,16 @@ export default function RemoteNodeLibrary({
                     event.dataTransfer.setData('application/x-wayrill-node', entry.id);
                     event.dataTransfer.effectAllowed = 'copy';
                   }}
-                  aria-label={`Add ${entry.title} ${group === 'Inbounds' ? 'inbound' : group === 'Outbounds' ? 'outbound' : 'node'}`}
+                  aria-label={`Add ${entry.title} (${group})`}
                   onClick={() => onAdd(entry.id)}
-                >
-                  <Icon size={17} />
-                  <span>{entry.title}</span>
-                  <Plus size={14} />
-                </button>
+                />
               ))}
             </section>
           ) : null;
         })}
-        {!entries.length && <p className="muted">No matching node types</p>}
+        {!entries.length && (
+          <p className="empty-state empty-state--inline">No nodes match “{query}”.</p>
+        )}
       </div>
     </section>
   );

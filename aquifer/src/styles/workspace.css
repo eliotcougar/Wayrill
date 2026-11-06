@@ -503,49 +503,11 @@
   flex: 1;
   min-height: 180px;
 }
+.connection-panel > .node-library {
+  padding: 0 12px 15px;
+}
 .node-library .search-control {
-  margin-top: 0;
-}
-.node-library-group {
-  padding: 0;
-  border: 0;
-}
-.node-library-group h3 {
-  color: var(--text-muted);
-  font-size: 11px;
-  margin: 18px 0 8px;
-}
-.node-library-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin: 4px 0;
-  padding: 10px;
-  text-align: left;
-  background: transparent;
-  border-color: transparent;
-  white-space: normal;
-  cursor: grab;
-}
-.node-library-item:hover:not(:disabled) {
-  background: var(--surface-raised);
-}
-.node-library-item > span {
-  flex: 1;
-  min-width: 0;
-}
-.node-library-item.inbound > svg:first-child {
-  color: var(--node-input);
-}
-.node-library-item.outbound > svg:first-child {
-  color: var(--node-output);
-}
-.node-library-item.filter > svg:first-child {
-  color: var(--node-filter);
-}
-.node-library-item.users > svg:first-child {
-  color: var(--connection-users);
+  margin-block: var(--space-4);
 }
 .inspector-tabs {
   flex-shrink: 0;

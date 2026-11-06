@@ -3,7 +3,7 @@
 These private npm workspaces are consumed from source by Wayrill and Aquifer. Run `npm ci` at the repository root. Each executable bundles what it uses; installed apps require neither Node nor a shared runtime directory.
 
 - `@wayrill/core`: strict JSON/JSONC parsing/helpers, protocol catalog and kind types, native property/path projection, schema-driven field discovery and nested validation, native DNS/policy/log field metadata and editing, settings contracts/validation, IP/domain/resolver validation, port ranges, policy-prefix selection and Unicode-safe text handling.
-- `@wayrill/ui`: the visual foundation (semantic theme tokens, controls, forms, dialogs, tables, lists, feedback and graph-card decoration), menus/context menus, focus boundaries, editor tabs and schematic connections. The schematic module owns obstacle routing, drag previews, worker lifecycle, the pinned libavoid binding, shared wire rendering and connection-kind presentation. Wayrill supplies its traffic-activity overlay through a renderer slot; Aquifer uses the same edge view directly.
+- `@wayrill/ui`: the visual foundation (semantic theme tokens, controls, forms, dialogs, tables, lists, feedback, node icons/type captions, library rows and graph-card decoration), menus/context menus, focus boundaries, editor tabs and schematic connections. The schematic module owns obstacle routing, drag previews, worker lifecycle, the pinned libavoid binding, shared wire rendering and connection-kind presentation. Wayrill supplies its traffic-activity overlay through a renderer slot; Aquifer uses the same edge view directly.
 
 ## Boundaries
 

@@ -87,6 +87,7 @@ export function withUserNodes(
       type: 'remote',
       position: { x: left, y: row },
       data: {
+        kind: 'user-set',
         title: set.name,
         subtitle: `${userProtocols[set.protocol]} · User set`,
         category: 'users',

@@ -52,7 +52,7 @@ import type {
   SettingDefinition,
   SettingValue,
 } from '../graph/types';
-import NodeIcon from './NodeIcon';
+import NodeIcon from '@wayrill/ui/NodeIcon';
 import { isGraphInbound, isDisabledInbound } from '../graph/inboundState';
 
 interface Props {

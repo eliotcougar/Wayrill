@@ -4,7 +4,7 @@ import { compileRemote } from './remoteExport';
 import { createUserWorkspace, emptyLibrary } from './users/model';
 import { navigationGroup } from './uiTerms';
 
-it('uses Wayrill names and Data outputs while keeping native protocols and tags intact', () => {
+it('classifies native protocols and Data outputs without changing native settings or tags', () => {
   const config = {
     inbounds: [
       { tag: 'socks', protocol: 'socks', listen: '127.0.0.1', port: 1080, settings: { udp: true } },
@@ -21,10 +21,11 @@ it('uses Wayrill names and Data outputs while keeping native protocols and tags 
     },
   };
   const view = remoteView(JSON.stringify(config));
-  expect(view.nodes.find((node) => node.id === 'native-in-0')?.data.subtitle).toBe('Proxy · SOCKS');
-  expect(view.nodes.find((node) => node.id === 'native-out-0')?.data.subtitle).toBe('Direct');
-  expect(view.nodes.find((node) => node.id === 'native-out-1')?.data.subtitle).toBe('Block');
-  expect(view.nodes.find((node) => node.id === 'native-out-2')?.data.subtitle).toBe('SOCKS');
+  expect(
+    ['native-in-0', 'native-out-0', 'native-out-1', 'native-out-2'].map(
+      (id) => view.nodes.find((node) => node.id === id)?.data.kind,
+    ),
+  ).toEqual(['proxy-inbound', 'direct-outbound', 'block-outbound', 'socks-outbound']);
   const tun = view.nodes.find((node) => node.id === 'native-in-1')!;
   expect(navigationGroup(tun.data)).toBe('Local capture');
   expect(tun.data.outputs.some((output) => output.label === 'Data')).toBe(true);

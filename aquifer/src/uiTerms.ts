@@ -1,13 +1,12 @@
 import type { NodeKind } from './graph/types';
 import { getDefinition } from './graph/catalog';
-import { specForKind } from './graph/protocols';
 
 /** UI vocabulary follows Wayrill; native Xray identifiers stay in JSON and settings. */
 export function nodeTypeLabel(kind: NodeKind, protocol?: string) {
   const labels: Partial<Record<NodeKind, string>> = {
     'xray-options': 'Core settings',
     'xray-dns': 'DNS handler',
-    'xray-dns-servers': 'DNS servers',
+    'xray-dns-servers': 'DNS server(s)',
     'routing-filter': 'Routing filter',
   };
   if (labels[kind]) return labels[kind];
@@ -16,8 +15,8 @@ export function nodeTypeLabel(kind: NodeKind, protocol?: string) {
     ['socks', 'http', 'mixed'].includes(protocol) &&
     String(kind).endsWith('-inbound')
   )
-    return `Proxy · ${protocol === 'mixed' ? 'Mixed' : protocol.toUpperCase()}`;
-  return specForKind(kind)?.title ?? getDefinition(kind).title;
+    return `Proxy inbound · ${protocol === 'mixed' ? 'Mixed' : protocol.toUpperCase()}`;
+  return getDefinition(kind).title;
 }
 export function editorTitle(schema: string, title: string) {
   return schema === 'BalancingRule'

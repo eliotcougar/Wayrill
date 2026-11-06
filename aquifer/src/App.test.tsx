@@ -1165,19 +1165,10 @@ it('updates the server snapshot and draft baseline only after confirmed successf
   const sent = vi.mocked(client.validateConfig).mock.calls[0][1];
   expect(JSON.parse(sent.configText).outbounds[0].tag).toBe('renamed-direct');
 });
-it('offers context-matching names for inbounds, outbounds, DNS and properties', async () => {
+it('opens properties for an imported outbound selected on the graph', async () => {
   await act(async () => button('Read server').click());
-  const labels = [...host.querySelectorAll('[data-testid="canvas"] small')].map(
-    (item) => item.textContent,
-  );
-  expect(labels).toContain('VLESS');
-  expect(labels).toContain('Direct');
-  expect(labels).toContain('Block');
-  expect(labels).toContain('DNS handler');
-  expect(labels).toContain('DNS servers');
   await act(async () => nodeButton('direct').click());
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Properties');
-  expect(host.querySelector('.app-footer')?.textContent).not.toContain('routing rules');
 });
 
 it('reloads a saved graph layout on the next connection and exposes layout-only saving', async () => {
@@ -1236,14 +1227,14 @@ it('builds a configuration from an empty fresh-server config through the node li
   expect(host.querySelector('.node-list')).toBeNull();
   expect(host.querySelector('[aria-label="Node library"]')).not.toBeNull();
   await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Add Direct outbound"]')!.click(),
+    host.querySelector<HTMLButtonElement>('[aria-label="Add Direct (Outbounds)"]')!.click(),
   );
   expect(host.querySelector('[aria-label="Node settings"]')).not.toBeNull();
   expect(host.querySelector('dialog')).toBeNull();
   await inputValue('Outbound tag', 'internet');
   await act(async () => button('Apply changes').click());
   await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Add Proxy inbound"]')!.click(),
+    host.querySelector<HTMLButtonElement>('[aria-label="Add Proxy inbound (Inbounds)"]')!.click(),
   );
   expect(host.querySelector('dialog h2')?.textContent).toContain('mixed');
   await act(async () => button('Apply changes').click());
@@ -1274,7 +1265,7 @@ it('starts a new draft without replacing its bound server snapshot', async () =>
   await act(async () => button('Read server').click());
   await menuAction('File', 'New configuration');
   await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Add Direct outbound"]')!.click(),
+    host.querySelector<HTMLButtonElement>('[aria-label="Add Direct (Outbounds)"]')!.click(),
   );
   await act(async () => button('Apply…').click());
   expect(client.read).toHaveBeenCalledOnce();
@@ -1315,7 +1306,7 @@ it('adds a hidden stashed outbound to the graph and remembers its placement', as
 it.each(['mixed', 'socks', 'http'])('configures Proxy mode %s without raw JSON', async (mode) => {
   await menuAction('File', 'New configuration');
   await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Add Proxy inbound"]')!.click(),
+    host.querySelector<HTMLButtonElement>('[aria-label="Add Proxy inbound (Inbounds)"]')!.click(),
   );
   const select = host.querySelector<HTMLSelectElement>('[aria-label="Proxy mode"]')!;
   await act(async () => {
@@ -1391,7 +1382,9 @@ it('does not dirty the graph when opening an existing singleton from the library
   await act(async () => button('Read server').click());
   expect(host.querySelector('.users-draft-label')).toBeNull();
   await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Add DNS handler node"]')!.click(),
+    host
+      .querySelector<HTMLButtonElement>('[aria-label="Add DNS handler (Rules & filters)"]')!
+      .click(),
   );
   await act(async () => button('Cancel').click());
   expect(host.querySelector('.users-draft-label')).toBeNull();

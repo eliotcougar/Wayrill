@@ -1,10 +1,11 @@
-import { GripVertical, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import usePointerDrag, { type DragPoint } from './usePointerDrag';
 import { availableNodes } from '../graph/catalog';
 import type { NodeDefinition, NodeKind } from '../graph/types';
-import NodeIcon from './NodeIcon';
+import NodeIcon from '@wayrill/ui/NodeIcon';
+import NodeLibraryItem from '@wayrill/ui/NodeLibraryItem';
 
 export default function NodePalette({
   onAdd,
@@ -41,9 +42,11 @@ export default function NodePalette({
             <section className="palette-group" key={group}>
               <h3>{group}</h3>
               {entries.map((item) => (
-                <button
+                <NodeLibraryItem
                   key={item.kind}
-                  className={`palette-item category-${item.category}`}
+                  kind={item.kind}
+                  label={item.title}
+                  category={item.category}
                   onPointerDown={(event) => drag.start(event, item.kind)}
                   onPointerMove={drag.move}
                   onPointerUp={drag.end}
@@ -54,15 +57,7 @@ export default function NodePalette({
                   }}
                   aria-label={`Add ${item.title} (${group})`}
                   title={item.summary}
-                >
-                  <span className="palette-icon">
-                    <NodeIcon kind={item.kind} size={17} />
-                  </span>
-                  <span className="palette-item-copy">
-                    <strong>{item.title}</strong>
-                  </span>
-                  <GripVertical className="palette-grip" size={14} aria-hidden="true" />
-                </button>
+                />
               ))}
             </section>
           )

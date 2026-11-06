@@ -1,15 +1,7 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  GitBranch,
-  Radio,
-  Settings2,
-  Server,
-  ShieldCheck,
-  Users,
-} from 'lucide-react';
+import NodeIcon from '@wayrill/ui/NodeIcon';
+import { nodeKindLabel } from '@wayrill/ui/nodeLabels';
 import type { ViewNode } from './remoteModel';
 import { viewConnections } from './viewConnections';
 
@@ -20,25 +12,9 @@ function RemoteNode({ id, data, selected, isConnectable }: NodeProps<ViewNode>) 
     updateInternals(id);
   }, [id, ports, data.hasInput, updateInternals]);
   const inputColor = viewConnections[data.inputKinds?.[0] ?? 'traffic'].color;
-  const Icon =
-    data.category === 'users'
-      ? Users
-      : data.category === 'inbound'
-        ? ArrowDownToLine
-        : data.category === 'outbound'
-          ? ArrowUpFromLine
-          : data.category === 'internal'
-            ? ShieldCheck
-            : data.rules
-              ? GitBranch
-              : data.subtitle.includes('Observatory')
-                ? Radio
-                : data.subtitle.includes('DNS')
-                  ? Server
-                  : Settings2;
   return (
     <article
-      className={`node-card remote-node ${selected ? 'is-selected' : ''}`}
+      className={`node-card remote-node category-${data.category} ${selected ? 'is-selected' : ''}`}
       data-category={data.category}
     >
       {data.hasInput && (
@@ -53,9 +29,13 @@ function RemoteNode({ id, data, selected, isConnectable }: NodeProps<ViewNode>) 
       <header>
         <div className="remote-node-kicker">
           <span className="remote-node-icon">
-            <Icon size={15} />
+            <NodeIcon kind={data.kind} />
           </span>
-          <span>{data.subtitle}</span>
+          <span>
+            {data.category === 'users' || data.category === 'internal'
+              ? data.subtitle
+              : nodeKindLabel(data.kind, data.category)}
+          </span>
           <span className="remote-node-indicator" aria-hidden="true" />
         </div>
         <strong title={data.title} dir="auto">

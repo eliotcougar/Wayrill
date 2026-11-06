@@ -2,31 +2,47 @@ import { protocolSpecs } from './graph/protocols';
 import { cloneJson, jsonArray, jsonEqual, jsonRecord, jsonText } from './graph/xrayJson';
 import { remoteView, type RemoteView } from './remoteModel';
 import { portRangesOverlap } from './graph/portRanges';
+import { catalog, getDefinition } from './graph/catalog';
+import type { NodeDefinition, NodeKind } from './graph/types';
 
 export interface LibraryEntry {
   id: string;
+  kind: NodeKind | 'user-set';
   title: string;
-  group: 'Inbounds' | 'Rules & filters' | 'Outbounds' | 'User sets';
+  group: NodeDefinition['group'] | 'User sets';
+  category: NodeDefinition['category'] | 'users';
   protocol?: string;
+  defaultTag?: string;
 }
 
-export const nodeLibrary: LibraryEntry[] = [
-  ...protocolSpecs
-    .filter((spec) => !['tun-inbound', 'ics-tun'].includes(spec.kind))
-    .filter((spec) => spec.direction !== 'inbound' || !['socks', 'http'].includes(spec.protocol))
-    .map((spec): LibraryEntry => ({
-      id: `${spec.direction}:${spec.protocol}`,
-      title: spec.title,
-      group: spec.direction === 'inbound' ? 'Inbounds' : 'Outbounds',
-      protocol: spec.protocol,
-    })),
-  { id: 'routing', title: 'Routing filter', group: 'Rules & filters' },
-  { id: 'dns', title: 'DNS handler', group: 'Rules & filters' },
-  { id: 'resolver', title: 'DNS servers', group: 'Rules & filters' },
-  { id: 'observatory', title: 'Observatory', group: 'Rules & filters' },
-  { id: 'balancer', title: 'Policy group', group: 'Outbounds' },
-  { id: 'users', title: 'User set', group: 'User sets' },
-];
+function libraryEntry(id: string, kind: NodeKind): LibraryEntry {
+  const { title, group, category } = getDefinition(kind);
+  return { id, kind, title, group, category };
+}
+
+const libraryOrder = new Map<string, number>(catalog.map((entry, index) => [entry.kind, index]));
+export const nodeLibrary: LibraryEntry[] = (
+  [
+    ...protocolSpecs
+      .filter((spec) => !['tun-inbound', 'ics-tun'].includes(spec.kind))
+      .filter((spec) => spec.direction !== 'inbound' || !['socks', 'http'].includes(spec.protocol))
+      .map((spec): LibraryEntry => ({
+        ...libraryEntry(`${spec.direction}:${spec.protocol}`, spec.kind),
+        protocol: spec.protocol,
+        // Display names include direction; existing native tag defaults do not.
+        defaultTag: spec.title.toLowerCase().replaceAll(' ', '-'),
+      })),
+    libraryEntry('routing', 'routing-filter'),
+    libraryEntry('dns', 'dns-handler'),
+    libraryEntry('resolver', 'dns-servers'),
+    libraryEntry('observatory', 'observatory'),
+    libraryEntry('balancer', 'policy-group'),
+    { id: 'users', kind: 'user-set', title: 'User set', group: 'User sets', category: 'users' },
+  ] satisfies LibraryEntry[]
+).sort(
+  (a, b) =>
+    (libraryOrder.get(a.kind) ?? catalog.length) - (libraryOrder.get(b.kind) ?? catalog.length),
+);
 
 function uniqueTag(base: string, items: unknown[]) {
   const taken = new Set(items.filter(jsonRecord).map((item) => item.tag));
@@ -69,7 +85,7 @@ export function createRemoteNode(view: RemoteView, entryId: string) {
     config.outbounds = [
       ...outbounds,
       {
-        tag: uniqueTag(entry.title.toLowerCase().replaceAll(' ', '-'), tags),
+        tag: uniqueTag(entry.defaultTag!, tags),
         protocol: entry.protocol,
         settings: {},
       },

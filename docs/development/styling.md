@@ -119,9 +119,16 @@ to that directory. It has no dependency on either app or its networking behavior
   do not add a paragraph margin to that gap. Invalid controls and composite
   secret fields use their `aria-invalid` state for the shared error border.
 - `styles/graph.css` owns `node-card` surfaces, borders, selection and elevation.
+  Category colors and `NodeIcon`/`nodeKindLabel` presentation are shared by both
+  apps. Resolve protocol kinds from metadata rather than guessing icons from
+  translated titles or node categories.
   Each app keeps node contents, category metadata and port geometry in its own
   graph sheet. `segmented-tools` in the shared controls sheet styles canvas mode
   buttons without tying them to either app's toolbar.
+- `styles/palette.css` and `NodeLibraryItem` own node-library rows, colored icon
+  tiles, group headings and drag grips. Each app supplies its available kinds and
+  drag behavior. Aquifer uses its catalog's type names while native tags remain
+  independent of display text.
 
 Normal form controls and action buttons use `--control-size` (36px). Compact
 inspector fields and icon buttons use `--control-size-compact` (32px). A `field`

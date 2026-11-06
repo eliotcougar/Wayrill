@@ -6,7 +6,7 @@ import { getDefinition, getOutputPorts, portLabel } from './graph/catalog';
 import { sourceConnectionKind } from './graph/connectionTypes';
 import { connectionTypes, type ConnectionKind } from './graph/connectionKinds';
 import { jsonArray, jsonRecord, parseXrayJson } from './graph/xrayJson';
-import type { GraphState, RuleNode } from './graph/types';
+import type { GraphState, NodeKind, RuleNode } from './graph/types';
 import type { UserProtocol } from './users/model';
 import type { ViewConnectionKind } from './viewConnections';
 import { nodeTypeLabel } from './uiTerms';
@@ -19,6 +19,7 @@ export interface ViewPort {
   kind: ViewConnectionKind;
 }
 export type ViewData = {
+  kind: NodeKind | 'user-set';
   title: string;
   subtitle: string;
   category: string;
@@ -117,6 +118,11 @@ function fromGraph(
   const nodes = graph.nodes.map((node): ViewNode => {
     const definition = getDefinition(node.data.kind),
       raw = sourceFor(node, config);
+    const direction = definition.category;
+    const kind =
+      direction === 'inbound' || direction === 'outbound'
+        ? (specForProtocol(object(raw).protocol, direction)?.kind ?? node.data.kind)
+        : node.data.kind;
     const outputs = getOutputPorts(node.data.kind, node.data).map((id) => ({
       id,
       label:
@@ -130,6 +136,7 @@ function fromGraph(
       type: 'remote',
       position: node.position,
       data: {
+        kind,
         title:
           node.id === 'native-options'
             ? 'Core settings'
@@ -140,7 +147,7 @@ function fromGraph(
                 : node.id.startsWith('native-in-') && !object(raw).tag
                   ? `${node.data.label || definition.title} · ${text(object(raw).port) || Number(node.id.slice(10)) + 1}`
                   : node.data.label || definition.title,
-        subtitle: nodeTypeLabel(node.data.kind, text(object(raw).protocol)),
+        subtitle: nodeTypeLabel(kind, text(object(raw).protocol)),
         category: definition.category,
         facts: facts(raw, node.data.kind),
         outputs,
@@ -209,6 +216,7 @@ export function remoteView(source: string, savedGraph?: GraphState): RemoteView 
     const endpoint = endpoints.get(node.data.title);
     if (endpoint?.id !== node.id) continue;
     node.data.category = 'internal';
+    node.data.kind = 'xray-internal';
     node.data.subtitle = endpoint.title;
     node.data.raw = endpoint.raw;
     if (node.id === 'remote-api')
@@ -218,13 +226,15 @@ export function remoteView(source: string, savedGraph?: GraphState): RemoteView 
   const outbounds = array(normalized.outbounds).map(object);
   for (const { id, config } of graph.xray?.outboundPool ?? []) {
     const index = Number(id.slice(11));
+    const kind = specForProtocol(config.protocol, 'outbound')?.kind ?? 'xray-outbound';
     view.nodes.push({
       id,
       type: 'remote',
       position: { x: 1080 + Math.floor(index / 64) * 400, y: (index % 64) * 205 },
       data: {
+        kind,
         title: text(config.tag) || `Outbound ${index + 1}`,
-        subtitle: specForProtocol(config.protocol, 'outbound')?.title || 'Outbound',
+        subtitle: nodeTypeLabel(kind),
         category: 'outbound',
         facts: facts(config, 'xray-outbound'),
         outputs: [],

@@ -16,8 +16,9 @@ import {
   portLabel,
   summarizeNode,
 } from '../graph/catalog';
-import type { NodeKind, RuleNode as RuleNodeType } from '../graph/types';
-import NodeIcon from './NodeIcon';
+import type { RuleNode as RuleNodeType } from '../graph/types';
+import NodeIcon from '@wayrill/ui/NodeIcon';
+import { nodeKindLabel } from '@wayrill/ui/nodeLabels';
 import { MainOutboundContext } from './MainOutboundContext';
 import { Crown, ListFilter } from 'lucide-react';
 import { isNativeConfigEditor, isNativeXrayKind } from '../graph/xrayNodes';
@@ -34,27 +35,6 @@ import {
   sourceConnectionKind,
   targetConnectionKinds,
 } from '../graph/connectionTypes';
-
-const kindLabels: Partial<Record<NodeKind, string>> = {
-  fakedns: 'FAKEDNS',
-  'proxy-inbound': 'PROXY',
-  'policy-group': 'POLICY GROUP',
-  'proxy-chain': 'PROXY CHAIN',
-  observatory: 'OBSERVATORY',
-  'dns-servers': 'DNS SERVERS',
-  'xray-dns-servers': 'DNS SERVERS',
-  'dns-routing-filter': 'DNS FILTER',
-  'dns-handler': 'DNS HANDLER',
-  'xray-dns': 'DNS HANDLER',
-  'routing-filter': 'ROUTING FILTER',
-  'xray-options': 'CORE SETTINGS',
-};
-const categoryLabels = {
-  inbound: 'INBOUND',
-  outbound: 'OUTBOUND',
-  filter: 'CONDITION',
-  rule: 'ROUTING RULE',
-};
 
 function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>) {
   const main = useContext(MainOutboundContext) === id;
@@ -103,7 +83,7 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
         <span>
           {definition.group === 'Local capture'
             ? 'LOCAL CAPTURE'
-            : (kindLabels[data.kind] ?? categoryLabels[definition.category])}
+            : nodeKindLabel(data.kind, definition.category)}
         </span>
         {main ? (
           <span className="node-main-badge">

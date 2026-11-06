@@ -9,8 +9,8 @@ import {
   Server,
   Shuffle,
   Activity,
+  Users,
 } from 'lucide-react';
-import type { NodeKind } from '../graph/types';
 
 const icons = {
   'ics-tun': GitBranch,
@@ -32,8 +32,10 @@ const icons = {
   'direct-outbound': ArrowUpRight,
   'dns-servers': Server,
   'dns-routing-filter': GitBranch,
+  'user-set': Users,
+  'xray-internal': ShieldCheck,
 };
-export default function NodeIcon({ kind, size = 18 }: { kind: NodeKind; size?: number }) {
+export default function NodeIcon({ kind, size = 18 }: { kind: string; size?: number }) {
   const Icon =
     icons[kind as keyof typeof icons] ?? (kind.endsWith('-inbound') ? RadioTower : Server);
   return <Icon size={size} strokeWidth={1.65} aria-hidden="true" />;

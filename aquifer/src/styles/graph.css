@@ -26,8 +26,6 @@
   cursor: grabbing;
 }
 .remote-node {
-  --node-color: var(--node-rule);
-  --node-tint: var(--node-rule-soft);
   width: 212px;
   overflow: visible;
 }
@@ -38,6 +36,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  height: 24px;
   color: var(--node-color);
   font-size: 8px;
   font-weight: 600;
@@ -46,20 +45,17 @@
   margin-bottom: 7px;
 }
 .remote-node-icon {
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  border-radius: 6px;
-  background: var(--node-tint);
+  display: flex;
+  align-items: center;
   flex: none;
 }
 .remote-node-indicator {
   margin-left: auto;
   border-radius: 50%;
   background: var(--node-color);
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
+  opacity: 0.75;
   flex: none;
 }
 .remote-node strong {
@@ -95,18 +91,6 @@
   white-space: nowrap;
   max-width: 185px;
   text-align: right;
-}
-.remote-node[data-category='inbound'] {
-  --node-color: var(--node-input);
-  --node-tint: var(--node-input-soft);
-}
-.remote-node[data-category='outbound'] {
-  --node-color: var(--node-output);
-  --node-tint: var(--node-output-soft);
-}
-.remote-node[data-category='filter'] {
-  --node-color: var(--node-filter);
-  --node-tint: var(--node-filter-soft);
 }
 .node-outputs {
   padding: 4px 0 8px;
@@ -157,10 +141,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.remote-node[data-category='users'] {
-  --node-color: var(--connection-users);
-  --node-tint: var(--node-users-soft);
 }
 .node-input {
   position: relative;

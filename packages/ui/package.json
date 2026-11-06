@@ -6,6 +6,9 @@
   "exports": {
     "./MenuBar": "./src/MenuBar.tsx",
     "./NodeContextMenu": "./src/NodeContextMenu.tsx",
+    "./NodeIcon": "./src/NodeIcon.tsx",
+    "./NodeLibraryItem": "./src/NodeLibraryItem.tsx",
+    "./nodeLabels": "./src/nodeLabels.ts",
     "./focusBoundary": "./src/focusBoundary.ts",
     "./menus.css": "./src/menus.css",
     "./styles.css": "./src/styles.css",

@@ -1,4 +1,25 @@
 /* Card decoration is shared; node content and port geometry belong to each app. */
+.category-inbound {
+  --node-color: var(--node-input);
+  --node-tint: var(--node-input-soft);
+}
+.category-filter {
+  --node-color: var(--node-filter);
+  --node-tint: var(--node-filter-soft);
+}
+.category-rule,
+.category-internal {
+  --node-color: var(--node-rule);
+  --node-tint: var(--node-rule-soft);
+}
+.category-outbound {
+  --node-color: var(--node-output);
+  --node-tint: var(--node-output-soft);
+}
+.category-users {
+  --node-color: var(--connection-users);
+  --node-tint: var(--node-users-soft);
+}
 .node-card {
   --node-ring: 0 0 0 0 transparent;
   --node-elevation: 0 5px 14px var(--shadow);
