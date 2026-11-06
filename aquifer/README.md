@@ -1,4 +1,4 @@
-# Wayrill Aquifer 0.2.2
+# Wayrill Aquifer 0.2.3
 
 Aquifer manages Linux Xray servers over SSH using Wayrill graphs. It is part of the Wayrill source/bundle and can also be built and run separately as `wayrill-aquifer.exe`. It uses WebView2 and an installed WinSCP, without installing a local routing service, driver or VPN adapter. Install WinSCP separately, or extract its portable package with both `WinSCP.exe` and `WinSCP.com` in the same folder. Aquifer does not bundle or download WinSCP.
 
@@ -11,6 +11,8 @@ Aquifer manages Linux Xray servers over SSH using Wayrill graphs. It is part of 
 5. Check and server-side validation precede explicit Apply confirmation. Deployment backs up configuration and its companion and automatically restores them on failure. See [deployment](docs/CONFIG-DEPLOYMENT.md).
 
 Aquifer saves `config.wayrill.json` beside `config.json`, with names adjusted for other configs. It restores layouts only after verifying that their executable graph compiles to the downloaded Xray config. Dedicated API plumbing remains in Core settings. The runtime graph/compiler remains the export source of truth.
+
+The Routing filter editor uses the same ordering controls as Wayrill. Drag a rule by its grip, or use Alt+Up/Down to reorder it; the first matching rule wins. Expand the domain or IP field for longer lists. The Outputs tab names and orders graph connections and selects their outbound or policy group. Changing a destination updates the rules using that output; deleting a used output asks before removing its rules. Display names and output order are saved in the companion file, keeping native Xray JSON free of editor metadata. Unmatched traffic continues to use Xray's first outbound.
 
 Server status provides Xray/service versions, reboot status, APT updates and confirmed maintenance actions. An existing root login is used directly; otherwise fixed administrative jobs use noninteractive sudo. Closing Aquifer does not cancel a submitted package/deployment job.
 

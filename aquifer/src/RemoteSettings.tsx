@@ -14,11 +14,12 @@ import ServerFields from './ServerFields';
 import { settingsStructures, optionalSettingsIssues } from './settingsFields';
 import { get } from './nativeProperties';
 import type { ApiListener } from './apiPlumbing';
+import { outputIssues, syncRoutingOutputs, type RoutingOutput } from './routingOutputs';
 
 const sections: Record<string, string[]> = {
   ...nodeSettingsTabs,
   Config: coreTabs,
-  RouterConfig: ['Rules', 'Options'],
+  RouterConfig: ['Rules', 'Outputs', 'Options'],
   BalancingRule: ['Group'],
 };
 
@@ -32,6 +33,7 @@ export default function RemoteSettings({
   onSave,
   onClose,
   apiListeners,
+  routingOutputs,
 }: {
   title: string;
   value: unknown;
@@ -40,7 +42,8 @@ export default function RemoteSettings({
   userCount?: number;
   onManageUsers?: () => void;
   apiListeners?: ApiListener[];
-  onSave: (value: unknown, listeners?: ApiListener[]) => void;
+  routingOutputs?: RoutingOutput[];
+  onSave: (value: unknown, listeners?: ApiListener[], outputs?: RoutingOutput[]) => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -48,6 +51,13 @@ export default function RemoteSettings({
   const body = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [draft, setDraft] = useState(value);
+  const [outputs, setOutputs] = useState(
+    () =>
+      routingOutputs ??
+      syncRoutingOutputs(jsonRecord(value) ? value : {}, []).filter((output) =>
+        destinations.some((target) => target.tag === output.tag && target.group === output.group),
+      ),
+  );
   const [listenerDraft, setListenerDraft] = useState(apiListeners ?? []);
   const inbound = schema === 'InboundDetourConfig' && editableInbound(draft);
   const protocol = jsonRecord(draft) ? jsonText(get(draft, 'protocol') ?? '').toLowerCase() : '';
@@ -95,7 +105,10 @@ export default function RemoteSettings({
       : schema === 'InboundDetourConfig' && editableInbound(next)
         ? inboundIssues(next)
         : schema === 'RouterConfig'
-          ? ruleIssues(next, destinations)
+          ? [
+              ...ruleIssues(next, destinations),
+              ...outputIssues(syncRoutingOutputs(next, outputs), destinations),
+            ]
           : schema === 'BalancingRule'
             ? policyIssues(next, destinations)
             : schema === 'Config'
@@ -116,6 +129,8 @@ export default function RemoteSettings({
               : optionalSettingsIssues(schema, next);
   const updateDraft = (next: unknown) => {
     setDraft(next);
+    if (schema === 'RouterConfig' && jsonRecord(next))
+      setOutputs((outputs) => syncRoutingOutputs(next, outputs));
     if (validated) setIssues(issuesFor(next));
     setError('');
   };
@@ -127,7 +142,10 @@ export default function RemoteSettings({
   };
   const editingJson = json !== null;
   const close = () => {
-    let dirty = !jsonEqual(draft, value) || !jsonEqual(listenerDraft, apiListeners ?? []);
+    let dirty =
+      !jsonEqual(draft, value) ||
+      !jsonEqual(listenerDraft, apiListeners ?? []) ||
+      (routingOutputs !== undefined && !jsonEqual(outputs, routingOutputs));
     if (json !== null) {
       try {
         dirty = dirty || !jsonEqual(parseXrayJson(json), value);
@@ -205,7 +223,9 @@ export default function RemoteSettings({
           save((value) =>
             schema === 'Config' && apiListeners !== undefined
               ? onSave(value, listenerDraft)
-              : onSave(value),
+              : schema === 'RouterConfig' && routingOutputs !== undefined && jsonRecord(value)
+                ? onSave(value, undefined, syncRoutingOutputs(value, outputs))
+                : onSave(value),
           );
         }}
       >
@@ -224,7 +244,7 @@ export default function RemoteSettings({
                     !(schema === 'NameServerConfig' && typeof next === 'string')
                   )
                     throw new Error('This value can be edited in JSON.');
-                  setDraft(next);
+                  updateDraft(next);
                   setJson(null);
                 });
             }}
@@ -290,7 +310,7 @@ export default function RemoteSettings({
                 onChange={updateDraft}
                 onManageUsers={onManageUsers}
               />
-            ) : schema === 'RouterConfig' && tab === 'Rules' ? (
+            ) : schema === 'RouterConfig' && (tab === 'Rules' || tab === 'Outputs') ? (
               <RemoteRoutingSettings
                 value={draft}
                 destinations={destinations}
@@ -298,6 +318,16 @@ export default function RemoteSettings({
                 selectedRule={selectedRule}
                 focusPath={focusPath}
                 onSelectRule={setSelectedRule}
+                tab={tab}
+                outputs={outputs}
+                onOutputsChange={(next) => {
+                  setOutputs(next);
+                  if (validated && jsonRecord(draft))
+                    setIssues([
+                      ...ruleIssues(draft, destinations),
+                      ...outputIssues(next, destinations),
+                    ]);
+                }}
               />
             ) : schema === 'BalancingRule' && tab === 'Group' ? (
               <RemotePolicySettings

@@ -71,10 +71,56 @@
   flex-wrap: wrap;
   gap: var(--space-1);
 }
-.remote-rule-list {
+.remote-rule-sidebar .rule-list {
+  display: block;
+  padding: 0;
   margin-top: 8px;
   max-height: 420px;
   overflow: auto;
+}
+.remote-rule-sidebar {
+  min-width: 0;
+}
+.remote-routing-fallback {
+  margin-top: var(--space-3);
+}
+.remote-routing-fallback > p {
+  font-size: var(--control-text-size);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.remote-routing-outputs > .section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.remote-routing-outputs h3 {
+  margin: 0;
+  font-size: 13px;
+}
+.remote-routing-outputs .output-editor-row > input,
+.remote-routing-outputs .output-editor-row > select {
+  flex: 1;
+  min-width: 0;
+}
+.remote-routing-outputs .output-editor-row > span {
+  width: 110px;
+  font-size: 11px;
+}
+.expanded-list-dialog {
+  width: min(900px, calc(100vw - 48px));
+  height: min(700px, calc(100vh - 48px));
+}
+.expanded-list-dialog > .dialog-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.expanded-list-dialog .server-list-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
 }
 .node-list {
   display: flex;

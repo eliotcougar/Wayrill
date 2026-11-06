@@ -8,6 +8,9 @@ import { policyCandidates } from './RemotePolicySettings';
 import { ruleIssues } from './routingEditor';
 import { remoteView } from './remoteModel';
 import MapInput from './MapInput';
+import { readRoutingOutputs } from './routingOutputs';
+import { nodeSettings } from './nodeSettings';
+import { demoConfig } from './demo';
 
 let host: HTMLDivElement, root: Root;
 const destinations = [
@@ -139,9 +142,11 @@ it('duplicates next to the original and preserves unknown fields through move an
   await change('Rule name', 'Copy');
   await act(async () => button('Move rule down').click());
   await change('Find routing rules', 'second.example');
-  expect(host.querySelectorAll('.remote-rule-list button')).toHaveLength(1);
-  expect(host.querySelector('.remote-rule-list')!.textContent).toContain('2. Second');
-  await act(async () => host.querySelector<HTMLButtonElement>('.remote-rule-list button')!.click());
+  const list = host.querySelector('[aria-label="Routing rules"]')!;
+  expect(list.querySelectorAll('button')).toHaveLength(1);
+  expect(list.textContent).toContain('Second');
+  expect(list.querySelector('b')!.textContent).toBe('2');
+  await act(async () => list.querySelector<HTMLButtonElement>('button')!.click());
   expect(control('Destination domains').value).toBe('domain:second.example');
   await act(async () => button('Apply changes').click());
   expect(onSave).toHaveBeenCalledWith({
@@ -238,6 +243,121 @@ it('edits structured HTTP attributes while keeping case-sensitive map keys separ
   await act(async () => update(current));
   await change('Attributes value 2', 'changed');
   expect(current).toEqual({ Foo: 'one', foo: 'changed' });
+});
+it('reorders native rules by pointer and keyboard without submitting or losing selection', async () => {
+  const onSave = await render({ rules: [first, second] });
+  HTMLElement.prototype.setPointerCapture = () => {};
+  const list = host.querySelector<HTMLElement>('[aria-label="Routing rules"]')!;
+  list.getBoundingClientRect = () => ({ left: 0, right: 200, top: 0, bottom: 120 }) as DOMRect;
+  const rows = [...list.querySelectorAll<HTMLButtonElement>('button')];
+  rows.forEach((row, index) => {
+    row.getBoundingClientRect = () => ({ top: index * 60, bottom: (index + 1) * 60 }) as DOMRect;
+  });
+  const handle = rows[1].querySelector<HTMLElement>('.rule-drag-handle')!;
+  for (const [type, y] of [
+    ['pointerdown', 90],
+    ['pointermove', 20],
+    ['pointerup', 20],
+  ] as const) {
+    await act(async () => {
+      const event = new MouseEvent(type, { clientX: 20, clientY: y, button: 0, bubbles: true });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      handle.dispatchEvent(event);
+    });
+  }
+  expect(list.querySelector('button')).toBe(rows[1]);
+  expect(document.activeElement).toBe(rows[1]);
+  expect(control('Rule name').value).toBe('Second');
+  await act(async () =>
+    rows[1].dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(list.querySelector('button')).toBe(rows[0]);
+  expect(document.activeElement).toBe(rows[1]);
+  await act(async () => rows[0].click());
+  expect(onSave).not.toHaveBeenCalled();
+  await act(async () => button('Apply changes').click());
+  expect(onSave).toHaveBeenCalledWith({ rules: [first, second] });
+});
+it('stages expanded domains and IPs; Cancel and Escape discard only the expansion', async () => {
+  const onSave = await render({ rules: [first] });
+  await act(async () => button('Expand Destination domains').click());
+  await change('Expanded Destination domains', 'domain:discard.example');
+  const expanded = host.querySelector<HTMLDialogElement>(
+    '[aria-label="Edit Destination domains"]',
+  )!;
+  await act(async () =>
+    expanded.querySelector<HTMLButtonElement>('.dialog-footer button')!.click(),
+  );
+  expect(control('Destination domains').value).toBe('domain:first.example');
+  await act(async () => button('Expand Destination IPs').click());
+  await change('Expanded Destination IPs', '203.0.113.0/24\n2001:db8::/32\n');
+  await act(async () => button('OK').click());
+  expect(control('Destination IPs').value).toBe('203.0.113.0/24\n2001:db8::/32');
+  await act(async () => button('Expand Destination domains').click());
+  await act(async () =>
+    host
+      .querySelector<HTMLDialogElement>('[aria-label="Edit Destination domains"]')!
+      .dispatchEvent(new Event('cancel', { bubbles: true, cancelable: true })),
+  );
+  expect(host.querySelectorAll('dialog')).toHaveLength(1);
+  await act(async () => button('Apply changes').click());
+  expect(onSave).toHaveBeenCalledWith({
+    rules: [{ ...first, ip: ['203.0.113.0/24', '2001:db8::/32'] }],
+  });
+});
+it('manages outputs without touching hidden API routes; retargeting preserves all rule conditions', async () => {
+  const view = remoteView(JSON.stringify(demoConfig));
+  const editor = nodeSettings(view, 'native-routing')!;
+  const onSave = vi.fn();
+  await act(async () =>
+    root.render(
+      <RemoteSettings
+        {...editor}
+        routingOutputs={readRoutingOutputs(view)}
+        title="Routing"
+        destinations={[...destinations, { tag: 'blocked', group: false }].map((destination) => ({
+          ...destination,
+          hidden: destination.tag === 'api',
+        }))}
+        onSave={onSave}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  await act(async () => button('Outputs').click());
+  expect(control('Destination for api')).toBeNull();
+  expect(button('Delete output direct').disabled).toBe(true);
+  await change('Destination for blocked', JSON.stringify([false, 'relay-eu']));
+  await change('Output 2 name', 'Relay');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await act(async () => button('Delete output Relay').click());
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(button('Delete output Relay')).not.toBeNull();
+  await act(async () => button('Apply changes').click());
+  const [routing, , outputs] = onSave.mock.calls[0];
+  expect(routing.rules[1]).toEqual({ ...demoConfig.routing.rules[2], outboundTag: 'relay-eu' });
+  expect(routing.rules).toHaveLength(3);
+  expect(outputs.find((output: { name: string }) => output.name === 'Relay')).toMatchObject({
+    tag: 'relay-eu',
+  });
+  onSave.mockClear();
+  confirm.mockReturnValue(true);
+  await act(async () => button('Delete output Relay').click());
+  await act(async () => button('Apply changes').click());
+  expect(onSave.mock.calls[0][0].rules).toEqual([
+    demoConfig.routing.rules[1],
+    demoConfig.routing.rules[3],
+  ]);
+  expect(onSave.mock.calls[0][2].some((output: { name: string }) => output.name === 'Relay')).toBe(
+    false,
+  );
 });
 it('previews case-sensitive deduplicated policy members and excludes virtual/group destinations', () => {
   expect(

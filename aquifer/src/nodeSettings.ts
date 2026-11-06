@@ -3,6 +3,7 @@ import { remoteView, type RemoteView } from './remoteModel';
 import { inboundUserProtocol, inboundUsers, stable } from './users/model';
 import { renameDestination } from './renameDestination';
 import { get, objectAt } from './nativeProperties';
+import { readRoutingOutputs, retainRoutingOutputs } from './routingOutputs';
 import {
   apiPlumbing,
   editableRouting,
@@ -162,6 +163,7 @@ export function nodeSettings(view: RemoteView, id: string) {
   const value = Array.isArray(parent) ? parent[Number(key)] : (parent[key] ?? {});
   return {
     schema: location.schema,
+    ...(location.schema === 'RouterConfig' ? { routingOutputs: readRoutingOutputs(view) } : {}),
     value:
       location.schema === 'RouterConfig'
         ? editableRouting(view.original, jsonRecord(value) ? value : {})
@@ -309,5 +311,5 @@ export function replaceNodeSettings(
     if (Array.isArray(parent)) parent[Number(key)] = value;
     else parent[key] = value;
   }
-  return remoteView(JSON.stringify(config));
+  return retainRoutingOutputs(view, remoteView(JSON.stringify(config)));
 }

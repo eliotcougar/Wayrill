@@ -17,6 +17,8 @@ Editors that reuse one live panel pass its stable `panelId` to `EditorTabList`; 
 
 Editor tabs use manual activation: arrows/Home/End explore; Enter/Space activate. Tab switching preserves unfinished drafts where panels are retained. Settings and Stash in Aquifer use the same list control as Wayrill editors.
 
+`OrderedEntries` and `OutputList` share pointer dragging and keyboard reordering between the apps. Entries need stable IDs so selection and focus follow a moved row. Keep routing semantics and saved metadata in the owning app.
+
 ## Checks
 
 `npm run check:all`, `npm run test:all` and `npm run build:all` check both adapters. The main check also type-checks all shared source/tests using `packages/tsconfig.json`; the main suite runs shared package regressions. Production lint rules include shared source. The small browser test setup supplies only missing jsdom geometry methods.

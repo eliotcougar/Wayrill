@@ -1,6 +1,7 @@
 import { protocolSpecs } from './graph/protocols';
 import { cloneJson, jsonArray, jsonEqual, jsonRecord, jsonText } from './graph/xrayJson';
 import { remoteView, type RemoteView } from './remoteModel';
+import { retainRoutingOutputs } from './routingOutputs';
 import { portRangesOverlap } from './graph/portRanges';
 import { catalog, getDefinition } from './graph/catalog';
 import type { NodeDefinition, NodeKind } from './graph/types';
@@ -119,7 +120,9 @@ export function createRemoteNode(view: RemoteView, entryId: string) {
     config.routing = routing;
   }
   return {
-    view: jsonEqual(config, view.normalized) ? view : remoteView(JSON.stringify(config)),
+    view: jsonEqual(config, view.normalized)
+      ? view
+      : retainRoutingOutputs(view, remoteView(JSON.stringify(config))),
     id,
   };
 }

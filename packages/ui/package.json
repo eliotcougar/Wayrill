@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./OutputList": "./src/OutputList.tsx",
+    "./OrderedEntries": "./src/OrderedEntries.tsx",
+    "./usePointerDrag": "./src/usePointerDrag.ts",
     "./MenuBar": "./src/MenuBar.tsx",
     "./NodeContextMenu": "./src/NodeContextMenu.tsx",
     "./NodeIcon": "./src/NodeIcon.tsx",

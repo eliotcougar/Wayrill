@@ -35,6 +35,7 @@ import {
   type RemoteView,
 } from './remoteModel';
 import { nodeSettings, replaceNodeSettings } from './nodeSettings';
+import { applyRoutingOutputs, retainRoutingOutputs, type RoutingOutput } from './routingOutputs';
 import RemoteSettings from './RemoteSettings';
 import RemoteStash from './RemoteStash';
 import RemoteChainSettings from './RemoteChainSettings';
@@ -521,9 +522,15 @@ export default function App({
   const selectedSet = users?.sets.find((s) => s.id === node?.data.userSetId);
   const editor = view && settingsId ? nodeSettings(view, settingsId) : undefined;
   const settingsNode = displayedView?.nodes.find((item) => item.id === settingsId);
-  const saveNodeSettings = (id: string, value: unknown, listeners?: ApiListener[]) => {
+  const saveNodeSettings = (
+    id: string,
+    value: unknown,
+    listeners?: ApiListener[],
+    outputs?: RoutingOutput[],
+  ) => {
     if (!view) throw new Error('Open a configuration first.');
-    const next = replaceNodeSettings(view, id, value, listeners);
+    const edited = replaceNodeSettings(view, id, value, listeners);
+    const next = outputs ? applyRoutingOutputs(edited, outputs) : edited;
     if (listeners && users && id === 'native-options') {
       const enabled = jsonRecord(value) && jsonRecord(get(value, 'api'));
       const kept = new Set(enabled ? listeners.map((item) => item.index) : []);
@@ -1599,7 +1606,10 @@ export default function App({
           onClose={() => setChainRoot(null)}
           onSave={(outbounds) => {
             if (!jsonEqual(outbounds, configuredOutbounds(view))) {
-              const next = remoteView(JSON.stringify(applyChain(view.original, outbounds)));
+              const next = retainRoutingOutputs(
+                view,
+                remoteView(JSON.stringify(applyChain(view.original, outbounds))),
+              );
               setView(next);
               setSettingsDirty(true);
             }
@@ -1654,7 +1664,9 @@ export default function App({
                 }
               : undefined
           }
-          onSave={(value, listeners) => saveNodeSettings(settingsId, value, listeners)}
+          onSave={(value, listeners, outputs) =>
+            saveNodeSettings(settingsId, value, listeners, outputs)
+          }
           onClose={() => setSettingsId('')}
         />
       )}

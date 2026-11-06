@@ -13,6 +13,10 @@ import {
 } from './routingEditor';
 import ListInput from './ListInput';
 import MapInput from './MapInput';
+import ExpandedListField from './ExpandedListField';
+import { OrderedEntries, moveEntry } from '@wayrill/ui/OrderedEntries';
+import RemoteRoutingOutputs from './RemoteRoutingOutputs';
+import { destinationKey, type RoutingOutput } from './routingOutputs';
 export type { RouteDestination } from './routingEditor';
 
 export default function RemoteRoutingSettings({
@@ -22,6 +26,9 @@ export default function RemoteRoutingSettings({
   selectedRule,
   onSelectRule,
   focusPath,
+  tab = 'Rules',
+  outputs = [],
+  onOutputsChange = () => {},
 }: {
   value: Settings;
   destinations: RouteDestination[];
@@ -29,9 +36,21 @@ export default function RemoteRoutingSettings({
   selectedRule?: number;
   onSelectRule?: (index: number) => void;
   focusPath?: string;
+  tab?: string;
+  outputs?: RoutingOutput[];
+  onOutputsChange?: (outputs: RoutingOutput[]) => void;
 }) {
   const [localSelected, setLocalSelected] = useState(0),
     [query, setQuery] = useState('');
+  const [identities] = useState(() => new WeakMap<Settings, string>());
+  const identity = (rule: Settings) => {
+    let id = identities.get(rule);
+    if (!id) {
+      id = crypto.randomUUID();
+      identities.set(rule, id);
+    }
+    return id;
+  };
   useEffect(() => {
     if (focusPath) setQuery('');
   }, [focusPath]);
@@ -50,6 +69,7 @@ export default function RemoteRoutingSettings({
   const rule = rules[selected];
   const update = (next: Settings[]) => onChange(setProperty(value, 'rules', next));
   const change = (next: Settings) => {
+    identities.set(next, identity(rule));
     setQuery('');
     setSelected(selected);
     update(rules.map((entry, index) => (index === selected ? next : entry)));
@@ -63,8 +83,19 @@ export default function RemoteRoutingSettings({
     setSelected(to);
     setQuery('');
   };
+  const reorder = (id: string, to: number) => {
+    const from = rules.findIndex((rule) => identity(rule) === id);
+    const destination = matches[to]?.index;
+    if (destination === undefined || from === destination) return;
+    update(moveEntry(rules, from, destination));
+    setSelected(destination);
+    setQuery('');
+  };
   const add = (entry?: Settings) => {
-    const first = destinations.find((item) => !item.group && !item.internal) ?? destinations[0];
+    const first =
+      outputs.find((output) => output.fallback) ??
+      outputs[0] ??
+      destinations.find((item) => !item.hidden);
     if (!entry && !first) return;
     const index = rule ? selected + 1 : rules.length;
     const next = [...rules];
@@ -139,6 +170,19 @@ export default function RemoteRoutingSettings({
         </fieldset>
       );
     }
+    if (field.key === 'domain' || field.key === 'ip')
+      return (
+        <div className="editor-field" key={field.key} data-setting-path={path}>
+          <ExpandedListField
+            key={selected}
+            id={path}
+            label={field.label}
+            value={entry}
+            placeholder={field.hint}
+            onChange={(next) => writeCondition(field.key, next)}
+          />
+        </div>
+      );
     return (
       <label className="editor-field" key={field.key} data-setting-path={path}>
         {field.label}
@@ -173,6 +217,16 @@ export default function RemoteRoutingSettings({
       <p role="alert" className="user-error">
         Rules contain an unsupported value. Use Edit JSON to correct it before editing rules.
       </p>
+    );
+  if (tab === 'Outputs')
+    return (
+      <RemoteRoutingOutputs
+        value={value}
+        outputs={outputs}
+        destinations={destinations}
+        onChange={onChange}
+        onOutputsChange={onOutputsChange}
+      />
     );
   return (
     <div className="remote-routing-editor">
@@ -237,31 +291,34 @@ export default function RemoteRoutingSettings({
             <Trash2 size={16} />
           </button>
         </div>
-        <div className="node-list remote-rule-list">
-          {matches.map(({ entry, index }) => (
-            <button
-              key={index}
-              type="button"
-              aria-pressed={selected === index}
-              className={selected === index ? 'secondary-button active' : 'secondary-button'}
-              onClick={() => setSelected(index)}
-            >
-              <span>
-                {index + 1}. {jsonText(get(entry, 'ruleTag') || 'Rule')}
-              </span>
-              <small>→ {ruleTarget(entry).tag}</small>
-            </button>
-          ))}
-        </div>
-        {!matches.length && (
-          <p className="stash-empty">{rules.length ? 'No matching rules' : 'No routing rules'}</p>
-        )}
+        <OrderedEntries
+          entries={matches.map(({ entry, index }) => ({
+            id: identity(entry),
+            position: index + 1,
+            name: jsonText(get(entry, 'ruleTag') || `Rule ${index + 1}`),
+            enabled: true,
+            summary: '',
+            destination:
+              outputs.find((output) => destinationKey(output) === destinationKey(ruleTarget(entry)))
+                ?.name ?? ruleTarget(entry).tag,
+          }))}
+          selected={rule ? identity(rule) : null}
+          onSelect={(id) => setSelected(rules.findIndex((rule) => identity(rule) === id))}
+          onMove={reorder}
+          label="Routing rules"
+          empty={rules.length ? 'No matching rules' : 'No routing rules'}
+          compact
+        />
+        <details className="editor-advanced remote-routing-fallback">
+          <summary>Unmatched traffic</summary>
+          <p>{outputs.find((output) => output.fallback)?.name ?? 'First outbound'}</p>
+        </details>
       </div>
       {rule && target && (
         <div className="remote-rule-fields">
           <div className="field-grid server-fields-grid">
             <label className="editor-field" data-setting-path={`rules.${selected}.destination`}>
-              Destination
+              Output
               <select
                 className="text-control"
                 aria-label="Rule destination"
@@ -292,7 +349,9 @@ export default function RemoteRoutingSettings({
                   .filter((item) => !item.hidden || item.tag === target.tag)
                   .map(({ tag, group, internal }) => (
                     <option key={JSON.stringify([group, tag])} value={JSON.stringify([group, tag])}>
-                      {tag}
+                      {outputs.find(
+                        (output) => destinationKey(output) === destinationKey({ tag, group }),
+                      )?.name ?? tag}
                       {group ? ' · Policy group' : internal ? ' · Internal' : ''}
                     </option>
                   ))}
