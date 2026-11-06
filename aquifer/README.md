@@ -1,6 +1,6 @@
 # Wayrill Aquifer 0.2.2
 
-Aquifer manages Linux Xray servers over SSH using Wayrill graphs. It is part of the Wayrill source/bundle and can also be built and run separately as `wayrill-aquifer.exe`. It uses WebView2 and an installed WinSCP, without installing a local routing service, driver or VPN adapter.
+Aquifer manages Linux Xray servers over SSH using Wayrill graphs. It is part of the Wayrill source/bundle and can also be built and run separately as `wayrill-aquifer.exe`. It uses WebView2 and an installed WinSCP, without installing a local routing service, driver or VPN adapter. Install WinSCP separately, or extract its portable package with both `WinSCP.exe` and `WinSCP.com` in the same folder. Aquifer does not bundle or download WinSCP.
 
 ## Use
 
@@ -40,4 +40,4 @@ Deployment currently requires an active supported systemd service and one explic
 
 ## License and provenance
 
-See [third-party notices](THIRD_PARTY_NOTICES.md) and [MIT license](LICENSE). The package contains corresponding libavoid and WinSCP console-helper source archives and licenses. `vendor-source.json` records the original graph baseline; current shared modules live in the parent packages directory. Private server snapshots, test profiles and historical machine-specific QA reports are excluded from published source.
+See [third-party notices](THIRD_PARTY_NOTICES.md) and [MIT license](LICENSE). The package contains corresponding libavoid source archives and licenses. `vendor-source.json` records the original graph baseline; current shared modules live in the parent packages directory. Private server snapshots, test profiles and historical machine-specific QA reports are excluded from published source.

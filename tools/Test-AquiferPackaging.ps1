@@ -11,10 +11,10 @@ try {
     $taskOutput = Join-Path $taskRoot 'package'
     Copy-Item -LiteralPath $Package -Destination $taskOutput -Recurse
     $taskManifestPath = Join-Path $taskOutput 'manifest.json'
-    $taskObsolete = Join-Path $taskOutput 'obsolete-owned.txt'
+    $taskObsolete = Join-Path $taskOutput 'third-party/WinSCP-6.5.7-source.zip'
     [IO.File]::WriteAllText($taskObsolete, 'Synthetic old package file.')
     $taskManifest = Get-Content -LiteralPath $taskManifestPath -Raw | ConvertFrom-Json
-    $taskManifest.files += @{path='obsolete-owned.txt';sha256=(Get-FileHash -LiteralPath $taskObsolete).Hash}
+    $taskManifest.files += @{path='third-party/WinSCP-6.5.7-source.zip';sha256=(Get-FileHash -LiteralPath $taskObsolete).Hash}
     $taskManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $taskManifestPath -Encoding utf8
     & (Join-Path $PSScriptRoot 'Package-Aquifer.ps1') -BinaryPath $taskBinary -OutputDirectory $taskOutput
     if (Test-Path -LiteralPath $taskObsolete) { throw 'Repackaging retained an obsolete owned file.' }

@@ -26,7 +26,6 @@ use windows_sys::Win32::{
 
 const REGISTRY: &str = "Software\\Martin Prikryl\\WinSCP 2\\Sessions";
 const MAX_INI: u64 = 16 * 1024 * 1024;
-const CONSOLE_HELPER: &[u8] = include_bytes!("../resources/winscp/WinSCP.com");
 
 #[derive(Debug, Serialize)]
 pub struct SavedSession {
@@ -356,48 +355,15 @@ fn detect_executable(preferences: &Preferences) -> Option<PathBuf> {
     paths.iter().find_map(|path| executable(path))
 }
 
-// Keep the user's portable installation untouched. Only the small, signed
-// upstream console wrapper is cached here; it launches the selected EXE.
-fn cached_console(cache: &Path) -> Result<PathBuf> {
-    let digest = hex::encode(Sha256::digest(CONSOLE_HELPER));
-    let directory = cache.join(format!("helpers/winscp-6.5.7-{}", &digest[..16]));
-    let destination = directory.join("WinSCP.com");
-    let matches = || {
-        use std::io::Read;
-        let mut bytes = Vec::new();
-        std::fs::File::open(&destination).is_ok_and(|file| {
-            file.take(CONSOLE_HELPER.len() as u64 + 1)
-                .read_to_end(&mut bytes)
-                .is_ok()
-                && bytes == CONSOLE_HELPER
-        })
-    };
-    if matches() {
-        return Ok(destination);
-    }
-    let temporary = directory.join(format!("WinSCP-{}.tmp", std::process::id()));
-    let result = std::fs::create_dir_all(&directory)
-        .and_then(|_| std::fs::write(&temporary, CONSOLE_HELPER))
-        .and_then(|_| std::fs::rename(&temporary, &destination));
-    // Another app instance may have finished extracting the identical helper.
-    let _ = std::fs::remove_file(&temporary);
-    if let Err(error) = result {
-        if !matches() {
-            return Err(RemoteError::new(
-                "WINSCP_HELPER",
-                format!("Cannot prepare Wayrill's WinSCP console helper in Local AppData (Windows error {}). Check folder permissions and security-software diagnostics.", error.raw_os_error().unwrap_or_default()),
-            ));
-        }
-    }
-    Ok(destination)
-}
 pub fn console_helper(executable: &Path) -> Result<PathBuf> {
     let sibling = executable.with_extension("com");
     if sibling.is_file() {
         return Ok(sibling);
     }
-    let preferences = preference_path()?;
-    cached_console(preferences.parent().unwrap())
+    Err(RemoteError::new(
+        "WINSCP_HELPER",
+        "WinSCP.com is missing beside the selected WinSCP.exe. Install WinSCP or extract both executables from its portable package, then refresh detection.",
+    ))
 }
 fn ini_candidates(executable: Option<&Path>, preferences: &Preferences) -> Vec<PathBuf> {
     let mut paths = Vec::new();
@@ -684,9 +650,12 @@ fn inspect(preferences: &Preferences) -> Result<Inventory> {
         warnings.push("No saved SSH sessions were found in this source. Use the same Windows account as WinSCP, or choose its INI file.".into());
     }
     let version = executable.as_deref().and_then(file_version);
-    let compatibility_error = executable
-        .as_ref()
-        .and_then(|_| compatibility_error(version));
+    let compatibility_error = executable.as_deref().and_then(|path| {
+        console_helper(path)
+            .err()
+            .map(|error| error.message)
+            .or_else(|| compatibility_error(version))
+    });
     Ok(Inventory {
         sessions,
         executable: executable.map(|p| p.display().to_string()),
@@ -712,7 +681,7 @@ pub fn inventory() -> Result<Inventory> {
 pub fn resolve(id: &str) -> Result<Connection> {
     let inventory = inventory()?;
     if let Some(message) = inventory.compatibility_error {
-        return Err(RemoteError::new("WINSCP_VERSION", message));
+        return Err(RemoteError::new("WINSCP_SETUP", message));
     }
     let session = inventory
         .sessions
@@ -821,7 +790,7 @@ pub fn choose(kind: &str, owner: usize) -> Result<Option<Inventory>> {
         prefs.executable = Some(executable(&path).ok_or_else(|| {
             RemoteError::new(
                 "WINSCP_SETUP",
-                "Select an existing WinSCP.exe, or WinSCP.com beside WinSCP.exe. A separate .com file is optional.",
+                "Select WinSCP.exe or WinSCP.com from a WinSCP installation containing both executables.",
             )
         })?);
     } else {
@@ -890,7 +859,7 @@ mod tests {
         }
     }
     #[test]
-    fn exe_only_portable_installation_is_accepted() {
+    fn uses_only_the_selected_installations_console_without_creating_files() {
         let folder = Folder::new();
         let user_install = folder.0.join("User folder/Сервер/WinSCP");
         std::fs::create_dir_all(&user_install).unwrap();
@@ -910,25 +879,19 @@ mod tests {
         let inventory = inspect(&prefs).unwrap();
         assert_eq!(inventory.executable, Some(exe.display().to_string()));
         assert_eq!(inventory.sessions.len(), 1);
+        assert!(inventory
+            .compatibility_error
+            .unwrap()
+            .contains("WinSCP.com"));
+        assert_eq!(console_helper(&exe).unwrap_err().code, "WINSCP_HELPER");
         assert!(!user_install.join("WinSCP.com").exists());
+        assert_eq!(std::fs::read_dir(&user_install).unwrap().count(), 2);
+        let console = user_install.join("WinSCP.com");
+        std::fs::write(&console, b"external console").unwrap();
+        assert_eq!(console_helper(&exe).unwrap(), console);
+        assert_eq!(std::fs::read(&console).unwrap(), b"external console");
+        assert_eq!(std::fs::read(&exe).unwrap(), b"test executable path");
         assert!(executable(&folder.0.join("missing/WinSCP.exe")).is_none());
-    }
-    #[test]
-    fn bundled_console_is_cached_verified_and_repaired() {
-        let folder = Folder::new();
-        let path = cached_console(&folder.0).unwrap();
-        // The console wrapper has its own version, independent of WinSCP.exe.
-        assert!(compatibility_error(file_version(&path)).is_none());
-        assert!(std::fs::read(&path).unwrap() == CONSOLE_HELPER);
-        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
-        assert_eq!(cached_console(&folder.0).unwrap(), path);
-        assert_eq!(
-            std::fs::metadata(&path).unwrap().modified().unwrap(),
-            modified
-        );
-        std::fs::write(&path, b"damaged cached helper").unwrap();
-        cached_console(&folder.0).unwrap();
-        assert!(std::fs::read(&path).unwrap() == CONSOLE_HELPER);
     }
     #[test]
     fn decodes_utf8_bom_marked_names_and_literal_percent_once() {

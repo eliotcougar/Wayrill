@@ -14,7 +14,10 @@ foreach ($taskFile in $taskManifest.files) {
     if (-not $taskPath.StartsWith($taskRoot + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or -not $taskSeen.Add($taskPath)) { throw 'Invalid or duplicate Aquifer payload path.' }
     if ((Get-FileHash -LiteralPath $taskPath).Hash -ine $taskFile.sha256) { throw "Aquifer payload changed: $($taskFile.path)" }
 }
-foreach ($taskName in @('wayrill-aquifer.exe','LICENSE','THIRD_PARTY_NOTICES.md','licenses/WinSCP-GPL-3.txt','third-party/WinSCP-6.5.7-source.zip')) {
+$taskSources = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'third-party-sources.json') -Raw | ConvertFrom-Json
+$taskRequired = @('wayrill-aquifer.exe','LICENSE','THIRD_PARTY_NOTICES.md','licenses/libavoid-LGPL-2.1.txt','third-party/SHA256.json')
+$taskRequired += @($taskSources.files | ForEach-Object { 'third-party/' + $_.name })
+foreach ($taskName in $taskRequired) {
     if (-not $taskSeen.Contains([IO.Path]::GetFullPath((Join-Path $taskRoot $taskName)))) { throw "Missing Aquifer payload: $taskName" }
 }
 $taskExecutable = Get-Item -LiteralPath (Join-Path $taskRoot 'wayrill-aquifer.exe')

@@ -5,7 +5,7 @@ included code/data is covered by the root MIT license.
 
 | Component | License / corresponding source |
 | --- | --- |
-| Wayrill Aquifer | [MIT](aquifer/LICENSE); [Aquifer dependency notices](aquifer/THIRD_PARTY_NOTICES.md), including its GPLv3 WinSCP console helper and bundled corresponding source |
+| Wayrill Aquifer | [MIT](aquifer/LICENSE); [Aquifer dependency notices](aquifer/THIRD_PARTY_NOTICES.md). WinSCP is an external user-installed prerequisite, not bundled |
 | Wayrill desktop/coordinator | [MIT](LICENSE); frontend and Rust application/service source in this repository |
 | Contained capture/attribution worker | [GPL-3.0-only](service/capture/LICENSE); [source/provenance](service/capture/README.md) and `service/capture/provenance.json` |
 | Modified Xray executables | MPL-2.0; [upstream](https://github.com/XTLS/Xray-core), `service/xray-patches`, `service/core-init`, `service/core-control`, `service/tun-core` and [inventory](docs/development/xray-customizations.md) |

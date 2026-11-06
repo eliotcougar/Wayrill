@@ -77,7 +77,6 @@ impl Console {
     pub fn open(connection: winscp::Connection) -> Result<Self> {
         let helper = winscp::console_helper(&connection.executable)?;
         let mut command = Command::new(helper);
-        command.arg(format!("/consolechild={}", connection.executable.display()));
         command.current_dir(connection.executable.parent().unwrap());
         if let Some(ini) = &connection.ini {
             command.arg(format!("/ini={}", ini.display()));

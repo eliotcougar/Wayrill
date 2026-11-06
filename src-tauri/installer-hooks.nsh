@@ -83,6 +83,11 @@ FunctionEnd
   SetOutPath "$INSTDIR"
 !macroend
 !macro NSIS_HOOK_POSTINSTALL
+  ; Retire the previous Aquifer-owned redistribution, not the user's WinSCP.
+  Delete "$INSTDIR\Aquifer\third-party\WinSCP-6.5.7-source.zip"
+  Delete "$INSTDIR\Aquifer\licenses\WinSCP-GPL-3.txt"
+  Delete "$INSTDIR\Aquifer\licenses\WinSCP-NOTICE.txt"
+  ClearErrors
   ${If} $NoShortcutMode <> 1
     !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
       IfFileExists "$INSTDIR\Aquifer\wayrill-aquifer.exe" 0 aquifer_shortcut_done

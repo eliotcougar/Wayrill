@@ -41,11 +41,9 @@ try {
     [IO.File]::WriteAllText((Join-Path $taskOutput 'README.md'),$taskReadme,[Text.UTF8Encoding]::new($false))
     $taskLicenses = Join-Path $taskOutput 'licenses'
     New-Item -ItemType Directory -Path $taskLicenses -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $taskAquifer 'src-tauri/resources/winscp/LICENSE.txt') -Destination (Join-Path $taskLicenses 'WinSCP-GPL-3.txt') -Force
-    Copy-Item -LiteralPath (Join-Path $taskAquifer 'src-tauri/resources/winscp/NOTICE.txt') -Destination (Join-Path $taskLicenses 'WinSCP-NOTICE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $taskProject 'public/licenses/libavoid-LGPL-2.1.txt'),(Join-Path $taskProject 'public/licenses/libavoid-NOTICE.txt') -Destination $taskLicenses -Force
     & (Join-Path $PSScriptRoot 'Prepare-ThirdPartySources.ps1') -OutputDirectory (Join-Path $taskOutput 'third-party') -CurlPath $CurlPath
-    $taskSourceNotice = "These unmodified corresponding source archives are verified by SHA256.json. WinSCP is GPLv3; its full license and provenance are in ../licenses. libavoid-js/libavoid is LGPL-2.1-or-later; its notice and license are adjacent. Wayrill Aquifer source, shared packages and rebuild instructions are in the Wayrill repository."
+    $taskSourceNotice = "These unmodified corresponding source archives are verified by SHA256.json. libavoid-js/libavoid is LGPL-2.1-or-later; its notice and license are adjacent. Wayrill Aquifer source, shared packages and rebuild instructions are in the Wayrill repository."
     [IO.File]::WriteAllText((Join-Path $taskOutput 'third-party/THIRD_PARTY_NOTICES.md'),$taskSourceNotice,[Text.UTF8Encoding]::new($false))
     $taskEntries = @(Get-ChildItem -LiteralPath $taskOutput -File -Recurse -Force | Where-Object FullName -ne (Join-Path $taskOutput 'manifest.json') | ForEach-Object {
         @{path=[IO.Path]::GetRelativePath($taskOutput,$_.FullName).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()}
