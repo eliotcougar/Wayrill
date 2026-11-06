@@ -500,11 +500,12 @@
   margin: 0;
 }
 .node-library {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 180px;
 }
 .connection-panel > .node-library {
   padding: 0 12px 15px;
+  border-bottom: 0;
 }
 .node-library .search-control {
   margin-block: var(--space-4);
