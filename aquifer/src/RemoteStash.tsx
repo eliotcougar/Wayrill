@@ -1,6 +1,6 @@
 import { EditorTabList, useEditorTabs } from '@wayrill/ui/EditorTabs';
 import { useEffect, useRef, useState } from 'react';
-import { Archive, X } from 'lucide-react';
+import { Archive, LocateFixed, Pencil, Plus, Search, X } from 'lucide-react';
 import type { RemoteView } from './remoteModel';
 import {
   chainPath,
@@ -28,6 +28,7 @@ export default function RemoteStash({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<StashTab>('outbounds'),
     [query, setQuery] = useState(''),
     [page, setPage] = useState(0);
@@ -66,6 +67,9 @@ export default function RemoteStash({
   );
   const pages = Math.max(1, Math.ceil(filtered.length / 100)),
     active = Math.min(page, pages - 1);
+  useEffect(() => {
+    if (body.current) body.current.scrollTop = 0;
+  }, [active, query, tab]);
   return (
     <dialog
       ref={dialog}
@@ -92,27 +96,30 @@ export default function RemoteStash({
         className="editor-tab-list inspector-tabs stash-tabs"
       />
       <div className="user-library-tools">
-        <input
-          className="text-control"
-          aria-label="Find stashed configurations"
-          placeholder={`Search ${stashTabs.find((item) => item.key === tab)!.label.toLowerCase()}`}
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setPage(0);
-          }}
-        />
+        <label className="search-control">
+          <Search size={15} aria-hidden="true" />
+          <input
+            aria-label="Find stashed configurations"
+            placeholder={`Search ${stashTabs.find((item) => item.key === tab)!.label.toLowerCase()}`}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(0);
+            }}
+          />
+        </label>
         <span>
           {filtered.length} / {entries.length}
         </span>
       </div>
       <div
         className="dialog-body remote-stash-body"
+        ref={body}
         id={`${editorTabs.id}-panel`}
         role="tabpanel"
         aria-labelledby={editorTabs.tabId(tab)}
       >
-        <table className="data-table">
+        <table className="data-table data-table--sticky">
           <thead>
             <tr>
               <th>
@@ -138,14 +145,20 @@ export default function RemoteStash({
                 <td>
                   <div className="remote-stash-actions">
                     <button
-                      className="secondary-button"
+                      className="icon-button"
                       aria-label={`Edit ${data.title}`}
+                      title={`Edit ${data.title}`}
                       onClick={() => (tab === 'proxyChains' ? onEditChain(id) : onEdit(id))}
                     >
-                      Edit…
+                      <Pencil size={16} />
                     </button>
-                    <button className="secondary-button" onClick={() => onShow(id)}>
-                      {visible.has(id) ? 'Locate on graph' : 'Add to graph'}
+                    <button
+                      className="icon-button"
+                      aria-label={visible.has(id) ? 'Locate on graph' : 'Add to graph'}
+                      title={visible.has(id) ? 'Locate on graph' : 'Add to graph'}
+                      onClick={() => onShow(id)}
+                    >
+                      {visible.has(id) ? <LocateFixed size={16} /> : <Plus size={16} />}
                     </button>
                   </div>
                 </td>

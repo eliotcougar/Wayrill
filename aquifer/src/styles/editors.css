@@ -92,7 +92,7 @@
   color: var(--text-muted);
   font-size: 11px;
 }
-.remote-rule-sidebar > input {
+.remote-rule-sidebar > .search-control {
   margin-bottom: 10px;
 }
 .remote-rule-fields {
@@ -303,6 +303,10 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
   gap: 8px;
   align-items: start;
+}
+.server-map-row > .icon-button {
+  width: var(--control-size);
+  height: var(--control-size);
 }
 .server-protocol-options {
   display: flex;

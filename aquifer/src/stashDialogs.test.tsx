@@ -113,6 +113,39 @@ it('edits chain hops without losing credentials or unknown fields and blocks cyc
   expect(primaryProxy(result[1])).toBe('other');
   expect(outbounds[1]).not.toHaveProperty('streamSettings');
 });
+it('starts each stash result page at the top and keeps actions attached to its rows', async () => {
+  const view = remoteView(
+    JSON.stringify({
+      outbounds: Array.from({ length: 201 }, (_, index) => ({
+        tag: `relay-${index}`,
+        protocol: 'freedom',
+      })),
+    }),
+  );
+  const edit = vi.fn();
+  await act(async () =>
+    root.render(
+      <RemoteStash
+        view={view}
+        visible={new Set()}
+        onEdit={edit}
+        onEditChain={vi.fn()}
+        onShow={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  const body = host.querySelector<HTMLElement>('.remote-stash-body')!;
+  body.scrollTop = 800;
+  await click('Next');
+  expect(body.scrollTop).toBe(0);
+  await click('Edit relay-100');
+  expect(edit).toHaveBeenCalledWith('native-out-100');
+  body.scrollTop = 600;
+  await change('Find stashed configurations', 'relay-200');
+  expect(body.scrollTop).toBe(0);
+  expect(host.querySelectorAll('tbody tr')).toHaveLength(1);
+});
 it('uses a new valid User set in the graph without requiring a library save', async () => {
   const set = newUserSet('vless'),
     use = vi.fn(),

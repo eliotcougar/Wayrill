@@ -1009,7 +1009,7 @@ it('locates an existing outbound from Stash without duplicating or changing its 
   )!;
   await act(async () =>
     [...row.querySelectorAll<HTMLButtonElement>('button')]
-      .find((item) => item.textContent === 'Locate on graph')!
+      .find((item) => item.getAttribute('aria-label') === 'Locate on graph')!
       .click(),
   );
   expect(host.querySelector('[aria-label="Configuration stash"]')).toBeNull();
@@ -1293,14 +1293,14 @@ it('adds a hidden stashed outbound to the graph and remembers its placement', as
   expect(row.textContent).toContain('Not on graph');
   await act(async () =>
     [...row.querySelectorAll('button')]
-      .find((button) => button.textContent === 'Add to graph')!
+      .find((button) => button.getAttribute('aria-label') === 'Add to graph')!
       .click(),
   );
   expect(nodeButton('spare')).toBeDefined();
   expect(canvasActions.focus).toHaveBeenCalledWith('native-out-1');
   expect(host.querySelector('[aria-label="Configuration stash"]')).toBeNull();
   await act(async () => button('Stash').click());
-  expect(host.querySelector('tbody')?.textContent).toContain('Locate on graph');
+  expect(host.querySelector('tbody [aria-label="Locate on graph"]')).not.toBeNull();
 });
 
 it.each(['mixed', 'socks', 'http'])('configures Proxy mode %s without raw JSON', async (mode) => {

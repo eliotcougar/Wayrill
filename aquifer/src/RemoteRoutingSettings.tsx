@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowDown, ArrowUp, Copy, Plus, Search, Trash2 } from 'lucide-react';
 import { cloneJson, jsonArray, jsonRecord, jsonText } from './graph/xrayJson';
 import { detectedProtocols, routingConditionFields } from './graph/rules';
 import { get, setProperty } from './nativeProperties';
@@ -21,25 +21,39 @@ export default function RemoteRoutingSettings({
   onChange,
   selectedRule,
   onSelectRule,
+  focusPath,
 }: {
   value: Settings;
   destinations: RouteDestination[];
   onChange: (value: Settings) => void;
   selectedRule?: number;
   onSelectRule?: (index: number) => void;
+  focusPath?: string;
 }) {
   const [localSelected, setLocalSelected] = useState(0),
     [query, setQuery] = useState('');
+  useEffect(() => {
+    if (focusPath) setQuery('');
+  }, [focusPath]);
   const rules = ruleList(value);
-  const selected = Math.min(selectedRule ?? localSelected, Math.max(0, rules.length - 1));
+  const matches = rules
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => JSON.stringify(entry).toLowerCase().includes(query.toLowerCase()));
+  const preferred = Math.min(selectedRule ?? localSelected, Math.max(0, rules.length - 1));
+  const selected = matches.some(({ index }) => index === preferred)
+    ? preferred
+    : (matches[0]?.index ?? -1);
   const setSelected = (index: number) => {
     setLocalSelected(index);
     onSelectRule?.(index);
   };
   const rule = rules[selected];
   const update = (next: Settings[]) => onChange(setProperty(value, 'rules', next));
-  const change = (next: Settings) =>
+  const change = (next: Settings) => {
+    setQuery('');
+    setSelected(selected);
     update(rules.map((entry, index) => (index === selected ? next : entry)));
+  };
   const move = (offset: number) => {
     const to = selected + offset;
     if (!rule || to < 0 || to >= rules.length) return;
@@ -154,9 +168,6 @@ export default function RemoteRoutingSettings({
   const advanced = routingConditionFields.filter(
     ({ key }) => !['domain', 'ip', 'port', 'network', 'protocol', 'attrs'].includes(key),
   );
-  const matches = rules
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => JSON.stringify(entry).toLowerCase().includes(query.toLowerCase()));
   if (malformedRules(value))
     return (
       <p role="alert" className="user-error">
@@ -166,13 +177,15 @@ export default function RemoteRoutingSettings({
   return (
     <div className="remote-routing-editor">
       <div className="remote-rule-sidebar">
-        <input
-          className="text-control"
-          aria-label="Find routing rules"
-          placeholder="Find rules"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <label className="search-control">
+          <Search size={15} aria-hidden="true" />
+          <input
+            aria-label="Find routing rules"
+            placeholder="Find rules"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
         <div className="remote-rule-actions">
           <button
             type="button"

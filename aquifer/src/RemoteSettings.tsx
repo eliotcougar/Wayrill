@@ -296,6 +296,7 @@ export default function RemoteSettings({
                 destinations={destinations}
                 onChange={updateDraft}
                 selectedRule={selectedRule}
+                focusPath={focusPath}
                 onSelectRule={setSelectedRule}
               />
             ) : schema === 'BalancingRule' && tab === 'Group' ? (

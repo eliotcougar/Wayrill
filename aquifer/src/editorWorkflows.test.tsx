@@ -103,6 +103,31 @@ it('refreshes list fields after deleting the selected rule and keeps editing the
     rules: [{ ...second, domain: ['domain:edited.example'] }],
   });
 });
+it('searches only visible rules and cannot delete a hidden selection', async () => {
+  const onSave = await render({ rules: [first, second] });
+  await change('Find routing rules', 'second.example');
+  expect(control('Destination domains').value).toBe('domain:second.example');
+  await change('Destination domains', 'domain:edited.example');
+  expect(control('Find routing rules').value).toBe('');
+  expect(control('Destination domains').value).toBe('domain:edited.example');
+  await change('Find routing rules', 'no-such-rule');
+  expect(button('Remove rule').disabled).toBe(true);
+  expect(host.querySelector('[aria-label="Rule name"]')).toBeNull();
+  await change('Find routing rules', 'edited.example');
+  await act(async () => button('Remove rule').click());
+  await act(async () => button('Apply changes').click());
+  expect(onSave).toHaveBeenCalledWith({ rules: [first] });
+});
+it('validation reveals a failing rule outside the current search', async () => {
+  await render({ rules: [first, { ...second, sourcePort: '99999' }] });
+  await change('Find routing rules', 'first.example');
+  await act(async () => button('Apply changes').click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(control('Find routing rules').value).toBe('');
+  expect(control('Rule name').value).toBe('Second');
+  expect(control('Source ports').value).toBe('99999');
+  expect(document.activeElement).toBe(control('Source ports'));
+});
 it('duplicates next to the original and preserves unknown fields through move and search', async () => {
   const original = {
     ...first,

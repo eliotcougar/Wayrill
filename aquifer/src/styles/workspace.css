@@ -51,7 +51,7 @@
 .remote-app :where(h1, h2) {
   margin: 0;
 }
-.remote-app :where(label:not(.editor-field, .check-control)) {
+.remote-app :where(label:not(.editor-field, .check-control, .search-control)) {
   font-size: 11px;
   color: var(--text-secondary);
 }
