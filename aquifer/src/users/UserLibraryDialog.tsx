@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, Plus, Upload, Users, X } from 'lucide-react';
+import { Download, Plus, Search, Upload, Users, X } from 'lucide-react';
 import { errorMessage } from '../remoteClient';
 import { cloneJson } from '../graph/xrayJson';
 import {
@@ -181,13 +181,15 @@ export default function UserLibraryDialog({
       </div>
       <div className="user-library-body">
         <nav aria-label="User sets library">
-          <input
-            className="text-control"
-            aria-label="Find user sets"
-            placeholder="Find sets"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <label className="search-control">
+            <Search size={15} aria-hidden="true" />
+            <input
+              aria-label="Find user sets"
+              placeholder="Find sets"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
           <div className="user-set-list">
             {matches.map((set) => (
               <button

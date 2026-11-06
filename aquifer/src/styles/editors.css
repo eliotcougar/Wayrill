@@ -5,6 +5,14 @@
   display: grid;
   gap: 20px;
 }
+.remote-chain-dialog .rule-editor-titlebar > div {
+  flex: 1;
+}
+.remote-chain-dialog .chain-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .remote-chain-dialog .remote-settings-body {
   display: block;
 }

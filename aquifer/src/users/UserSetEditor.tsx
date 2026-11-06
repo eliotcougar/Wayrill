@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { cloneJson, jsonRecord, parseXrayJson } from '../graph/xrayJson';
 import {
   accountProblem,
@@ -12,6 +12,10 @@ import {
 } from './model';
 
 const PAGE = 100;
+const matchesUser = (user: CredentialUser, query: string) =>
+  `${user.name} ${scalarText(user.account.email ?? '')} ${scalarText(user.account.user ?? '')}`
+    .toLowerCase()
+    .includes(query.toLowerCase());
 export default function UserSetEditor({
   value,
   isNew,
@@ -31,20 +35,24 @@ export default function UserSetEditor({
     [jsonError, setJsonError] = useState('');
   const user = value.users.find((u) => u.id === selected);
   const modifiedUsers = useRef(false);
+  const rows = useRef<HTMLDivElement>(null);
   const invalidJson = advanced !== null && !!jsonError;
   useEffect(() => {
     onPendingJson(invalidJson);
     return () => onPendingJson(false);
   }, [invalidJson, onPendingJson]);
-  const matching = value.users.filter((u) =>
-    `${u.name} ${scalarText(u.account.email ?? '')} ${scalarText(u.account.user ?? '')}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+  const matching = value.users.filter((user) => matchesUser(user, query));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(matching.length / PAGE) - 1));
   const visible = matching.slice(currentPage * PAGE, (currentPage + 1) * PAGE);
+  useEffect(() => {
+    if (rows.current) rows.current.scrollTop = 0;
+  }, [currentPage, query]);
   const update = (next: CredentialUser) => {
     modifiedUsers.current = true;
+    if (query) {
+      setQuery('');
+      setPage(Math.floor(value.users.findIndex((user) => user.id === next.id) / PAGE));
+    }
     onChange({ ...value, users: value.users.map((u) => (u.id === next.id ? next : u)) });
   };
   const accountField = (field: string, fieldValue: unknown) => {
@@ -99,6 +107,8 @@ export default function UserSetEditor({
               modifiedUsers.current = false;
               const protocol = e.target.value as UserSet['protocol'];
               const replacement = newUser(protocol, 1);
+              setQuery('');
+              setPage(0);
               onChange({ ...value, protocol, users: [replacement] });
               changeSelection(replacement.id);
             }}
@@ -114,16 +124,22 @@ export default function UserSetEditor({
       <div className="users-editor-columns">
         <div className="users-editor-list">
           <div className="user-list-tools">
-            <input
-              className="text-control"
-              aria-label="Find users"
-              placeholder="Find users"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(0);
-              }}
-            />
+            <label className="search-control">
+              <Search size={15} aria-hidden="true" />
+              <input
+                aria-label="Find users"
+                placeholder="Find users"
+                value={query}
+                disabled={invalidJson}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(0);
+                  changeSelection(
+                    value.users.find((user) => matchesUser(user, e.target.value))?.id ?? '',
+                  );
+                }}
+              />
+            </label>
             <button
               className="secondary-button"
               aria-label="Add user"
@@ -144,7 +160,7 @@ export default function UserSetEditor({
           <p className="muted user-count">
             {value.users.filter((u) => u.enabled).length} enabled · {value.users.length} total
           </p>
-          <div className="user-rows" aria-label="Users in set">
+          <div className="user-rows" aria-label="Users in set" ref={rows}>
             {visible.map((item) => (
               <button
                 key={item.id}
@@ -167,8 +183,11 @@ export default function UserSetEditor({
             <div className="user-pagination">
               <button
                 className="secondary-button"
-                disabled={!currentPage}
-                onClick={() => setPage(currentPage - 1)}
+                disabled={invalidJson || !currentPage}
+                onClick={() => {
+                  setPage(currentPage - 1);
+                  changeSelection(matching[(currentPage - 1) * PAGE]?.id ?? '');
+                }}
               >
                 Previous
               </button>
@@ -177,8 +196,11 @@ export default function UserSetEditor({
               </span>
               <button
                 className="secondary-button"
-                disabled={(currentPage + 1) * PAGE >= matching.length}
-                onClick={() => setPage(currentPage + 1)}
+                disabled={invalidJson || (currentPage + 1) * PAGE >= matching.length}
+                onClick={() => {
+                  setPage(currentPage + 1);
+                  changeSelection(matching[(currentPage + 1) * PAGE]?.id ?? '');
+                }}
               >
                 Next
               </button>
@@ -198,7 +220,13 @@ export default function UserSetEditor({
                   modifiedUsers.current = true;
                   const users = value.users.filter((u) => u.id !== user.id);
                   onChange({ ...value, users });
-                  changeSelection(users[0]?.id ?? '');
+                  const remaining = matching.filter((item) => item.id !== user.id);
+                  const nextPage = Math.min(
+                    currentPage,
+                    Math.max(0, Math.ceil(remaining.length / PAGE) - 1),
+                  );
+                  setPage(nextPage);
+                  changeSelection(remaining[nextPage * PAGE]?.id ?? '');
                 }}
               >
                 <Trash2 size={16} />
@@ -409,7 +437,9 @@ export default function UserSetEditor({
           </div>
         ) : (
           <div className="user-account-form">
-            <p className="muted">Add a user to this set.</p>
+            <p className="muted">
+              {value.users.length ? 'Select a user from the list.' : 'Add a user to this set.'}
+            </p>
           </div>
         )}
       </div>

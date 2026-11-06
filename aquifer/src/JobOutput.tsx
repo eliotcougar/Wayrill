@@ -9,6 +9,7 @@ export default function JobOutput({ logs }: { logs: string[] }) {
   }, [text]);
   return (
     <details
+      className="editor-advanced"
       onToggle={(event) => {
         if (event.currentTarget.open && output.current) {
           following.current = true;

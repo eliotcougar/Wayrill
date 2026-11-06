@@ -29,15 +29,20 @@ export default function RemoteChainSettings({
   return (
     <dialog
       ref={dialog}
-      className="rule-editor-window user-library-dialog remote-chain-dialog"
+      className="rule-editor-window remote-chain-dialog"
       aria-label="Edit proxy chain"
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
     >
-      <header className="dialog-header">
-        <h2>Edit proxy chain · {title}</h2>
+      <header className="rule-editor-titlebar">
+        <div>
+          <h2>Edit proxy chain</h2>
+          <p className="chain-title" title={title}>
+            {title}
+          </p>
+        </div>
         <button className="icon-button" aria-label="Close proxy chain" onClick={close}>
           <X size={18} />
         </button>
