@@ -63,8 +63,10 @@ node tools/Build-CompanionExtension.mjs --browser chromium --output <private-out
 ```
 
 The manifest requests the `debugger` permission; the experimental control is opt-in.
-Its browser API minimum is Chrome 125 for flattened child debugger sessions;
-older supported Chromium versions still need separate runtime validation.
+The package requires Chromium 144 or newer. Flattened sessions exist from 125,
+but older Chromium builds had a renderer crash when timezone emulation was sent
+to a worker. This floor includes the upstream worker-safety fix; runtime coverage
+is currently Chrome 156.
 Chromium uses its own background entry point and additive popup fragment/styles.
 Firefox keeps the shared observation UI and its independent signed release
 version from `extensions/signed/firefox.json`. The signed-source consistency
