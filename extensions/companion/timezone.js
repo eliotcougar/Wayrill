@@ -71,6 +71,7 @@ export class TimezoneController {
     api.debugger?.onEvent.addListener((source, method, params) => {
       if (method === 'Target.attachedToTarget')
         void this.ready
+          .catch(() => {})
           .then(() =>
             this.child(
               source,
