@@ -490,6 +490,18 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     };
     // The authored fragment was validated before bounded runtime expansion.
     crate::loopback::Policy::apply(&mut config, &loopback)?;
+    let unavailable = if mode != Mode::Latency {
+        // Keep failed groups isolated without aborting a different healthy path.
+        // A fresh initial also excludes this helper from authored prefix selectors.
+        let tag = format!("{}unavailable", crate::loopback::private_prefix(&config)?);
+        config["outbounds"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"tag":tag,"protocol":"blackhole"}));
+        Some(tag)
+    } else {
+        None
+    };
     let control = (mode != Mode::Latency)
         .then(|| crate::live::Control::new(&config))
         .transpose()?;
@@ -538,6 +550,7 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
             active,
             policy_source.as_ref().unwrap(),
             &target.outbound_tag,
+            unavailable.as_deref().unwrap(),
             stop,
         )?;
         if mode == Mode::Timezone {

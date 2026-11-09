@@ -100,6 +100,7 @@ pub(super) fn prepare(
     active: Option<&ActivePolicy>,
     config: &Value,
     root: &str,
+    unavailable: &str,
     stop: &AtomicBool,
 ) -> Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -107,6 +108,7 @@ pub(super) fn prepare(
         .build()
         .map_err(|_| invalid("Cannot read the policy selection."))?
         .block_on(async {
+            let deadline = Instant::now() + Duration::from_secs(5);
             for group in config["routing"]["balancers"]
                 .as_array()
                 .into_iter()
@@ -135,7 +137,6 @@ pub(super) fn prepare(
                     }
                     winner(config, group, choice)?
                 } else if matches!(strategy, "leastPing" | "leastLoad") {
-                    let deadline = Instant::now() + Duration::from_secs(5);
                     loop {
                         if stop.load(Ordering::SeqCst) {
                             return Err(invalid("Test cancelled."));
@@ -152,9 +153,7 @@ pub(super) fn prepare(
                 } else {
                     continue;
                 };
-                let choice = choice.ok_or_else(|| {
-                    invalid("This policy group has no available member or fallback.")
-                })?;
+                let choice = choice.unwrap_or_else(|| unavailable.to_owned());
                 if stop.load(Ordering::SeqCst) {
                     return Err(invalid("Test cancelled."));
                 }
