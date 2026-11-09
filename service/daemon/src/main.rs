@@ -753,7 +753,12 @@ async fn client(
                     },
                     || k.handle(&request.method, request.params),
                 );
-                if result.is_ok() && request.method == "outbounds.testStart" {
+                if result.is_ok()
+                    && matches!(
+                        request.method.as_str(),
+                        "outbounds.testStart" | "companion.timezoneStart"
+                    )
+                {
                     k.retain_test_reservation(reservation.take());
                 }
                 if result.is_ok() && request.method == "routing.diagnosticStart" {

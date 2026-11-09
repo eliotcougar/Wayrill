@@ -20,6 +20,16 @@ advertising, remote scripts, developer-operated collection endpoint, or external
 uploads. It does not change your browser's proxy settings or intercept page content.
 The separately installed Wayrill app handles traffic according to your graph.
 
+Chromium's optional **Timezone override · Experimental** applies one selected
+timezone across regular web tabs. The manual mode makes no external lookup.
+**Match Main outbound** asks the local Wayrill service to query `ipwho.is` through
+the applied Main outbound. That provider sees the outbound's exit IP, without
+receiving the page's destination names or browsing history. The selected zone
+and lookup metadata stay in browser session storage. The native debugger
+permission is used only to apply this opt-in emulation; its browser banner stays
+visible while active. The feature does not read page content or change Windows'
+timezone, and it is absent from the signed Firefox package.
+
 Firefox classifies hostnames sent to a native application as **Browsing activity**
 transmission, even when the recipient runs on the same computer. Companion
 declares this required permission for that local functionality. It does not send

@@ -30,9 +30,43 @@ export async function buildExtension(browser, output) {
     manifest.browser_specific_settings = JSON.parse(
       await readFile(resolve(source, 'firefox.json'), 'utf8'),
     );
+    // Firefox remains its independently signed release. Shared source still
+    // passes the exact signed-source check; Chromium-only files stay separate.
+    manifest.version = JSON.parse(
+      await readFile(resolve(project, 'extensions/signed/firefox.json'), 'utf8'),
+    ).version;
+    manifest.permissions = manifest.permissions.filter((permission) => permission !== 'debugger');
+  } else {
+    manifest.background.service_worker = 'background-chromium.js';
   }
   await mkdir(output, { recursive: true });
-  for (const file of files) await copyFile(resolve(source, file), resolve(output, file));
+  const browserFiles =
+    browser === 'chromium'
+      ? [
+          ...files,
+          'background-chromium.js',
+          'timezone.js',
+          'timezone-popup.js',
+          'timezone-popup.css',
+        ]
+      : files;
+  for (const file of browserFiles) await copyFile(resolve(source, file), resolve(output, file));
+  if (browser === 'chromium') {
+    let html = await readFile(resolve(source, 'popup.html'), 'utf8');
+    const fragment = await readFile(resolve(source, 'timezone-popup.html'), 'utf8');
+    for (const [marker, addition] of [
+      [
+        '</head>',
+        '<link rel="stylesheet" href="timezone-popup.css" />\n<script type="module" src="timezone-popup.js"></script>\n',
+      ],
+      ['<div id="domains"', fragment + '\n'],
+    ]) {
+      if (html.split(marker).length !== 2)
+        throw new Error('Companion popup insertion point changed: ' + marker);
+      html = html.replace(marker, addition + marker);
+    }
+    await writeFile(resolve(output, 'popup.html'), html);
+  }
   await copyFile(resolve(project, 'LICENSE'), resolve(output, 'LICENSE'));
   await writeFile(resolve(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return output;

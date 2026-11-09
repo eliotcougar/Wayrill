@@ -1027,6 +1027,50 @@ impl Kernel {
                     crate::traffic::timestamp_ms(),
                 ))
             }
+            "companion.timezoneStart" => {
+                let _: Empty = params(input)?;
+                if self.resources.snapshot()["busy"] == true {
+                    return Err(ApiError::new(
+                        "BUSY",
+                        "Wait for the resource update to finish.",
+                    ));
+                }
+                let profile = self.profile.as_ref().ok_or_else(|| {
+                    ApiError::new(
+                        "MAIN_UNAVAILABLE",
+                        "Apply a graph with a Main outbound first.",
+                    )
+                })?;
+                let source = profile
+                    .source_graph
+                    .as_deref()
+                    .map(crate::subscriptions::vault::unprotect_graph)
+                    .transpose()?;
+                let (input, tag, name) =
+                    crate::outbound_tests::timezone::input(&profile.config, source.as_deref())?;
+                let revision = profile.revision;
+                let active = self
+                    .control
+                    .as_ref()
+                    .filter(|_| self.core_state == CoreState::Running)
+                    .map(|control| crate::outbound_tests::ActivePolicy {
+                        control: control.clone(),
+                        config: Arc::new(profile.config.clone()),
+                    });
+                let egress = self.outbound_egress()?;
+                let mut result = self.outbound_tests.handle(
+                    "outbounds.testStart",
+                    input,
+                    self.exe.clone(),
+                    self.owner.clone(),
+                    Some(egress),
+                    active,
+                )?;
+                result["revision"] = json!(revision);
+                result["outbound"] = json!(tag);
+                result["name"] = json!(name);
+                Ok(result)
+            }
             "traffic.get" => {
                 let _: Empty = params(input)?;
                 Ok(self.statistics.snapshot())

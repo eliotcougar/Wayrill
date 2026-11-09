@@ -1,0 +1,24 @@
+<details class="timezone-settings">
+  <summary>Timezone override · Experimental</summary>
+  <p>
+    Applies to all regular web tabs in this browser session. Chromium shows its debugging banner
+    while enabled.
+  </p>
+  <label
+    >Mode<select id="timezone-mode">
+      <option value="off">Off</option>
+      <option value="main">Match Main outbound</option>
+      <option value="manual">Manual timezone</option>
+    </select></label
+  >
+  <label id="timezone-manual" hidden
+    >IANA timezone<input id="timezone-zone" placeholder="Europe/Berlin" spellcheck="false"
+  /></label>
+  <p id="timezone-status" role="status"></p>
+  <button id="timezone-apply" class="quiet" disabled>Apply and reload web tabs</button>
+  <p>
+    One timezone for the browser. Main uses the applied graph and an exit-IP lookup; it is not a
+    claim that every request uses Main. Apply again after changing Main.
+  </p>
+  <p>Main sends a lookup to ipwho.is through that outbound. Its location data is approximate.</p>
+</details>

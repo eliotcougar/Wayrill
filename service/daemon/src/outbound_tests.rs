@@ -22,6 +22,7 @@ use windows_sys::Win32::Security::Cryptography::{
 const MAX_BATCH: usize = 8;
 mod policy;
 mod speed;
+pub(crate) mod timezone;
 mod udp;
 #[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +30,7 @@ enum Mode {
     #[default]
     Latency,
     Speed,
+    Timezone,
 }
 #[derive(Clone)]
 pub(crate) struct ActivePolicy {
@@ -69,6 +71,8 @@ struct TestResult {
     country: Option<String>,
     error: Option<String>,
     country_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     speed: Option<speed::Measurement>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -283,6 +287,7 @@ fn failed(id: String, message: &str) -> TestResult {
         country: None,
         error: Some(message.into()),
         country_error: None,
+        timezone: None,
         speed: None,
         udp: None,
     }
@@ -477,7 +482,7 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     if let Some(udp_port) = udp_port {
         udp::add_inbound(&mut config, udp_port, &password, &target.outbound_tag);
     }
-    let policy_source = (mode == Mode::Speed).then(|| config.clone());
+    let policy_source = (mode != Mode::Latency).then(|| config.clone());
     bind_probe(&mut config, egress)?;
     let loopback = match egress {
         Some(selection) => selection.loopback.clone(),
@@ -485,7 +490,7 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     };
     // The authored fragment was validated before bounded runtime expansion.
     crate::loopback::Policy::apply(&mut config, &loopback)?;
-    let control = (mode == Mode::Speed)
+    let control = (mode != Mode::Latency)
         .then(|| crate::live::Control::new(&config))
         .transpose()?;
     drop(reservation);
@@ -535,6 +540,18 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
             &target.outbound_tag,
             stop,
         )?;
+        if mode == Mode::Timezone {
+            let client = Client::new(port, &password)?;
+            let bytes = client.fetch(test, stop)?;
+            let (ip, country) = country_info(&bytes)?;
+            return Ok(TestResult {
+                ip: Some(ip),
+                country,
+                timezone: Some(timezone::response(&bytes)?),
+                error: None,
+                ..failed(target.id.clone(), "")
+            });
+        }
         let speed = speed::test(port, &password, speed_url, stop)?;
         return Ok(TestResult {
             speed: Some(speed),

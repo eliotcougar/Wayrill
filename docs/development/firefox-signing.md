@@ -1,9 +1,12 @@
 # Firefox Companion signing
 
-The Chromium and Firefox packages use the same JavaScript, HTML and CSS.
-`tools/Build-CompanionExtension.mjs` changes only the Firefox manifest: a module
-event page instead of a Chromium service worker, a stable Gecko ID, minimum
-Firefox version, and Firefox's data-transmission declaration. No bundler,
+The Chromium and Firefox packages share the request-observation JavaScript, HTML
+and CSS. Chromium adds a separate background entry point and popup fragment for
+its experimental native timezone override. Those files and the `debugger`
+permission are excluded from Firefox.
+`tools/Build-CompanionExtension.mjs` generates Firefox's module event page,
+stable Gecko ID, minimum Firefox version, data-transmission declaration and
+independent release version from `extensions/signed/firefox.json`. No bundler,
 minifier, transpiler or third-party JavaScript library is used in the extension.
 
 ## Build and validate
@@ -24,11 +27,12 @@ Mozilla upload ZIP, with `manifest.json` at its root. Do not upload the standalo
 Windows bridge package, app installer, test profiles or private QA files as the
 extension. The JavaScript is already readable. Provide a source-code archive
 containing `extensions/companion/`, `tools/Build-CompanionExtension.mjs`, `LICENSE`
-and the Node command above, so Mozilla can reproduce the generated manifest.
+`extensions/signed/firefox.json` and the Node command above, so Mozilla can
+reproduce the generated manifest.
 
 The stable signing ID is `wayrill-companion@eliotcougar.github.io`. Keep this ID
 when submitting updates: Firefox and the Windows native-host allowlist use it to
-identify the same add-on. Increment the shared extension manifest version for
+identify the same add-on. Increment the Firefox release metadata version for
 every submitted update. Do not place AMO credentials or API secrets in source.
 
 ## Submit
