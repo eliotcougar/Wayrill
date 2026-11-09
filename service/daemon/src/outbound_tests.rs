@@ -74,6 +74,8 @@ struct TestResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     speed: Option<speed::Measurement>,
     #[serde(skip_serializing_if = "Option::is_none")]
     udp: Option<udp::Measurement>,
@@ -137,6 +139,173 @@ impl Manager {
         let s = self.state.lock().unwrap();
         json!({"job":s.job,"busy":s.busy,"total":s.total,"completed":s.results.len(),"cancelled":self.stop.load(Ordering::SeqCst),"results":s.results})
     }
+    pub(crate) fn stash_timezone(
+        &mut self,
+        preparation: Value,
+        exe: PathBuf,
+        owner: String,
+        egress: Option<crate::tun::OutboundEgress>,
+        active: Option<ActivePolicy>,
+    ) -> Result<Value> {
+        self.start(
+            Input {
+                test_url: "https://ipwho.is/".into(),
+                country_url: String::new(),
+                mode: Mode::Timezone,
+                speed_url: String::new(),
+                udp_url: String::new(),
+                targets: vec![],
+            },
+            Some(preparation),
+            exe,
+            owner,
+            egress,
+            active,
+        )
+    }
+    fn start(
+        &mut self,
+        mut input: Input,
+        preparation: Option<Value>,
+        exe: PathBuf,
+        owner: String,
+        egress: Option<crate::tun::OutboundEgress>,
+        active: Option<ActivePolicy>,
+    ) -> Result<Value> {
+        if preparation.is_none() {
+            validate_input(&input)?;
+        }
+        if self.busy() {
+            return Err(ApiError::new(
+                "BUSY",
+                "An outbound test is already running.",
+            ));
+        }
+        let mut random = [0u8; 8];
+        if unsafe {
+            BCryptGenRandom(
+                ptr::null_mut(),
+                random.as_mut_ptr(),
+                8,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            )
+        } < 0
+        {
+            return Err(invalid("Cannot create an outbound test job."));
+        }
+        self.sequence = (u64::from_le_bytes(random) & ((1u64 << 53) - 1)).max(1);
+        self.stop = Arc::new(AtomicBool::new(false));
+        self.state = Arc::new(Mutex::new(State {
+            job: self.sequence,
+            busy: true,
+            total: if preparation.is_some() {
+                1
+            } else {
+                input.targets.len()
+            },
+            results: vec![],
+            reservation: None,
+        }));
+        let state = self.state.clone();
+        let stop = self.stop.clone();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        let worker = std::thread::Builder::new()
+            .name("wayrill-outbound-tests".into())
+            .spawn(move || {
+                let _completion = Completion(state.clone());
+                let mut name = None;
+                if let Some(preparation) = preparation {
+                    let prepared = (|| {
+                        let plan = crate::subscriptions::prepare_probe(&preparation, &stop, &stop)?;
+                        input.targets = params(plan["targets"].clone())?;
+                        validate_input(&input)?;
+                        if input.targets.len() != 1 {
+                            return Err(invalid("The selected Stash outbound cannot be tested."));
+                        }
+                        name = plan["plan"]["rows"][0]["name"].as_str().map(str::to_owned);
+                        Ok(())
+                    })();
+                    if let Err(error) = prepared {
+                        state
+                            .lock()
+                            .unwrap()
+                            .results
+                            .push(failed("companion-custom".into(), &error.message));
+                        return;
+                    }
+                }
+                let queue = Mutex::new(VecDeque::from(input.targets));
+                std::thread::scope(|scope| {
+                    for _ in 0..if input.mode == Mode::Speed { 1 } else { 4 } {
+                        let queue = &queue;
+                        let state = &state;
+                        let stop = &stop;
+                        let exe = &exe;
+                        let owner = &owner;
+                        let test = &input.test_url;
+                        let country = &input.country_url;
+                        let speed_url = &input.speed_url;
+                        let mode = input.mode;
+                        let udp_url = &input.udp_url;
+                        let active = active.as_ref();
+                        let egress = egress.as_ref();
+                        let name = name.as_ref();
+                        let work = move || loop {
+                            if stop.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            let Some(target) = queue.lock().unwrap().pop_front() else {
+                                break;
+                            };
+                            let id = target.id.clone();
+                            let checked = std::panic::catch_unwind(|| {
+                                run(
+                                    &target,
+                                    &Probe {
+                                        test,
+                                        country,
+                                        exe,
+                                        owner,
+                                        stop,
+                                        egress,
+                                        mode,
+                                        speed_url,
+                                        active,
+                                        udp_url,
+                                    },
+                                )
+                            });
+                            let mut result = match checked {
+                                Ok(Ok(result)) => result,
+                                Ok(Err(error)) => failed(id, &error.message),
+                                Err(_) => failed(id, "Outbound test failed."),
+                            };
+                            result.name = name.cloned();
+                            state.lock().unwrap().results.push(result);
+                        };
+                        // A failed thread allocation must not panic the job
+                        // coordinator and leave busy=true indefinitely.
+                        if std::thread::Builder::new()
+                            .name("wayrill-outbound-probe".into())
+                            .spawn_scoped(scope, work)
+                            .is_err()
+                        {
+                            stop.store(true, Ordering::SeqCst);
+                        }
+                    }
+                });
+            });
+        match worker {
+            Ok(worker) => self.worker = Some(worker),
+            Err(error) => {
+                self.state.lock().unwrap().busy = false;
+                return Err(ApiError::io("Start outbound test worker", error));
+            }
+        }
+        Ok(self.snapshot())
+    }
     pub fn handle(
         &mut self,
         method: &str,
@@ -147,113 +316,7 @@ impl Manager {
         active: Option<ActivePolicy>,
     ) -> Result<Value> {
         match method {
-            "outbounds.testStart" => {
-                let input: Input = params(value)?;
-                validate_input(&input)?;
-                if self.busy() {
-                    return Err(ApiError::new(
-                        "BUSY",
-                        "An outbound test is already running.",
-                    ));
-                }
-                let mut random = [0u8; 8];
-                if unsafe {
-                    BCryptGenRandom(
-                        ptr::null_mut(),
-                        random.as_mut_ptr(),
-                        8,
-                        BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-                    )
-                } < 0
-                {
-                    return Err(invalid("Cannot create an outbound test job."));
-                }
-                self.sequence = (u64::from_le_bytes(random) & ((1u64 << 53) - 1)).max(1);
-                self.stop = Arc::new(AtomicBool::new(false));
-                self.state = Arc::new(Mutex::new(State {
-                    job: self.sequence,
-                    busy: true,
-                    total: input.targets.len(),
-                    results: vec![],
-                    reservation: None,
-                }));
-                let state = self.state.clone();
-                let stop = self.stop.clone();
-                if let Some(worker) = self.worker.take() {
-                    let _ = worker.join();
-                }
-                let worker = std::thread::Builder::new()
-                    .name("wayrill-outbound-tests".into())
-                    .spawn(move || {
-                        let _completion = Completion(state.clone());
-                        let queue = Mutex::new(VecDeque::from(input.targets));
-                        std::thread::scope(|scope| {
-                            for _ in 0..if input.mode == Mode::Speed { 1 } else { 4 } {
-                                let queue = &queue;
-                                let state = &state;
-                                let stop = &stop;
-                                let exe = &exe;
-                                let owner = &owner;
-                                let test = &input.test_url;
-                                let country = &input.country_url;
-                                let speed_url = &input.speed_url;
-                                let mode = input.mode;
-                                let udp_url = &input.udp_url;
-                                let active = active.as_ref();
-                                let egress = egress.as_ref();
-                                let work = move || loop {
-                                    if stop.load(Ordering::SeqCst) {
-                                        break;
-                                    }
-                                    let Some(target) = queue.lock().unwrap().pop_front() else {
-                                        break;
-                                    };
-                                    let id = target.id.clone();
-                                    let checked = std::panic::catch_unwind(|| {
-                                        run(
-                                            &target,
-                                            &Probe {
-                                                test,
-                                                country,
-                                                exe,
-                                                owner,
-                                                stop,
-                                                egress,
-                                                mode,
-                                                speed_url,
-                                                active,
-                                                udp_url,
-                                            },
-                                        )
-                                    });
-                                    let result = match checked {
-                                        Ok(Ok(result)) => result,
-                                        Ok(Err(error)) => failed(id, &error.message),
-                                        Err(_) => failed(id, "Outbound test failed."),
-                                    };
-                                    state.lock().unwrap().results.push(result);
-                                };
-                                // A failed thread allocation must not panic the job
-                                // coordinator and leave busy=true indefinitely.
-                                if std::thread::Builder::new()
-                                    .name("wayrill-outbound-probe".into())
-                                    .spawn_scoped(scope, work)
-                                    .is_err()
-                                {
-                                    stop.store(true, Ordering::SeqCst);
-                                }
-                            }
-                        });
-                    });
-                match worker {
-                    Ok(worker) => self.worker = Some(worker),
-                    Err(error) => {
-                        self.state.lock().unwrap().busy = false;
-                        return Err(ApiError::io("Start outbound test worker", error));
-                    }
-                }
-                Ok(self.snapshot())
-            }
+            "outbounds.testStart" => self.start(params(value)?, None, exe, owner, egress, active),
             "outbounds.testGet" | "outbounds.testCancel" => {
                 let input: JobInput = params(value)?;
                 if input.job != self.sequence || self.sequence == 0 {
@@ -288,6 +351,7 @@ fn failed(id: String, message: &str) -> TestResult {
         error: Some(message.into()),
         country_error: None,
         timezone: None,
+        name: None,
         speed: None,
         udp: None,
     }

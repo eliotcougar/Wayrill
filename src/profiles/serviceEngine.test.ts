@@ -13,6 +13,34 @@ import { preparedEntry } from '../graph/composites';
 import { applyStashedProfile } from './graph';
 import { policyProfile } from '../graph/policySources';
 
+it('plans a selected policy as one complete outbound route instead of probing its members', () => {
+  const { graph, stash } = runtimeFixture();
+  const group = stash.groups[0];
+  const policy = makeNode('policy-group', { x: 0, y: 0 }, 'selected-policy');
+  const sources = emptyPolicySources();
+  sources.manual = group.entries.slice(0, 2).map((entry) => policyProfile(entry));
+  policy.data.settings.sources = JSON.stringify(sources);
+  const entry = preparedEntry({ name: 'Policy', nodes: [policy], edges: [] }, policy.id);
+  group.entries.push(entry);
+  const plan = subscriptionEngine({
+    operation: 'plan',
+    stash: serializeStash(stash),
+    graph: serializeGraph(graph),
+    groupId: group.id,
+    entryIds: [entry.id],
+    mode: 'speed',
+  });
+  if (!('targets' in plan) || !plan.targets) throw new Error('No outbound plan');
+  expect(plan.targets).toHaveLength(1);
+  const target = plan.targets[0];
+  expect(target.config.routing).toHaveProperty('balancers');
+  expect(
+    (target.config.outbounds as { protocol: string }[]).some(
+      (outbound) => outbound.protocol === 'loopback',
+    ),
+  ).toBe(true);
+});
+
 it('settles an older pending provider update before an explicit choice from the saved library', () => {
   const { graph, stash } = runtimeFixture();
   const publication = subscriptionEngine({

@@ -13,6 +13,9 @@
   gap: 6px;
   margin: 10px 0;
 }
+.timezone-settings [hidden] {
+  display: none;
+}
 .timezone-settings input,
 .timezone-settings select {
   min-width: 0;

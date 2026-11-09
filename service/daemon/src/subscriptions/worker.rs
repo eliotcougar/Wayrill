@@ -15,7 +15,7 @@ fn check(stop: &AtomicBool, shutdown: &AtomicBool) -> Result<()> {
         Ok(())
     }
 }
-fn helper(input: &Value, stop: &AtomicBool, shutdown: &AtomicBool) -> Result<Value> {
+pub(crate) fn helper(input: &Value, stop: &AtomicBool, shutdown: &AtomicBool) -> Result<Value> {
     check(stop, shutdown)?;
     let exe = std::env::current_exe().map_err(|e| ApiError::io("Find subscription worker", e))?;
     let process = spawn_with_token(

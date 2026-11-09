@@ -13,9 +13,18 @@ function fixture(
 ) {
   const events = {},
     commands = [],
-    saved = {};
+    saved = {},
+    local = {};
   const api = {
     storage: {
+      local: {
+        async get() {
+          return structuredClone(local);
+        },
+        async set(value) {
+          Object.assign(local, structuredClone(value));
+        },
+      },
       session: {
         async get() {
           return saved;
@@ -64,8 +73,42 @@ function fixture(
       },
     },
   };
-  return { controller: new TimezoneController(api, main), api, events, commands, saved };
+  return { controller: new TimezoneController(api, main), api, events, commands, saved, local };
 }
+test('custom lookup pins a Stash reference and failure keeps the chosen timezone', async () => {
+  const selected = { groupId: 'provider', entryId: 'chain', version: 3 };
+  let called,
+    failed = false;
+  const f = fixture(async (selection) => {
+    called = selection;
+    if (failed) throw new Error('Stash changed');
+    return { timezone: 'Europe/Berlin', ip: '203.0.113.2', name: 'Chain', revision: 3 };
+  });
+  await f.controller.apply(1, 'custom', '', selected);
+  assert.deepEqual(called, selected);
+  assert.deepEqual((await f.controller.read()).selection, selected);
+  failed = true;
+  await assert.rejects(f.controller.apply(1, 'custom', '', selected), /Stash changed/);
+  assert.equal((await f.controller.read()).zone, 'Europe/Berlin');
+  assert.equal(f.local.timezonePreference.zone, 'Europe/Berlin');
+});
+test('extension reload restores the last timezone without contacting the service', async () => {
+  const f = fixture();
+  await f.controller.apply(1, 'manual', 'Asia/Tokyo');
+  delete f.saved.timezoneState;
+  f.commands.length = 0;
+  const restored = new TimezoneController(f.api, () => {
+    throw new Error('service offline');
+  });
+  assert.equal((await restored.read()).zone, 'Asia/Tokyo');
+  assert.ok(f.commands.some(([method]) => method === 'Emulation.setTimezoneOverride'));
+  await restored.apply(1, 'off', '');
+  delete f.saved.timezoneState;
+  const disabled = new TimezoneController(f.api, () => {
+    throw new Error('service offline');
+  });
+  assert.equal((await disabled.read()).mode, 'off');
+});
 test('timezone is opt-in, validates before attachment, and detaches when disabled', async () => {
   const f = fixture();
   assert.equal((await f.controller.read()).mode, 'off');

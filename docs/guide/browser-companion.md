@@ -163,14 +163,16 @@ the draft will match every request from that domain.
 
 ## Experimental timezone override (Chromium)
 
-Expand **Timezone override · Experimental** in the Companion. Choose a manual
-IANA timezone such as `Europe/Berlin`, or **Match Main outbound**, then choose
+Expand **Timezone override · Experimental** in the Companion. Choose **Main outbound**,
+**Custom outbound** to select a Stash server, chain or policy group, or **Manual**
+to select a timezone from the dropdown. Then choose
 **Apply and reload web tabs**. The default is Off. One timezone applies to all
 regular web tabs in that browser session, including newly opened tabs. Chromium
 can share worker/renderer processes, so separate per-tab zones are not offered.
 
 Main probes the applied graph's Main outbound through Wayrill and asks
-`ipwho.is` for its exit-IP timezone. Apply again after changing Main. A policy
+`ipwho.is` for its exit-IP timezone. Custom uses the selected saved Stash definition,
+including its chain or policy selection. Apply again after changing the outbound. A policy
 group may later choose a different exit, and individual routing rules may use
 other outbounds; one browser timezone cannot match all those paths. The lookup
 is an IP-geolocation estimate. A failed lookup preserves an existing override.
@@ -179,7 +181,10 @@ Chromium requires the extension's debugger permission at installation/update;
 it cannot be an optional permission requested later. Its debugging banner stays
 visible while the override is active. **Off**, canceling the banner, or opening
 DevTools detaches the override and reloads the affected tabs with the system
-timezone. Closing one tab leaves the mode enabled for other tabs.
+timezone. Closing one tab leaves the mode enabled for other tabs. Restarting
+routing or temporarily losing the service does not reset the selected timezone.
+The extension also remembers it across browser and extension restarts without
+requiring a fresh network lookup.
 
 Workers and iframes use native browser emulation. Newly opened pages and service
 workers can execute before attachment completes, and an existing worker may
@@ -218,8 +223,10 @@ authenticated service pipe, and `editDomain` requests that open the installed
 desktop with a domain and optional filter IDs. The browser cannot select an
 executable, edit the graph itself or activate routing. The bridge opens no HTTP
 listener and exposes no arbitrary-command interface.
-Chromium also accepts a parameter-free `timezone` lookup of the applied Main
-outbound, returning only its zone, exit IP, display name, tag and revision.
+Chromium also accepts a `timezone` lookup of the applied Main outbound or a
+versioned Stash reference, returning only its zone, exit IP, display name and
+applied revision. Its Stash picker reads display names, types and stable IDs;
+it receives no connection credentials or editable core configuration.
 
 The implementation follows Chromium's [request observation API](https://developer.chrome.com/docs/extensions/reference/api/webRequest),
 [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),

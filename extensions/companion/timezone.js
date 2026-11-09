@@ -1,38 +1,30 @@
 import { extensionApi } from './api.js';
 
-/** @param {typeof chrome} api */
-async function lookupMain(api) {
+/** @typedef {{groupId:string,entryId:string,version:number}} Selection */
+/** @param {typeof chrome} api @param {string} method @param {object} params */
+export async function timezoneRequest(api, method, params) {
   let timer;
   try {
     const reply = await Promise.race([
       api.runtime.sendNativeMessage('com.wayrill.companion', {
         version: 1,
         id: 1,
-        method: 'timezone',
-        params: {},
+        method,
+        params,
       }),
       new Promise((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('Main outbound timezone lookup timed out.')),
-          40000,
-        );
+        timer = setTimeout(() => reject(new Error('Timezone request timed out.')), 40000);
       }),
     ]);
-    if (
-      reply?.version !== 1 ||
-      reply.id !== 1 ||
-      !reply.ok ||
-      typeof reply.result?.timezone !== 'string' ||
-      typeof reply.result?.ip !== 'string'
-    )
-      throw new Error(reply?.error?.message ?? 'Invalid Main outbound timezone response.');
-    return /** @type {{timezone:string,ip:string,name:string,revision:number}} */ (reply.result);
+    if (reply?.version !== 1 || reply.id !== 1 || !reply.ok || !reply.result)
+      throw new Error(reply?.error?.message ?? 'Invalid timezone response.');
+    return reply.result;
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** @typedef {{mode:'off'|'main'|'manual',zone:string,error?:string,name?:string,ip?:string,revision?:number}} Zone */
+/** @typedef {{mode:'off'|'main'|'custom'|'manual',zone:string,selection?:Selection,error?:string,name?:string,ip?:string,revision?:number}} Zone */
 /** @param {string} value */
 export function timezoneId(value) {
   if (typeof value !== 'string' || !value || value.length > 128)
@@ -44,9 +36,13 @@ const web = (url) => /^https?:\/\//.test(url ?? '');
 
 /** One zone per browser session: renderers and workers can be shared across tabs. */
 export class TimezoneController {
-  constructor(api = extensionApi(), main = () => lookupMain(api)) {
+  constructor(
+    api = extensionApi(),
+    lookup = (/** @type {Selection|undefined} */ selection) =>
+      timezoneRequest(api, 'timezone', selection ? { selection } : {}),
+  ) {
     this.api = api;
-    this.main = main;
+    this.lookup = lookup;
     /** @type {Zone} */
     this.state = { mode: 'off', zone: '' };
     /** @type {Set<number>} */
@@ -56,7 +52,31 @@ export class TimezoneController {
     this.writes = Promise.resolve();
     this.ready = api.storage.session.get('timezoneState').then(async (saved) => {
       const record = /** @type {{state:Zone,tabs:number[]}|undefined} */ (saved.timezoneState);
-      if (!record) return;
+      if (!record) {
+        // Extension updates clear session storage and debugger attachments. Keep
+        // the chosen zone independently of the routing service's availability.
+        const preferred = /** @type {Zone|undefined} */ (
+          (await api.storage.local.get('timezonePreference')).timezonePreference
+        );
+        if (preferred?.mode && preferred.mode !== 'off') {
+          this.state = preferred;
+          const zone = timezoneId(preferred.zone);
+          const tabs = (await api.tabs.query({})).filter(
+            (tab) => tab.id !== undefined && !tab.incognito && web(tab.url),
+          );
+          const results = await Promise.allSettled(
+            tabs.map((tab) => this.attach(/** @type {number} */ (tab.id), zone, this.epoch)),
+          );
+          if (results.some((result) => result.status === 'rejected'))
+            this.state.error =
+              'Some tabs could not restore their timezone override. Apply again to retry.';
+          await this.persist();
+          await Promise.allSettled(
+            tabs.map((tab) => api.tabs.reload(/** @type {number} */ (tab.id))),
+          );
+        }
+        return;
+      }
       this.state = record.state;
       this.attached = new Set(record.tabs);
       // A service-worker restart must not report a detached override as active.
@@ -109,7 +129,12 @@ export class TimezoneController {
     const timezoneState = structuredClone({ state: this.state, tabs: [...this.attached] });
     this.writes = this.writes
       .catch(() => {})
-      .then(() => this.api.storage.session.set({ timezoneState }));
+      .then(async () => {
+        await Promise.all([
+          this.api.storage.session.set({ timezoneState }),
+          this.api.storage.local.set({ timezonePreference: timezoneState.state }),
+        ]);
+      });
     return this.writes;
   }
   /** @param {() => Promise<unknown>} work */
@@ -214,13 +239,14 @@ export class TimezoneController {
     await this.ready;
     return { supported: !!this.api.debugger, ...this.state };
   }
-  /** @param {number} tabId @param {'off'|'main'|'manual'} mode @param {string} zone */
-  apply(tabId, mode, zone) {
-    return this.enqueue(() => this.update(tabId, mode, zone));
+  /** @param {number} tabId @param {Zone['mode']} mode @param {string} zone @param {Selection} [selection] */
+  apply(tabId, mode, zone, selection) {
+    return this.enqueue(() => this.update(tabId, mode, zone, selection));
   }
-  /** @param {number} tabId @param {'off'|'main'|'manual'} mode @param {string} zone */
-  async update(tabId, mode, zone) {
-    if (!['off', 'main', 'manual'].includes(mode)) throw new Error('Choose a timezone mode.');
+  /** @param {number} tabId @param {Zone['mode']} mode @param {string} zone @param {Selection} [selection] */
+  async update(tabId, mode, zone, selection) {
+    if (!['off', 'main', 'custom', 'manual'].includes(mode))
+      throw new Error('Choose a timezone mode.');
     if (mode === 'off') {
       await this.stop();
       return this.read();
@@ -232,7 +258,12 @@ export class TimezoneController {
     const tab = await this.api.tabs.get(tabId);
     if (tab.incognito || !web(tab.url)) throw new Error('Open a regular HTTP(S) page first.');
     const previousEpoch = this.epoch;
-    const main = mode === 'main' ? await this.main() : undefined;
+    if (mode === 'custom' && !selection) throw new Error('Select a Stash outbound first.');
+    const main = ['main', 'custom'].includes(mode)
+      ? await this.lookup(mode === 'custom' ? selection : undefined)
+      : undefined;
+    if (main && (typeof main.timezone !== 'string' || typeof main.ip !== 'string'))
+      throw new Error('Invalid outbound timezone response.');
     const chosen = timezoneId(main?.timezone ?? zone);
     if (previousEpoch !== this.epoch) throw new Error('Timezone operation canceled.');
     const tabs = (await this.api.tabs.query({})).filter(
@@ -243,6 +274,7 @@ export class TimezoneController {
     this.state = {
       mode,
       zone: chosen,
+      ...(mode === 'custom' ? { selection } : {}),
       ...(main ? { name: main.name, ip: main.ip, revision: main.revision } : {}),
     };
     const results = await Promise.allSettled(

@@ -31,6 +31,7 @@ interface Request {
   observations?: HealthObservation[];
   removeDead?: boolean;
   entryIds?: string[];
+  mode?: 'latency' | 'speed';
   cycleAt?: number | null;
   lastTestAt?: number;
   trusted?: boolean;
@@ -92,7 +93,7 @@ export function subscriptionEngine(request: Request) {
         stash.groups
           .find((g) => g.id === request.groupId)
           ?.entries.filter((entry) => ids.has(entry.id)) ?? [];
-      const prepared = createTestPlan({ graph, stash, entries });
+      const prepared = createTestPlan({ graph, stash, entries, mode: request.mode });
       return {
         plan: prepared.plan,
         targets: prepared.batch(prepared.plan.targets.map((t) => t.id)),

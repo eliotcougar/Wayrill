@@ -7,8 +7,9 @@ or Wayrill's active routes. Firefox's signed package is unchanged.
 ## Using the prototype
 
 Open an ordinary HTTP(S) tab, open the Companion and expand **Timezone override**.
-Choose **Manual timezone** with an IANA identifier such as `Europe/Berlin`, or
-**Match Main outbound**. **Apply and reload web tabs** reloads regular web tabs
+Choose **Manual** with the timezone dropdown, **Main outbound**, or
+**Custom outbound** with a saved Stash server, chain or policy group.
+**Apply and reload web tabs** reloads regular web tabs
 with the native override enabled. **Off** detaches the debuggers and reloads
 those tabs with the system zone. The default is Off; incognito and internal
 browser pages are excluded. The control is marked **Experimental** in the
@@ -24,8 +25,13 @@ An isolated outbound probe requests `https://ipwho.is/` through that definition
 and reads the returned IANA timezone. It reuses the existing probe isolation,
 upstream binding and policy-selection logic. The browser receives only the zone,
 exit IP, display name, outbound tag and applied revision. It cannot supply a
-configuration, endpoint or arbitrary service method. A changed applied revision
+configuration, endpoint or arbitrary service method. Custom references use the
+service-owned Stash version and existing isolated test planner in a restricted
+helper. A changed applied revision or Stash version
 invalidates the lookup. Failure preserves a previously enabled override.
+
+Routing restarts do not own browser emulation. The chosen zone is saved locally
+and restored after extension/browser reload without contacting the service.
 
 This is a snapshot when Apply is pressed. Apply again after changing Main.
 Policy groups can select a different exit later; other routing rules may send

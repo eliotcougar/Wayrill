@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use wayrill_protocol::{companion::Lookup, ApiError, Result};
 mod desktop;
+mod timezone_choices;
 
 const MAX_INPUT: usize = 64 * 1024;
 const MAX_OUTPUT: usize = 1024 * 1024;
@@ -20,7 +21,8 @@ fn decode(bytes: &[u8]) -> Result<Request> {
     let mut request: Request = serde_json::from_slice(bytes)
         .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid Companion request."))?;
     if request.version != 1
-        || !["routes", "editDomain", "timezone"].contains(&request.method.as_str())
+        || !["routes", "editDomain", "timezone", "timezoneChoices"]
+            .contains(&request.method.as_str())
     {
         return Err(ApiError::new(
             "UNSUPPORTED",
@@ -32,12 +34,14 @@ fn decode(bytes: &[u8]) -> Result<Request> {
             .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid routes request."))?;
         lookup.normalized()?;
     } else if request.method == "timezone" {
-        if request.params != json!({}) {
-            return Err(ApiError::new(
-                "INVALID_REQUEST",
-                "Timezone lookup accepts no parameters.",
-            ));
+        let input: wayrill_protocol::companion::TimezoneRequest =
+            wayrill_protocol::params(request.params.clone())?;
+        if let Some(selection) = input.selection {
+            selection.validate()?;
         }
+    } else if request.method == "timezoneChoices" {
+        let input: timezone_choices::Query = wayrill_protocol::params(request.params.clone())?;
+        input.validate()?;
     } else {
         let edit: wayrill_protocol::companion::RuleRequest = serde_json::from_value(request.params)
             .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid domain edit request."))?;
@@ -45,8 +49,9 @@ fn decode(bytes: &[u8]) -> Result<Request> {
     }
     Ok(request)
 }
-async fn timezone() -> Result<Value> {
-    let started = wayrill_ipc::windows::request("companion.timezoneStart", json!({})).await?;
+async fn timezone(params: Value) -> Result<Value> {
+    let selected_version = params["selection"]["version"].as_u64();
+    let started = wayrill_ipc::windows::request("companion.timezoneStart", params).await?;
     let job = started["job"]
         .as_u64()
         .ok_or_else(|| ApiError::new("TIMEZONE_UNAVAILABLE", "No Main outbound probe."))?;
@@ -58,19 +63,27 @@ async fn timezone() -> Result<Value> {
             let result = &current["results"][0];
             if let (Some(zone), Some(ip)) = (result["timezone"].as_str(), result["ip"].as_str()) {
                 let applied = wayrill_ipc::windows::request("config.get", json!({})).await?;
-                if applied["revision"] != started["revision"] {
+                let changed_stash = if let Some(version) = selected_version {
+                    wayrill_ipc::windows::request("subscriptions.status", json!({})).await?
+                        ["version"]
+                        .as_u64()
+                        != Some(version)
+                } else {
+                    false
+                };
+                if applied["revision"] != started["revision"] || changed_stash {
                     return Err(ApiError::new(
                         "CONFIG_CHANGED",
-                        "Main outbound changed during lookup. Try again.",
+                        "Outbound settings changed during lookup. Try again.",
                     ));
                 }
                 return Ok(
-                    json!({"timezone":zone,"ip":ip,"name":started["name"],"outbound":started["outbound"],"revision":started["revision"]}),
+                    json!({"timezone":zone,"ip":ip,"name":result.get("name").unwrap_or(&started["name"]),"revision":started["revision"]}),
                 );
             }
             return Err(ApiError::new(
                 "TIMEZONE_UNAVAILABLE",
-                "Cannot determine the applied Main outbound's exit timezone.",
+                "Cannot determine the selected outbound's exit timezone.",
             ));
         }
         if tokio::time::Instant::now() >= deadline {
@@ -168,14 +181,29 @@ async fn run() -> io::Result<()> {
                 let result = if request.method == "editDomain" {
                     edit_domain(&request.params, firefox)
                 } else if request.method == "timezone" {
-                    tokio::time::timeout(std::time::Duration::from_secs(35), timezone())
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(35),
+                        timezone(request.params),
+                    )
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(ApiError::new(
+                            "TIMEOUT",
+                            "Main outbound timezone lookup timed out.",
+                        ))
+                    })
+                } else if request.method == "timezoneChoices" {
+                    match wayrill_protocol::params(request.params) {
+                        Ok(input) => tokio::time::timeout(
+                            std::time::Duration::from_secs(15),
+                            timezone_choices::read(input),
+                        )
                         .await
                         .unwrap_or_else(|_| {
-                            Err(ApiError::new(
-                                "TIMEOUT",
-                                "Main outbound timezone lookup timed out.",
-                            ))
-                        })
+                            Err(ApiError::new("TIMEOUT", "Stash search timed out."))
+                        }),
+                        Err(error) => Err(error),
+                    }
                 } else {
                     tokio::time::timeout(
                         std::time::Duration::from_secs(5),
@@ -198,7 +226,7 @@ async fn run() -> io::Result<()> {
             Ok(result) => json!({"version":1,"id":id,"ok":true,"result":result}),
             Err(error) => json!({"version":1,"id":id,"ok":false,"error":{
                 "code":error.code,
-                "message":if ["DESKTOP_UNAVAILABLE", "MAIN_UNAVAILABLE", "TIMEZONE_UNAVAILABLE", "CONFIG_CHANGED"].contains(&error.code.as_str()) { &error.message }
+                "message":if ["DESKTOP_UNAVAILABLE", "MAIN_UNAVAILABLE", "OUTBOUND_UNAVAILABLE", "TIMEZONE_UNAVAILABLE", "CONFIG_CHANGED"].contains(&error.code.as_str()) { &error.message }
                     else if error.code == "METHOD_NOT_FOUND" { "Update Wayrill to a Companion-compatible build." }
                     else { "Cannot read Wayrill routes. Check the service and Companion setup." }
             }}),
@@ -382,6 +410,8 @@ mod tests {
             json!({"version":1,"id":1,"method":"routes","params":{"hosts":[],"config":{}}}),
             json!({"version":1,"id":1,"method":"timezone","params":{"url":"https://example.org/"}}),
             json!({"version":1,"id":1,"method":"timezone","params":{"config":{}}}),
+            json!({"version":1,"id":1,"method":"timezone","params":{"selection":{"groupId":"g","entryId":"e","version":1,"config":{}}}}),
+            json!({"version":1,"id":1,"method":"timezoneChoices","params":{"url":"https://example.org/"}}),
             json!({"version":1,"id":1,"method":"editDomain","params":{"host":"a.test","command":"core.stop"}}),
             json!({"version":1,"id":1,"method":"editDomain","params":{"host":"https://a.test/private"}}),
             json!({"version":1,"id":1,"method":"editDomain","params":{"host":"127.0.0.1"}}),
@@ -394,6 +424,7 @@ mod tests {
         )
         .is_ok());
         assert!(decode(br#"{"version":1,"id":3,"method":"timezone","params":{}}"#).is_ok());
+        assert!(decode(br#"{"version":1,"id":3,"method":"timezone","params":{"selection":{"groupId":"g","entryId":"e","version":1}}}"#).is_ok());
         let edit = decode(br#"{"version":1,"id":4,"method":"editDomain","params":{"host":"EXAMPLE.org.","filterIds":["b","a","b"]}}"#).unwrap();
         assert_eq!(
             edit.params,

@@ -7,18 +7,39 @@
   <label
     >Mode<select id="timezone-mode">
       <option value="off">Off</option>
-      <option value="main">Match Main outbound</option>
-      <option value="manual">Manual timezone</option>
+      <option value="main">Main outbound</option>
+      <option value="custom">Custom outbound</option>
+      <option value="manual">Manual</option>
     </select></label
   >
-  <label id="timezone-manual" hidden
-    >IANA timezone<input id="timezone-zone" placeholder="Europe/Berlin" spellcheck="false"
-  /></label>
+  <div id="timezone-custom" hidden>
+    <label
+      >Stash group<select id="timezone-group">
+        <option value="">All groups</option>
+      </select></label
+    >
+    <label
+      >Find an outbound<input
+        id="timezone-search"
+        type="search"
+        placeholder="Server, chain or policy group…"
+    /></label>
+    <label
+      >Outbound<select id="timezone-outbound">
+        <option value="">Select from Stash…</option>
+      </select></label
+    >
+    <p id="timezone-choices-status" role="status"></p>
+  </div>
+  <label id="timezone-manual" hidden>Timezone<select id="timezone-zone"></select></label>
   <p id="timezone-status" role="status"></p>
   <button id="timezone-apply" class="quiet" disabled>Apply and reload web tabs</button>
   <p>
-    One timezone for the browser. Main uses the applied graph and an exit-IP lookup; it is not a
-    claim that every request uses Main. Apply again after changing Main.
+    One timezone for the browser. Main uses the applied graph. Custom uses the selected Stash
+    definition. Apply again to update the zone after changing the outbound.
   </p>
-  <p>Main sends a lookup to ipwho.is through that outbound. Its location data is approximate.</p>
+  <p>
+    Main and Custom send a lookup to ipwho.is through the selected outbound. Location data is
+    approximate. Routing restarts keep the chosen timezone.
+  </p>
 </details>

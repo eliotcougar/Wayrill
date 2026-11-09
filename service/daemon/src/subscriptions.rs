@@ -15,6 +15,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use wayrill_protocol::{params, ApiError, Result};
+pub(crate) use worker::helper as prepare_probe;
 
 const MAX_UPLOAD: usize = 256 * 1024 * 1024;
 const CHUNK: usize = 512 * 1024;
@@ -308,6 +309,37 @@ impl Manager {
     }
     pub fn snapshot(&self) -> Value {
         self.synchronized(|view| view)
+    }
+    pub(crate) fn timezone_probe(
+        &self,
+        selection: &wayrill_protocol::companion::TimezoneSelection,
+        graph: Option<&str>,
+    ) -> Result<Value> {
+        selection.validate()?;
+        let library = self.state.lock().unwrap().library.clone();
+        if library.version != selection.version {
+            return Err(ApiError::new(
+                "CONFIG_CHANGED",
+                "Stash changed. Select the outbound again.",
+            ));
+        }
+        let exists = library.catalog.iter().any(|group| {
+            group.id == selection.group_id
+                && group
+                    .entries
+                    .iter()
+                    .any(|entry| entry.id == selection.entry_id && entry.kind.is_some())
+        });
+        if !exists {
+            return Err(ApiError::new(
+                "OUTBOUND_UNAVAILABLE",
+                "The selected Stash outbound is unavailable.",
+            ));
+        }
+        Ok(
+            json!({"operation":"plan","trusted":true,"stash":library.stash,"graph":graph,
+            "groupId":selection.group_id,"entryIds":[selection.entry_id],"mode":"speed"}),
+        )
     }
     fn view(state: &State) -> Value {
         json!({"version":state.library.version,"initialized":state.library.stash.is_some(),"error":state.error,

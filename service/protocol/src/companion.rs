@@ -5,6 +5,32 @@ use std::collections::BTreeSet;
 
 pub const MAX_HOSTS: usize = 128;
 
+/// A reference to service-owned Stash data, never a browser-supplied config.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimezoneSelection {
+    pub group_id: String,
+    pub entry_id: String,
+    pub version: u64,
+}
+impl TimezoneSelection {
+    pub fn validate(&self) -> Result<()> {
+        if [&self.group_id, &self.entry_id]
+            .iter()
+            .any(|id| id.is_empty() || id.len() > 160 || id.chars().any(char::is_control))
+        {
+            return Err(ApiError::new("INVALID_PARAMS", "Invalid Stash selection."));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimezoneRequest {
+    pub selection: Option<TimezoneSelection>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuleRequest {

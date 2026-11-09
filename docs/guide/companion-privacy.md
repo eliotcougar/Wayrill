@@ -22,10 +22,12 @@ The separately installed Wayrill app handles traffic according to your graph.
 
 Chromium's optional **Timezone override · Experimental** applies one selected
 timezone across regular web tabs. The manual mode makes no external lookup.
-**Match Main outbound** asks the local Wayrill service to query `ipwho.is` through
-the applied Main outbound. That provider sees the outbound's exit IP, without
+**Main outbound** and **Custom outbound** ask the local Wayrill service to query
+`ipwho.is` through the applied Main or the selected Stash outbound. That provider sees the outbound's exit IP, without
 receiving the page's destination names or browsing history. The selected zone
-and lookup metadata stay in browser session storage. The native debugger
+and lookup metadata stay in browser-local storage so routing and extension
+restarts can preserve the override. Stash choices include names and stable IDs;
+connection credentials stay outside the extension. The native debugger
 permission is used only to apply this opt-in emulation; its browser banner stays
 visible while active. The feature does not read page content or change Windows'
 timezone, and it is absent from the signed Firefox package.

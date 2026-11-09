@@ -1028,7 +1028,7 @@ impl Kernel {
                 ))
             }
             "companion.timezoneStart" => {
-                let _: Empty = params(input)?;
+                let request: wayrill_protocol::companion::TimezoneRequest = params(input)?;
                 if self.resources.snapshot()["busy"] == true {
                     return Err(ApiError::new(
                         "BUSY",
@@ -1046,8 +1046,22 @@ impl Kernel {
                     .as_deref()
                     .map(crate::subscriptions::vault::unprotect_graph)
                     .transpose()?;
-                let (input, tag, name) =
-                    crate::outbound_tests::timezone::input(&profile.config, source.as_deref())?;
+                let preparation = request
+                    .selection
+                    .as_ref()
+                    .map(|selection| {
+                        self.subscriptions
+                            .timezone_probe(selection, source.as_deref())
+                    })
+                    .transpose()?;
+                let main = if preparation.is_none() {
+                    Some(crate::outbound_tests::timezone::input(
+                        &profile.config,
+                        source.as_deref(),
+                    )?)
+                } else {
+                    None
+                };
                 let revision = profile.revision;
                 let active = self
                     .control
@@ -1058,17 +1072,29 @@ impl Kernel {
                         config: Arc::new(profile.config.clone()),
                     });
                 let egress = self.outbound_egress()?;
-                let mut result = self.outbound_tests.handle(
-                    "outbounds.testStart",
-                    input,
-                    self.exe.clone(),
-                    self.owner.clone(),
-                    Some(egress),
-                    active,
-                )?;
+                let mut result = if let Some(preparation) = preparation {
+                    self.outbound_tests.stash_timezone(
+                        preparation,
+                        self.exe.clone(),
+                        self.owner.clone(),
+                        Some(egress),
+                        active,
+                    )?
+                } else {
+                    self.outbound_tests.handle(
+                        "outbounds.testStart",
+                        main.as_ref().unwrap().0.clone(),
+                        self.exe.clone(),
+                        self.owner.clone(),
+                        Some(egress),
+                        active,
+                    )?
+                };
                 result["revision"] = json!(revision);
-                result["outbound"] = json!(tag);
-                result["name"] = json!(name);
+                if let Some((_, tag, name)) = main {
+                    result["outbound"] = json!(tag);
+                    result["name"] = json!(name);
+                }
                 Ok(result)
             }
             "traffic.get" => {
