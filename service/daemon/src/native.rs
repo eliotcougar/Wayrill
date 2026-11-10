@@ -213,6 +213,9 @@ impl CoreIdentity<'_> {
 }
 /// Obtain the configured owner's logged-on token and restrict it to session 0.
 fn owner_token(owner: &str) -> Result<Handle> {
+    owner_token_in_session(owner, None)
+}
+fn owner_token_in_session(owner: &str, desktop: Option<u32>) -> Result<Handle> {
     unsafe {
         let mut sessions = ptr::null_mut();
         let mut count = 0;
@@ -226,6 +229,9 @@ fn owner_token(owner: &str) -> Result<Handle> {
         };
         let mut found = None;
         for session in list {
+            if desktop.is_some_and(|id| id != session.SessionId) {
+                continue;
+            }
             let mut token = ptr::null_mut();
             if WTSQueryUserToken(session.SessionId, &mut token) != 0 {
                 let token = Handle(token);
@@ -242,11 +248,14 @@ fn owner_token(owner: &str) -> Result<Handle> {
                 "The authorized user must be logged on before Xray can be validated or started.",
             )
         })?;
-        restrict_token(token)
+        restricted_token(token, desktop.is_none())
     }
 }
 // Both identities get the same privilege stripping and noninteractive containment.
 pub(crate) fn restrict_token(token: Handle) -> Result<Handle> {
+    restricted_token(token, true)
+}
+fn restricted_token(token: Handle, session_zero: bool) -> Result<Handle> {
     unsafe {
         let mut admin = ptr::null_mut();
         if ConvertStringSidToSidW(wide("S-1-5-32-544").as_ptr(), &mut admin) == 0 {
@@ -274,12 +283,13 @@ pub(crate) fn restrict_token(token: Handle) -> Result<Handle> {
         }
         let restricted = Handle(restricted);
         let session: u32 = 0;
-        if SetTokenInformation(
-            restricted.0,
-            TokenSessionId,
-            (&session as *const u32).cast(),
-            4,
-        ) == 0
+        if session_zero
+            && SetTokenInformation(
+                restricted.0,
+                TokenSessionId,
+                (&session as *const u32).cast(),
+                4,
+            ) == 0
         {
             return Err(os_error("Set noninteractive Xray session"));
         }
@@ -417,6 +427,8 @@ fn helper_output(arguments: &str) -> bool {
             | "wayrill-fakedns"
             | "--subscription-worker"
             | "wayrill-diagnose"
+            | "--managed-apply"
+            | "--resolve-zone"
     )
 }
 
@@ -519,6 +531,21 @@ fn collect_output(
     Ok(())
 }
 
+pub(crate) fn spawn_desktop(
+    exe: &Path,
+    owner: &str,
+    session: u32,
+    input: &Value,
+) -> Result<CoreProcess> {
+    spawn_with_token(
+        exe,
+        owner_token_in_session(owner, Some(session))?,
+        input,
+        "--managed-apply",
+        None,
+        0,
+    )
+}
 pub fn spawn_owned(
     exe: &Path,
     owner: &str,
@@ -646,6 +673,10 @@ pub(crate) fn spawn_tun_with_token(
         let mut startup: STARTUPINFOEXW = std::mem::zeroed();
         startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        let mut desktop = wide("winsta0\\default");
+        if arguments == "--managed-apply" {
+            startup.StartupInfo.lpDesktop = desktop.as_mut_ptr();
+        }
         startup.StartupInfo.hStdInput = stdin_read.0;
         startup.StartupInfo.hStdOutput = stdout_write.0;
         startup.StartupInfo.hStdError = stderr_write.0;
@@ -720,7 +751,14 @@ pub(crate) fn spawn_tun_with_token(
         drop(stderr_write);
         let output = Arc::new(CoreOutput {
             reply: Mutex::new(
-                matches!(arguments, "--subscription-worker" | "wayrill-diagnose").then(String::new),
+                matches!(
+                    arguments,
+                    "--subscription-worker"
+                        | "wayrill-diagnose"
+                        | "--managed-apply"
+                        | "--resolve-zone"
+                )
+                .then(String::new),
             ),
             origin: info.dwProcessId,
             helper: helper_output(arguments),

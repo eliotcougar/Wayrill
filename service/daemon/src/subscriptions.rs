@@ -1,5 +1,6 @@
 //! Service-owned library and a single background maintenance actor.
 //! Slow parsing, downloads and probes never hold the routing mutex.
+mod timezone_choices;
 pub(crate) mod vault;
 mod worker;
 use crate::{events::Events, kernel::Kernel};
@@ -216,6 +217,7 @@ struct State {
 #[derive(Clone)]
 pub struct Manager {
     state: Arc<Mutex<State>>,
+    timezone_catalog: Arc<Mutex<Option<timezone_choices::Catalog>>>,
     pub(crate) gate: crate::operation_gate::Gate,
     path: PathBuf,
     events: Arc<Events>,
@@ -296,6 +298,7 @@ impl Manager {
                 active: None,
                 completed: VecDeque::new(),
             })),
+            timezone_catalog: Arc::new(Mutex::new(None)),
             gate: crate::operation_gate::Gate::default(),
             path,
             events,
@@ -309,6 +312,33 @@ impl Manager {
     }
     pub fn snapshot(&self) -> Value {
         self.synchronized(|view| view)
+    }
+    pub(crate) fn timezone_choices(&self, input: Value) -> Result<Value> {
+        let query: wayrill_protocol::companion::TimezoneChoices = params(input)?;
+        query.validate()?;
+        let library = {
+            let state = self.state.lock().unwrap();
+            if let Some(error) = &state.error {
+                return Err(error.clone());
+            }
+            state.library.clone()
+        };
+        let mut cached = self.timezone_catalog.lock().unwrap();
+        if let Some(catalog) = cached
+            .as_ref()
+            .filter(|catalog| catalog.version == library.version)
+        {
+            return Ok(catalog.search(&query));
+        }
+        let catalog = timezone_choices::Catalog::parse(library.stash.as_deref(), library.version)?;
+        let result = catalog.search(&query);
+        if cached
+            .as_ref()
+            .is_none_or(|previous| previous.version < catalog.version)
+        {
+            *cached = Some(catalog);
+        }
+        Ok(result)
     }
     pub(crate) fn timezone_probe(
         &self,

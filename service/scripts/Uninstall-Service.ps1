@@ -24,6 +24,8 @@ if ($taskService) {
 }
 Assert-WayrillRecoveryComplete
 if (Test-Path -LiteralPath (Join-Path $taskTarget 'wayrill-service.exe')) {
+    & (Join-Path $taskTarget 'wayrill-service.exe') --clear-timezones
+    if ($LASTEXITCODE -ne 0) { throw 'Startup timezone settings could not be removed. Installed files were preserved.' }
     & (Join-Path $taskTarget 'wayrill-service.exe') --stop-sharing
     if ($LASTEXITCODE -ne 0) { throw 'Sharing restoration remains pending. Its protection, installed files and ownership records were preserved.' }
     # Fixed provider ownership is sufficient even if the settings file was lost.

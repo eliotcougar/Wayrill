@@ -38,6 +38,7 @@ export async function buildExtension(browser, output) {
     manifest.permissions = manifest.permissions.filter((permission) => permission !== 'debugger');
   } else {
     manifest.background.service_worker = 'background-chromium.js';
+    manifest.permissions.push('alarms');
   }
   await mkdir(output, { recursive: true });
   const browserFiles =

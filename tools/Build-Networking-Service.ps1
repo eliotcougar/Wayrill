@@ -70,6 +70,7 @@ foreach ($taskFile in $taskDependencyCache.xray.Files) {
 }
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.officialExecutableSha256) { throw 'Official Xray base executable SHA-256 mismatch.' }
 & (Join-Path $PSScriptRoot 'Build-Capture.ps1') -SkipTests:$SkipTests -OutputDirectory (Join-Path $OutputDirectory 'capture')
+& (Join-Path $PSScriptRoot 'Build-Timezone.ps1') -OutputDirectory (Join-Path $OutputDirectory 'timezone') -CurlPath $CurlPath
 & (Join-Path $PSScriptRoot "Build-XrayCores.ps1") -SkipTests:$SkipTests -CurlPath $CurlPath -TunOutputDirectory (Join-Path $OutputDirectory "tun-core") -MainOutputDirectory (Join-Path $OutputDirectory "xray")
 & (Join-Path $PSScriptRoot 'Check-Native.ps1') -Component service -SkipTests:$SkipTests -CurlPath $CurlPath
 $taskPreviousRustFlags=$env:RUSTFLAGS

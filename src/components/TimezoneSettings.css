@@ -1,0 +1,52 @@
+.app-dialog.timezone-settings {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.timezone-settings-content,
+.timezone-browser-editor {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.timezone-settings-content :is(p, h3) {
+  margin: 0;
+}
+
+.timezone-browser {
+  padding-block: var(--space-3);
+  border-block-end: 1px solid var(--border);
+}
+
+.timezone-browser-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.timezone-browser-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.timezone-browser-editor {
+  margin-block-start: var(--space-3);
+}
+
+.timezone-add {
+  display: grid;
+  gap: var(--space-2);
+}
+.timezone-add-controls {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.timezone-add-controls > :is(input, select) {
+  flex: 1;
+  min-width: 0;
+}
+.timezone-browser-heading > .button-row {
+  flex-shrink: 0;
+}

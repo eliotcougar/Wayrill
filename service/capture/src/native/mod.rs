@@ -40,13 +40,13 @@ fn win32() -> Error {
 fn from_win32(code: u32) -> Error {
     std::io::Error::from_raw_os_error(code as i32).into()
 }
-fn wide(value: &str) -> Vec<u16> {
+pub(crate) fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain([0]).collect()
 }
-fn read_wide(value: &[u16]) -> String {
+pub(crate) fn read_wide(value: &[u16]) -> String {
     String::from_utf16_lossy(&value[..value.iter().position(|c| *c == 0).unwrap_or(value.len())])
 }
-fn filetime(value: FILETIME) -> i64 {
+pub(crate) fn filetime(value: FILETIME) -> i64 {
     (u64::from(value.dwLowDateTime) | (u64::from(value.dwHighDateTime) << 32)) as i64
 }
 pub fn now_filetime() -> i64 {
@@ -57,7 +57,7 @@ pub fn now_filetime() -> i64 {
     }
     filetime(value)
 }
-fn owned_handle(value: HANDLE) -> Result<OwnedHandle> {
+pub(crate) fn owned_handle(value: HANDLE) -> Result<OwnedHandle> {
     if value.is_null() || value == INVALID_HANDLE_VALUE {
         return Err(win32());
     }

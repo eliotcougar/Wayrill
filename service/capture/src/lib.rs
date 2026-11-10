@@ -30,6 +30,7 @@ pub mod socket_presence;
 pub mod sockets;
 pub mod socks;
 pub mod text;
+mod timezone;
 pub mod tun_applications;
 #[cfg(feature = "windivert")]
 pub mod udp;

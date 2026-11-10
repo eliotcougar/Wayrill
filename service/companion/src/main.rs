@@ -3,8 +3,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use wayrill_protocol::{companion::Lookup, ApiError, Result};
+mod browser_timezone;
 mod desktop;
-mod timezone_choices;
 
 const MAX_INPUT: usize = 64 * 1024;
 const MAX_OUTPUT: usize = 1024 * 1024;
@@ -21,8 +21,16 @@ fn decode(bytes: &[u8]) -> Result<Request> {
     let mut request: Request = serde_json::from_slice(bytes)
         .map_err(|_| ApiError::new("INVALID_REQUEST", "Invalid Companion request."))?;
     if request.version != 1
-        || !["routes", "editDomain", "timezone", "timezoneChoices"]
-            .contains(&request.method.as_str())
+        || ![
+            "routes",
+            "editDomain",
+            "timezone",
+            "timezoneChoices",
+            "timezoneGet",
+            "timezoneSet",
+            "timezoneNotify",
+        ]
+        .contains(&request.method.as_str())
     {
         return Err(ApiError::new(
             "UNSUPPORTED",
@@ -39,8 +47,17 @@ fn decode(bytes: &[u8]) -> Result<Request> {
         if let Some(selection) = input.selection {
             selection.validate()?;
         }
+    } else if request.method == "timezoneSet" {
+        let input: browser_timezone::Set = wayrill_protocol::params(request.params.clone())?;
+        input.validate()?;
+    } else if ["timezoneGet", "timezoneNotify"].contains(&request.method.as_str()) {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Empty {}
+        let _: Empty = wayrill_protocol::params(request.params.clone())?;
     } else if request.method == "timezoneChoices" {
-        let input: timezone_choices::Query = wayrill_protocol::params(request.params.clone())?;
+        let input: wayrill_protocol::companion::TimezoneChoices =
+            wayrill_protocol::params(request.params.clone())?;
         input.validate()?;
     } else {
         let edit: wayrill_protocol::companion::RuleRequest = serde_json::from_value(request.params)
@@ -192,18 +209,20 @@ async fn run() -> io::Result<()> {
                             "Main outbound timezone lookup timed out.",
                         ))
                     })
+                } else if ["timezoneGet", "timezoneSet", "timezoneNotify"]
+                    .contains(&request.method.as_str())
+                {
+                    browser_timezone::request(&request.method, request.params).await
                 } else if request.method == "timezoneChoices" {
-                    match wayrill_protocol::params(request.params) {
-                        Ok(input) => tokio::time::timeout(
-                            std::time::Duration::from_secs(15),
-                            timezone_choices::read(input),
-                        )
-                        .await
-                        .unwrap_or_else(|_| {
-                            Err(ApiError::new("TIMEOUT", "Stash search timed out."))
-                        }),
-                        Err(error) => Err(error),
-                    }
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        wayrill_ipc::windows::request(
+                            "subscriptions.timezoneChoices",
+                            request.params,
+                        ),
+                    )
+                    .await
+                    .unwrap_or_else(|_| Err(ApiError::new("TIMEOUT", "Stash search timed out.")))
                 } else {
                     tokio::time::timeout(
                         std::time::Duration::from_secs(5),

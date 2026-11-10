@@ -1,4 +1,5 @@
 import { extensionApi } from './api.js';
+import { timezoneMessage } from './timezone.js';
 const api = extensionApi();
 const mode = /** @type {HTMLSelectElement} */ (document.getElementById('timezone-mode'));
 const zone = /** @type {HTMLSelectElement} */ (document.getElementById('timezone-zone'));
@@ -12,17 +13,18 @@ const choicesStatus = /** @type {HTMLElement} */ (
 );
 const status = /** @type {HTMLElement} */ (document.getElementById('timezone-status'));
 const apply = /** @type {HTMLButtonElement} */ (document.getElementById('timezone-apply'));
-/** @type {number|undefined} */
-let tabId;
 /** @type {import('./timezone.js').Selection|undefined} */
 let selection;
 /** @type {{groupId:string,entryId:string,name:string,kind:string}[]} */
 let items = [];
+/** @typedef {{version:number,groupId:string|null,groups:{id:string,name:string}[],items:typeof items,selected:(typeof items)[number]|null,more:boolean}} ChoicePage */
 let version = 0,
   request = 0,
+  initializing = true,
   loading = false,
   supported = false,
   applying = false;
+let revision = 0;
 const key = (/** @type {{groupId:string,entryId:string}} */ item) =>
   JSON.stringify([item.groupId, item.entryId]);
 const kinds = /** @type {Record<string,string>} */ ({
@@ -31,11 +33,21 @@ const kinds = /** @type {Record<string,string>} */ ({
 });
 for (const name of ['UTC', ...Intl.supportedValuesOf('timeZone')])
   zone.add(new Option(name.replaceAll('_', ' '), name));
-zone.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+function selectZone(/** @type {string} */ value) {
+  if (!value) return;
+  if (![...zone.options].some((option) => option.value === value))
+    zone.add(new Option(value.replaceAll('_', ' '), value));
+  zone.value = value;
+}
+selectZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
 function controls() {
+  const busy = initializing || applying;
+  mode.disabled = zone.disabled = group.disabled = search.disabled = busy;
+  outbound.disabled = busy || loading || items.length === 0;
   manual.hidden = mode.value !== 'manual';
   custom.hidden = mode.value !== 'custom';
-  apply.disabled = !supported || applying || (mode.value === 'custom' && (loading || !selection));
+  apply.disabled =
+    !supported || busy || (mode.value === 'custom' && (loading || selection?.version !== version));
 }
 async function choices() {
   const ticket = ++request;
@@ -43,38 +55,41 @@ async function choices() {
   controls();
   choicesStatus.textContent = 'Reading Stash…';
   try {
-    const reply = await api.runtime.sendMessage({
+    const reply = await timezoneMessage(api, {
       type: 'timezone.choices',
-      tabId,
       query: search.value,
       groupId: group.value,
+      selection,
     });
     if (ticket !== request) return;
     if (reply.error) throw new Error(reply.error);
-    const result =
-      /** @type {{version:number,groups:{id:string,name:string}[],items:typeof items,more:boolean}} */ (
-        reply.result
-      );
-    version = result.version;
-    items = result.items;
-    const selectedGroup = group.value;
+    const result = /** @type {ChoicePage} */ (reply.result);
     group.replaceChildren(new Option('All groups', ''));
     for (const item of result.groups) group.add(new Option(item.name, item.id));
-    group.value = selectedGroup;
-    const previous = outbound.selectedOptions[0]?.textContent ?? 'Previously selected outbound';
+    group.value = result.groupId ?? '';
+    version = result.version;
+    items = result.items;
     outbound.replaceChildren(new Option('Select from Stash…', ''));
     for (const item of items)
       outbound.add(new Option(`${item.name} · ${kinds[item.kind] ?? 'Server'}`, key(item)));
-    if (selection) {
-      const selected = selection;
-      const found = items.find((item) => key(item) === key(selected));
-      if (found) selection = { ...selection, version };
-      else outbound.add(new Option(previous, key(selection)));
-      outbound.value = key(selection);
+    const selectionExpired = !!selection && !result.selected;
+    const selected = result.selected;
+    selection = selected
+      ? { groupId: selected.groupId, entryId: selected.entryId, version }
+      : undefined;
+    if (selected) {
+      if (!items.some((item) => key(item) === key(selected))) {
+        const option = new Option(selected.name, key(selected));
+        option.disabled = true;
+        outbound.add(option);
+      }
+      outbound.value = key(selected);
     }
-    choicesStatus.textContent = result.more
-      ? 'Showing 200 results. Choose a group or refine the search.'
-      : `${items.length} outbounds`;
+    choicesStatus.textContent = selectionExpired
+      ? 'Stash changed. Select an outbound again.'
+      : result.more
+        ? 'Showing 200 results. Choose a group or refine the search.'
+        : `${items.length} outbounds`;
   } catch (error) {
     if (ticket === request)
       choicesStatus.textContent = error instanceof Error ? error.message : 'Cannot read Stash.';
@@ -85,17 +100,26 @@ async function choices() {
     }
   }
 }
-mode.addEventListener('change', () => {
-  controls();
-  if (mode.value === 'custom') void choices();
-});
-group.addEventListener('change', () => {
-  void choices();
-});
 /** @type {ReturnType<typeof setTimeout>|undefined} */
 let searchTimer;
+mode.addEventListener('change', () => {
+  clearTimeout(searchTimer);
+  if (mode.value === 'custom') void choices();
+  else {
+    ++request;
+    loading = false;
+    controls();
+  }
+});
+group.addEventListener('change', () => {
+  clearTimeout(searchTimer);
+  void choices();
+});
 search.addEventListener('input', () => {
   clearTimeout(searchTimer);
+  ++request;
+  loading = true;
+  controls();
   searchTimer = setTimeout(() => {
     void choices();
   }, 300);
@@ -105,52 +129,56 @@ outbound.addEventListener('change', () => {
   selection = item ? { groupId: item.groupId, entryId: item.entryId, version } : undefined;
   controls();
 });
-/** @param {{supported:boolean,mode:string,zone:string,selection?:import('./timezone.js').Selection,error?:string,name?:string}} result */
+/** @param {{supported:boolean,mode:string,zone:string,revision:number,nativeZone?:string,selection?:import('./timezone.js').Selection,error?:string,name?:string}} result */
 function show(result) {
+  revision = result.revision;
   supported = result.supported;
   mode.value = result.mode;
-  if (result.zone && ![...zone.options].some((option) => option.value === result.zone))
-    zone.add(new Option(result.zone.replaceAll('_', ' '), result.zone));
-  if (result.zone) zone.value = result.zone;
+  selectZone(result.zone);
   selection = result.selection;
-  if (selection)
-    outbound.replaceChildren(new Option(result.name ?? 'Selected outbound', key(selection)));
+  if (selection) {
+    const value = key(selection);
+    if (![...outbound.options].some((option) => option.value === value))
+      outbound.add(new Option(result.name ?? 'Selected outbound', value));
+    outbound.value = value;
+  } else outbound.value = '';
   controls();
   status.textContent = !result.supported
     ? 'Native timezone override is unavailable in this browser.'
     : (result.error ??
-      (result.mode === 'off' ? 'Off' : `${result.zone}${result.name ? ' · ' + result.name : ''}`));
+      (result.mode === 'off'
+        ? 'Off'
+        : `${result.nativeZone ?? result.zone}${result.name ? ' · ' + result.name : ''}`));
 }
-void api.tabs
-  .query({ active: true, currentWindow: true })
-  .then(async ([tab]) => {
-    tabId = tab?.id;
-    if (tabId === undefined) {
-      apply.disabled = true;
-      return;
-    }
-    const reply = await api.runtime.sendMessage({ type: 'timezone.get', tabId });
+controls();
+void timezoneMessage(api, { type: 'timezone.get' })
+  .then((reply) => {
     if (reply.error) throw new Error(reply.error);
     if (reply.result) show(reply.result);
-    if (mode.value === 'custom') await choices();
+    if (mode.value === 'custom') void choices();
   })
-  .catch(() => {
-    status.textContent = 'Timezone controller unavailable.';
-    apply.disabled = true;
+  .catch((error) => {
+    status.textContent =
+      error instanceof Error ? error.message : 'Timezone controller unavailable.';
+  })
+  .finally(() => {
+    initializing = false;
+    controls();
   });
 apply.addEventListener('click', async () => {
+  if (apply.disabled) return;
   applying = true;
   controls();
   status.textContent = ['main', 'custom'].includes(mode.value)
     ? 'Looking up outbound exit timezone…'
     : 'Applying…';
   try {
-    const reply = await api.runtime.sendMessage({
+    const reply = await timezoneMessage(api, {
       type: 'timezone.apply',
-      tabId,
       mode: mode.value,
       zone: zone.value,
       selection,
+      revision,
     });
     if (reply.error) throw new Error(reply.error);
     show(reply.result);

@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 #[derive(Default)]
 pub struct Companion {
     applications: Option<TunApplications>,
+    timezones: crate::timezone::Scanner,
 }
 impl Companion {
     pub async fn command(
@@ -26,6 +27,9 @@ impl Companion {
                 progress,
             )?)?),
             "catalog" => catalog(owner_sid(data)?),
+            "timezone.scan" => self
+                .timezones
+                .read(owner_sid(data)?, data["catalog"].as_bool().unwrap_or(false)),
             "policy.evaluate" => crate::policy::evaluate(data),
             "loopback.get" => {
                 let packages = native::packages::read(Some(owner_sid(data)?))?;

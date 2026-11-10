@@ -67,6 +67,14 @@ foreach ($taskEntry in $taskManifest.files) {
     Copy-Item -LiteralPath $taskSource -Destination $taskDestination -Force
 }
 if ([IO.Path]::GetFullPath($taskBundle) -ne [IO.Path]::GetFullPath($taskTarget)) { Copy-Item -LiteralPath (Join-Path $taskBundle 'manifest.json') -Destination $taskTarget -Force }
+# AppContainer targets need read/execute access to this public DLL, in addition
+# to the user's access. Keep service state and all write permissions unchanged.
+foreach ($taskEntry in $taskManifest.files | Where-Object path -Match '^timezone[\\/]wayrill-timezone-[0-9a-f]{16}\.dll$') {
+    $taskDll=Join-Path $taskTarget $taskEntry.path
+    $taskAcl=Get-Acl -LiteralPath $taskDll
+    $taskAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-15-2-1'),[Security.AccessControl.FileSystemRights]::ReadAndExecute,[Security.AccessControl.AccessControlType]::Allow))
+    Set-Acl -LiteralPath $taskDll -AclObject $taskAcl
+}
 if (-not $taskExisting) { New-Service -Name WayrillService -DisplayName 'Wayrill Networking Service' -BinaryPathName $taskCommand -StartupType Automatic -Description 'Wayrill networking coordinator. Routing starts on request or when explicitly enabled for Windows startup.' | Out-Null }
 foreach ($taskArguments in @(
     @('config','WayrillService','start=','auto'),

@@ -148,7 +148,7 @@ See [testing](testing.md), [core integration](xray-integration.md) and
 
 `npm run check:all`, `npm run test:all` and `npm run build:all` check/build both frontends. Individual Aquifer scripts are `aquifer:dev`, `aquifer:check`, `aquifer:test` and `aquifer:build`. `tools/Check-Native.ps1 -Component aquifer` checks its Rust shell. Python worker contracts can be run with `python -m unittest discover -s aquifer/tests -v`; CI runs them separately.
 
-`tools/Build-Aquifer.ps1` builds a standalone `wayrill-aquifer.exe` package under `.tools/installer-aquifer`, including required licenses and verified corresponding sources. `aquifer/Build.ps1` forwards to this maintained entry point. The complete Windows installer builds this package and installs it under `Aquifer/`, separate from `Service/`. The main File menu and a separate Start-menu shortcut open it. `tools/Check-AquiferPayload.ps1` verifies its version and every staged file before packaging.
+`tools/Build-Aquifer.ps1` builds a standalone `wayrill-aquifer.exe` package under `.tools/installer-aquifer`, including required licenses and verified corresponding sources. `aquifer/Build.ps1` forwards to this maintained entry point. The complete Windows installer builds this package and installs it under `Aquifer/`, separate from `Service/`. The main Tools menu and a separate Start-menu shortcut open it. `tools/Check-AquiferPayload.ps1` verifies its version and every staged file before packaging.
 
 `tools/Check-AquiferCore.ps1` is the explicit executable-backed acceptance suite. It uses the pinned parent core and freshly generated synthetic certificates without connecting to a server or starting traffic capture. A missing or mismatched core is an error; prepare it through the networking-service build first.
 

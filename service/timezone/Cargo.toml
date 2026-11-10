@@ -1,0 +1,19 @@
+[package]
+name = "wayrill-timezone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "wayrill_timezone_hook"
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "wayrill-timezone"
+path = "src/bridge.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+wayrill-protocol = { path = "../protocol" }
+windows-sys = { workspace = true, features = ["Win32_Globalization", "Win32_System_Environment", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_System_Time", "Win32_System_SystemInformation", "Win32_System_SystemServices"] }

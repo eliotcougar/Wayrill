@@ -1,17 +1,46 @@
 import { extensionApi } from './api.js';
 
+/** A dedicated channel avoids competing with the signed Companion's snapshot listener.
+ * @param {typeof chrome} api @param {object} message */
+export function timezoneMessage(api, message) {
+  return new Promise((resolve, reject) => {
+    const port = api.runtime.connect({ name: 'wayrill.timezone' });
+    let done = false;
+    const finish = (/** @type {unknown} */ result, /** @type {Error|undefined} */ error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      port.disconnect();
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const timer = setTimeout(
+      () => finish(undefined, new Error('Timezone request timed out.')),
+      120000,
+    );
+    port.onMessage.addListener((reply) => finish(reply, undefined));
+    port.onDisconnect.addListener(() => {
+      const error = api.runtime.lastError;
+      finish(undefined, new Error(error?.message ?? 'Timezone controller disconnected.'));
+    });
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      finish(
+        undefined,
+        error instanceof Error ? error : new Error('Timezone controller disconnected.'),
+      );
+    }
+  });
+}
+
 /** @typedef {{groupId:string,entryId:string,version:number}} Selection */
 /** @param {typeof chrome} api @param {string} method @param {object} params */
 export async function timezoneRequest(api, method, params) {
   let timer;
   try {
     const reply = await Promise.race([
-      api.runtime.sendNativeMessage('com.wayrill.companion', {
-        version: 1,
-        id: 1,
-        method,
-        params,
-      }),
+      api.runtime.sendNativeMessage('com.wayrill.companion', { version: 1, id: 1, method, params }),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('Timezone request timed out.')), 40000);
       }),
@@ -24,271 +53,206 @@ export async function timezoneRequest(api, method, params) {
   }
 }
 
-/** @typedef {{mode:'off'|'main'|'custom'|'manual',zone:string,selection?:Selection,error?:string,name?:string,ip?:string,revision?:number}} Zone */
+/** @typedef {{mode:'off'|'main'|'custom'|'manual',zone:string,selection?:Selection,name?:string,ip?:string,revision?:number}} Zone */
 /** @param {string} value */
 export function timezoneId(value) {
   if (typeof value !== 'string' || !value || value.length > 128)
     throw new Error('Enter an IANA timezone, for example Europe/Berlin.');
   return new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone;
 }
-/** @param {string|undefined} url */
-const web = (url) => /^https?:\/\//.test(url ?? '');
 
-/** One zone per browser session: renderers and workers can be shared across tabs. */
+/** The service owns preferences; the native host discovers its own browser. */
 export class TimezoneController {
   constructor(
     api = extensionApi(),
-    lookup = (/** @type {Selection|undefined} */ selection) =>
-      timezoneRequest(api, 'timezone', selection ? { selection } : {}),
+    request = (/** @type {string} */ method, /** @type {object} */ params) =>
+      timezoneRequest(api, method, params),
+    observed = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    sleep = (/** @type {number} */ milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
   ) {
     this.api = api;
-    this.lookup = lookup;
-    /** @type {Zone} */
-    this.state = { mode: 'off', zone: '' };
-    /** @type {Set<number>} */
-    this.attached = new Set();
-    this.epoch = 0;
+    this.request = request;
+    this.observed = observed;
+    this.sleep = sleep;
     this.lane = Promise.resolve();
-    this.writes = Promise.resolve();
-    this.ready = api.storage.session.get('timezoneState').then(async (saved) => {
-      const record = /** @type {{state:Zone,tabs:number[]}|undefined} */ (saved.timezoneState);
-      if (!record) {
-        // Extension updates clear session storage and debugger attachments. Keep
-        // the chosen zone independently of the routing service's availability.
-        const preferred = /** @type {Zone|undefined} */ (
-          (await api.storage.local.get('timezonePreference')).timezonePreference
-        );
-        if (preferred?.mode && preferred.mode !== 'off') {
-          this.state = preferred;
-          const zone = timezoneId(preferred.zone);
-          const tabs = (await api.tabs.query({})).filter(
-            (tab) => tab.id !== undefined && !tab.incognito && web(tab.url),
-          );
-          const results = await Promise.allSettled(
-            tabs.map((tab) => this.attach(/** @type {number} */ (tab.id), zone, this.epoch)),
-          );
-          if (results.some((result) => result.status === 'rejected'))
-            this.state.error =
-              'Some tabs could not restore their timezone override. Apply again to retry.';
-          await this.persist();
-          await Promise.allSettled(
-            tabs.map((tab) => api.tabs.reload(/** @type {number} */ (tab.id))),
-          );
-        }
-        return;
-      }
-      this.state = record.state;
-      this.attached = new Set(record.tabs);
-      // A service-worker restart must not report a detached override as active.
-      if (this.state.mode !== 'off' && this.attached.size) {
-        const checks = await Promise.allSettled(
-          [...this.attached].map((tabId) => this.command({ tabId }, 'Emulation.canEmulate')),
-        );
-        if (checks.some((result) => result.status === 'rejected'))
-          await this.stop('Timezone session ended. Enable it again to resume.');
-      }
+    let restoring = false;
+    const restore = () => {
+      if (restoring) return;
+      restoring = true;
+      const finish = () => {
+        restoring = false;
+      };
+      void this.read().then(finish, finish);
+    };
+    api.runtime.onStartup.addListener(restore);
+    api.runtime.onInstalled.addListener(restore);
+    api.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === 'timezone.restore') restore();
     });
-    api.debugger?.onEvent.addListener((source, method, params) => {
-      if (method === 'Target.attachedToTarget')
-        void this.ready
-          .catch(() => {})
-          .then(() =>
-            this.child(
-              source,
-              /** @type {{sessionId:string,targetInfo?:{type:string}}} */ (params),
-            ),
-          )
-          .catch(() => {});
-    });
-    api.debugger?.onDetach.addListener((source, reason) => {
-      if (source.tabId !== undefined && reason === 'target_closed') {
-        this.attached.delete(source.tabId);
-        void this.persist().catch(() => {});
-        return;
-      }
-      if (source.tabId !== undefined && this.attached.has(source.tabId))
-        void this.stop(
-          'Timezone override stopped by the browser. Enable it again to resume.',
-        ).catch(() => {});
-    });
-    api.tabs.onRemoved.addListener((id) => {
-      this.attached.delete(id);
-      void this.persist().catch(() => {});
-    });
-    api.tabs.onUpdated?.addListener((id, change) => {
-      if (change.url || change.status === 'loading') this.newTab(id, change.url);
-    });
-    api.tabs.onCreated?.addListener((tab) => {
-      if (tab.id !== undefined) this.newTab(tab.id, tab.url);
-    });
-    api.webNavigation?.onBeforeNavigate.addListener((event) => {
-      if (event.frameId === 0) this.newTab(event.tabId, event.url);
-    });
+    restore();
   }
-  persist() {
-    const timezoneState = structuredClone({ state: this.state, tabs: [...this.attached] });
-    this.writes = this.writes
-      .catch(() => {})
-      .then(async () => {
-        await Promise.all([
-          this.api.storage.session.set({ timezoneState }),
-          this.api.storage.local.set({ timezonePreference: timezoneState.state }),
-        ]);
-      });
-    return this.writes;
+  /** Keep managed browsers in sync with changes made in Wayrill or another profile.
+   * @param {boolean} needed */
+  async schedule(needed) {
+    if (needed) await this.api.alarms.create('timezone.restore', { periodInMinutes: 1 });
+    else await this.api.alarms.clear('timezone.restore');
   }
-  /** @param {() => Promise<unknown>} work */
+  /** @template T @param {() => Promise<T>} work @returns {Promise<T>} */
   enqueue(work) {
-    const result = this.lane
-      .catch(() => {})
-      .then(() => this.ready)
-      .then(work);
+    const result = this.lane.then(work);
     this.lane = result.then(
       () => {},
       () => {},
     );
     return result;
   }
-  /** @param {chrome.debugger.DebuggerSession} source @param {string} method @param {object} [params] */
-  async command(source, method, params) {
-    let timer;
-    try {
-      return await Promise.race([
-        this.api.debugger.sendCommand(source, method, params),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`${method} timed out.`)), 2000);
-        }),
-      ]);
-    } finally {
-      clearTimeout(timer);
+  /** @param {Zone & {supported:boolean,systemZone?:string,error?:string}} state */
+  async confirm(state) {
+    if (state.error) throw new Error(state.error);
+    if (!state.supported) return state;
+    const target = state.mode === 'off' ? state.systemZone : state.zone;
+    if (!target) throw new Error('The native bridge did not report the system timezone.');
+    // Chromium's platform-zone initialization is asynchronous. A notification
+    // can arrive before its initial reply. Retry against the worker's observed
+    // timezone rather than imposing a fixed startup delay on every operation.
+    const expected = timezoneId(target);
+    // Windows maps some IANA IDs to a shared native zone. Compare current
+    // and seasonal wall-clock rules when the observed ID differs.
+    const now = Date.now();
+    const year = new Date(now).getUTCFullYear();
+    const samples = [now, Date.UTC(year, 0, 15), Date.UTC(year, 6, 15)];
+    const formatter = (/** @type {string} */ timeZone) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      });
+    let expectedTime;
+    for (let attempt = 0; ; ++attempt) {
+      const actual = timezoneId(this.observed());
+      if (actual === expected) return { ...state, nativeZone: actual };
+      const actualTime = formatter(actual);
+      const reference = (expectedTime ??= formatter(expected));
+      if (samples.every((date) => actualTime.format(date) === reference.format(date)))
+        return { ...state, nativeZone: actual };
+      if (attempt === 12) break;
+      await this.request('timezoneNotify', {});
+      await this.sleep(500);
     }
+    throw new Error('The browser has not refreshed its timezone. Restart the browser to retry.');
   }
-  /** @param {chrome.debugger.DebuggerSession} source @param {string} zone */
-  async configure(source, zone) {
-    await this.command(source, 'Emulation.setTimezoneOverride', { timezoneId: zone });
-    await this.command(source, 'Target.setAutoAttach', {
-      autoAttach: true,
-      waitForDebuggerOnStart: true,
-      flatten: true,
+  read() {
+    return this.enqueue(async () => {
+      try {
+        let state = await this.request('timezoneGet', {});
+        if (!state.configured) {
+          const preferred = /** @type {Zone|undefined} */ (
+            (await this.api.storage.local.get('timezonePreference')).timezonePreference
+          );
+          if (preferred?.mode && preferred.mode !== 'off') {
+            // An obsolete or incomplete debugger preference must not hide the
+            // service-owned controls. Only migrate a complete supported choice.
+            let valid = ['manual', 'main', 'custom'].includes(preferred.mode);
+            try {
+              timezoneId(preferred.zone);
+            } catch {
+              valid = false;
+            }
+            if (preferred.mode === 'custom' && !preferred.selection) valid = false;
+            if (valid) {
+              try {
+                state = await this.request('timezoneSet', {
+                  expectedRevision: state.revision,
+                  policy: {
+                    mode: preferred.mode,
+                    zone: timezoneId(preferred.zone),
+                    ...(preferred.selection ? { selection: preferred.selection } : {}),
+                    ...(preferred.name ? { name: preferred.name } : {}),
+                    ...(preferred.ip ? { ip: preferred.ip } : {}),
+                  },
+                });
+              } catch (error) {
+                state = {
+                  ...state,
+                  error:
+                    error instanceof Error ? error.message : 'Cannot migrate the saved timezone.',
+                };
+              }
+            }
+          }
+        }
+        if (!state.error) await this.api.storage.local.remove('timezonePreference');
+        await this.api.storage.session.remove('timezoneState');
+        try {
+          state = await this.confirm(state);
+        } catch (error) {
+          // A failed activation is still an editable desired preference. Hiding
+          // it behind a rejected read would also prevent the user choosing Off.
+          state = {
+            ...state,
+            error:
+              error instanceof Error ? error.message : 'Native timezone could not be confirmed.',
+          };
+        }
+        await this.schedule(state.configured || !!state.error);
+        return state;
+      } catch (error) {
+        await this.schedule(true);
+        throw error;
+      }
     });
   }
-  /** @param {chrome.debugger.DebuggerSession} source @param {{sessionId:string,targetInfo?:{type:string}}} params */
-  async child(source, params) {
-    const child = { ...source, sessionId: params.sessionId };
-    const record = this.state;
-    try {
-      if (record.mode !== 'off') {
-        // Service-worker startup will not dispatch Emulation while paused.
-        if (params.targetInfo?.type === 'service_worker')
-          await this.command(child, 'Runtime.runIfWaitingForDebugger');
-        await this.configure(child, record.zone);
+  /** @param {Zone['mode']} mode @param {string} zone @param {Selection|undefined} selection @param {number} expectedRevision */
+  apply(mode, zone, selection, expectedRevision) {
+    return this.enqueue(async () => {
+      try {
+        if (!['off', 'main', 'custom', 'manual'].includes(mode))
+          throw new Error('Choose a timezone mode.');
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+          throw new Error('Reopen timezone settings before applying a change.');
+        if (mode === 'custom' && !selection) throw new Error('Select a Stash outbound first.');
+        const lookup = ['main', 'custom'].includes(mode)
+          ? await this.request('timezone', mode === 'custom' ? { selection } : {})
+          : undefined;
+        const state = await this.request('timezoneSet', {
+          expectedRevision,
+          policy: {
+            mode,
+            zone: mode === 'off' ? '' : timezoneId(lookup?.timezone ?? zone),
+            ...(mode === 'custom' ? { selection } : {}),
+            ...(lookup ? { name: lookup.name, ip: lookup.ip } : {}),
+          },
+        });
+        await this.schedule(true);
+        let confirmed;
+        try {
+          confirmed = await this.confirm(state);
+        } catch (error) {
+          // Persistence already succeeded. Return its revision so the popup can
+          // still choose Off without disguising an uncertain apply as rollback.
+          return {
+            ...state,
+            error:
+              error instanceof Error ? error.message : 'Native timezone could not be confirmed.',
+          };
+        }
+        const tabs = await this.api.tabs.query({});
+        await Promise.allSettled(
+          tabs
+            .filter((tab) => tab.id !== undefined && /^https?:\/\//.test(tab.url ?? ''))
+            .map((tab) => this.api.tabs.reload(/** @type {number} */ (tab.id))),
+        );
+        return confirmed;
+      } catch (error) {
+        await this.schedule(true);
+        throw error;
       }
-    } catch {
-      if (this.state === record && record.mode !== 'off') {
-        record.error =
-          'A frame or worker could not be configured. Full timezone coverage is not established.';
-        await this.persist();
-      }
-    } finally {
-      await this.command(child, 'Runtime.runIfWaitingForDebugger').catch(() => {});
-    }
-  }
-  /** @param {number} tabId @param {string} zone @param {number} epoch */
-  async attach(tabId, zone, epoch) {
-    try {
-      await this.api.debugger.attach({ tabId }, '1.3');
-    } catch (error) {
-      if (!(await this.api.tabs.get(tabId).catch(() => undefined))) return;
-      throw error;
-    }
-    if (epoch !== this.epoch) {
-      await this.api.debugger.detach({ tabId }).catch(() => {});
-      return;
-    }
-    this.attached.add(tabId);
-    await this.configure({ tabId }, zone);
-  }
-  /** @param {number} id @param {string} [url] */
-  newTab(id, url) {
-    void this.enqueue(async () => {
-      if (this.state.mode === 'off' || this.attached.has(id)) return;
-      const tab = await this.api.tabs.get(id).catch(() => undefined);
-      if (!tab || tab.incognito || !web(url ?? tab.url)) return;
-      const epoch = this.epoch;
-      await this.attach(id, this.state.zone, epoch);
-      if (epoch === this.epoch) {
-        await this.persist();
-        await this.api.tabs.reload(id);
-      }
-    }).catch(() => {
-      if (this.state.mode !== 'off')
-        void this.stop('A tab could not be configured. Timezone override stopped.').catch(() => {});
     });
-  }
-  /** @param {string} [error] @param {boolean} [reload] */
-  async stop(error, reload = true) {
-    ++this.epoch;
-    this.state = { mode: 'off', zone: '', ...(error ? { error } : {}) };
-    const tabs = [...this.attached];
-    this.attached.clear();
-    await Promise.allSettled(tabs.map((tabId) => this.api.debugger.detach({ tabId })));
-    await this.persist();
-    if (reload) await Promise.allSettled(tabs.map((id) => this.api.tabs.reload(id)));
-  }
-  async read() {
-    await this.ready;
-    return { supported: !!this.api.debugger, ...this.state };
-  }
-  /** @param {number} tabId @param {Zone['mode']} mode @param {string} zone @param {Selection} [selection] */
-  apply(tabId, mode, zone, selection) {
-    return this.enqueue(() => this.update(tabId, mode, zone, selection));
-  }
-  /** @param {number} tabId @param {Zone['mode']} mode @param {string} zone @param {Selection} [selection] */
-  async update(tabId, mode, zone, selection) {
-    if (!['off', 'main', 'custom', 'manual'].includes(mode))
-      throw new Error('Choose a timezone mode.');
-    if (mode === 'off') {
-      await this.stop();
-      return this.read();
-    }
-    if (!this.api.debugger)
-      throw new Error(
-        'Native timezone override is available only in Chromium browsers in this prototype.',
-      );
-    const tab = await this.api.tabs.get(tabId);
-    if (tab.incognito || !web(tab.url)) throw new Error('Open a regular HTTP(S) page first.');
-    const previousEpoch = this.epoch;
-    if (mode === 'custom' && !selection) throw new Error('Select a Stash outbound first.');
-    const main = ['main', 'custom'].includes(mode)
-      ? await this.lookup(mode === 'custom' ? selection : undefined)
-      : undefined;
-    if (main && (typeof main.timezone !== 'string' || typeof main.ip !== 'string'))
-      throw new Error('Invalid outbound timezone response.');
-    const chosen = timezoneId(main?.timezone ?? zone);
-    if (previousEpoch !== this.epoch) throw new Error('Timezone operation canceled.');
-    const tabs = (await this.api.tabs.query({})).filter(
-      (tab) => tab.id !== undefined && !tab.incognito && web(tab.url),
-    );
-    await this.stop(undefined, false);
-    const epoch = this.epoch;
-    this.state = {
-      mode,
-      zone: chosen,
-      ...(mode === 'custom' ? { selection } : {}),
-      ...(main ? { name: main.name, ip: main.ip, revision: main.revision } : {}),
-    };
-    const results = await Promise.allSettled(
-      tabs.map((tab) => this.attach(/** @type {number} */ (tab.id), chosen, epoch)),
-    );
-    if (epoch !== this.epoch) throw new Error('Timezone operation canceled.');
-    if (results.some((result) => result.status === 'rejected')) {
-      await this.stop('Timezone override could not be applied to every tab.');
-      throw new Error('Timezone override could not be applied to every tab.');
-    }
-    await this.persist();
-    await Promise.allSettled(
-      tabs.map((tab) => this.api.tabs.reload(/** @type {number} */ (tab.id))),
-    );
-    return this.read();
   }
 }

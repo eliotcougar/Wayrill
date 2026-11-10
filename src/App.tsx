@@ -155,6 +155,7 @@ import useGraphEditor from './useGraphEditor';
 import useTheme from './useTheme';
 import AppearanceSettings from './components/AppearanceSettings';
 import CompanionSettings from './components/CompanionSettings';
+import TimezoneSettings from './components/TimezoneSettings';
 import CompanionRuleDialog from './components/CompanionRuleDialog';
 import useCompanionRuleRequest from './useCompanionRuleRequest';
 import { addCompanionDomain } from './companionRules';
@@ -178,6 +179,7 @@ export default function App() {
   const trafficGlow = useGraphActivityPreference();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [companionOpen, setCompanionOpen] = useState(false);
+  const [timezoneOpen, setTimezoneOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
   const stash = useStash();
   const runtime = useRuntime();
@@ -990,13 +992,6 @@ export default function App() {
         },
         { label: '', separator: true },
         {
-          label: 'Wayrill Aquifer…',
-          disabled: !desktopServiceAvailable(),
-          action: () => {
-            void openAquifer().catch((reason) => notify(errorText(reason)));
-          },
-        },
-        {
           label: 'Load Example',
           items: bundledExamples.flatMap((example, index) => [
             ...(index > 0 && example.category !== bundledExamples[index - 1].category
@@ -1116,13 +1111,6 @@ export default function App() {
           },
         },
         {
-          label: 'Browser Companion…',
-          action: () => {
-            setSpaceHeld(false);
-            setCompanionOpen(true);
-          },
-        },
-        {
           label: 'TUN adapters…',
           action: () => {
             setSpaceHeld(false);
@@ -1158,6 +1146,30 @@ export default function App() {
             setSpaceHeld(false);
             setDefaultsSection('resources');
             setDefaultsOpen(true);
+          },
+        },
+      ],
+    },
+    {
+      label: 'Tools',
+      items: [
+        {
+          label: 'Wayrill Aquifer…',
+          disabled: !desktopServiceAvailable(),
+          action: () => void openAquifer().catch((reason) => notify(errorText(reason))),
+        },
+        {
+          label: 'Browser Companion…',
+          action: () => {
+            setSpaceHeld(false);
+            setCompanionOpen(true);
+          },
+        },
+        {
+          label: 'Timezone spoofing…',
+          action: () => {
+            setSpaceHeld(false);
+            setTimezoneOpen(true);
           },
         },
       ],
@@ -1264,6 +1276,7 @@ export default function App() {
                       {companionOpen && (
                         <CompanionSettings onClose={() => setCompanionOpen(false)} />
                       )}
+                      {timezoneOpen && <TimezoneSettings onClose={() => setTimezoneOpen(false)} />}
                       {backupOpen && (
                         <BackupDialog
                           request={backupOpen}

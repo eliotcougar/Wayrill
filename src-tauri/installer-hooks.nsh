@@ -83,6 +83,13 @@ FunctionEnd
   SetOutPath "$INSTDIR"
 !macroend
 !macro NSIS_HOOK_POSTINSTALL
+  ; Hash-named DLLs are immutable and may still be mapped by open browsers.
+  ; Reinstalling the same build must not try to overwrite a mapped image. The
+  ; service package's full SHA-256 checks still verify any existing copy.
+  SetOutPath "$INSTDIR\Service\timezone"
+  SetOverwrite off
+  File "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\timezone\wayrill-timezone-*.dll"
+  SetOverwrite on
   ; Retire the previous Aquifer-owned redistribution, not the user's WinSCP.
   Delete "$INSTDIR\Aquifer\third-party\WinSCP-6.5.7-source.zip"
   Delete "$INSTDIR\Aquifer\licenses\WinSCP-GPL-3.txt"

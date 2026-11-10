@@ -1,214 +1,386 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TimezoneController } from './timezone.js';
+import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
+import { TimezoneController, timezoneMessage } from './timezone.js';
 
-function fixture(
-  main = async () => ({
-    timezone: 'Asia/Tokyo',
-    ip: '203.0.113.1',
-    name: 'Main',
-    outbound: 'main',
-    revision: 7,
-  }),
-) {
-  const events = {},
-    commands = [],
-    saved = {},
-    local = {};
+test('timezone channel completes independently of snapshot listeners and closes on disconnect', async () => {
+  let receive,
+    disconnect,
+    closed = 0;
   const api = {
+    runtime: {
+      sendMessage() {
+        throw new Error('Snapshot message path must not be used');
+      },
+      connect({ name }) {
+        assert.equal(name, 'wayrill.timezone');
+        return {
+          onMessage: {
+            addListener(fn) {
+              receive = fn;
+            },
+          },
+          onDisconnect: {
+            addListener(fn) {
+              disconnect = fn;
+            },
+          },
+          postMessage(message) {
+            assert.equal(message.type, 'timezone.get');
+          },
+          disconnect() {
+            ++closed;
+            disconnect();
+          },
+        };
+      },
+    },
+  };
+  const reply = timezoneMessage(api, { type: 'timezone.get' });
+  receive({ result: { mode: 'off' } });
+  assert.deepEqual(await reply, { result: { mode: 'off' } });
+  assert.equal(closed, 1);
+  const lost = timezoneMessage(api, { type: 'timezone.get' });
+  disconnect();
+  await assert.rejects(lost, /disconnected/);
+  assert.equal(closed, 2);
+});
+
+function fixture() {
+  const events = {},
+    calls = [],
+    reloads = [],
+    local = {};
+  let state = {
+    supported: true,
+    configured: false,
+    mode: 'off',
+    zone: '',
+    revision: 0,
+    systemZone: 'Europe/Moscow',
+  };
+  let observed = state.systemZone,
+    notifyAfter = 0,
+    notifications = 0,
+    failLookup = false;
+  const alarms = new Set();
+  const api = {
+    alarms: {
+      async clear(name) {
+        alarms.delete(name);
+      },
+      async create(name) {
+        alarms.add(name);
+      },
+      onAlarm: {
+        addListener(fn) {
+          events.alarm = fn;
+        },
+      },
+    },
+    runtime: {
+      onStartup: {
+        addListener(fn) {
+          events.startup = fn;
+        },
+      },
+      onInstalled: {
+        addListener(fn) {
+          events.installed = fn;
+        },
+      },
+    },
     storage: {
       local: {
         async get() {
           return structuredClone(local);
         },
-        async set(value) {
-          Object.assign(local, structuredClone(value));
+        async remove(key) {
+          delete local[key];
         },
       },
-      session: {
-        async get() {
-          return saved;
-        },
-        async set(value) {
-          Object.assign(saved, structuredClone(value));
-        },
-      },
+      session: { async remove() {} },
     },
     tabs: {
-      async get(id) {
-        return { id, url: 'https://example.test/', incognito: false };
-      },
       async query() {
-        return [1, 2].map((id) => ({ id, url: 'https://example.test/', incognito: false }));
+        return [
+          { id: 1, url: 'https://example.org/' },
+          { id: 2, url: 'chrome://settings/' },
+        ];
       },
       async reload(id) {
-        commands.push(['reload', id]);
-      },
-      onRemoved: {
-        addListener(fn) {
-          events.removed = fn;
-        },
-      },
-    },
-    debugger: {
-      onEvent: {
-        addListener(fn) {
-          events.event = fn;
-        },
-      },
-      onDetach: {
-        addListener(fn) {
-          events.detach = fn;
-        },
-      },
-      async attach(source) {
-        commands.push(['attach', source]);
-      },
-      async detach(source) {
-        commands.push(['detach', source]);
-        events.detach(source, 'canceled_by_user');
-      },
-      async sendCommand(source, method, params) {
-        commands.push([method, source, params]);
+        reloads.push(id);
       },
     },
   };
-  return { controller: new TimezoneController(api, main), api, events, commands, saved, local };
+  const request = async (method, params) => {
+    calls.push([method, structuredClone(params)]);
+    if (method === 'timezone') {
+      if (failLookup) throw new Error('Outbound unavailable');
+      return { timezone: 'Asia/Tokyo', ip: '203.0.113.1', name: 'Selected' };
+    }
+    if (method === 'timezoneSet') {
+      if (params.expectedRevision !== state.revision) throw new Error('Browser timezone changed.');
+      state = {
+        supported: state.supported,
+        systemZone: state.systemZone,
+        ...params.policy,
+        configured: true,
+        revision: state.revision + 1,
+      };
+    } else if (method === 'timezoneNotify') ++notifications;
+    else if (method !== 'timezoneGet') throw new Error(`Unexpected native method ${method}`);
+    if (notifications >= notifyAfter)
+      observed = state.mode === 'off' ? state.systemZone : state.zone;
+    return method === 'timezoneNotify' ? {} : structuredClone(state);
+  };
+  const controller = new TimezoneController(
+    api,
+    request,
+    () => observed,
+    async () => {},
+  );
+  return {
+    controller,
+    events,
+    calls,
+    reloads,
+    local,
+    alarms,
+    external(policy) {
+      state = { ...state, ...policy, configured: true, revision: state.revision + 1 };
+    },
+    state: () => state,
+    delay: (n) => {
+      notifyAfter = n;
+      notifications = 0;
+    },
+    fail: () => {
+      failLookup = true;
+    },
+  };
 }
-test('custom lookup pins a Stash reference and failure keeps the chosen timezone', async () => {
-  const selected = { groupId: 'provider', entryId: 'chain', version: 3 };
-  let called,
-    failed = false;
-  const f = fixture(async (selection) => {
-    called = selection;
-    if (failed) throw new Error('Stash changed');
-    return { timezone: 'Europe/Berlin', ip: '203.0.113.2', name: 'Chain', revision: 3 };
-  });
-  await f.controller.apply(1, 'custom', '', selected);
-  assert.deepEqual(called, selected);
-  assert.deepEqual((await f.controller.read()).selection, selected);
-  failed = true;
-  await assert.rejects(f.controller.apply(1, 'custom', '', selected), /Stash changed/);
-  assert.equal((await f.controller.read()).zone, 'Europe/Berlin');
-  assert.equal(f.local.timezonePreference.zone, 'Europe/Berlin');
-});
-test('extension reload restores the last timezone without contacting the service', async () => {
+test('custom lookup failure preserves the existing native policy', async () => {
   const f = fixture();
-  await f.controller.apply(1, 'manual', 'Asia/Tokyo');
-  delete f.saved.timezoneState;
-  f.commands.length = 0;
-  const restored = new TimezoneController(f.api, () => {
-    throw new Error('service offline');
-  });
-  assert.equal((await restored.read()).zone, 'Asia/Tokyo');
-  assert.ok(f.commands.some(([method]) => method === 'Emulation.setTimezoneOverride'));
-  await restored.apply(1, 'off', '');
-  delete f.saved.timezoneState;
-  const disabled = new TimezoneController(f.api, () => {
-    throw new Error('service offline');
-  });
-  assert.equal((await disabled.read()).mode, 'off');
-});
-test('timezone is opt-in, validates before attachment, and detaches when disabled', async () => {
-  const f = fixture();
-  assert.equal((await f.controller.read()).mode, 'off');
-  assert.deepEqual(f.commands, []);
-  await assert.rejects(f.controller.apply(1, 'manual', 'Not/AZone'));
-  assert.deepEqual(f.commands, []);
-  await f.controller.apply(1, 'manual', 'Europe/Berlin');
-  assert.equal((await f.controller.read()).zone, 'Europe/Berlin');
-  assert.ok(
-    f.commands.some(
-      ([method, , params]) =>
-        method === 'Emulation.setTimezoneOverride' && params.timezoneId === 'Europe/Berlin',
-    ),
+  await f.controller.read();
+  const selection = { groupId: 'provider', entryId: 'chain', version: 7 };
+  await f.controller.apply('custom', '', selection, f.state().revision);
+  assert.deepEqual(f.state().selection, selection);
+  const previous = structuredClone(f.state());
+  f.fail();
+  await assert.rejects(
+    f.controller.apply('custom', '', selection, f.state().revision),
+    /Outbound unavailable/,
   );
-  await f.controller.apply(1, 'off', '');
-  assert.equal((await f.controller.read()).mode, 'off');
-  assert.ok(f.commands.some(([method]) => method === 'detach'));
+  assert.deepEqual(f.state(), previous);
 });
-test('Main uses only the native reply and a failed lookup leaves the previous override intact', async () => {
-  let failed = false;
-  const f = fixture(async () => {
-    if (failed) throw new Error('offline');
-    return { timezone: 'Asia/Tokyo', ip: '203.0.113.1', name: 'Main', outbound: 'm', revision: 4 };
-  });
-  await f.controller.apply(1, 'main', 'Europe/Berlin');
-  assert.equal((await f.controller.read()).zone, 'Asia/Tokyo');
-  failed = true;
-  await assert.rejects(f.controller.apply(1, 'main', ''));
-  assert.equal((await f.controller.read()).zone, 'Asia/Tokyo');
-  f.events.detach({ tabId: 1 }, 'canceled_by_user');
-  assert.equal((await f.controller.read()).mode, 'off');
-  assert.match((await f.controller.read()).error, /Enable it again/);
-});
-test('failed frame or worker setup always resumes it and reports incomplete coverage', async () => {
+test('a refresh on the last allowed notification confirms the policy and reloads web tabs', async () => {
   const f = fixture();
-  await f.controller.apply(1, 'manual', 'UTC');
-  const send = f.api.debugger.sendCommand;
-  f.api.debugger.sendCommand = async (source, method, params) => {
-    if (method === 'Emulation.setTimezoneOverride') throw new Error('unsupported child');
-    await send(source, method, params);
-  };
-  await f.controller.child({ tabId: 1 }, { sessionId: 'worker' });
-  assert.match((await f.controller.read()).error, /Full timezone coverage/);
-  assert.ok(
-    f.commands.some(
-      ([method, source]) =>
-        method === 'Runtime.runIfWaitingForDebugger' && source.sessionId === 'worker',
-    ),
-  );
+  await f.controller.read();
+  f.delay(12);
+  const result = await f.controller.apply('manual', 'Asia/Tokyo', undefined, f.state().revision);
+  assert.equal(result.nativeZone, 'Asia/Tokyo');
+  assert.equal(result.error, undefined);
+  assert.deepEqual(f.reloads, [1]);
+});
+test('the old debugger preference migrates once, without overriding a service-owned policy', async () => {
+  const f = fixture();
+  await f.controller.read();
+  f.local.timezonePreference = { mode: 'manual', zone: 'Asia/Tokyo' };
+  await f.controller.read();
+  assert.equal(f.state().zone, 'Asia/Tokyo');
+  f.local.timezonePreference = { mode: 'manual', zone: 'Europe/Berlin' };
+  await f.controller.read();
+  assert.equal(f.state().zone, 'Asia/Tokyo');
+  assert.equal(f.local.timezonePreference, undefined);
 });
 
-test('service-worker startup resumes before emulation and a stalled child still resumes', async (t) => {
+test('an unconfirmed saved policy remains editable and can be turned off', async () => {
   const f = fixture();
-  await f.controller.apply(1, 'manual', 'UTC');
-  f.commands.length = 0;
-  await f.controller.child(
-    { tabId: 1 },
-    { sessionId: 'sw', targetInfo: { type: 'service_worker' } },
+  await f.controller.read();
+  f.delay(100);
+  assert.match(
+    (await f.controller.apply('manual', 'Asia/Tokyo', undefined, f.state().revision)).error,
+    /not refreshed/,
   );
-  assert.equal(f.commands[0][0], 'Runtime.runIfWaitingForDebugger');
-  assert.equal(f.commands[1][0], 'Emulation.setTimezoneOverride');
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const send = f.api.debugger.sendCommand;
-  f.api.debugger.sendCommand = (source, method, params) =>
-    method === 'Emulation.setTimezoneOverride'
-      ? new Promise(() => {})
-      : send(source, method, params);
-  const pending = f.controller.child({ tabId: 1 }, { sessionId: 'stalled' });
-  t.mock.timers.tick(2001);
-  await pending;
-  assert.match((await f.controller.read()).error, /Full timezone coverage/);
-  assert.ok(
-    f.commands.some(
-      ([method, source]) =>
-        method === 'Runtime.runIfWaitingForDebugger' && source.sessionId === 'stalled',
-    ),
-  );
+  const state = await f.controller.read();
+  assert.equal(state.supported, true);
+  assert.equal(state.mode, 'manual');
+  assert.match(state.error, /not refreshed/);
+  f.delay(0);
+  await f.controller.apply('off', '', undefined, f.state().revision);
+  assert.equal(f.state().mode, 'off');
 });
 
-test('one browser zone covers other/new tabs and browser cancellation detaches all of them', async () => {
+test('background retries coalesce and follow desktop changes without reloading tabs', async () => {
   const f = fixture();
-  await f.controller.apply(1, 'manual', 'Asia/Tokyo');
-  assert.deepEqual([...f.controller.attached], [1, 2]);
-  f.controller.newTab(3, 'https://new.example.test/');
+  await f.controller.read();
+  assert.equal(f.alarms.size, 0);
+  f.delay(100);
+  assert.match(
+    (await f.controller.apply('manual', 'Asia/Tokyo', undefined, f.state().revision)).error,
+    /not refreshed/,
+  );
+  assert.ok(f.alarms.has('timezone.restore'));
+  f.delay(1);
+  const beforeRetry = f.calls.length;
+  f.events.alarm({ name: 'timezone.restore' });
+  f.events.startup();
   await f.controller.lane;
-  assert.deepEqual([...f.controller.attached], [1, 2, 3]);
-  const get = f.api.tabs.get;
-  f.api.tabs.get = async (id) => {
-    if (id === 99) throw new Error('Tab already closed');
-    return get(id);
+  assert.deepEqual(
+    f.calls.slice(beforeRetry).map(([method]) => method),
+    ['timezoneGet', 'timezoneNotify'],
+  );
+  f.delay(1);
+  f.external({ mode: 'off', zone: '' });
+  const beforeSync = f.calls.length;
+  f.events.alarm({ name: 'timezone.restore' });
+  await f.controller.lane;
+  assert.deepEqual(
+    f.calls.slice(beforeSync).map(([method]) => method),
+    ['timezoneGet', 'timezoneNotify'],
+  );
+  assert.deepEqual(f.reloads, []);
+});
+
+test('an incomplete legacy preference cannot make native settings inaccessible', async () => {
+  const f = fixture();
+  await f.controller.read();
+  f.local.timezonePreference = { mode: 'custom', zone: 'Asia/Tokyo' };
+  assert.equal((await f.controller.read()).supported, true);
+  assert.equal(f.local.timezonePreference, undefined);
+  await f.controller.apply('off', '', undefined, f.state().revision);
+  assert.equal(f.state().mode, 'off');
+});
+
+test('background synchronization cannot authorize an older popup to overwrite desktop changes', async () => {
+  const f = fixture();
+  const displayed = await f.controller.read();
+  f.external({ mode: 'manual', zone: 'Europe/Berlin' });
+  const current = await f.controller.read();
+  await assert.rejects(
+    f.controller.apply('off', '', undefined, displayed.revision),
+    /timezone changed/,
+  );
+  assert.equal(f.state().zone, 'Europe/Berlin');
+  await f.controller.apply('off', '', undefined, current.revision);
+  assert.equal(f.state().mode, 'off');
+});
+
+test('the popup waits for the current Stash results and drops an expired selection', async (context) => {
+  const dom = new JSDOM(readFileSync(new URL('./timezone-popup.html', import.meta.url), 'utf8'));
+  const pending = [];
+  const globals = {
+    document: dom.window.document,
+    Option: dom.window.Option,
+    chrome: {
+      runtime: {
+        connect() {
+          let receive;
+          return {
+            onMessage: { addListener: (listener) => (receive = listener) },
+            onDisconnect: { addListener() {} },
+            disconnect() {},
+            postMessage(message) {
+              pending.push({ message, reply: (result) => receive({ result }) });
+            },
+          };
+        },
+      },
+    },
   };
-  f.controller.newTab(99, 'https://closed.example.test/');
-  await f.controller.lane;
-  assert.equal((await f.controller.read()).mode, 'manual');
-  f.events.detach({ tabId: 2 }, 'target_closed');
-  assert.equal((await f.controller.read()).mode, 'manual');
-  assert.deepEqual([...f.controller.attached], [1, 3]);
-  f.events.detach({ tabId: 1 }, 'canceled_by_user');
-  await f.controller.writes;
-  assert.equal((await f.controller.read()).mode, 'off');
-  assert.deepEqual([...f.controller.attached], []);
-  assert.ok(f.commands.some(([method, source]) => method === 'detach' && source.tabId === 3));
+  const original = Object.keys(globals).map((name) => [
+    name,
+    Object.getOwnPropertyDescriptor(globalThis, name),
+  ]);
+  Object.assign(globalThis, globals);
+  context.after(() => {
+    for (const [name, descriptor] of original) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  });
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const element = (id) => dom.window.document.getElementById(`timezone-${id}`);
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const respond = async (type, result) => {
+    const call = pending.shift();
+    assert.equal(call?.message.type, type);
+    call.reply(result);
+    await settle();
+  };
+  const search = (value) => {
+    element('search').value = value;
+    element('search').dispatchEvent(new dom.window.Event('input'));
+  };
+  const saved = { groupId: 'g', entryId: 'a', version: 7 };
+  const entry = (entryId, name) => ({ groupId: 'g', entryId, name, kind: 'server' });
+  const choices = (version, ...items) => ({
+    version,
+    groupId: null,
+    groups: [{ id: 'g', name: 'Group' }],
+    items,
+    selected: null,
+    more: false,
+  });
+  const alpha = entry('a', 'Alpha');
+  await import('./timezone-popup.js');
+  assert.equal(element('mode').disabled, true);
+  await respond('timezone.get', {
+    supported: true,
+    mode: 'custom',
+    zone: 'UTC',
+    selection: saved,
+    revision: 3,
+  });
+  await respond('timezone.choices', { ...choices(7, alpha, entry('b', 'Beta')), selected: alpha });
+  assert.equal(element('apply').disabled, false);
+
+  search('alpha');
+  context.mock.timers.tick(300);
+  search('beta');
+  assert.equal(element('apply').disabled, true);
+  await respond('timezone.choices', choices(8));
+  assert.match(element('outbound').selectedOptions[0].textContent, /Alpha/);
+  assert.equal(element('apply').disabled, true);
+  context.mock.timers.tick(300);
+  assert.equal(pending[0].message.query, 'beta');
+  await respond('timezone.choices', { ...choices(8, entry('b', 'Beta')), selected: alpha });
+  assert.match(element('outbound').selectedOptions[0].textContent, /Alpha/);
+  assert.equal(element('apply').disabled, false);
+
+  element('group').value = 'g';
+  element('group').dispatchEvent(new dom.window.Event('change'));
+  assert.equal(pending[0].message.groupId, 'g');
+  assert.equal(pending[0].message.selection.version, 8);
+  const remainingGroup = { id: 'h', name: 'Other group' };
+  await respond('timezone.choices', {
+    ...choices(
+      9,
+      { ...entry('b', 'Beta'), groupId: 'h' },
+      { ...entry('c', 'Beta 2'), groupId: 'h' },
+    ),
+    groups: [remainingGroup],
+  });
+  assert.equal(element('group').value, '');
+  assert.equal(element('outbound').value, '');
+  assert.equal(element('apply').disabled, true);
+  assert.match(element('choices-status').textContent, /Stash changed/);
+  element('outbound').selectedIndex = 1;
+  element('outbound').dispatchEvent(new dom.window.Event('change'));
+  element('apply').click();
+  assert.deepEqual(pending[0].message.selection, { groupId: 'h', entryId: 'b', version: 9 });
+  await respond('timezone.apply', {
+    supported: true,
+    mode: 'custom',
+    zone: 'Europe/Berlin',
+    selection: { groupId: 'h', entryId: 'b', version: 9 },
+    revision: 4,
+  });
+  assert.equal(element('outbound').selectedOptions[0].textContent, 'Beta · Server');
+  assert.ok(
+    [...element('outbound').options].some((option) => option.textContent === 'Beta 2 · Server'),
+  );
 });

@@ -25,11 +25,14 @@ timezone across regular web tabs. The manual mode makes no external lookup.
 **Main outbound** and **Custom outbound** ask the local Wayrill service to query
 `ipwho.is` through the applied Main or the selected Stash outbound. That provider sees the outbound's exit IP, without
 receiving the page's destination names or browsing history. The selected zone
-and lookup metadata stay in browser-local storage so routing and extension
-restarts can preserve the override. Stash choices include names and stable IDs;
-connection credentials stay outside the extension. The native debugger
-permission is used only to apply this opt-in emulation; its browser banner stays
-visible while active. The feature does not read page content or change Windows'
+and lookup metadata stay in the local service's protected settings so routing and
+extension restarts can preserve the override. Stash choices include names and
+stable IDs; connection credentials stay outside the extension. The normal-user
+native bridge identifies its browser from Windows process ancestry. The service
+applies its policy to that browser's main process as the normal user. The same
+service can manage applications selected in Wayrill, independently of Companion.
+No debugger permission is used.
+The feature does not read page content or change Windows'
 timezone, and it is absent from the signed Firefox package.
 
 Firefox classifies hostnames sent to a native application as **Browsing activity**
@@ -37,7 +40,7 @@ transmission, even when the recipient runs on the same computer. Companion
 declares this required permission for that local functionality. It does not send
 your browsing activity to Mozilla, the developers, or an external service.
 
-Disable or remove the extension to stop capture. **Settings > Browser Companion >
+Disable or remove the extension to stop capture. **Tools > Browser Companion >
 Disconnect all browsers** in Wayrill removes this Windows user's bridge
 registrations. It does not stop Wayrill routing or remove browser profiles.
 

@@ -31,6 +31,26 @@ pub struct TimezoneRequest {
     pub selection: Option<TimezoneSelection>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimezoneChoices {
+    #[serde(default)]
+    pub query: String,
+    pub group_id: Option<String>,
+    pub selected: Option<TimezoneSelection>,
+}
+impl TimezoneChoices {
+    pub fn validate(&self) -> Result<()> {
+        if self.query.len() > 256 || self.group_id.as_ref().is_some_and(|id| id.len() > 160) {
+            return Err(ApiError::new("INVALID_REQUEST", "Invalid Stash search."));
+        }
+        if let Some(selected) = &self.selected {
+            selected.validate()?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuleRequest {
@@ -131,4 +151,52 @@ mod tests {
         )
         .is_err());
     }
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Policy {
+    pub mode: String,
+    pub zone: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<TimezoneSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
+}
+impl Policy {
+    pub fn validate(&self) -> Result<()> {
+        let valid = match self.mode.as_str() {
+            "off" => self.zone.is_empty() && self.selection.is_none(),
+            "manual" | "main" => self.selection.is_none() && valid_zone(&self.zone),
+            "custom" => {
+                self.selection
+                    .as_ref()
+                    .is_some_and(|s| s.validate().is_ok())
+                    && valid_zone(&self.zone)
+            }
+            _ => false,
+        };
+        if !valid
+            || self.name.as_ref().is_some_and(|s| s.len() > 512)
+            || self
+                .ip
+                .as_ref()
+                .is_some_and(|s| s.parse::<std::net::IpAddr>().is_err())
+        {
+            return Err(ApiError::new(
+                "INVALID_REQUEST",
+                "Invalid browser timezone policy.",
+            ));
+        }
+        Ok(())
+    }
+}
+fn valid_zone(zone: &str) -> bool {
+    !zone.is_empty()
+        && zone.len() < 128
+        && zone
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"/_+-".contains(&c))
 }

@@ -131,6 +131,7 @@ struct StopInput {
     disable_sharing: bool,
 }
 pub struct Kernel {
+    pub(crate) browser_timezone: crate::browser_timezone::Manager,
     protection: crate::app_protection::Manager,
     pub(crate) subscriptions: crate::subscriptions::Manager,
     startup: crate::startup::Startup,
@@ -547,6 +548,10 @@ impl Kernel {
         // cannot consume this boot's auto-start before recording it.
         session.acknowledge()?;
         let mut kernel = Self {
+            browser_timezone: crate::browser_timezone::Manager::new(
+                data.join("browser-timezones.json"),
+                &owner,
+            ),
             protection: crate::app_protection::Manager::open(
                 &owner,
                 data.join("app-protection.json"),
@@ -857,6 +862,20 @@ impl Kernel {
             ));
         }
         match method {
+            "browserTimezone.list" => {
+                let _: Empty = params(input)?;
+                self.browser_timezone.list()
+            }
+            "browserTimezone.set" => self.browser_timezone.edit(params(input)?),
+            "browserTimezone.refresh" => {
+                let _: Empty = params(input)?;
+                self.browser_timezone.refresh()
+            }
+            "browserTimezone.add" => self.browser_timezone.add(params(input)?),
+            "browserTimezone.remove" => self.browser_timezone.remove(params(input)?),
+            "companion.timezoneGet" | "companion.timezoneSet" => self
+                .browser_timezone
+                .request(params(input)?, method == "companion.timezoneSet"),
             "appProtection.get" => {
                 let _: Empty = params(input)?;
                 Ok(self.protection.snapshot())
@@ -1027,7 +1046,7 @@ impl Kernel {
                     crate::traffic::timestamp_ms(),
                 ))
             }
-            "companion.timezoneStart" => {
+            "companion.timezoneStart" | "timezone.probeStart" => {
                 let request: wayrill_protocol::companion::TimezoneRequest = params(input)?;
                 if self.resources.snapshot()["busy"] == true {
                     return Err(ApiError::new(
@@ -1035,15 +1054,9 @@ impl Kernel {
                         "Wait for the resource update to finish.",
                     ));
                 }
-                let profile = self.profile.as_ref().ok_or_else(|| {
-                    ApiError::new(
-                        "MAIN_UNAVAILABLE",
-                        "Apply a graph with a Main outbound first.",
-                    )
-                })?;
+                let profile = self.profile.as_ref();
                 let source = profile
-                    .source_graph
-                    .as_deref()
+                    .and_then(|p| p.source_graph.as_deref())
                     .map(crate::subscriptions::vault::unprotect_graph)
                     .transpose()?;
                 let preparation = request
@@ -1056,18 +1069,24 @@ impl Kernel {
                     .transpose()?;
                 let main = if preparation.is_none() {
                     Some(crate::outbound_tests::timezone::input(
-                        &profile.config,
+                        &profile
+                            .ok_or_else(|| {
+                                ApiError::new(
+                                    "MAIN_UNAVAILABLE",
+                                    "Apply a graph with a Main outbound first.",
+                                )
+                            })?
+                            .config,
                         source.as_deref(),
                     )?)
                 } else {
                     None
                 };
-                let revision = profile.revision;
-                let active = self
-                    .control
-                    .as_ref()
+                let revision = self.revision();
+                let active = profile
+                    .zip(self.control.as_ref())
                     .filter(|_| self.core_state == CoreState::Running)
-                    .map(|control| crate::outbound_tests::ActivePolicy {
+                    .map(|(profile, control)| crate::outbound_tests::ActivePolicy {
                         control: control.clone(),
                         config: Arc::new(profile.config.clone()),
                     });

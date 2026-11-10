@@ -98,6 +98,32 @@ The desktop launch inherits no Windows handles from the bridge, so closing a
 browser cannot leave its messaging/control pipes held open by the desktop.
 Its native-messaging envelope reports the bridge's compiled `extensionVersion` in
 both success and error replies, independently of the routing service's availability.
+
+The Chromium native host also exposes `timezoneGet`, `timezoneSet` and
+`timezoneNotify`. Set accepts `{policy, expectedRevision}`; policy contains mode,
+IANA zone and optional Stash selection/lookup metadata. Browser identity is
+discovered by the native helper, never supplied by the extension. The service's
+`companion.timezoneGet/Set` verify that OS process identity and persist a separate
+browser preference. Live native application runs as the normal browser user,
+outside the kernel lock. See [timezone lifecycle](companion-timezone-prototype.md).
+The desktop uses `browserTimezone.list`, `.refresh`, `.add`, `.set` and `.remove`. Add accepts
+one local executable `path` or a catalogued package `package` family. Set accepts
+a configured/detected record `id`, `expectedRevision` and validated `policy`.
+Remove preserves a hidden Off record for recovery of surviving processes. The
+service's independent supervisor uses the attribution helper's `timezone.scan`
+inventory and applies as the owner in the target desktop session, without
+requiring routing or Companion. Explicit executable policy wins over package
+policy. `timezone.probeStart` aliases the existing isolated outbound timezone job.
+Both timezone pickers use `subscriptions.timezoneChoices`. It searches cached
+metadata for the current Stash version outside the routing lock and returns up
+to 200 matching outbounds. An optional `selected` reference returns its display
+metadata independently of the filter, so a saved choice can stay selected outside
+the results. The response version is required when starting the outbound probe.
+Firefox and detected Node/Electron images report `phase: startup` once their
+owned exact-path startup registration is prepared. Changes, including Off,
+require fully quitting and reopening those apps; this is distinct from live
+native activation. Package executables are discovered from verified process
+identity and remain reconcilable while closed and across service restarts.
 This is package identity, not a service command: an unpacked copy may use the
 browser's reload API only after its local manifest matches that version and key.
 

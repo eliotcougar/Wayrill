@@ -1081,3 +1081,4 @@ mod protocol_registry_tests {
         assert!(normalize_config(config).is_err());
     }
 }
+pub mod application_identity;

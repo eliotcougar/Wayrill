@@ -31,6 +31,11 @@ Windows WinHTTP rather than shipping curl/OpenSSL as a runtime dependency.
 Checksums establish payload integrity, not code-signing identity. Preserve all
 component licenses and corresponding source when redistributing packages.
 
+The Rust browser timezone override statically links Microsoft Detours 4.0.1
+(MIT), pinned to commit e4bfd6b03e50de46b47abfbd1e46b384f0c5f833:
+https://github.com/microsoft/Detours. Its license is packaged beside the native
+bridge. `tools/Build-Timezone.ps1` verifies the source archive before compiling it.
+
 ## Subscription engine
 
 The service embeds QuickJS-NG through rquickjs 0.14.0 (MIT). Sources and exact

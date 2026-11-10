@@ -1,6 +1,7 @@
 mod activation;
 mod activity;
 mod app_protection;
+mod browser_timezone;
 mod capture;
 mod diagnostics;
 mod display_names;
@@ -34,6 +35,7 @@ mod subscriptions;
 mod system_native;
 mod system_settings;
 mod tags;
+mod timezone_startup;
 mod traffic;
 mod tun;
 mod upgrade;
@@ -199,6 +201,13 @@ fn main() {
     if args.len() == 2 && args[1] == "--remove-tun-adapters" {
         if let Err(error) = tun::adapters::uninstall() {
             crate::diagnostics::error!("Remove owned TUN adapters: {}", error.message);
+            std::process::exit(1);
+        }
+        return;
+    }
+    if args.len() == 2 && args[1] == "--clear-timezones" {
+        if let Err(error) = timezone_startup::uninstall() {
+            crate::diagnostics::error!("Remove startup timezone settings: {}", error.message);
             std::process::exit(1);
         }
         return;
@@ -451,6 +460,20 @@ async fn run_service(
         );
     }
     events.publish("service.ready", lock_state(&kernel)?.snapshot());
+    // Optional app presentation remains independent of routing activation and
+    // recovery. Its actor never acquires the routing kernel lock.
+    let timezone = lock_state(&kernel)?.browser_timezone.clone();
+    let timezone_root = std::env::current_exe()
+        .map_err(|e| ApiError::io("Locate timezone adapter", e))?
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let _timezone = timezone
+        .start(timezone_root)
+        .inspect_err(|error| {
+            diagnostics::log("timezone", "warning", &error.message);
+        })
+        .ok();
     let manager = lock_state(&kernel)?.subscriptions.clone();
     let gate = manager.gate.clone();
     // Serve lock-free activity queries while native startup holds the kernel.
@@ -747,6 +770,11 @@ async fn client(
                     "The service is shutting down; queued commands were not executed.",
                 ))
             } else {
+                if request.method == "subscriptions.timezoneChoices" {
+                    let subscriptions = k.subscriptions.clone();
+                    drop(k);
+                    return subscriptions.timezone_choices(request.params);
+                }
                 let result = activity::observe(
                     move |a| {
                         progress.send_replace(Some(a));

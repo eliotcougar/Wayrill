@@ -2,8 +2,8 @@
 
 The Chromium and Firefox packages share the request-observation JavaScript, HTML
 and CSS. Chromium adds a separate background entry point and popup fragment for
-its experimental native timezone override. Those files and the `debugger`
-permission are excluded from Firefox.
+its experimental native timezone override. Those files and its restoration-alarm
+permission are excluded from Firefox. Neither package requests debugger access.
 `tools/Build-CompanionExtension.mjs` generates Firefox's module event page,
 stable Gecko ID, minimum Firefox version, data-transmission declaration and
 independent release version from `extensions/signed/firefox.json`. No bundler,
@@ -67,7 +67,7 @@ shared runtime files require a newly signed XPI before building an installer.
 ## Check the installed experience
 
 Use a disposable Windows environment with a matching Wayrill build. Enable the
-bridge in **Settings > Browser Companion**, install the signed XPI through
+bridge in **Tools > Browser Companion**, install the signed XPI through
 Firefox's Add-ons Manager, and grant its requested permissions. A developer can
 load the generated manifest temporarily through `about:debugging` before signing.
 

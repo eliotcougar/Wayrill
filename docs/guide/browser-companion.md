@@ -7,7 +7,7 @@ cache/error counts, and last known Wayrill routes, including Block.
 
 ## Set up from the Windows app
 
-Open **Settings > Browser Companion** in Wayrill. The installer includes the
+Open **Tools > Browser Companion** in Wayrill. The installer includes the
 extension and bridge; downloading a separate package or running PowerShell is
 not required.
 
@@ -177,20 +177,54 @@ group may later choose a different exit, and individual routing rules may use
 other outbounds; one browser timezone cannot match all those paths. The lookup
 is an IP-geolocation estimate. A failed lookup preserves an existing override.
 
-Chromium requires the extension's debugger permission at installation/update;
-it cannot be an optional permission requested later. Its debugging banner stays
-visible while the override is active. **Off**, canceling the banner, or opening
-DevTools detaches the override and reloads the affected tabs with the system
-timezone. Closing one tab leaves the mode enabled for other tabs. Restarting
-routing or temporarily losing the service does not reset the selected timezone.
-The extension also remembers it across browser and extension restarts without
-requiring a fresh network lookup.
+The Companion configures Wayrill's native override for its own browser. It does
+not use debugger access and shows no debugging banner. The service saves the
+preference separately from routing. Closing the desktop window, restarting routing,
+or opening DevTools leaves the override active. The service restores the saved
+zone when the browser starts, even without Companion and without repeating an outbound lookup. **Off** restores
+the system timezone for that browser. Apply reloads open web tabs; background
+restoration does not. If the service is temporarily unavailable, restoration retries
+automatically.
 
-Workers and iframes use native browser emulation. Newly opened pages and service
-workers can execute before attachment completes, and an existing worker may
-have cached its old timezone. This experimental feature is not a guarantee
+The service runs a normal-user adapter that loads a small Rust override into the browser's main
+process. Chromium propagates timezone changes to its renderers, workers and
+iframes through its own notification mechanism. Protected subprocesses are left
+alone. This currently requires a 64-bit Windows browser. Windows groups some IANA
+zones under one native timezone; the popup shows the browser's actual zone name.
+Pages may execute before startup restoration finishes, and an application may
+retain previously created date formatters. This experimental feature is not a guarantee
 against every timezone/fingerprinting check. Windows' timezone, language and
 geolocation settings are unchanged. Firefox's signed add-on does not include it.
+
+You can also configure browsers without the extension in **Tools > Timezone
+spoofing**. That window detects installed browsers and lets you add an executable,
+running application or installed package. Native application support is experimental;
+protected apps and apps with their own timezone handling may refuse or ignore it.
+Recognized Electron and Node.js applications use startup initialization, because their
+JavaScript runtimes can cache timezone offsets before a live override arrives.
+Save the setting, wait for **startup timezone prepared**, then fully quit and
+reopen the application. Do this after each change, including switching Off.
+Wayrill sets `TZ` only inside that application's process, before Node initializes;
+it does not change your Windows user or system environment.
+For an installed-package policy, launch the app once so Wayrill can discover its
+executable, then restart it after preparation finishes. A new executable path
+after an app update may also need this discovery/restart step.
+Firefox also uses a startup override and requires a complete restart after changes.
+The signed Firefox extension remains unchanged; configure this in Wayrill itself.
+Custom Stash selection works without an applied graph. With no graph DNS context,
+local name lookups use Windows' configured resolver; a failed DNS path can still
+prevent the exit lookup from completing.
+**Initialization → Automatic** also prepares recognized .NET, Go, Python, JVM and
+Qt runtimes before launch. If another app keeps its old timezone, choose
+**Before the app starts**, save, wait for preparation and completely quit and reopen
+it. Repeat that restart after changing its zone, switching Off or upgrading Wayrill.
+Selecting a shared executable such as `java.exe` or `python.exe` affects every app
+using that executable. Native x86 and ARM64 apps are currently unsupported;
+compatible AnyCPU apps running as x64 are supported.
+WebView2 content can follow its host's live setting. Apps with their own explicit
+timezone handling or previously cached date formatters may still ignore an override.
+The setting does not change server/account timezones or clocks in WSL, containers
+or virtual machines.
 
 ## Privacy and limits
 
