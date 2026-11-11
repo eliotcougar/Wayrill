@@ -505,10 +505,12 @@ function reconcileEntries(
   protectedIds: ReadonlySet<string>,
 ): StashEntry[] {
   const identities = new Map<string, StashEntry[]>();
+  const oldIds = new Set<string>();
   // Reverse once and pop so matching preserves source order without the
   // quadratic array shifts caused by large sets of equivalent profiles.
   for (let i = old.length - 1; i >= 0; i--) {
     const entry = old[i];
+    oldIds.add(entry.id);
     const key = entryIdentity(entry);
     const entries = identities.get(key) ?? [];
     entries.push(entry);
@@ -535,21 +537,30 @@ function reconcileEntries(
   incoming.forEach((entry, i) => {
     if (!matches[i]) counts.set(key(entry), (counts.get(key(entry)) ?? 0) + 1);
   });
+  // A Stash-format source can carry local IDs. Only a reconciled match can
+  // claim an existing ID; an added entry or fork must have its own identity.
+  const newEntry = (entry: StashEntry) =>
+    oldIds.has(entry.id) ? { ...entry, id: crypto.randomUUID() } : entry;
   const kept = new Set<string>();
   const refreshed = incoming.map((entry, i) => {
-    const options = remaining.get(key(entry));
-    const unlocked = options?.filter((e) => !e.locked && !e.manual);
-    const copies = unlocked?.filter((e) => e.sourceCopyOf);
-    const alternatives = copies?.length ? copies : unlocked?.length ? unlocked : options;
-    const previous =
-      matches[i] ??
-      (counts.get(key(entry)) === 1 && alternatives?.length === 1 ? alternatives[0] : undefined);
-    if (!previous) return entry;
-    kept.add(previous.id);
-    if ((previous.locked || previous.manual) && entryIdentity(previous) !== entryIdentity(entry)) {
-      kept.delete(previous.id);
-      return { ...entry, sourceCopyOf: previous.id };
+    const exact = matches[i];
+    let previous = exact;
+    if (!exact) {
+      const name = key(entry);
+      // An ambiguous incoming name cannot claim an old entry. Only scan each
+      // candidate bucket for its single eligible incoming entry.
+      if (counts.get(name) === 1) {
+        const options = remaining.get(name);
+        const unlocked = options?.filter((e) => !e.locked && !e.manual);
+        const copies = unlocked?.filter((e) => e.sourceCopyOf);
+        const alternatives = copies?.length ? copies : unlocked?.length ? unlocked : options;
+        if (alternatives?.length === 1) previous = alternatives[0];
+      }
     }
+    if (!previous) return newEntry(entry);
+    if (!exact && (previous.locked || previous.manual))
+      return { ...newEntry(entry), sourceCopyOf: previous.id };
+    kept.add(previous.id);
     const next =
       previous.locked || previous.manual
         ? previous
@@ -558,9 +569,7 @@ function reconcileEntries(
             id: previous.id,
             ...(previous.starred === undefined ? {} : { starred: previous.starred }),
             ...(previous.sourceCopyOf ? { sourceCopyOf: previous.sourceCopyOf } : {}),
-            ...(entryIdentity(previous) === entryIdentity(entry) && previous.health
-              ? { health: previous.health }
-              : {}),
+            ...(exact?.health ? { health: exact.health } : {}),
             ...(previous.locked === undefined ? {} : { locked: previous.locked }),
           };
     return next === previous || json(next) === json(previous) ? previous : next;

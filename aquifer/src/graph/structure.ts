@@ -1,14 +1,36 @@
 import type { Connection, Edge } from '@xyflow/react';
 import { getOutputPorts, hasInputPort } from './catalog';
 import { typedConnectionProblem } from './connectionTypes';
-import type { Diagnostic, GraphState } from './types';
+import type { Diagnostic, GraphState, RuleNode } from './types';
 
-function portProblem(graph: GraphState, connection: Connection | Edge): string | null {
-  const source = graph.nodes.find((node) => node.id === connection.source);
-  const target = graph.nodes.find((node) => node.id === connection.target);
+function indexConnectionNodes(graph: GraphState) {
+  const byId = new Map<string, RuleNode>();
+  // Keep the first occurrence when diagnosing a malformed graph with duplicate IDs.
+  for (const node of graph.nodes) if (!byId.has(node.id)) byId.set(node.id, node);
+  const outputs = new Map<RuleNode, Set<string>>();
+  return {
+    byId,
+    hasOutput(node: RuleNode, port: string) {
+      let ports = outputs.get(node);
+      if (!ports) {
+        ports = new Set(getOutputPorts(node.data.kind, node.data));
+        outputs.set(node, ports);
+      }
+      return ports.has(port);
+    },
+  };
+}
+
+function portProblem(
+  graph: GraphState,
+  connection: Connection | Edge,
+  nodes: ReturnType<typeof indexConnectionNodes>,
+): string | null {
+  const source = nodes.byId.get(connection.source);
+  const target = nodes.byId.get(connection.target);
   if (!source || !target) return 'This connection refers to a missing node.';
   if (source.id === target.id) return 'A node cannot connect to itself.';
-  if (!getOutputPorts(source.data.kind, source.data).includes(connection.sourceHandle ?? '')) {
+  if (!nodes.hasOutput(source, connection.sourceHandle ?? '')) {
     return 'This node has no matching output port.';
   }
   if (!hasInputPort(target.data.kind) || connection.targetHandle !== 'in') {
@@ -28,7 +50,7 @@ function portProblem(graph: GraphState, connection: Connection | Edge): string |
       if (seen.has(id)) continue;
       seen.add(id);
       for (const edge of edges.filter((item) => item.target === id)) {
-        const upstream = graph.nodes.find((node) => node.id === edge.source);
+        const upstream = nodes.byId.get(edge.source);
         if (upstream?.data.kind === 'routing-filter') pending.push(upstream.id);
         else if (edge.sourceHandle !== 'dns')
           return 'A DNS handler needs plaintext DNS only. This filter also receives general or encrypted traffic; use a separate DNS filter path.';
@@ -48,7 +70,7 @@ function portProblem(graph: GraphState, connection: Connection | Edge): string |
       if (seen.has(id)) continue;
       seen.add(id);
       for (const edge of graph.edges.filter((item) => item.source === id)) {
-        const downstream = graph.nodes.find((node) => node.id === edge.target);
+        const downstream = nodes.byId.get(edge.target);
         if (downstream?.data.kind === 'dns-handler')
           return 'This filter leads to a plaintext DNS handler. Connect the input’s DNS output or choose a separate traffic filter.';
         if (downstream?.data.kind === 'routing-filter') pending.push(downstream.id);
@@ -59,16 +81,16 @@ function portProblem(graph: GraphState, connection: Connection | Edge): string |
 }
 
 export function connectionProblem(graph: GraphState, connection: Connection | Edge): string | null {
-  const problem = portProblem(graph, connection);
+  const nodes = indexConnectionNodes(graph);
+  const problem = portProblem(graph, connection, nodes);
   if (problem) return problem;
   const proposed = {
     ...graph,
     edges: [...graph.edges, { ...connection, id: '__proposed_connection__' }],
   };
   for (const edge of proposed.edges) {
-    if (proposed.nodes.find((node) => node.id === edge.target)?.data.kind !== 'dns-handler')
-      continue;
-    const dnsProblem = portProblem(proposed, edge);
+    if (nodes.byId.get(edge.target)?.data.kind !== 'dns-handler') continue;
+    const dnsProblem = portProblem(proposed, edge, nodes);
     if (dnsProblem) return dnsProblem;
   }
   if (
@@ -95,6 +117,7 @@ export function structureProblems(graph: GraphState): Diagnostic[] {
     nodeIds = new Set<string>(),
     edgeIds = new Set<string>(),
     ports = new Set<string>();
+  const nodes = indexConnectionNodes(graph);
   const adjacency = new Map<string, string[]>();
   const add = (nodeId: string | undefined, message: string) =>
     issues.push({ severity: 'error', nodeId, message });
@@ -110,13 +133,15 @@ export function structureProblems(graph: GraphState): Diagnostic[] {
   for (const edge of graph.edges) {
     if (edgeIds.has(edge.id)) add(edge.source, 'Duplicate connection ID.');
     edgeIds.add(edge.id);
-    const problem = portProblem(graph, edge);
+    const problem = portProblem(graph, edge, nodes);
     if (problem) add(nodeIds.has(edge.source) ? edge.source : undefined, problem);
     const key = `${edge.source}:${edge.sourceHandle}`;
     if (ports.has(key)) add(edge.source, 'One output port has multiple paths.');
     ports.add(key);
     if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
-      adjacency.set(edge.source, [...(adjacency.get(edge.source) ?? []), edge.target]);
+      const targets = adjacency.get(edge.source);
+      if (targets) targets.push(edge.target);
+      else adjacency.set(edge.source, [edge.target]);
     }
   }
   const visiting = new Set<string>(),

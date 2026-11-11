@@ -38,6 +38,8 @@ export function routingPaths(graph: GraphState, initialRules = 0) {
       );
     return target;
   };
+  // One compiler invocation can enter the same filter through many branches.
+  const tables = new Map<RuleNode, ReturnType<typeof readRuleTable>>();
   let visits = 0,
     emitted = initialRules;
   const warnings: string[] = [];
@@ -93,9 +95,14 @@ export function routingPaths(graph: GraphState, initialRules = 0) {
       if (active.has(node.id))
         throw new RoutingPathError(node.id, `${node.data.label}: routing filter cycle detected.`);
       active.add(node.id);
-      const table = readRuleTable(node.data.settings);
+      let table = tables.get(node);
+      if (!table) {
+        table = readRuleTable(node.data.settings);
+        tables.set(node, table);
+      }
       let matchedAll = false;
-      for (const row of table.rules.filter((r) => r.enabled)) {
+      for (const row of table.rules) {
+        if (!row.enabled) continue;
         const projection = options.project?.(node, row) ?? routingRuleVariants(row);
         const variants = jsonArray(projection) ? projection : [projection];
         if (!variants.length) continue;

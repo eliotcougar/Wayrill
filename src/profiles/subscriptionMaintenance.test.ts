@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importProfiles, type Stash } from './import';
+import { importProfiles, parseStash, serializeStash, type Stash } from './import';
 import { materializeRefresh, prepareRefresh } from './refreshPreparation';
 import { applySubscriptionHealth } from './subscriptionHealth';
 import { protectedSubscriptionEntries, stashLinkKey } from './subscriptionReferences';
@@ -31,6 +31,37 @@ const refresh = (stash: Stash, text: string, g?: GraphState) =>
   );
 
 describe('subscription reconciliation', () => {
+  it('preserves exact matches and refuses to guess among changed entries with the same name', () => {
+    const stash: Stash = {
+      format: 'wayrill.stash',
+      version: 3,
+      groups: importProfiles(
+        'socks://a.example:1080#Shared\nsocks://b.example:1080#Shared\nsocks://c.example:1080#Shared',
+      ).groups,
+    };
+    const [unchanged, locked, removed] = stash.groups[0].entries;
+    unchanged.starred = true;
+    locked.locked = true;
+    const next = refresh(
+      stash,
+      'socks://a.example:1080#Shared\nsocks://d.example:1080#Shared\nsocks://e.example:1080#Shared',
+    ).groups[0].entries;
+
+    expect(next.find((entry) => entry.address === 'a.example')).toBe(unchanged);
+    expect(next.find((entry) => entry.address === 'b.example')).toBe(locked);
+    expect(next.find((entry) => entry.address === 'c.example')).toBeUndefined();
+    for (const entry of next.filter((item) => ['d.example', 'e.example'].includes(item.address))) {
+      expect([unchanged.id, locked.id, removed.id]).not.toContain(entry.id);
+      expect(entry.sourceCopyOf).toBeUndefined();
+    }
+    expect(next.map((entry) => entry.address)).toEqual([
+      'a.example',
+      'd.example',
+      'e.example',
+      'b.example',
+    ]);
+  });
+
   it('does not restart an in-progress scan after every scheduled download', () => {
     const stash = fixture();
     stash.groups[0].testCycleAt = 100;
@@ -72,6 +103,24 @@ describe('subscription reconciliation', () => {
     expect(third.groups[0].entries).toHaveLength(3);
     expect(third.groups[0].entries.find((e) => e.id === locked.id)).toBe(locked);
     expect(third.groups[0].entries.some((e) => e.address === 'newer.example')).toBe(true);
+  });
+  it('keeps the original link when a Stash-format refresh changes a locked entry with the same ID', () => {
+    const stash = fixture();
+    const provider = structuredClone(stash);
+    const original = stash.groups[0].entries[0];
+    original.locked = true;
+    const replacement = importProfiles('socks://new.example:1080#First').groups[0].entries[0];
+    provider.groups[0].entries[0] = { ...replacement, id: original.id };
+
+    const refreshed = refresh(stash, serializeStash(provider));
+    const entries = parseStash(serializeStash(refreshed)).groups[0].entries;
+    expect(entries.find((entry) => entry.id === original.id)).toEqual(original);
+    const copy = entries.find((entry) => entry.address === 'new.example');
+    expect(copy).toMatchObject({ sourceCopyOf: original.id });
+    expect(copy?.id).not.toBe(original.id);
+    const next = refresh(refreshed, serializeStash(provider)).groups[0].entries;
+    expect(next.find((entry) => entry.address === 'new.example')?.id).toBe(copy?.id);
+    expect(next).toHaveLength(3);
   });
   it('follows explicitly selected manual and fallback settings and retains omitted dependencies', () => {
     const stash = fixture(),
