@@ -26,6 +26,10 @@ export function parseJsonArray(text: string): unknown[] {
 }
 export const cloneJson = <T>(v: T): T =>
   v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T);
+export function checkJsonProperty(key: string): void {
+  if (['__proto__', 'prototype', 'constructor'].includes(key))
+    throw new Error('Unsafe JSON property.');
+}
 export function checkJson(v: unknown, depth = 0): void {
   if (depth > 64) throw new Error('Xray JSON nesting exceeds 64 levels.');
   if (
@@ -36,8 +40,7 @@ export function checkJson(v: unknown, depth = 0): void {
   if (jsonArray(v)) for (const item of v) checkJson(item, depth + 1);
   else if (jsonRecord(v))
     for (const [key, value] of Object.entries(v)) {
-      if (['__proto__', 'prototype', 'constructor'].includes(key))
-        throw new Error('Unsafe JSON property.');
+      checkJsonProperty(key);
       checkJson(value, depth + 1);
     }
 }

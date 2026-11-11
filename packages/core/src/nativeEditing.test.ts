@@ -4,6 +4,23 @@ import { createProtocolFields } from './protocolFields';
 import { parseXrayJson } from './xrayJson';
 import { getNativePath, putNativePath, setNative } from './nativeProperties';
 import { dnsAddressProblem, ipProblem } from './addressValidation';
+import { forceProjectionFields } from './nativeProjection';
+
+it('materializes only own fields and rejects unsafe paths when restoring a native default', () => {
+  const original = { StreamSettings: { FutureOption: true, toString: 'old value' } };
+  const current = { streamSettings: { sockopt: { tcpFastOpen: true } } };
+  expect(
+    forceProjectionFields(original, current, [
+      '/streamSettings/sockopt/tcpFastOpen',
+      '/streamSettings/toString',
+    ]),
+  ).toEqual({
+    StreamSettings: { FutureOption: true, sockopt: { tcpFastOpen: true } },
+  });
+  expect(() =>
+    forceProjectionFields({}, { ['__proto__']: { marker: true } }, ['/__proto__/marker']),
+  ).toThrow('Unsafe JSON property.');
+});
 
 it('edits an existing native alias without losing unknown fields or changing the source', () => {
   const editor = createNativeFieldEditor((text) => parseXrayJson(text, undefined, 512));

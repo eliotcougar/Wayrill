@@ -1,4 +1,4 @@
-import { checkJson, cloneJson, jsonRecord, jsonArray } from './xrayJson';
+import { checkJson, checkJsonProperty, cloneJson, jsonRecord, jsonArray } from './xrayJson';
 
 export interface NativeProjection {
   version: 1;
@@ -67,22 +67,27 @@ export function forceProjectionFields(
     let target: Record<string, unknown> = result,
       source: unknown = current;
     for (let i = 0; i < parts.length; i++) {
-      const key = parts[i],
-        spellings = Object.keys(target).filter((k) => k.toLowerCase() === key.toLowerCase());
+      const key = parts[i];
+      checkJsonProperty(key);
+      const spellings = Object.keys(target).filter((k) => k.toLowerCase() === key.toLowerCase());
       if (spellings.length > 1) throw new Error('Conflicting native field spellings.');
-      const actual = spellings[0] ?? key,
-        next = jsonRecord(source) ? source[key] : undefined;
-      if (i === parts.length - 1 || next === undefined) {
-        if (next === undefined) delete target[actual];
-        else target[actual] = cloneJson(next);
+      const actual = spellings[0] ?? key;
+      const next = jsonRecord(source) && Object.hasOwn(source, key) ? source[key] : undefined;
+      if (next === undefined) {
+        delete target[actual];
         break;
       }
-      if (jsonArray(next)) {
-        target[actual] = cloneJson(next);
-        break;
-      }
-      if (!jsonRecord(target[actual])) target[actual] = {};
-      target = target[actual] as Record<string, unknown>;
+      const leaf = i === parts.length - 1 || jsonArray(next);
+      const existing = spellings.length ? target[actual] : undefined;
+      const child = jsonRecord(existing) ? existing : {};
+      Object.defineProperty(target, actual, {
+        value: leaf ? cloneJson(next) : child,
+        configurable: true,
+        enumerable: true,
+        writable: true,
+      });
+      if (leaf) break;
+      target = child;
       source = next;
     }
   }
