@@ -1680,7 +1680,7 @@ export default function App({
           onSave={saveSet}
           onReplace={replaceLibrary}
           onUse={(set) => {
-            if (!view || !users || !discardInline()) return;
+            if (!view || !users || !discardInline()) return false;
             let next = addSetToWorkspace(users, set);
             if (usersDialog.inbound !== undefined)
               next = connectUserSet(view.original, next, set.id, usersDialog.inbound);
@@ -1688,6 +1688,7 @@ export default function App({
             setSelected(userNodeId(set.id));
             setShowConfig(false);
             setPropertiesTab('properties');
+            return true;
           }}
           onClose={() => setUsersDialog(null)}
         />

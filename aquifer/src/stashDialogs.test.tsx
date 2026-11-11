@@ -148,7 +148,7 @@ it('starts each stash result page at the top and keeps actions attached to its r
 });
 it('uses a new valid User set in the graph without requiring a library save', async () => {
   const set = newUserSet('vless'),
-    use = vi.fn(),
+    use = vi.fn(() => true),
     save = vi.fn(),
     close = vi.fn();
   await act(async () =>

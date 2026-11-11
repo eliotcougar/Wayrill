@@ -37,7 +37,7 @@ export default function UserLibraryDialog({
   targetName?: string;
   onSave: (set: UserSet) => Promise<void>;
   onReplace: (library: UserLibrary) => Promise<void>;
-  onUse: (set: UserSet) => void;
+  onUse: (set: UserSet) => boolean;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
@@ -340,8 +340,7 @@ export default function UserLibraryDialog({
             onClick={() => {
               if (draft) {
                 try {
-                  onUse(draft);
-                  onClose();
+                  if (onUse(draft)) onClose();
                 } catch (reason) {
                   setError(errorMessage(reason));
                 }

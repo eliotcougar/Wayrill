@@ -1261,6 +1261,32 @@ it('guards inline drafts, and discards them only after confirmation', async () =
   expect(confirm).toHaveBeenCalledTimes(2);
 });
 
+it('keeps the User sets draft when applying it would discard an inline edit', async () => {
+  await act(async () => button('Read server').click());
+  await act(async () => nodeButton('direct').click());
+  await inputValue('Outbound tag', 'unsaved-name');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  try {
+    await menuAction('Edit', 'User sets…');
+    await act(async () => button('New set').click());
+    await inputValue('Set name', 'New users');
+    await act(async () => button('Add to graph').click());
+    expect(confirm).toHaveBeenCalledWith('Discard unsaved node settings?');
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Set name"]')?.value).toBe(
+      'New users',
+    );
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Outbound tag"]')?.value).toBe(
+      'unsaved-name',
+    );
+    confirm.mockReturnValue(true);
+    await act(async () => button('Add to graph').click());
+    expect(host.querySelector('dialog[aria-label="User sets"]')).toBeNull();
+    expect(nodeButton('New users')).toBeDefined();
+  } finally {
+    confirm.mockRestore();
+  }
+});
+
 it('starts a new draft without replacing its bound server snapshot', async () => {
   await act(async () => button('Read server').click());
   await menuAction('File', 'New configuration');
