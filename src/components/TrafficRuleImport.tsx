@@ -12,10 +12,14 @@ import {
   rolesForTrafficImport,
   type ImportedTrafficRules,
 } from '../graph/trafficRuleImport';
-import { newPresetOutput, type PresetBindings, type PresetMode } from '../graph/routingPresets';
+import {
+  inferTrafficOutput,
+  newPresetOutput,
+  type PresetBindings,
+  type PresetMode,
+} from '../graph/routingPresets';
 import type { RuleTable } from '../graph/rules';
 import type { GraphState, RuleNode } from '../graph/types';
-import { isXrayOutbound } from '../graph/xrayNodes';
 import { ruleConditionSummary } from './editorSummaries';
 
 export default function TrafficRuleImport({
@@ -55,22 +59,15 @@ export default function TrafficRuleImport({
         n.id === graph.edges.find((e) => e.source === node.id && e.sourceHandle === id)?.target,
     );
   const guess = (role: NonNullable<typeof source>['roles'][number]) =>
-    table.outputs.find((o) => {
-      const target = destination(o.id);
-      return (
+    table.outputs.find(
+      (o) =>
         o.name.toLowerCase() === role.tag.toLowerCase() ||
-        target?.data.settings.tag === role.tag ||
-        (role.kind === 'outbound' &&
-          (role.tag === 'direct'
-            ? target?.data.kind === 'direct-outbound'
-            : role.tag === 'block'
-              ? target?.data.kind === 'block-outbound'
-              : role.tag === 'proxy' &&
-                !!target &&
-                (isXrayOutbound(target) || target.data.kind === 'policy-group') &&
-                !['direct-outbound', 'block-outbound'].includes(target.data.kind)))
-      );
-    })?.id ?? newPresetOutput;
+        destination(o.id)?.data.settings.tag === role.tag,
+    )?.id ??
+    (role.kind === 'outbound'
+      ? inferTrafficOutput(table.outputs, destination, role.tag)
+      : undefined) ??
+    newPresetOutput;
   const roles = source ? rolesForTrafficImport(source, refresh ? 'append' : mode) : [];
   const resolved = Object.fromEntries(
     roles.map((r) => {

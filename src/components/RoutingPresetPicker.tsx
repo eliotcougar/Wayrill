@@ -3,6 +3,7 @@ import {
   dnsPresets,
   trafficPresets,
   rolesForTraffic,
+  inferTrafficOutput,
   newPresetOutput,
   type PresetBindings,
   type PresetMode,
@@ -12,7 +13,6 @@ import {
 import type { GraphState, RuleNode } from '../graph/types';
 import type { NamedOutput } from '../graph/rules';
 import type { DnsOutput } from '../graph/dns';
-import { isXrayOutbound } from '../graph/xrayNodes';
 
 export default function RoutingPresetPicker({
   kind,
@@ -48,22 +48,14 @@ export default function RoutingPresetPicker({
   };
   const guess = (role: string, name: string) => {
     if (role === 'fallback' && kind === 'dns') return fallback?.id ?? '';
-    const match = outputs.find((o) => {
-      if (kind === 'dns' && 'fallback' in o && o.fallback) return false;
-      const target = destination(o.id);
-      return (
-        o.name.toLowerCase() === name.toLowerCase() ||
-        (kind === 'traffic' &&
-          (role === 'direct'
-            ? target?.data.kind === 'direct-outbound'
-            : role === 'block'
-              ? target?.data.kind === 'block-outbound'
-              : !!target &&
-                (isXrayOutbound(target) || target.data.kind === 'policy-group') &&
-                !['direct-outbound', 'block-outbound'].includes(target.data.kind)))
-      );
-    });
-    return match?.id ?? newPresetOutput;
+    const named = outputs.find(
+      (o) => o !== fallback && o.name.toLowerCase() === name.toLowerCase(),
+    );
+    return (
+      named?.id ??
+      (kind === 'traffic' ? inferTrafficOutput(outputs, destination, role) : undefined) ??
+      newPresetOutput
+    );
   };
   const resolved = Object.fromEntries(
     roles.map((r) => [r.id, bindings[r.id] ?? guess(r.id, r.name)]),

@@ -6,10 +6,10 @@ it('PowerShell instructions quote literal values without interpolation', () => {
     supported: true,
     version: 'v',
     managed: false,
-    values: { http_proxy: "http://example.org/it's$(literal)" },
+    values: { http_proxy: "http://example.org/it's’$(literal)" },
   };
   expect(environmentCommands([row, { ...row, channel: 'envMachine', values: {} }])).toContain(
-    "$env:http_proxy = 'http://example.org/it''s$(literal)'",
+    "$env:http_proxy = 'http://example.org/it''s’’$(literal)'",
   );
   expect(environmentCommands([row, { ...row, channel: 'envMachine', values: {} }])).toContain(
     'Remove-Item Env:https_proxy -ErrorAction SilentlyContinue',

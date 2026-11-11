@@ -150,7 +150,9 @@ export function environmentCommands(rows: CaptureSettingsRow[]): string {
   for (const name of ['http_proxy', 'https_proxy', 'ftp_proxy', 'all_proxy', 'no_proxy']) {
     const source = typeof user.values[name] === 'string' ? user : machine;
     const value = source.values[name];
-    const literal = typeof value === 'string' ? `'${value.replaceAll("'", "''")}'` : '';
+    // PowerShell treats typographic single quotes as delimiters too.
+    const literal =
+      typeof value === 'string' ? `'${value.replace(/['\u2018-\u201b]/g, '$&$&')}'` : '';
     const expression = source.expandVariables?.includes(name)
       ? `[Environment]::ExpandEnvironmentVariables(${literal})`
       : literal;

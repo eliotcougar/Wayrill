@@ -3,8 +3,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import RuleTableEditor from './RuleTableEditor';
+import { makeNode } from '../graph/catalog';
 import { createDnsExample } from '../graph/example';
-import { readRuleTable } from '../graph/rules';
+import { readRuleTable, tableSettings } from '../graph/rules';
 import { updateGraphNode } from '../graph/model';
 import {
   initialWorkspaceHistory,
@@ -53,16 +54,50 @@ async function file(value: string | Promise<ArrayBuffer>) {
     await Promise.resolve();
   });
 }
-async function editor() {
-  const graph = createDnsExample(),
-    node = graph.nodes.find((n) => n.data.kind === 'routing-filter')!,
+async function editor(graph = createDnsExample(), tab = 'Import') {
+  const node = graph.nodes.find((n) => n.data.kind === 'routing-filter')!,
     apply = vi.fn();
   await act(() =>
     root.render(<RuleTableEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
   );
-  await act(() => button('Import').click());
+  await act(() => button(tab).click());
   return { graph, node, apply };
 }
+it.each(['preset', 'file', 'proxy chain'])(
+  'maps a %s import to the intended proxy connection',
+  async (source) => {
+    const graph = createDnsExample();
+    const filter = graph.nodes.find((n) => n.id === 'routes')!;
+    const table = readRuleTable(filter.data.settings);
+    table.outputs.push({ id: 'intended', name: source === 'preset' ? 'Proxy' : 'Office' });
+    Object.assign(filter.data.settings, tableSettings(table));
+    const proxy = makeNode(
+      source === 'proxy chain' ? 'proxy-chain' : 'vless-outbound',
+      { x: 0, y: 0 },
+      'office',
+    );
+    if (source === 'file') proxy.data.settings.tag = 'proxy';
+    if (source === 'proxy chain')
+      graph.edges = graph.edges.filter((edge) => edge.id !== 'routes-preferred');
+    graph.nodes.push(proxy);
+    graph.edges.push({
+      id: 'routes-office',
+      source: filter.id,
+      sourceHandle: 'intended',
+      target: proxy.id,
+      targetHandle: 'in',
+    });
+    const { apply } = await editor(graph, source === 'preset' ? 'Presets' : 'Import');
+    if (source !== 'preset') {
+      await file(JSON.stringify([{ domain: ['full:office.example'], outboundTag: 'proxy' }]));
+    }
+    await act(() => button(source === 'preset' ? 'Import preset' : 'Import rules').click());
+    await act(() => button('Apply changes').click());
+    const imported = readRuleTable(apply.mock.calls[0][1].settings);
+    expect(imported.rules.some((rule) => rule.output === 'intended')).toBe(true);
+    expect(imported.rules.some((rule) => rule.output === 'preferred')).toBe(false);
+  },
+);
 it.each(['Cancel', 'Apply changes'])(
   'file import stages atomically, retains wires and supports %s',
   async (finish) => {

@@ -1,6 +1,8 @@
 import catalog from './routingPresets.json';
 import type { NamedOutput, RuleTable, TableRule } from './rules';
 import type { DnsFilter, DnsRoute } from './dns';
+import { isOutboundKind } from './outbounds';
+import type { RuleNode } from './types';
 
 export const trafficPresets = catalog.traffic;
 export const dnsPresets = catalog.dns;
@@ -18,6 +20,24 @@ export function rolesForTraffic(preset: TrafficPreset) {
   return trafficRoles.filter(
     (role) => role.id === preset.defaultOutput || preset.rules.some((r) => r.output === role.id),
   );
+}
+export function inferTrafficOutput(
+  outputs: NamedOutput[],
+  destination: (id: string) => RuleNode | undefined,
+  role: string,
+): string | undefined {
+  return outputs.find(({ id }) => {
+    const kind = destination(id)?.data.kind;
+    if (role === 'direct') return kind === 'direct-outbound';
+    if (role === 'block') return kind === 'block-outbound';
+    return (
+      role === 'proxy' &&
+      kind !== undefined &&
+      isOutboundKind(kind) &&
+      kind !== 'direct-outbound' &&
+      kind !== 'block-outbound'
+    );
+  })?.id;
 }
 export function bindOutputs<O extends NamedOutput>(
   outputs: O[],
