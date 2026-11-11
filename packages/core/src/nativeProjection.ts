@@ -50,6 +50,28 @@ export function parseNativeProjection(raw: unknown): NativeProjection {
   return cloneJson(raw) as unknown as NativeProjection;
 }
 
+function materializeField(
+  target: Record<string, unknown>,
+  source: unknown,
+  parts: string[],
+  index: number,
+): Record<string, unknown> {
+  const key = parts[index];
+  checkJsonProperty(key);
+  const spellings = Object.keys(target).filter((name) => name.toLowerCase() === key.toLowerCase());
+  if (spellings.length > 1) throw new Error('Conflicting native field spellings.');
+  const actual = spellings[0] ?? key;
+  const next = jsonRecord(source) && Object.hasOwn(source, key) ? source[key] : undefined;
+  if (next === undefined)
+    return Object.fromEntries(Object.entries(target).filter(([name]) => name !== actual));
+  const existing = spellings.length ? target[actual] : undefined;
+  const value =
+    index === parts.length - 1 || jsonArray(next)
+      ? cloneJson(next)
+      : materializeField(jsonRecord(existing) ? existing : {}, next, parts, index + 1);
+  return { ...target, [actual]: value };
+}
+
 // An explicit "Use default" is an edit even if the visual value equals the
 // import-time placeholder. Materialize its active core fields instead of
 // silently retaining a native omission with a different core default.
@@ -58,38 +80,13 @@ export function forceProjectionFields(
   current: Record<string, unknown>,
   paths: string[],
 ): Record<string, unknown> {
-  const result = cloneJson(original);
+  let result = cloneJson(original);
   for (const path of paths) {
     const parts = path
       .slice(1)
       .split('/')
       .map((k) => k.replace(/~1/g, '/').replace(/~0/g, '~'));
-    let target: Record<string, unknown> = result,
-      source: unknown = current;
-    for (let i = 0; i < parts.length; i++) {
-      const key = parts[i];
-      checkJsonProperty(key);
-      const spellings = Object.keys(target).filter((k) => k.toLowerCase() === key.toLowerCase());
-      if (spellings.length > 1) throw new Error('Conflicting native field spellings.');
-      const actual = spellings[0] ?? key;
-      const next = jsonRecord(source) && Object.hasOwn(source, key) ? source[key] : undefined;
-      if (next === undefined) {
-        delete target[actual];
-        break;
-      }
-      const leaf = i === parts.length - 1 || jsonArray(next);
-      const existing = spellings.length ? target[actual] : undefined;
-      const child = jsonRecord(existing) ? existing : {};
-      Object.defineProperty(target, actual, {
-        value: leaf ? cloneJson(next) : child,
-        configurable: true,
-        enumerable: true,
-        writable: true,
-      });
-      if (leaf) break;
-      target = child;
-      source = next;
-    }
+    result = materializeField(result, current, parts, 0);
   }
   return result;
 }
