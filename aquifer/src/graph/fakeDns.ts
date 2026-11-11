@@ -8,6 +8,7 @@ import {
   valueAt,
   jsonText,
   jsonArray,
+  xrayStringList,
 } from './xrayJson';
 import type { Diagnostic, GraphState, NodeDefinition, RuleNodeData } from './types';
 
@@ -163,12 +164,9 @@ export function fakeDnsConfigProblems(config: Record<string, unknown>): Diagnost
     if (!jsonRecord(input)) continue;
     const sniff = valueAt(input, ['sniffing']);
     if (!jsonRecord(sniff)) continue;
-    const overrides = valueAt(sniff, ['destOverride']);
-    const fake =
-      jsonArray(overrides) &&
-      overrides.some(
-        (v) => typeof v === 'string' && ['fakedns', 'fakedns+others'].includes(v.toLowerCase()),
-      );
+    const fake = xrayStringList(valueAt(sniff, ['destOverride'])).some(
+      (v) => typeof v === 'string' && ['fakedns', 'fakedns+others'].includes(v.toLowerCase()),
+    );
     if (fake && valueAt(sniff, ['enabled']) === true) {
       recovery = true;
       if (!enabled)

@@ -1,5 +1,9 @@
 /** Keep JSON arrays unknown until their elements are validated. */
 export const jsonArray = (value: unknown): value is unknown[] => Array.isArray(value);
+/** Xray's StringList also accepts a comma-separated JSON string. */
+export function xrayStringList(value: unknown): unknown[] {
+  return typeof value === 'string' ? value.split(',') : jsonArray(value) ? value : [];
+}
 /** Show malformed object values as JSON rather than the unhelpful [object Object]. */
 export function jsonText(value: unknown): string {
   return typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);

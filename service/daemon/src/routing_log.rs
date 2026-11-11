@@ -488,17 +488,19 @@ impl Log {
             if *epoch != (row.generation, row.revision) {
                 continue;
             }
-            let path: Vec<_> = row
+            let path = Value::Array(row
                 .trail
                 .iter()
                 .take(8)
                 .map(|hop| json!({"filterId":hop.filter_id,"ruleId":hop.rule_id,"rule":hop.rule,"output":hop.output}))
-                .collect();
+                .collect());
+            let action = if row.blocked { "block" } else { "route" };
             if matches.iter().any(|m| {
                 m["outbound"] == row.outbound
                     && m["port"] == port
                     && m["transport"] == row.transport
-                    && m["path"] == json!(path)
+                    && m["path"] == path
+                    && m["action"] == action
             }) {
                 continue;
             }
@@ -508,7 +510,7 @@ impl Log {
             }
             let value = json!({"outbound":row.outbound,"port":port,"transport":row.transport,
                     "timestampMs":row.timestamp,"generation":row.generation,"revision":row.revision,
-                    "action":if row.blocked {"block"} else {"route"},
+                    "action":action,
                     "source":row.source,"path":path,"pathTruncated":row.trail.len()>8});
             let size = serde_json::to_vec(&value).map_or(usize::MAX, |v| v.len());
             if size > 768 * 1024 - bytes {
@@ -708,6 +710,40 @@ mod tests {
             json!([])
         );
     }
+    #[test]
+    fn companion_distinguishes_block_and_route_with_the_same_outbound_label() {
+        let log = Log::default();
+        let mut config = json!({
+            "outbounds": [
+                {"tag":"direct","protocol":"freedom"},
+                {"tag":"block","protocol":"blackhole"}
+            ],
+            "routing":{"rules":[
+                {"inboundTag":["blocked-source"],"outboundTag":"block"},
+                {"network":"tcp","outboundTag":"direct"}
+            ]}
+        });
+        let names = DisplayNames {
+            outbound: BTreeMap::from([
+                ("direct".into(), "Internet".into()),
+                ("block".into(), "Internet".into()),
+            ]),
+            ..DisplayNames::default()
+        };
+        log.begin(instrument(&mut config, &names, 1, 7));
+        let rule = |i: usize| config["routing"]["rules"][i]["ruleTag"].as_str().unwrap();
+        log.ingest(1, &line(1, "tcp:example.org:443", "block"));
+        log.ingest(
+            1,
+            &line(1, "tcp:example.org:443", "direct").replace(rule(0), rule(1)),
+        );
+        let result = log.companion(&BTreeSet::from(["example.org".into()]), "test", 0);
+        let matches = result["hosts"][0]["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0]["action"], "route");
+        assert_eq!(matches[1]["action"], "block");
+    }
+
     #[test]
     fn companion_retains_last_known_routes_and_replaces_them_with_new_observations() {
         let log = Log::default();

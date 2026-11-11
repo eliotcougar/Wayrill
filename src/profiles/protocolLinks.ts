@@ -174,11 +174,14 @@ export function protocolLink(
     throw new Error('A server and valid port are required.');
   let user = decodeURIComponent(u.username),
     password = decodeURIComponent(u.password);
+  const userInfo = () => {
+    // URL getters cannot distinguish a trailing colon from omitted credentials.
+    const authority = source.slice(source.indexOf('://') + 3).split(/[/?#]/, 1)[0];
+    return decodeURIComponent(authority.slice(0, Math.max(0, authority.lastIndexOf('@'))));
+  };
   if (['ss', 'socks', 'socks5'].includes(scheme) && (user || password)) {
-    // Decode the complete userinfo before separating it, as in v2rayN. URL
-    // getters lose a literal trailing colon and keep an encoded colon in username.
-    const authority = source.slice(source.indexOf('://') + 3).split(/[/?#]/)[0],
-      info = decodeURIComponent(authority.slice(0, authority.lastIndexOf('@'))),
+    // Decode the complete userinfo before separating it, as in v2rayN.
+    const info = userInfo(),
       auth = info.includes(':') ? info : decode(info),
       colon = auth.indexOf(':');
     if (colon < 0) throw new Error('Credentials need a username/method and password.');
@@ -204,7 +207,7 @@ export function protocolLink(
   const settings: Record<string, unknown> =
     scheme === 'wireguard'
       ? {
-          secretKey: decodeURIComponent(u.username + (u.password ? ':' + u.password : '')),
+          secretKey: userInfo(),
           noKernelTun: true,
           peers: [
             {
@@ -226,7 +229,7 @@ export function protocolLink(
           ...(scheme === 'shadowsocks'
             ? { method: user, password }
             : scheme === 'trojan'
-              ? { password: decodeURIComponent(u.username + (u.password ? ':' + u.password : '')) }
+              ? { password: userInfo() }
               : ['http', 'socks'].includes(scheme) && user
                 ? { user, pass: password }
                 : scheme === 'hysteria'
@@ -312,7 +315,7 @@ export function protocolLink(
   if (stream.network === 'hysteria')
     stream.hysteriaSettings = {
       version: 2,
-      auth: decodeURIComponent(u.username + (u.password ? ':' + u.password : '')),
+      auth: userInfo(),
     };
   if (stream.network === 'masque')
     stream.masqueSettings = {

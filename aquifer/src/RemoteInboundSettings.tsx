@@ -1,4 +1,4 @@
-import { jsonRecord, jsonText } from './graph/xrayJson';
+import { jsonRecord, jsonText, xrayStringList } from './graph/xrayJson';
 import { inboundUserProtocol, inboundUsers } from './users/model';
 import {
   fieldsForServer,
@@ -268,13 +268,8 @@ export default function RemoteInboundSettings({
       </div>
     );
   if (tab === 'Sniffing') {
-    const sniffing = objectAt(value, 'sniffing'),
-      detected = get(sniffing, 'destOverride');
-    const protocols = Array.isArray(detected)
-      ? detected.map(String)
-      : typeof detected === 'string'
-        ? [detected]
-        : [];
+    const sniffing = objectAt(value, 'sniffing');
+    const protocols = xrayStringList(get(sniffing, 'destOverride'));
     const update = (next: ServerObject) => onChange(setProperty(value, 'sniffing', next));
     const aliases: Record<string, string[]> = {
       tls: ['tls', 'https', 'ssl'],
@@ -285,27 +280,30 @@ export default function RemoteInboundSettings({
         {fields('SniffingToggle', sniffing, 'sniffing.', update)}
         <fieldset className="server-protocol-options">
           <legend>Detected protocols</legend>
-          {['http', 'tls', 'quic', 'fakedns'].map((protocol) => (
-            <label className="check-control" key={protocol}>
-              <input
-                type="checkbox"
-                checked={protocols.some((name) => (aliases[protocol] ?? [protocol]).includes(name))}
-                onChange={(event) => {
-                  const remaining = protocols.filter(
-                    (name) => !(aliases[protocol] ?? [protocol]).includes(name),
-                  );
-                  update(
-                    setProperty(
-                      sniffing,
-                      'destOverride',
-                      event.target.checked ? [...remaining, protocol] : remaining,
-                    ),
-                  );
-                }}
-              />
-              {protocol === 'fakedns' ? 'FakeDNS' : protocol.toUpperCase()}
-            </label>
-          ))}
+          {['http', 'tls', 'quic', 'fakedns'].map((protocol) => {
+            const names = aliases[protocol] ?? [protocol];
+            const matches = (name: unknown) =>
+              typeof name === 'string' && names.includes(name.toLowerCase());
+            return (
+              <label className="check-control" key={protocol}>
+                <input
+                  type="checkbox"
+                  checked={protocols.some(matches)}
+                  onChange={(event) => {
+                    const remaining = protocols.filter((name) => !matches(name));
+                    update(
+                      setProperty(
+                        sniffing,
+                        'destOverride',
+                        event.target.checked ? [...remaining, protocol] : remaining,
+                      ),
+                    );
+                  }}
+                />
+                {protocol === 'fakedns' ? 'FakeDNS' : protocol.toUpperCase()}
+              </label>
+            );
+          })}
         </fieldset>
         {fields('SniffingConfig', sniffing, 'sniffing.', update)}
       </Section>

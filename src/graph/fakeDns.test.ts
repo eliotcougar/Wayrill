@@ -1,7 +1,12 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
 import { makeNode, getOutputPorts } from './catalog';
-import { compileFakeDnsPools, editFakeDnsGraph, fakeDnsConfigProblems } from './fakeDns';
+import {
+  applyAutomaticFakeDnsSettings,
+  compileFakeDnsPools,
+  editFakeDnsGraph,
+  fakeDnsConfigProblems,
+} from './fakeDns';
 import { createFakeDnsExample } from './fakeDnsExample';
 import { compileRuntimeGraph } from './runtime';
 import { compileDnsGraph } from './dnsCompilation';
@@ -28,6 +33,9 @@ describe('FakeDNS pools and resolver graph', () => {
         ]),
       }),
     );
+    const imported = { inbounds: [{ sniffing: { enabled: true, destOverride: 'http,ssl' } }] };
+    applyAutomaticFakeDnsSettings(graph, imported);
+    expect(imported.inbounds[0].sniffing.destOverride).toEqual(['http', 'ssl', 'fakedns']);
   });
   it('shares custom pool edits atomically between resolver instances', () => {
     const graph = createFakeDnsExample();
@@ -46,6 +54,12 @@ describe('FakeDNS pools and resolver graph', () => {
   });
   it('recovers fake destinations even with routeOnly and warns when recovery is absent', () => {
     const config = compileRuntimeGraph(createFakeDnsExample()).config;
+    expect(fakeDnsConfigProblems(config)).toEqual([]);
+    (config.inbounds as Record<string, unknown>[])[0].sniffing = {
+      enabled: true,
+      destOverride: 'http,FakeDNS+Others',
+      routeOnly: true,
+    };
     expect(fakeDnsConfigProblems(config)).toEqual([]);
     (config.inbounds as Record<string, unknown>[])[0].sniffing = {
       enabled: false,

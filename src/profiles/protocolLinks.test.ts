@@ -85,6 +85,16 @@ describe('Protocol subscription links', () => {
       expect(entry.profile?.kind).toBe(kind);
       expect(importProfiles(btoa(link)).groups[0].entries[0].profile?.kind).toBe(kind);
     });
+  it('preserves trailing colons in opaque Trojan and Hysteria 2 credentials', () => {
+    const trojan = parseEntry('trojan://secret:@example.test:443');
+    expect(trojan.problem).toBe('');
+    expect(JSON.parse(String(trojan.profile?.settings.json)).settings.password).toBe('secret:');
+    const hysteria = parseEntry('hysteria2://secret:@example.test:443');
+    expect(hysteria.problem).toBe('');
+    expect(
+      JSON.parse(String(hysteria.profile?.settings.json)).streamSettings.hysteriaSettings.auth,
+    ).toBe('secret:');
+  });
   for (const link of [
     'trojan://qa@127.0.0.1:443?insecure=1',
     'ss://YWVzLTEyOC1nY206cWE=@127.0.0.1:443?plugin=obfs-local',

@@ -338,25 +338,31 @@ it('rejects numeric overflow, broken short IDs and unsupported REALITY transport
     ]),
   );
 });
-it('retains unrecognized fields and uses sniffing protocol checkboxes without duplicate aliases', async () => {
-  const value = {
-      ...inbound('http', {}),
-      sniffing: { enabled: true, destOverride: ['ssl', 'quic'], futureField: 12 },
-    },
-    save = await render(value);
-  await act(async () => button('Sniffing').click());
-  const tls = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
-    (input) => input.parentElement?.textContent === 'TLS',
-  )!;
-  expect(tls.checked).toBe(true);
-  await act(async () => tls.click());
-  await act(async () => button('Apply changes').click());
-  expect(save.mock.calls[0][0].sniffing).toEqual({
-    enabled: true,
-    destOverride: ['quic'],
-    futureField: 12,
-  });
-});
+it.each([
+  ['array', ['ssl', 'quic']],
+  ['comma-separated string', 'SSL,quic'],
+] as const)(
+  'edits sniffing protocol aliases in a %s while preserving other fields',
+  async (_form, protocols) => {
+    const value = {
+        ...inbound('http', {}),
+        sniffing: { enabled: true, destOverride: protocols, futureField: 12 },
+      },
+      save = await render(value);
+    await act(async () => button('Sniffing').click());
+    const tls = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+      (input) => input.parentElement?.textContent === 'TLS',
+    )!;
+    expect(tls.checked).toBe(true);
+    await act(async () => tls.click());
+    await act(async () => button('Apply changes').click());
+    expect(save.mock.calls[0][0].sniffing).toEqual({
+      enabled: true,
+      destOverride: ['quic'],
+      futureField: 12,
+    });
+  },
+);
 it('allows users to be managed while the inbound draft is incomplete', async () => {
   const manage = vi.fn();
   const save = await render(inbound('vless', {}), vi.fn(), manage);
