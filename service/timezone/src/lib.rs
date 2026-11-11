@@ -9,7 +9,7 @@ use std::{
     ffi::c_void,
     mem, ptr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicPtr, Ordering},
         Mutex, OnceLock, RwLock, TryLockError,
     },
 };
@@ -31,7 +31,13 @@ unsafe extern "system" {
     fn DetourTransactionBegin() -> i32;
     fn DetourTransactionAbort() -> i32;
     fn DetourTransactionCommit() -> i32;
-    fn DetourAttach(original: *mut *mut c_void, replacement: *mut c_void) -> i32;
+    fn DetourAttachEx(
+        target: *mut *mut c_void,
+        replacement: *mut c_void,
+        trampoline: *mut *mut c_void,
+        real_target: *mut *mut c_void,
+        real_detour: *mut *mut c_void,
+    ) -> i32;
     fn DetourUpdateThread(thread: HANDLE) -> i32;
 }
 // Microsoft Detours allocates transaction entries with MSVC operator new while
@@ -77,9 +83,13 @@ static INSTALL: Mutex<bool> = Mutex::new(false);
 static REFRESH_NAME: AtomicBool = AtomicBool::new(false);
 type Dynamic = unsafe extern "system" fn(*mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32;
 type Zone = unsafe extern "system" fn(*mut TIME_ZONE_INFORMATION) -> u32;
-static mut DYNAMIC: [*mut c_void; 2] = [ptr::null_mut(); 2];
-static mut ZONE: [*mut c_void; 2] = [ptr::null_mut(); 2];
-static mut LOCAL: [*mut c_void; 2] = [ptr::null_mut(); 2];
+type HookPair = [AtomicPtr<c_void>; 2];
+const fn hook_pair() -> HookPair {
+    [const { AtomicPtr::new(ptr::null_mut()) }; 2]
+}
+static DYNAMIC: HookPair = hook_pair();
+static ZONE: HookPair = hook_pair();
+static LOCAL: HookPair = hook_pair();
 type Local = unsafe extern "system" fn(*mut SYSTEMTIME);
 unsafe fn local_time(out: *mut SYSTEMTIME, original: *mut c_void) {
     if let Some(value) = selected() {
@@ -98,12 +108,12 @@ unsafe fn local_time(out: *mut SYSTEMTIME, original: *mut c_void) {
 }
 unsafe extern "system" fn local_kernel(out: *mut SYSTEMTIME) {
     unsafe {
-        local_time(out, LOCAL[0]);
+        local_time(out, LOCAL[0].load(Ordering::Acquire));
     }
 }
 unsafe extern "system" fn local_base(out: *mut SYSTEMTIME) {
     unsafe {
-        local_time(out, LOCAL[1]);
+        local_time(out, LOCAL[1].load(Ordering::Acquire));
     }
 }
 
@@ -157,10 +167,10 @@ unsafe fn dynamic(out: *mut DYNAMIC_TIME_ZONE_INFORMATION, original: *mut c_void
     }
 }
 unsafe extern "system" fn dynamic_base(out: *mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32 {
-    unsafe { dynamic(out, DYNAMIC[1]) }
+    unsafe { dynamic(out, DYNAMIC[1].load(Ordering::Acquire)) }
 }
 unsafe extern "system" fn dynamic_kernel(out: *mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32 {
-    unsafe { dynamic(out, DYNAMIC[0]) }
+    unsafe { dynamic(out, DYNAMIC[0].load(Ordering::Acquire)) }
 }
 unsafe fn zone(out: *mut TIME_ZONE_INFORMATION, original: *mut c_void) -> u32 {
     if let Some(value) = selected() {
@@ -195,10 +205,10 @@ unsafe fn zone(out: *mut TIME_ZONE_INFORMATION, original: *mut c_void) -> u32 {
     }
 }
 unsafe extern "system" fn zone_kernel(out: *mut TIME_ZONE_INFORMATION) -> u32 {
-    unsafe { zone(out, ZONE[0]) }
+    unsafe { zone(out, ZONE[0].load(Ordering::Acquire)) }
 }
 unsafe extern "system" fn zone_base(out: *mut TIME_ZONE_INFORMATION) -> u32 {
-    unsafe { zone(out, ZONE[1]) }
+    unsafe { zone(out, ZONE[1].load(Ordering::Acquire)) }
 }
 
 fn resolve(id: &[u16; 128]) -> Result<DYNAMIC_TIME_ZONE_INFORMATION, u32> {
@@ -220,35 +230,70 @@ fn legacy_information(value: DYNAMIC_TIME_ZONE_INFORMATION) -> TIME_ZONE_INFORMA
         DaylightBias: value.DaylightBias,
     }
 }
-type Attachment = (*mut *mut c_void, *mut c_void);
-/// # Safety
-/// Slots are initialized once before their entry points are intercepted.
-unsafe fn prepare_pair(
-    slot: *mut [*mut c_void; 2],
+struct Attachment {
+    target: *mut c_void,
+    replacement: *mut c_void,
+    original: &'static AtomicPtr<c_void>,
+}
+impl Attachment {
+    /// # Safety
+    /// The current thread owns an open Detours transaction and this attachment
+    /// stays in place until that transaction ends.
+    unsafe fn queue(&mut self) -> Result<(), u32> {
+        let mut trampoline = ptr::null_mut();
+        // On x64 the trampoline returned by Detours begins at its code.
+        let code = unsafe {
+            DetourAttachEx(
+                &raw mut self.target,
+                self.replacement,
+                &mut trampoline,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        if code != 0 {
+            return Err(code as u32);
+        }
+        if trampoline.is_null() {
+            return Err(ERROR_INVALID_ADDRESS);
+        }
+        // Commit makes the callback reachable. Publish its call-through first.
+        self.original.store(trampoline, Ordering::Release);
+        Ok(())
+    }
+}
+fn prepare_pair(
+    slots: &'static HookPair,
     module: &str,
     name: &std::ffi::CStr,
     first: *mut c_void,
     second: *mut c_void,
 ) -> Result<Vec<Attachment>, u32> {
-    unsafe {
-        let address = |module: &str| {
-            GetProcAddress(
-                GetModuleHandleW(wide(module).as_ptr()),
-                name.as_ptr().cast(),
-            )
-            .map_or(ptr::null_mut(), |v| v as *mut c_void)
-        };
-        (*slot)[0] = address(module);
-        (*slot)[1] = address("kernelbase.dll");
-        if (*slot)[0].is_null() {
-            return Err(ERROR_PROC_NOT_FOUND);
+    let address = |module: &str| unsafe {
+        let handle = GetModuleHandleW(wide(module).as_ptr());
+        if handle.is_null() {
+            return ptr::null_mut();
         }
-        let mut result = vec![(&raw mut (*slot)[0], first)];
-        if !(*slot)[1].is_null() && (*slot)[0] != (*slot)[1] {
-            result.push((&raw mut (*slot)[1], second));
-        }
-        Ok(result)
+        GetProcAddress(handle, name.as_ptr().cast()).map_or(ptr::null_mut(), |v| v as *mut c_void)
+    };
+    let target = address(module);
+    if target.is_null() {
+        return Err(ERROR_PROC_NOT_FOUND);
     }
+    let mut result = vec![Attachment {
+        target,
+        replacement: first,
+        original: &slots[0],
+    }];
+    let base = address("kernelbase.dll");
+    if !base.is_null() && target != base {
+        result.push(Attachment {
+            target: base,
+            replacement: second,
+            original: &slots[1],
+        });
+    }
+    Ok(result)
 }
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
@@ -264,21 +309,21 @@ impl Drop for Handle {
 fn install(at_startup: bool) -> Result<(), u32> {
     unsafe {
         let mut attachments = prepare_pair(
-            &raw mut DYNAMIC,
+            &DYNAMIC,
             "kernel32.dll",
             c"GetDynamicTimeZoneInformation",
             dynamic_kernel as *mut c_void,
             dynamic_base as *mut c_void,
         )?;
         attachments.extend(prepare_pair(
-            &raw mut ZONE,
+            &ZONE,
             "kernel32.dll",
             c"GetTimeZoneInformation",
             zone_kernel as *mut c_void,
             zone_base as *mut c_void,
         )?);
         attachments.extend(prepare_pair(
-            &raw mut LOCAL,
+            &LOCAL,
             "kernel32.dll",
             c"GetLocalTime",
             local_kernel as *mut c_void,
@@ -339,10 +384,10 @@ fn install(at_startup: bool) -> Result<(), u32> {
         if code != 0 {
             return Err(code as u32);
         }
-        let transaction = || -> Result<(), u32> {
+        let mut transaction = || -> Result<(), u32> {
             let check = |code: i32| if code == 0 { Ok(()) } else { Err(code as u32) };
-            for &(slot, callback) in &attachments {
-                check(DetourAttach(slot, callback))?;
+            for hook in &mut attachments {
+                hook.queue()?;
             }
             for thread in &threads {
                 check(DetourUpdateThread(thread.0))?;
@@ -416,4 +461,56 @@ pub unsafe extern "system" fn WayrillTimezoneApply(input: *mut c_void) -> u32 {
         revision: policy.revision,
     };
     ERROR_SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn publishes_the_callable_trampoline_before_commit() {
+        unsafe extern "system" {
+            fn DetourDetach(target: *mut *mut c_void, replacement: *mut c_void) -> i32;
+        }
+        static ORIGINAL: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
+        #[inline(never)]
+        extern "system" fn fixture(input: u32) -> u32 {
+            std::hint::black_box(input).wrapping_add(1)
+        }
+        extern "system" fn replacement(input: u32) -> u32 {
+            let original = ORIGINAL.load(Ordering::Acquire);
+            let original =
+                unsafe { mem::transmute::<*mut c_void, extern "system" fn(u32) -> u32>(original) };
+            original(input).wrapping_add(10)
+        }
+        let mut hook = Attachment {
+            target: fixture as *mut c_void,
+            replacement: replacement as *mut c_void,
+            original: &ORIGINAL,
+        };
+        let call = std::hint::black_box(fixture as extern "system" fn(u32) -> u32);
+        // Only this test calls the fixture. The transaction modifies no system
+        // APIs or code used by other tests.
+        unsafe {
+            assert_eq!(DetourTransactionBegin(), 0);
+            if let Err(error) = hook.queue() {
+                DetourTransactionAbort();
+                panic!("Could not attach test detour: {error}");
+            }
+            let published = ORIGINAL.load(Ordering::Acquire);
+            assert_eq!(DetourTransactionCommit(), 0);
+            let committed = hook.target;
+            let result = call(7);
+            assert_eq!(DetourTransactionBegin(), 0);
+            let error = DetourDetach(&raw mut hook.target, hook.replacement);
+            if error != 0 {
+                DetourTransactionAbort();
+                panic!("Could not detach test detour: {error}");
+            }
+            assert_eq!(DetourTransactionCommit(), 0);
+            assert_eq!(published, committed);
+            assert_eq!(result, 18);
+            assert_eq!(call(7), 8);
+        }
+    }
 }

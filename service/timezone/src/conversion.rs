@@ -3,12 +3,12 @@ use super::*;
 
 macro_rules! pair {
     ($slot:ident, $kernel:ident, $base:ident, ($($arg:ident: $ty:ty),*) -> $ret:ty, $body:ident) => {
-        static mut $slot: [*mut c_void; 2] = [ptr::null_mut(); 2];
+        static $slot: HookPair = hook_pair();
         unsafe extern "system" fn $kernel($($arg: $ty),*) -> $ret {
-            unsafe { $body($($arg),*, $slot[0]) }
+            unsafe { $body($($arg),*, $slot[0].load(Ordering::Acquire)) }
         }
         unsafe extern "system" fn $base($($arg: $ty),*) -> $ret {
-            unsafe { $body($($arg),*, $slot[1]) }
+            unsafe { $body($($arg),*, $slot[1].load(Ordering::Acquire)) }
         }
     };
 }
@@ -131,57 +131,53 @@ unsafe fn file(
     0
 }
 
-/// # Safety
-/// Called once, before target threads are enrolled in the Detours transaction.
-pub unsafe fn prepare() -> Result<Vec<Attachment>, u32> {
+pub(super) fn prepare() -> Result<Vec<Attachment>, u32> {
     let mut hooks = Vec::new();
-    unsafe {
-        for (slot, name, first, second) in [
-            (
-                &raw mut TO_LOCAL,
-                c"SystemTimeToTzSpecificLocalTime",
-                to_local as *mut c_void,
-                to_local_base as *mut c_void,
-            ),
-            (
-                &raw mut TO_UTC,
-                c"TzSpecificLocalTimeToSystemTime",
-                to_utc as *mut c_void,
-                to_utc_base as *mut c_void,
-            ),
-            (
-                &raw mut TO_LOCAL_EX,
-                c"SystemTimeToTzSpecificLocalTimeEx",
-                to_local_ex as *mut c_void,
-                to_local_ex_base as *mut c_void,
-            ),
-            (
-                &raw mut TO_UTC_EX,
-                c"TzSpecificLocalTimeToSystemTimeEx",
-                to_utc_ex as *mut c_void,
-                to_utc_ex_base as *mut c_void,
-            ),
-            (
-                &raw mut YEAR,
-                c"GetTimeZoneInformationForYear",
-                year as *mut c_void,
-                year_base as *mut c_void,
-            ),
-            (
-                &raw mut FILE_LOCAL,
-                c"FileTimeToLocalFileTime",
-                file_local as *mut c_void,
-                file_local_base as *mut c_void,
-            ),
-            (
-                &raw mut FILE_UTC,
-                c"LocalFileTimeToFileTime",
-                file_utc as *mut c_void,
-                file_utc_base as *mut c_void,
-            ),
-        ] {
-            hooks.extend(prepare_pair(slot, "kernel32.dll", name, first, second)?);
-        }
+    for (slot, name, first, second) in [
+        (
+            &TO_LOCAL,
+            c"SystemTimeToTzSpecificLocalTime",
+            to_local as *mut c_void,
+            to_local_base as *mut c_void,
+        ),
+        (
+            &TO_UTC,
+            c"TzSpecificLocalTimeToSystemTime",
+            to_utc as *mut c_void,
+            to_utc_base as *mut c_void,
+        ),
+        (
+            &TO_LOCAL_EX,
+            c"SystemTimeToTzSpecificLocalTimeEx",
+            to_local_ex as *mut c_void,
+            to_local_ex_base as *mut c_void,
+        ),
+        (
+            &TO_UTC_EX,
+            c"TzSpecificLocalTimeToSystemTimeEx",
+            to_utc_ex as *mut c_void,
+            to_utc_ex_base as *mut c_void,
+        ),
+        (
+            &YEAR,
+            c"GetTimeZoneInformationForYear",
+            year as *mut c_void,
+            year_base as *mut c_void,
+        ),
+        (
+            &FILE_LOCAL,
+            c"FileTimeToLocalFileTime",
+            file_local as *mut c_void,
+            file_local_base as *mut c_void,
+        ),
+        (
+            &FILE_UTC,
+            c"LocalFileTimeToFileTime",
+            file_utc as *mut c_void,
+            file_utc_base as *mut c_void,
+        ),
+    ] {
+        hooks.extend(prepare_pair(slot, "kernel32.dll", name, first, second)?);
     }
     Ok(hooks)
 }

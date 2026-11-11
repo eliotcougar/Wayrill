@@ -310,9 +310,9 @@ unsafe fn emit(
 
 macro_rules! pair {
     ($slot:ident,$first:ident,$second:ident,($($arg:ident:$ty:ty),*),$body:ident,$decode:ident) => {
-        static mut $slot: [*mut c_void;2] = [ptr::null_mut();2];
-        unsafe extern "system" fn $first($($arg:$ty),*) -> u32 { unsafe { $body($($arg),*,$slot[0],$decode) } }
-        unsafe extern "system" fn $second($($arg:$ty),*) -> u32 { unsafe { $body($($arg),*,$slot[1],$decode) } }
+        static $slot: HookPair = hook_pair();
+        unsafe extern "system" fn $first($($arg:$ty),*) -> u32 { unsafe { $body($($arg),*,$slot[0].load(Ordering::Acquire),$decode) } }
+        unsafe extern "system" fn $second($($arg:$ty),*) -> u32 { unsafe { $body($($arg),*,$slot[1].load(Ordering::Acquire),$decode) } }
     };
 }
 pair!(QUERY_W,query_w,query_w_base,(root:HKEY,name:*const u16,reserved:*const u32,kind:*mut u32,data:*mut u8,size:*mut u32),query_wide,string_w);
@@ -397,40 +397,36 @@ macro_rules! get_body {
 get_body!(get_wide, false);
 get_body!(get_ansi, true);
 
-/// # Safety
-/// Prepared once before suspending threads, alongside the other hook families.
-pub unsafe fn prepare() -> Result<Vec<Attachment>, u32> {
+pub(super) fn prepare() -> Result<Vec<Attachment>, u32> {
     initialize_path();
     let mut hooks = Vec::new();
-    unsafe {
-        for (slot, name, first, second) in [
-            (
-                &raw mut QUERY_W,
-                c"RegQueryValueExW",
-                query_w as *mut c_void,
-                query_w_base as *mut c_void,
-            ),
-            (
-                &raw mut QUERY_A,
-                c"RegQueryValueExA",
-                query_a as *mut c_void,
-                query_a_base as *mut c_void,
-            ),
-            (
-                &raw mut GET_W,
-                c"RegGetValueW",
-                get_w as *mut c_void,
-                get_w_base as *mut c_void,
-            ),
-            (
-                &raw mut GET_A,
-                c"RegGetValueA",
-                get_a as *mut c_void,
-                get_a_base as *mut c_void,
-            ),
-        ] {
-            hooks.extend(prepare_pair(slot, "advapi32.dll", name, first, second)?);
-        }
+    for (slot, name, first, second) in [
+        (
+            &QUERY_W,
+            c"RegQueryValueExW",
+            query_w as *mut c_void,
+            query_w_base as *mut c_void,
+        ),
+        (
+            &QUERY_A,
+            c"RegQueryValueExA",
+            query_a as *mut c_void,
+            query_a_base as *mut c_void,
+        ),
+        (
+            &GET_W,
+            c"RegGetValueW",
+            get_w as *mut c_void,
+            get_w_base as *mut c_void,
+        ),
+        (
+            &GET_A,
+            c"RegGetValueA",
+            get_a as *mut c_void,
+            get_a_base as *mut c_void,
+        ),
+    ] {
+        hooks.extend(prepare_pair(slot, "advapi32.dll", name, first, second)?);
     }
     Ok(hooks)
 }
