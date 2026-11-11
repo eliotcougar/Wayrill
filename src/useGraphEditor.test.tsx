@@ -16,6 +16,7 @@ import { parseGraph } from './graph/model';
 import { parseStash } from './profiles/import';
 import { applyStashedProfile } from './profiles/graph';
 import { factoryDefaults } from './graph/defaults';
+import { makeNode, makeProxyInbound } from './graph/catalog';
 
 // Editing/history cases use a fixed complex fixture, independent of first-run UX.
 vi.mock('./graph/examples', async () => {
@@ -115,6 +116,76 @@ it('flushes the latest library and linked graph when a refresh completes while e
 });
 afterEach(async () => {
   await act(() => root.unmount());
+});
+
+it('routes through two newly added proxy chains independently and rejects duplicate saved tags', async () => {
+  const position = { x: 0, y: 0 };
+  const inputs = [10808, 10809].map((port, i) => {
+    const node = makeProxyInbound('socks', position, `input-${i}`);
+    Object.assign(node.data.settings, { tag: node.id, port });
+    return node;
+  });
+  const hops = [16001, 16002].map((port, i) => {
+    const node = makeNode('socks-outbound', position, `hop-${i}`);
+    Object.assign(node.data.settings, { tag: node.id, address: '127.0.0.1', port });
+    return node;
+  });
+  const block = makeNode('block-outbound', position, 'block');
+  await act(() =>
+    editor.loadGraph({ name: 'Two chains', nodes: [...inputs, ...hops, block], edges: [] }),
+  );
+  await act(() => {
+    for (const [index, input] of inputs.entries()) {
+      const chain = editor.addNode('proxy-chain', position);
+      const path = index === 0 ? hops : [...hops].reverse();
+      const steps = path.map((hop) => ({ id: hop.id, outbound: { type: 'node', nodeId: hop.id } }));
+      editor.updateNode(chain.id, {
+        settings: { ...chain.data.settings, steps: JSON.stringify({ version: 1, steps }) },
+      });
+      expect(
+        editor.saveConnection({
+          source: input.id,
+          sourceHandle: 'data',
+          target: chain.id,
+          targetHandle: 'in',
+        }),
+      ).toBeNull();
+      expect(
+        editor.saveConnection({
+          source: input.id,
+          sourceHandle: 'dns',
+          target: block.id,
+          targetHandle: 'in',
+        }),
+      ).toBeNull();
+    }
+  });
+  const { config } = compileRuntimeGraph(editor.graph);
+  expect(config.routing).toMatchObject({
+    rules: expect.arrayContaining([
+      expect.objectContaining({ inboundTag: ['input-0'], outboundTag: 'proxy-chain' }),
+      expect.objectContaining({ inboundTag: ['input-1'], outboundTag: 'proxy-chain-2' }),
+    ]),
+  });
+  expect(config.outbounds).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        tag: 'proxy-chain',
+        settings: expect.objectContaining({ port: 16002 }),
+      }),
+      expect.objectContaining({
+        tag: 'proxy-chain-2',
+        settings: expect.objectContaining({ port: 16001 }),
+      }),
+    ]),
+  );
+  const second = editor.graph.nodes.find((node) => node.data.settings.tag === 'proxy-chain-2')!;
+  await act(() =>
+    editor.updateNode(second.id, { settings: { ...second.data.settings, tag: 'proxy-chain' } }),
+  );
+  expect(() => compileRuntimeGraph(parseGraph(editor.serialize()))).toThrow(
+    'outbound tag proxy-chain is already used',
+  );
 });
 
 describe('layout history', () => {

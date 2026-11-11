@@ -14,7 +14,7 @@ import { syncXrayConnections } from './graph/xrayCompiler';
 import { updateImportedCoreDefaults } from './graph/nativeCore';
 import { refreshPolicyGraph } from './graph/policySources';
 import type { Stash } from './profiles/import';
-import { isExecutableOutboundKind } from './graph/outbounds';
+import { isOutboundKind } from './graph/outbounds';
 import { isInboundKind } from './graph/inbounds';
 import { applyDefaults, enableDefaults, resolveGraph } from './graph/defaults';
 import { createProxyStarter } from './graph/examples';
@@ -246,7 +246,7 @@ export default function useGraphEditor(
       if (kind === 'fakedns')
         node.data.settings.pools =
           graph.nodes.find((n) => n.data.kind === 'fakedns')?.data.settings.pools ?? '';
-      if (isExecutableOutboundKind(kind) || kind === 'policy-group' || kind === 'xray-outbound')
+      if (isOutboundKind(kind))
         node.data.settings.tag = uniqueOutboundTag(String(node.data.settings.tag), graph.nodes);
       if (isInboundKind(kind) || kind === 'xray-inbound')
         node.data.settings.tag = uniqueInboundTag(String(node.data.settings.tag), graph.nodes);

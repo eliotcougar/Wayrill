@@ -9,6 +9,7 @@ import { enabledInboundGraph, isGraphInbound } from './inboundState';
 import { udpDnsPolicyWarnings } from './dnsTransport';
 import { parseCaptureOptions } from './capture';
 import { diagnoseXrayGraph } from './xrayCompiler';
+import { isXrayOutbound } from './xrayNodes';
 import { parseNativeProjection, parseXrayMetadata } from './xrayProjection';
 import {
   bindingsFor,
@@ -374,6 +375,12 @@ export function diagnoseGraph(graph: GraphState): Diagnostic[] {
       /* Chain diagnostics report malformed or missing hops. */
     }
   }
+  const outboundTagCounts = new Map<string, number>();
+  for (const node of graph.nodes) {
+    const tag = node.data.settings.tag;
+    if (typeof tag === 'string' && tag && isXrayOutbound(node))
+      outboundTagCounts.set(tag, (outboundTagCounts.get(tag) ?? 0) + 1);
+  }
   for (const node of graph.nodes) {
     if (!node.data.label.trim())
       issues.push({ severity: 'error', nodeId: node.id, message: 'Give this node a name.' });
@@ -438,23 +445,15 @@ export function diagnoseGraph(graph: GraphState): Diagnostic[] {
           message: `${node.data.label}: another inbound uses this listen address and port.`,
         });
     }
+    const tag = node.data.settings.tag;
+    if (typeof tag === 'string' && isXrayOutbound(node) && (outboundTagCounts.get(tag) ?? 0) > 1)
+      issues.push({
+        severity: 'error',
+        nodeId: node.id,
+        fieldKey: 'tag',
+        message: `${node.data.label}: outbound tag ${tag} is already used.`,
+      });
     if (isExecutableOutboundKind(node.data.kind)) {
-      const tag = node.data.settings.tag;
-      if (
-        tag &&
-        graph.nodes.some(
-          (other) =>
-            other.id !== node.id &&
-            isExecutableOutboundKind(other.data.kind) &&
-            other.data.settings.tag === tag,
-        )
-      )
-        issues.push({
-          severity: 'error',
-          nodeId: node.id,
-          fieldKey: 'tag',
-          message: `${node.data.label}: outbound tag ${tag} is already used.`,
-        });
       const via = String(node.data.settings.dialerProxy ?? '');
       if (via) {
         const visited = new Set<string>([String(tag)]);
