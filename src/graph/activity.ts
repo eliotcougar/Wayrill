@@ -3,7 +3,7 @@ import { isDisabledInbound, isGraphInbound } from './inboundState';
 import { getOutputPorts } from './catalog';
 import type { TrafficEndpoint } from '../traffic';
 import { jsonArray, jsonRecord } from './xrayJson';
-import type { GraphState, RuleEdge } from './types';
+import type { GraphState } from './types';
 import type { RuntimeCompilation } from './runtime';
 
 export const GRAPH_ACTIVITY_KEY = 'wayrill.appearance.trafficGlow';
@@ -28,6 +28,8 @@ export const noGraphActivity: GraphActivity = { edges: new Map(), ports: new Map
 export const activityPortKey = (node: string, type: string, port: string) =>
   JSON.stringify([node, type, port]);
 
+type ActivityWire = { id: string; source: string; target: string };
+
 /** Only explicit compiler provenance may light a wire. Never walk backwards from
  * a busy outbound: separate branches can share it without sharing a decision.
  */
@@ -38,14 +40,28 @@ export function graphActivityPlan(
   const nodes = new Map(
     graph.nodes.filter((n) => !isDisabledInbound(n.data)).map((n) => [n.id, n]),
   );
-  const outputs = new Map<string, RuleEdge[]>();
+  const outputs = new Map<string, Map<string, ActivityWire[]>>();
   for (const edge of graph.edges) {
     const source = nodes.get(edge.source);
     if (!source || !nodes.has(edge.target)) continue;
     const kind = sourceConnectionKind(source.data, edge.sourceHandle ?? '');
     if (kind !== 'traffic' && kind !== 'dns-traffic') continue;
-    const key = activityPortKey(edge.source, 'source', edge.sourceHandle ?? '');
-    outputs.set(key, [...(outputs.get(key) ?? []), edge]);
+    let ports = outputs.get(edge.source);
+    if (!ports) {
+      ports = new Map();
+      outputs.set(edge.source, ports);
+    }
+    const handle = edge.sourceHandle ?? '';
+    let wires = ports.get(handle);
+    if (!wires) {
+      wires = [];
+      ports.set(handle, wires);
+    }
+    wires.push({
+      id: edge.id,
+      source: activityPortKey(edge.source, 'source', handle),
+      target: activityPortKey(edge.target, 'target', edge.targetHandle ?? 'in'),
+    });
   }
   const routing = jsonRecord(compilation.config.routing) ? compilation.config.routing : {};
   const rules = jsonArray(routing.rules) ? routing.rules : [];
@@ -59,10 +75,14 @@ export function graphActivityPlan(
   }
   // The service can append an observed implicit fallback at rules.length.
   for (let index = 0; index <= rules.length; index++) {
-    const edges = new Map<string, RuleEdge>();
+    const edges = new Set<string>();
+    const ports = new Set<string>();
     const add = (node: string, port: string) => {
-      for (const edge of outputs.get(activityPortKey(node, 'source', port)) ?? [])
-        edges.set(edge.id, edge);
+      for (const wire of outputs.get(node)?.get(port) ?? []) {
+        edges.add(wire.id);
+        ports.add(wire.source);
+        ports.add(wire.target);
+      }
     };
     const input = compilation.activityInputs?.[index];
     if (input) add(input.nodeId, input.port);
@@ -71,14 +91,7 @@ export function graphActivityPlan(
         ? compilation.displayNames?.routingDefault
         : compilation.displayNames?.routing?.[index];
     for (const hop of trail ?? []) add(hop.filterId, hop.outputId);
-    if (edges.size) {
-      const ports = new Set<string>();
-      for (const edge of edges.values()) {
-        ports.add(activityPortKey(edge.source, 'source', edge.sourceHandle ?? ''));
-        ports.add(activityPortKey(edge.target, 'target', edge.targetHandle ?? 'in'));
-      }
-      plan.rules.set(index, { edges: [...edges.keys()], ports: [...ports] });
-    }
+    if (edges.size) plan.rules.set(index, { edges: [...edges], ports: [...ports] });
   }
   return plan;
 }

@@ -4,6 +4,8 @@ export type TrafficPoint = {
   sampleId: number;
   timestampMs: number;
   elapsedMs: number;
+  /** Duration covered by this average, measured on the service's monotonic clock. */
+  intervalMs?: number;
   uploadPerSecond: number | null;
   downloadPerSecond: number | null;
 };
@@ -81,46 +83,28 @@ export function formatRate(value: number | null | undefined, unit: RateUnit = 'b
   const scale = rateScale(value, unit);
   return `${(value / scale.divisor).toFixed(unitDecimals(value / scale.divisor))} ${scale.unit}`;
 }
+const HISTORY_LIMIT = 300;
+const validPoint = (p: TrafficPoint) =>
+  Number.isSafeInteger(p.sampleId) &&
+  p.sampleId > 0 &&
+  Number.isFinite(p.elapsedMs) &&
+  p.elapsedMs >= 0;
+
+export function appendTrafficPoint(points: TrafficPoint[], point: TrafficPoint | null | undefined) {
+  if (!point || !validPoint(point) || point.sampleId <= (points.at(-1)?.sampleId ?? 0))
+    return points;
+  const next = points.slice(Math.max(0, points.length - HISTORY_LIMIT + 1));
+  next.push(point);
+  return next;
+}
+
 export function mergeTrafficPoints(
   current: TrafficPoint[],
   incoming: TrafficPoint[],
 ): TrafficPoint[] {
   const points = new Map(current.map((p) => [p.sampleId, p]));
   for (const p of incoming) {
-    if (
-      Number.isSafeInteger(p.sampleId) &&
-      p.sampleId > 0 &&
-      Number.isFinite(p.elapsedMs) &&
-      p.elapsedMs >= 0
-    )
-      points.set(p.sampleId, p);
+    if (validPoint(p)) points.set(p.sampleId, p);
   }
-  return [...points.values()].sort((a, b) => a.sampleId - b.sampleId).slice(-300);
-}
-/** Discontinuities remain visible. Never join across failed polls, restarts or long pauses. */
-export function chartSegments(
-  points: TrafficPoint[],
-  direction: 'uploadPerSecond' | 'downloadPerSecond',
-) {
-  const segments: TrafficPoint[][] = [];
-  let line: TrafficPoint[] = [];
-  for (const point of points) {
-    const previous = line.at(-1),
-      rate = point[direction];
-    if (
-      rate == null ||
-      !Number.isFinite(rate) ||
-      rate < 0 ||
-      (previous &&
-        (point.sampleId !== previous.sampleId + 1 ||
-          point.elapsedMs <= previous.elapsedMs ||
-          point.elapsedMs - previous.elapsedMs > 6000))
-    ) {
-      if (line.length) segments.push(line);
-      line = [];
-    }
-    if (rate != null && Number.isFinite(rate) && rate >= 0) line.push(point);
-  }
-  if (line.length) segments.push(line);
-  return segments;
+  return [...points.values()].sort((a, b) => a.sampleId - b.sampleId).slice(-HISTORY_LIMIT);
 }

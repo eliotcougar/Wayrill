@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chartSegments, formatBytes, mergeTrafficPoints, type TrafficPoint } from './traffic';
+import { appendTrafficPoint, formatBytes, mergeTrafficPoints, type TrafficPoint } from './traffic';
 const point = (id: number, rate: number | null = 100): TrafficPoint => ({
   sampleId: id,
   timestampMs: id * 2000,
@@ -32,24 +32,9 @@ describe('traffic formatting and chart history', () => {
   });
 });
 
-it('breaks the graph across a skipped ID even when the clock gap is short', () => {
-  expect(
-    chartSegments([point(1), point(3), point(4)], 'downloadPerSecond').map((s) =>
-      s.map((p) => p.sampleId),
-    ),
-  ).toEqual([[1], [3, 4]]);
-});
-it('never joins samples at the same time or across a reset time axis', () => {
-  const points = [
-    point(1),
-    { ...point(2), elapsedMs: 2000 },
-    { ...point(3), elapsedMs: 1500 },
-    point(4),
-  ];
-  expect(chartSegments(points, 'downloadPerSecond').map((s) => s.map((p) => p.sampleId))).toEqual([
-    [1],
-    [2],
-    [3],
-    [4],
-  ]);
+it('does not redraw history for repeated snapshots and keeps the newest 300 measurements', () => {
+  const points = Array.from({ length: 300 }, (_, i) => point(i + 1));
+  expect(appendTrafficPoint(points, point(300))).toBe(points);
+  expect(appendTrafficPoint(points, point(298))).toBe(points);
+  expect(appendTrafficPoint(points, point(301))).toEqual([...points.slice(1), point(301)]);
 });

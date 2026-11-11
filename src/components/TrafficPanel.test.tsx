@@ -3,7 +3,7 @@ import { TRAFFIC_SORTING_KEY } from '../trafficSorting';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import TrafficPanel from './TrafficPanel';
+import TrafficMonitor from './TrafficPanel';
 import useTrafficHistory from '../useTrafficHistory';
 import type { RuntimeController } from '../useRuntime';
 import type { TrafficSnapshot } from '../traffic';
@@ -117,12 +117,86 @@ const click = async (label: string) =>
     expect(button).toBeDefined();
     button!.click();
   });
-it('freezes exact counters and history, keeps runtime status current, and resumes a new service session', async () => {
-  const h = { points: [traffic.lastSample!], error: '', refresh: vi.fn() };
-  const render = (r: RuntimeController, points = h.points) =>
+it('keeps the chart history when the window is reopened after the service disconnects', async () => {
+  const first = {
+    ...traffic.lastSample!,
+    sampleId: 1,
+    elapsedMs: 2000,
+    intervalMs: 2000,
+  };
+  vi.mocked(serviceCall).mockResolvedValue({ generation: 2, revision: 7, points: [first] });
+  const render = (r: RuntimeController, open: boolean) =>
+    act(async () => root.render(<TrafficMonitor runtime={r} open={open} onClose={vi.fn()} />));
+  await render(runtime(), true);
+  const path = () => host.querySelector('.traffic-down')?.getAttribute('d');
+  const original = path();
+  expect(original).toContain('H');
+  await render(runtime(), false);
+  expect(host.querySelector('dialog')).toBeNull();
+  await render(runtime(traffic, false), true);
+  expect(host.textContent).toContain('Service offline');
+  expect(path()).toBe(original);
+});
+
+it('shows why a large endpoint table is empty before and after reconnecting', async () => {
+  const waiting: TrafficSnapshot = {
+    ...traffic,
+    sampleId: 0,
+    lastSample: null,
+    endpoints: [],
+    endpointsTruncated: true,
+    endpointCounts: { inbound: 1, outbound: 500 },
+  };
+  vi.mocked(serviceCall).mockImplementation(async (method) =>
+    method === 'traffic.history'
+      ? { generation: 2, revision: 7, points: [] }
+      : {
+          generation: 2,
+          revision: 7,
+          sampleId: 0,
+          scope: 'outbound',
+          offset: 0,
+          total: 0,
+          endpoints: [],
+        },
+  );
+  const render = (connected: boolean) =>
     act(async () =>
-      root.render(<TrafficPanel runtime={r} history={{ ...h, points }} onClose={vi.fn()} />),
+      root.render(
+        <TrafficMonitor
+          runtime={{
+            ...runtime(waiting, connected),
+            capabilities: ['xray.statistics', 'xray.statistics.pages'],
+          }}
+          open
+          onClose={vi.fn()}
+        />,
+      ),
     );
+  await render(false);
+  await click('Outbounds');
+  expect(host.textContent).toContain(
+    'Endpoint counters are unavailable while the service is offline.',
+  );
+  expect(serviceCall).not.toHaveBeenCalled();
+  await render(true);
+  expect(serviceCall).toHaveBeenCalledWith('traffic.endpoints', {
+    scope: 'outbound',
+    offset: 0,
+    limit: 100,
+  });
+  expect(host.textContent).toContain('No endpoint counters available for this session.');
+  expect(host.textContent).not.toContain('Loading endpoint counters');
+});
+
+it('freezes exact counters and history, keeps runtime status current, and resumes a new service session', async () => {
+  vi.mocked(serviceCall).mockImplementation(async () => ({
+    generation: 2,
+    revision: 7,
+    points: [],
+  }));
+  const render = (r: RuntimeController) =>
+    act(async () => root.render(<TrafficMonitor runtime={r} open onClose={vi.fn()} />));
   await render(runtime());
   await click('Pause display');
   const heldChart = host.querySelector('figure')!.innerHTML;
@@ -134,10 +208,10 @@ it('freezes exact counters and history, keeps runtime status current, and resume
     uploadPerSecond: 4096,
     lastSample: { ...traffic.lastSample!, sampleId: 3, uploadPerSecond: 4096 },
   };
-  await render(
-    { ...runtime(next, false), snapshot: { ...runtime(next).snapshot!, instanceId: 'two' } },
-    [next.lastSample],
-  );
+  await render({
+    ...runtime(next, false),
+    snapshot: { ...runtime(next).snapshot!, instanceId: 'two' },
+  });
   expect(host.textContent).toContain('Display paused at');
   expect(host.textContent).toContain('Service offline');
   expect(host.textContent).toContain('session changed');
@@ -146,7 +220,7 @@ it('freezes exact counters and history, keeps runtime status current, and resume
   expect(host.querySelector('figure')!.innerHTML).toBe(heldChart);
   expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe('Resume display');
   expect(host.querySelector('[role="tab"][aria-disabled="true"]')).not.toBeNull();
-  await render(runtime(next), [next.lastSample]);
+  await render(runtime(next));
   await click('Resume display');
   expect(host.querySelector('[title="999999 bytes"]')).not.toBeNull();
   expect(host.textContent).toContain('4.0 KiB/s');

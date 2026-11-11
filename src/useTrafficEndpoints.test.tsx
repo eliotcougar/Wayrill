@@ -5,16 +5,17 @@ import { afterEach, beforeEach, it, expect, vi } from 'vitest';
 import useTrafficEndpoints from './useTrafficEndpoints';
 import { serviceCall } from './serviceClient';
 import type { RuntimeController } from './useRuntime';
-import type { TrafficEndpointPage, TrafficSort } from './traffic';
+import type { TrafficEndpointPage, TrafficSnapshot, TrafficSort } from './traffic';
 vi.mock('./serviceClient', () => ({ serviceCall: vi.fn(), errorText: (e: unknown) => String(e) }));
 let root: Root, latest: ReturnType<typeof useTrafficEndpoints>;
-const controller = (sampleId: number) =>
+const controller = (sampleId: number, state: TrafficSnapshot['state']) =>
   ({
     connected: true,
     capabilities: ['xray.statistics.pages'],
     snapshot: {
       instanceId: 'instance',
       traffic: {
+        state,
         generation: 1,
         revision: 2,
         sampleId,
@@ -28,12 +29,14 @@ function Probe({
   sample,
   paused = false,
   sort,
+  state = 'collecting',
 }: {
   sample: number;
   paused?: boolean;
   sort?: TrafficSort;
+  state?: TrafficSnapshot['state'];
 }) {
-  latest = useTrafficEndpoints(controller(sample), 'outbound', paused, sort);
+  latest = useTrafficEndpoints(controller(sample, state), 'outbound', paused, sort);
   return null;
 }
 const page = (sampleId: number): TrafficEndpointPage => ({
@@ -96,7 +99,7 @@ it('keeps a slow endpoint request alive across samples and coalesces the next re
   expect(serviceCall).toHaveBeenCalledTimes(3);
 });
 
-it('requests server-side sorting, resets to page one and ignores late pages from a previous sort', async () => {
+it('coalesces rapid page and sort changes while a previous page is still loading', async () => {
   const pending: ((page: TrafficEndpointPage) => void)[] = [];
   vi.mocked(serviceCall)
     .mockResolvedValueOnce(page(1))
@@ -106,10 +109,19 @@ it('requests server-side sorting, resets to page one and ignores late pages from
   await act(async () => root.render(<Probe sample={1} />));
   await act(async () => latest.setOffset(100));
   expect(latest.offset).toBe(100);
+  await act(async () => latest.setOffset(200));
+  await act(async () =>
+    root.render(<Probe sample={1} sort={{ column: 'uploadBytes', direction: 'asc' }} />),
+  );
   await act(async () =>
     root.render(<Probe sample={1} sort={{ column: 'downloadBytes', direction: 'desc' }} />),
   );
   expect(latest.offset).toBe(0);
+  expect(serviceCall).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    pending[0]({ ...page(1), offset: 100, endpoints: [{ ...page(1).endpoints[0], tag: 'late' }] });
+  });
+  expect(latest.rows).toEqual([]);
   expect(serviceCall).toHaveBeenCalledTimes(3);
   expect(vi.mocked(serviceCall).mock.calls.at(-1)).toEqual([
     'traffic.endpoints',
@@ -124,10 +136,6 @@ it('requests server-side sorting, resets to page one and ignores late pages from
     });
     await Promise.resolve();
   });
-  await act(async () => {
-    pending[0]({ ...page(1), offset: 100, endpoints: [{ ...page(1).endpoints[0], tag: 'late' }] });
-    await Promise.resolve();
-  });
   expect(latest.rows[0].tag).toBe('sorted');
   await act(async () => root.render(<Probe sample={1} />));
   expect(latest.offset).toBe(0);
@@ -135,4 +143,19 @@ it('requests server-side sorting, resets to page one and ignores late pages from
     'traffic.endpoints',
     { scope: 'outbound', offset: 0, limit: 100 },
   ]);
+});
+
+it('refreshes rate-sorted rows when collection stops without a new sample', async () => {
+  const sort = { column: 'downloadPerSecond', direction: 'desc' } as const;
+  const live = { ...page(1), sortBy: sort.column, direction: sort.direction };
+  vi.mocked(serviceCall)
+    .mockResolvedValueOnce(live)
+    .mockResolvedValueOnce({
+      ...live,
+      endpoints: [{ ...live.endpoints[0], tag: 'alphabetical', downloadPerSecond: null }],
+    });
+  await act(async () => root.render(<Probe sample={1} sort={sort} />));
+  expect(latest.rows[0].tag).toBe('sample-1');
+  await act(async () => root.render(<Probe sample={1} sort={sort} state="stopped" />));
+  expect(latest.rows[0].tag).toBe('alphabetical');
 });

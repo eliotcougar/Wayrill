@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { serviceCall, errorText } from './serviceClient';
 import type { RuntimeController } from './useRuntime';
-import { mergeTrafficPoints, type TrafficHistory, type TrafficPoint } from './traffic';
+import {
+  appendTrafficPoint,
+  mergeTrafficPoints,
+  type TrafficHistory,
+  type TrafficPoint,
+} from './traffic';
 
 export default function useTrafficHistory(runtime: RuntimeController) {
   const traffic = runtime.snapshot?.traffic;
@@ -46,13 +51,10 @@ export default function useTrafficHistory(runtime: RuntimeController) {
     };
   }, [runtime.connected, supported, key, generation, revision, counterEpoch, retry]);
   useEffect(() => {
-    setHistory((previous) => ({
-      key,
-      points: mergeTrafficPoints(
-        previous.key === key ? previous.points : [],
-        lastSample ? [lastSample] : [],
-      ),
-    }));
+    setHistory((previous) => {
+      const points = appendTrafficPoint(previous.key === key ? previous.points : [], lastSample);
+      return previous.key === key && previous.points === points ? previous : { key, points };
+    });
   }, [key, lastSample]);
   return {
     points: history.key === key ? history.points : [],

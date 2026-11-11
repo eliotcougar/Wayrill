@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { RateUnit } from '../trafficUnits';
-import { chartSegments, type TrafficPoint } from '../traffic';
-import { measuredRate, trafficScale, trafficWindow } from '../trafficPresentation';
+import type { TrafficPoint } from '../traffic';
+import { trafficRatePath, trafficScale } from '../trafficPresentation';
 
-export default function TrafficChart({
+export default memo(function TrafficChart({
   points,
   minutes,
   unit,
@@ -33,31 +33,11 @@ export default function TrafficChart({
   const end = points.at(-1)?.elapsedMs ?? 0,
     span = minutes * 60000,
     start = end - span;
-  const visible = trafficWindow(points, minutes),
-    scale = trafficScale(points, unit);
-  const x = (p: TrafficPoint) => left + ((p.elapsedMs - start) / span) * (right - left);
+  const scale = trafficScale(points, unit);
+  const x = (elapsedMs: number) => left + ((elapsedMs - start) / span) * (right - left);
   const y = (rate: number) => bottom - (rate / scale.top) * (bottom - top);
-  const paths = (direction: 'uploadPerSecond' | 'downloadPerSecond') =>
-    chartSegments(visible, direction).map((segment, index) =>
-      segment.length === 1 ? (
-        <circle
-          key={index}
-          cx={x(segment[0])}
-          cy={y(segment[0][direction]!)}
-          r="3"
-          className={direction === 'uploadPerSecond' ? 'traffic-up' : 'traffic-down'}
-        />
-      ) : (
-        <polyline
-          key={index}
-          points={segment.map((p) => `${x(p).toFixed(2)},${y(p[direction]!).toFixed(2)}`).join(' ')}
-          className={direction === 'uploadPerSecond' ? 'traffic-up' : 'traffic-down'}
-          fill="none"
-          strokeWidth="2.5"
-          vectorEffect="non-scaling-stroke"
-        />
-      ),
-    );
+  const upload = trafficRatePath(points, 'uploadPerSecond', start, x, y);
+  const download = trafficRatePath(points, 'downloadPerSecond', start, x, y);
   return (
     <figure className="traffic-chart">
       <figcaption>
@@ -79,9 +59,10 @@ export default function TrafficChart({
       >
         <title>Traffic rates over time</title>
         <desc>
-          Upload uses a dashed line; download uses a solid line. Both share the same vertical scale
-          in {scale.unit}. Gaps are missing measurements. Current rates and totals appear above;
-          missing measurements are shown with an em dash.
+          Steps show the average rate for each measured interval. Upload uses a dashed line;
+          download uses a solid line. Both share the same vertical scale in {scale.unit}. Gaps are
+          missing measurements. Current rates and totals appear above; missing measurements are
+          shown with an em dash.
         </desc>
         {[0, 0.5, 1].map((f) => (
           <g key={f}>
@@ -97,8 +78,25 @@ export default function TrafficChart({
             </text>
           </g>
         ))}
-        {paths('uploadPerSecond')}
-        {paths('downloadPerSecond')}
+        {(
+          [
+            ['traffic-up', upload],
+            ['traffic-down', download],
+          ] as const
+        ).map(
+          ([className, path]) =>
+            path && (
+              <path
+                key={className}
+                className={className}
+                d={path}
+                fill="none"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ),
+        )}
         {[0, 0.5, 1].map((f) => (
           <text
             key={f}
@@ -109,9 +107,7 @@ export default function TrafficChart({
             {f === 1 ? 'Latest sample' : `${Math.round((span * (1 - f)) / 1000)} s ago`}
           </text>
         ))}
-        {!visible.some(
-          (p) => measuredRate(p.uploadPerSecond) || measuredRate(p.downloadPerSecond),
-        ) && (
+        {!upload && !download && (
           <text
             x={(left + right) / 2}
             y={(top + bottom) / 2}
@@ -124,4 +120,4 @@ export default function TrafficChart({
       </svg>
     </figure>
   );
-}
+});

@@ -185,20 +185,10 @@
 .traffic-up {
   stroke-dasharray: 7 5;
 }
-.traffic-chart circle.traffic-up {
-  fill: var(--chart-upload);
-}
-.traffic-chart circle.traffic-down {
-  fill: var(--chart-download);
-}
 @media (forced-colors: active) {
   .traffic-up,
   .traffic-down {
     stroke: CanvasText;
-  }
-  .traffic-chart circle.traffic-up,
-  .traffic-chart circle.traffic-down {
-    fill: CanvasText;
   }
   .traffic-up-line,
   .traffic-down-line {

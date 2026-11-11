@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act, useContext } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import useGraphActivity, { useGraphActivityPreference } from './useGraphActivity';
-import { GRAPH_ACTIVITY_KEY } from './graph/activity';
-import { GraphActivityContext, GraphActivityProvider } from './components/GraphActivity';
+import { activityPortKey, GRAPH_ACTIVITY_KEY } from './graph/activity';
+import { GraphActivityProvider, useGraphActivityLevel } from './components/GraphActivity';
 import { serviceCall } from './serviceClient';
 import type { RuntimeController } from './useRuntime';
 import { createProxyStarter } from './graph/examples';
@@ -162,14 +162,16 @@ it('keeps one in-flight read across rapid toggles and visibility changes', async
 });
 
 it('keeps poll renders out of the editor and leaves idle decorations unchanged', async () => {
-  let editorRenders = 0,
-    decorationRenders = 0;
+  let editorRenders = 0;
+  const rendered = new Map<string, number>();
+  const edge = graph.edges.find((item) => item.id === 'proxy-data')!;
+  const target = activityPortKey(edge.target, 'target', edge.targetHandle ?? 'in');
   const idle = { ...snapshot(), rules: [] };
   vi.mocked(serviceCall).mockResolvedValue(idle);
-  function Decoration() {
-    activity = useContext(GraphActivityContext);
-    decorationRenders++;
-    return null;
+  function Decoration({ id, kind }: { id: string; kind: 'edges' | 'ports' }) {
+    const level = useGraphActivityLevel(kind, id);
+    rendered.set(id, (rendered.get(id) ?? 0) + 1);
+    return <span data-edge={id}>{level}</span>;
   }
   function Editor() {
     editorRenders++;
@@ -181,7 +183,9 @@ it('keeps poll renders out of the editor and leaves idle decorations unchanged',
     } as RuntimeController;
     return (
       <GraphActivityProvider enabled graph={graph} compilation={compiled} runtime={runtime}>
-        <Decoration />
+        <Decoration kind="edges" id={edge.id} />
+        <Decoration kind="edges" id="unrelated" />
+        <Decoration kind="ports" id={target} />
       </GraphActivityProvider>
     );
   }
@@ -189,10 +193,22 @@ it('keeps poll renders out of the editor and leaves idle decorations unchanged',
   await tick(5000);
   expect(serviceCall).toHaveBeenCalledTimes(6);
   expect(editorRenders).toBe(1);
-  expect(decorationRenders).toBe(1);
-  vi.mocked(serviceCall).mockResolvedValue(snapshot());
+  expect(rendered.get('proxy-data')).toBe(1);
+  const renders = () => [...rendered.values()].reduce((sum, count) => sum + count, 0);
+  const before = renders();
+  vi.mocked(serviceCall).mockImplementation(async () => snapshot());
   await tick(1000);
-  expect(activity.edges.has('proxy-data')).toBe(true);
+  const lit = renders() - before;
+  expect(Number(host.querySelector('[data-edge="proxy-data"]')!.textContent)).toBeGreaterThan(0);
+  const first = renders();
+  await tick(1000);
+  const repeated = renders() - first;
+  vi.mocked(serviceCall).mockResolvedValue(idle);
+  const last = renders();
+  await tick(1000);
+  const cleared = renders() - last;
+  expect(host.querySelector('[data-edge="proxy-data"]')!.textContent).toBe('0');
   expect(editorRenders).toBe(1);
-  expect(decorationRenders).toBe(2);
+  expect([lit, repeated, cleared]).toEqual([2, 0, 2]);
+  expect(rendered.get('unrelated')).toBe(1);
 });

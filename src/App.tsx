@@ -103,8 +103,7 @@ import RuntimePanel from './components/RuntimePanel';
 import GraphRuntimeToolbar from './components/GraphRuntimeToolbar';
 import GraphCheckDialog from './components/GraphCheckDialog';
 import createGraphRuntimeActions from './createGraphRuntimeActions';
-import TrafficPanel from './components/TrafficPanel';
-import useTrafficHistory from './useTrafficHistory';
+import TrafficMonitor from './components/TrafficPanel';
 import { useTrafficUnits } from './trafficUnits';
 import { formatRate } from './traffic';
 import { automaticFakeDns } from './graph/fakeDns';
@@ -228,7 +227,6 @@ export default function App() {
     runtime.subscriptions,
   );
   const resourceScheduleError = useResourceSync(editor.graph, runtime.connected);
-  const trafficHistory = useTrafficHistory(runtime);
   const [trafficOpen, setTrafficOpen] = useState(false);
   const [stashOpen, setStashOpen] = useState(false);
   const [deletingSelection, setDeletingSelection] = useState(false);
@@ -2156,13 +2154,11 @@ export default function App() {
                           }}
                         />
                       )}
-                      {trafficOpen && (
-                        <TrafficPanel
-                          runtime={runtime}
-                          history={trafficHistory}
-                          onClose={() => setTrafficOpen(false)}
-                        />
-                      )}
+                      <TrafficMonitor
+                        runtime={runtime}
+                        open={trafficOpen}
+                        onClose={() => setTrafficOpen(false)}
+                      />
                       {deletingSelection && (
                         <DeleteGraphSelection
                           count={editor.selectedNodes.length}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LIMITS } from './limits';
 import { serviceCall, errorText } from './serviceClient';
 import type { TrafficEndpointPage, TrafficSort } from './traffic';
@@ -11,7 +11,9 @@ export default function useTrafficEndpoints(
   paused = false,
   sort: TrafficSort = defaultTrafficSort,
 ) {
-  const [page, setPage] = useState<(TrafficEndpointPage & { context: string }) | null>(null),
+  const [page, setPage] = useState<
+      (TrafficEndpointPage & { context: string; collecting: boolean }) | null
+    >(null),
     [position, setPosition] = useState({ context: '', offset: 0 }),
     [error, setError] = useState(''),
     [retry, setRetry] = useState(0);
@@ -20,6 +22,7 @@ export default function useTrafficEndpoints(
     generation = traffic?.generation,
     revision = traffic?.revision,
     sampleId = traffic?.sampleId,
+    collecting = traffic?.state === 'collecting',
     counterEpoch = traffic?.counterEpoch ?? 0,
     enabled =
       !paused &&
@@ -41,7 +44,8 @@ export default function useTrafficEndpoints(
     setPage(null);
     setError('');
   }, [context]);
-  const total = scope === 'overview' ? 0 : (traffic?.endpointCounts?.[scope] ?? 0),
+  const total =
+      scope === 'overview' || sampleId === 0 ? 0 : (traffic?.endpointCounts?.[scope] ?? 0),
     currentOffset = Math.min(
       position.context === context ? position.offset : 0,
       Math.max(0, Math.ceil(total / LIMITS.endpointPageSize) - 1) * LIMITS.endpointPageSize,
@@ -49,20 +53,21 @@ export default function useTrafficEndpoints(
   const latestSample = useRef(sampleId);
   latestSample.current = sampleId;
   const request = useRef<(() => void) | undefined>(undefined);
+  const inFlight = useRef<(() => void) | undefined>(undefined);
+  const queued = useRef(false);
   useEffect(() => {
     if (!enabled) return;
-    let active = true,
-      busy = false,
-      queued = false;
+    let active = true;
     let requestedSample: number | undefined;
     const fetchPage = () => {
       if (!active) return;
-      if (busy) {
-        queued ||= latestSample.current !== requestedSample;
+      if (inFlight.current) {
+        queued.current ||=
+          inFlight.current !== fetchPage || latestSample.current !== requestedSample;
         return;
       }
-      busy = true;
-      queued = false;
+      inFlight.current = fetchPage;
+      queued.current = false;
       requestedSample = latestSample.current;
       const minimumSample = requestedSample ?? 0;
       setError('');
@@ -86,15 +91,17 @@ export default function useTrafficEndpoints(
             (reply.sortBy ?? 'name') === sort.column &&
             (reply.direction ?? 'asc') === sort.direction
           ) {
-            setPage({ ...reply, context });
+            setPage({ ...reply, context, collecting });
           }
         })
         .catch((e) => {
           if (active) setError(errorText(e));
         })
         .finally(() => {
-          busy = false;
-          if (active && queued) fetchPage();
+          inFlight.current = undefined;
+          const refresh = queued.current;
+          queued.current = false;
+          if (refresh) request.current?.();
         });
     };
     request.current = fetchPage;
@@ -113,26 +120,34 @@ export default function useTrafficEndpoints(
     currentOffset,
     retry,
     context,
+    collecting,
     sort.column,
     sort.direction,
   ]);
-  // A new sample queues one refresh instead of cancelling an in-flight page.
+  // Finish the current read, then fetch only the latest page, sort and sample.
   useEffect(() => {
     request.current?.();
   }, [sampleId]);
   const current = page?.context === context && page.offset === currentOffset ? page : null;
-  const rows =
-    scope === 'overview'
-      ? []
-      : traffic?.endpointsTruncated
-        ? (current?.endpoints ?? [])
-        : (traffic?.endpoints.filter((r) => r.scope === scope) ?? []);
+  const rows = useMemo(
+    () =>
+      scope === 'overview'
+        ? []
+        : traffic?.endpointsTruncated
+          ? (current?.endpoints ?? [])
+          : (traffic?.endpoints.filter((r) => r.scope === scope) ?? []),
+    [scope, traffic?.endpointsTruncated, traffic?.endpoints, current?.endpoints],
+  );
+  const fresh =
+    !traffic?.endpointsTruncated ||
+    (current?.collecting === collecting && current.sampleId >= (sampleId ?? 0));
   return {
     rows,
     total,
     offset: currentOffset,
     paged: !!traffic?.endpointsTruncated,
-    fresh: !traffic?.endpointsTruncated || (current?.sampleId ?? -1) >= (sampleId ?? 0),
+    fresh,
+    loading: enabled && !fresh && !error,
     error,
     setOffset: (offset: number) => setPosition({ context, offset }),
     refresh: () => setRetry((n) => n + 1),

@@ -119,15 +119,9 @@ impl Bridge {
     }
     pub fn read(&self) -> Result<Sample> {
         self.read_inner()
-            .and_then(|mut counters| {
-                let observed_at = Instant::now();
-                let timestamp_ms = timestamp_ms();
-                project_outbound_counters(&mut counters, &self.outbound_sources)?;
-                Ok(Sample {
-                    counters,
-                    observed_at,
-                    timestamp_ms,
-                })
+            .and_then(|mut sample| {
+                project_outbound_counters(&mut sample.counters, &self.outbound_sources)?;
+                Ok(sample)
             })
             .map_err(|_| {
                 ApiError::new(
@@ -136,7 +130,7 @@ impl Bridge {
             )
             })
     }
-    fn read_inner(&self) -> std::io::Result<Value> {
+    fn read_inner(&self) -> std::io::Result<Sample> {
         let deadline = Instant::now() + READ_BUDGET;
         let mut stream = TcpStream::connect_timeout(&self.address, READ_BUDGET)?;
         fn budget(stream: &TcpStream, deadline: Instant) -> std::io::Result<()> {
@@ -266,11 +260,11 @@ impl Bridge {
                 if expected_length.map_or(frame.complete, |size| response.len() >= size) {
                     // Scan each byte once; parsing incomplete JSON after every
                     // chunk makes large subscriptions quadratic and times out.
-                    return parse_http_metrics(&response).map_err(|_| invalid());
+                    return sample_response(&response);
                 }
             }
         }
-        parse_http_metrics(&response).map_err(|_| invalid())
+        sample_response(&response)
     }
 }
 
@@ -348,6 +342,17 @@ impl JsonFrame {
         }
     }
 }
+fn sample_response(bytes: &[u8]) -> std::io::Result<Sample> {
+    let observed_at = Instant::now();
+    let timestamp_ms = timestamp_ms();
+    let counters = parse_http_metrics(bytes).map_err(|_| std::io::ErrorKind::InvalidData)?;
+    Ok(Sample {
+        counters,
+        observed_at,
+        timestamp_ms,
+    })
+}
+
 fn parse_http_metrics(bytes: &[u8]) -> Result<Value> {
     let split = bytes
         .windows(4)
@@ -376,7 +381,7 @@ fn parse_http_metrics(bytes: &[u8]) -> Result<Value> {
             ));
         }
     }
-    let value: Value = serde_json::from_slice(&bytes[split + 4..])
+    let mut value: Value = serde_json::from_slice(&bytes[split + 4..])
         .map_err(|_| ApiError::new("INVALID_STATISTICS", "Invalid metrics data."))?;
     // Discard cmdline, memory statistics and user identities before leaving the reader.
     if !value["stats"]["inbound"].is_object() || !value["stats"]["outbound"].is_object() {
@@ -385,9 +390,14 @@ fn parse_http_metrics(bytes: &[u8]) -> Result<Value> {
             "Missing traffic counters.",
         ));
     }
-    Ok(
-        json!({"inbound":value["stats"]["inbound"],"outbound":value["stats"]["outbound"],"observatory":crate::observation::sanitize(&value["observatory"])}),
-    )
+    Ok(Value::Object(serde_json::Map::from_iter([
+        ("inbound".into(), value["stats"]["inbound"].take()),
+        ("outbound".into(), value["stats"]["outbound"].take()),
+        (
+            "observatory".into(),
+            crate::observation::sanitize(&value["observatory"]),
+        ),
+    ])))
 }
 
 #[derive(Default, Clone, Copy)]
@@ -402,24 +412,56 @@ impl Counts {
             down: self.down.saturating_add(other.down),
         }
     }
-    fn delta(self, previous: Self) -> (Self, bool) {
-        (
-            Self {
-                up: if self.up >= previous.up {
-                    self.up - previous.up
-                } else {
-                    self.up
-                },
-                down: if self.down >= previous.down {
-                    self.down - previous.down
-                } else {
-                    self.down
-                },
-            },
-            self.up < previous.up || self.down < previous.down,
-        )
+}
+
+#[derive(Default)]
+struct Counter {
+    previous: u64,
+    total: u128,
+    complete: bool,
+    rate: Option<f64>,
+}
+impl Counter {
+    fn observe(&mut self, reading: Option<u64>, seconds: Option<f64>, rebaseline: bool) -> u128 {
+        // A missing never-active counter means idle. A missing active counter
+        // invalidates this direction until two adjacent readings are available.
+        let complete = reading.is_some() || self.previous == 0;
+        let current = reading.unwrap_or(self.previous);
+        let delta = current.checked_sub(self.previous);
+        self.rate = if complete && self.complete {
+            seconds.zip(delta).map(|(s, bytes)| bytes as f64 / s)
+        } else {
+            None
+        };
+        self.previous = current;
+        self.complete = complete;
+        let added = if rebaseline {
+            0
+        } else {
+            u128::from(delta.unwrap_or(current))
+        };
+        self.total = self.total.saturating_add(added);
+        added
     }
 }
+
+#[derive(Default)]
+struct Endpoint {
+    upload: Counter,
+    download: Counter,
+}
+impl Endpoint {
+    fn json(&self, scope: EndpointScope, tag: &str, live: bool) -> Value {
+        json!({
+            "scope":scope.key(), "tag":tag,
+            "uploadBytes":self.upload.total.to_string(),
+            "downloadBytes":self.download.total.to_string(),
+            "uploadPerSecond":if live { self.upload.rate } else { None },
+            "downloadPerSecond":if live { self.download.rate } else { None },
+        })
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StoredTotals {
@@ -435,6 +477,8 @@ pub struct Point {
     sample_id: u64,
     timestamp_ms: u64,
     elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interval_ms: Option<u64>,
     upload_per_second: Option<f64>,
     download_per_second: Option<f64>,
 }
@@ -450,11 +494,21 @@ pub struct EndpointPageInput {
     #[serde(default)]
     pub direction: SortDirection,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum EndpointScope {
     Inbound,
     Outbound,
+}
+impl EndpointScope {
+    const ALL: [Self; 2] = [Self::Inbound, Self::Outbound];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Inbound => "inbound",
+            Self::Outbound => "outbound",
+        }
+    }
 }
 #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -467,13 +521,14 @@ pub enum EndpointSort {
     DownloadBytes,
 }
 impl EndpointSort {
-    fn field(self) -> &'static str {
+    fn value(self, endpoint: &Endpoint, live: bool) -> Option<EndpointValue> {
         match self {
-            Self::Name => "tag",
-            Self::UploadPerSecond => "uploadPerSecond",
-            Self::DownloadPerSecond => "downloadPerSecond",
-            Self::UploadBytes => "uploadBytes",
-            Self::DownloadBytes => "downloadBytes",
+            Self::Name => None,
+            Self::UploadBytes => Some(EndpointValue::Count(endpoint.upload.total)),
+            Self::DownloadBytes => Some(EndpointValue::Count(endpoint.download.total)),
+            Self::UploadPerSecond if live => endpoint.upload.rate.map(EndpointValue::Rate),
+            Self::DownloadPerSecond if live => endpoint.download.rate.map(EndpointValue::Rate),
+            _ => None,
         }
     }
 }
@@ -506,7 +561,7 @@ impl EndpointValue {
     }
 }
 struct OrderedEndpoint<'a> {
-    row: &'a Value,
+    row: &'a Endpoint,
     name: String,
     tag: &'a str,
     value: Option<EndpointValue>,
@@ -533,8 +588,7 @@ pub struct Traffic {
     path: PathBuf,
     accumulated: Counts,
     session: Counts,
-    previous: BTreeMap<(String, String), Counts>,
-    observed: BTreeMap<(String, String), Counts>,
+    counters: [BTreeMap<String, Endpoint>; 2],
     last: Option<Instant>,
     started: Instant,
     history: VecDeque<Point>,
@@ -543,10 +597,8 @@ pub struct Traffic {
     revision: u64,
     counter_epoch: u64,
     rebaseline: bool,
-    last_complete: bool,
     state: &'static str,
     error: Option<&'static str>,
-    rows: Value,
     last_persist: Instant,
     dirty: bool,
     persistence_error: Option<&'static str>,
@@ -579,27 +631,29 @@ impl Traffic {
         if let Ok(saved) = recovered {
             accumulated = saved;
         }
-        Ok(Self{owner:owner.into(),path,accumulated,session:Counts::default(),previous:BTreeMap::new(),observed:BTreeMap::new(),last:None,started:Instant::now(),history:VecDeque::new(),sample_id:0,generation:0,revision:0,counter_epoch:0,rebaseline:false,last_complete:false,state:"stopped",error:None,rows:json!([]),last_persist:Instant::now(),dirty:false,
+        Ok(Self{owner:owner.into(),path,accumulated,session:Counts::default(),counters:Default::default(),last:None,started:Instant::now(),history:VecDeque::new(),sample_id:0,generation:0,revision:0,counter_epoch:0,rebaseline:false,state:"stopped",error:None,last_persist:Instant::now(),dirty:false,
             storage_blocked,persistence_error:storage_blocked.then_some("Saved traffic totals could not be loaded. The existing file is preserved; new totals are session-only until the file is repaired.")})
     }
     pub fn begin(&mut self, generation: u64, revision: u64, config: &Value) {
         self.generation = generation;
         self.rebaseline = false;
-        self.last_complete = false;
         self.revision = revision;
         self.session = Counts::default();
-        self.previous.clear();
-        self.observed.clear();
+        for endpoints in &mut self.counters {
+            endpoints.clear();
+        }
         self.last = None;
         self.started = Instant::now();
         self.history.clear();
         self.sample_id = 0;
-        self.rows = json!([]);
         self.state = "collecting";
         self.error = None;
-        for (section, scope) in [("inbounds", "inbound"), ("outbounds", "outbound")] {
+        for (section, scope) in [
+            ("inbounds", EndpointScope::Inbound),
+            ("outbounds", EndpointScope::Outbound),
+        ] {
             for endpoint in config[section].as_array().into_iter().flatten() {
-                if scope == "outbound"
+                if scope == EndpointScope::Outbound
                     && matches!(
                         endpoint["protocol"].as_str(),
                         Some("blackhole" | "dns" | "loopback")
@@ -608,10 +662,7 @@ impl Traffic {
                     continue;
                 }
                 if let Some(tag) = endpoint["tag"].as_str() {
-                    self.previous
-                        .insert((scope.into(), tag.into()), Counts::default());
-                    self.observed
-                        .insert((scope.into(), tag.into()), Counts::default());
+                    self.counters[scope as usize].insert(tag.into(), Endpoint::default());
                 }
             }
         }
@@ -620,9 +671,9 @@ impl Traffic {
         self.revision = revision;
     }
     pub fn include_outbound(&mut self, tag: &str) {
-        let key = ("outbound".into(), tag.into());
-        self.previous.insert(key.clone(), Counts::default());
-        self.observed.insert(key, Counts::default());
+        self.counters[EndpointScope::Outbound as usize]
+            .entry(tag.into())
+            .or_default();
     }
     pub fn due(&self, now: Instant) -> bool {
         self.last
@@ -634,88 +685,78 @@ impl Traffic {
         if self.last.is_some_and(|last| now <= last) {
             return Ok(());
         }
-        let mut current = BTreeMap::new();
-        let mut complete = true;
-        for (key, old) in &self.previous {
-            let row = &value[&key.0][&key.1];
-            let mut read = |direction: &str, previous: u128| -> Result<u128> {
-                match &row[direction] {
-                    Value::Null => {
-                        // Never-active counters may be absent. A disappearing active
-                        // counter is a gap, not idle traffic followed by a burst.
-                        complete &= previous == 0;
-                        Ok(previous)
-                    }
-                    v => v.as_u64().map(u128::from).ok_or_else(|| {
-                        ApiError::new(
-                            "INVALID_STATISTICS",
-                            "Traffic counters must be nonnegative integers.",
-                        )
-                    }),
-                }
-            };
-            current.insert(
-                key.clone(),
-                Counts {
-                    up: read("uplink", old.up)?,
-                    down: read("downlink", old.down)?,
-                },
-            );
+        fn count(value: &Value) -> Result<Option<u64>> {
+            if value.is_null() {
+                Ok(None)
+            } else {
+                value.as_u64().map(Some).ok_or_else(|| {
+                    ApiError::new(
+                        "INVALID_STATISTICS",
+                        "Traffic counters must be nonnegative integers.",
+                    )
+                })
+            }
         }
+        let read = |scope: EndpointScope| {
+            let section = &value[scope.key()];
+            self.counters[scope as usize]
+                .keys()
+                .map(|tag| {
+                    let row = &section[tag];
+                    Ok((count(&row["uplink"])?, count(&row["downlink"])?))
+                })
+                .collect::<Result<Vec<_>>>()
+        };
+        // Validate the whole sample before advancing any endpoint.
+        let readings = [
+            read(EndpointScope::Inbound)?,
+            read(EndpointScope::Outbound)?,
+        ];
+        let interval = self.last.map(|last| now.duration_since(last)).filter(|d| {
+            *d >= MIN_RATE_INTERVAL && *d < Duration::from_secs(30) && !self.rebaseline
+        });
+        let seconds = interval.map(|duration| duration.as_secs_f64());
+        let mut delta = Counts::default();
+        let (mut upload_valid, mut download_valid) = (seconds.is_some(), seconds.is_some());
+        for (scope, readings) in EndpointScope::ALL.into_iter().zip(readings) {
+            for (endpoint, (up, down)) in self.counters[scope as usize].values_mut().zip(readings) {
+                let up = endpoint.upload.observe(up, seconds, self.rebaseline);
+                let down = endpoint.download.observe(down, seconds, self.rebaseline);
+                if scope == EndpointScope::Inbound {
+                    delta = delta.add(Counts { up, down });
+                    upload_valid &= endpoint.upload.rate.is_some();
+                    download_valid &= endpoint.download.rate.is_some();
+                }
+            }
+        }
+        self.last = Some(now);
+        self.state = "collecting";
+        self.error = None;
         if self.rebaseline {
-            self.previous = current;
             self.rebaseline = false;
-            self.last_complete = complete;
-            self.last = Some(now);
-            self.state = "collecting";
-            self.error = None;
             return Ok(());
         }
-        let elapsed = self
-            .last
-            .map(|last| now.duration_since(last))
-            .filter(|d| {
-                *d >= MIN_RATE_INTERVAL
-                    && *d < Duration::from_secs(30)
-                    && self.last_complete
-                    && complete
-            })
-            .map(|d| d.as_secs_f64());
-        let mut delta = Counts::default();
-        let mut reset = false;
-        let mut rows = Vec::new();
-        for (key, count) in &current {
-            let (difference, restarted) = count.delta(self.previous[key]);
-            reset |= restarted;
-            if key.0 == "inbound" {
-                delta = delta.add(difference);
-            }
-            let observed = self.observed[key].add(difference);
-            self.observed.insert(key.clone(), observed);
-            let valid_rate = elapsed.filter(|_| !restarted);
-            rows.push(json!({"scope":key.0,"tag":key.1,"uploadBytes":observed.up.to_string(),"downloadBytes":observed.down.to_string(),"uploadPerSecond":valid_rate.map(|s|difference.up as f64/s),"downloadPerSecond":valid_rate.map(|s|difference.down as f64/s)}));
-        }
-        self.previous = current;
         self.session = self.session.add(delta);
         self.accumulated = self.accumulated.add(delta);
         self.dirty |= delta.up > 0 || delta.down > 0;
-        self.rows = json!(rows);
         self.sample_id += 1;
-        let seconds = elapsed.filter(|_| !reset);
         self.history.push_back(Point {
             sample_id: self.sample_id,
             timestamp_ms: timestamp,
             elapsed_ms: now.saturating_duration_since(self.started).as_millis() as u64,
-            upload_per_second: seconds.map(|s| delta.up as f64 / s),
-            download_per_second: seconds.map(|s| delta.down as f64 / s),
+            interval_ms: interval
+                .filter(|_| upload_valid || download_valid)
+                .map(|d| d.as_millis() as u64),
+            upload_per_second: seconds
+                .filter(|_| upload_valid)
+                .map(|s| delta.up as f64 / s),
+            download_per_second: seconds
+                .filter(|_| download_valid)
+                .map(|s| delta.down as f64 / s),
         });
-        while self.history.len() > HISTORY_LIMIT {
+        if self.history.len() > HISTORY_LIMIT {
             self.history.pop_front();
         }
-        self.last = Some(now);
-        self.last_complete = complete;
-        self.state = "collecting";
-        self.error = None;
         if now.saturating_duration_since(self.last_persist) >= Duration::from_secs(30) {
             let _ = self.persist();
         }
@@ -740,10 +781,12 @@ impl Traffic {
         )?;
         self.accumulated = Counts::default();
         self.session = Counts::default();
-        for count in self.observed.values_mut() {
-            *count = Counts::default();
+        for endpoint in self.counters.iter_mut().flat_map(BTreeMap::values_mut) {
+            for counter in [&mut endpoint.upload, &mut endpoint.download] {
+                counter.total = 0;
+                counter.rate = None;
+            }
         }
-        self.rows = json!(self.observed.keys().map(|(scope,tag)|json!({"scope":scope,"tag":tag,"uploadBytes":"0","downloadBytes":"0","uploadPerSecond":null,"downloadPerSecond":null})).collect::<Vec<_>>());
         self.counter_epoch += 1;
         self.sample_id += 1;
         self.history.clear();
@@ -787,12 +830,39 @@ impl Traffic {
         self.persistence_error = None;
         Ok(())
     }
+    fn live(&self) -> bool {
+        self.state == "collecting" && self.last.is_some()
+    }
     pub fn snapshot(&self) -> Value {
         let point = self.history.back();
-        let live = self.state == "collecting" && self.last.is_some();
-        json!({"state":self.state,"generation":self.generation,"revision":self.revision,"counterEpoch":self.counter_epoch,"sampleIntervalMs":SAMPLE_INTERVAL.as_millis() as u64,"sampleId":self.sample_id,"lastSample":point,"uploadBytes":self.session.up.to_string(),"downloadBytes":self.session.down.to_string(),"accumulatedUploadBytes":self.accumulated.up.to_string(),"accumulatedDownloadBytes":self.accumulated.down.to_string(),"uploadPerSecond":if live{point.and_then(|p|p.upload_per_second)}else{None},"downloadPerSecond":if live{point.and_then(|p|p.download_per_second)}else{None},"endpoints":self.rows.as_array().map(|rows| rows.iter().take(wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS).collect::<Vec<_>>()),
-        "endpointCounts": {"inbound":self.previous.keys().filter(|(scope,_)|scope=="inbound").count(),"outbound":self.previous.keys().filter(|(scope,_)|scope=="outbound").count()},
-        "endpointsTruncated":self.previous.len()>wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS,"error":self.error,"persistenceError":self.persistence_error})
+        let live = self.live();
+        let [inbound, outbound] = self.counters.each_ref().map(BTreeMap::len);
+        let rows = EndpointScope::ALL
+            .into_iter()
+            .flat_map(|scope| {
+                self.counters[scope as usize]
+                    .iter()
+                    .map(move |(tag, row)| (scope, tag, row))
+            })
+            .take(if self.sample_id == 0 {
+                0
+            } else {
+                wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS
+            })
+            .map(|(scope, tag, row)| row.json(scope, tag, live));
+        let mut snapshot = json!({
+            "state":self.state,"generation":self.generation,"revision":self.revision,"counterEpoch":self.counter_epoch,
+            "sampleIntervalMs":SAMPLE_INTERVAL.as_millis() as u64,"sampleId":self.sample_id,"lastSample":point,
+            "uploadBytes":self.session.up.to_string(),"downloadBytes":self.session.down.to_string(),
+            "accumulatedUploadBytes":self.accumulated.up.to_string(),"accumulatedDownloadBytes":self.accumulated.down.to_string(),
+            "uploadPerSecond":if live { point.and_then(|p|p.upload_per_second) } else { None },
+            "downloadPerSecond":if live { point.and_then(|p|p.download_per_second) } else { None },
+            "endpointCounts":{"inbound":inbound,"outbound":outbound},
+            "endpointsTruncated":inbound + outbound > wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS,
+            "error":self.error,"persistenceError":self.persistence_error,
+        });
+        snapshot["endpoints"] = Value::Array(rows.collect());
+        snapshot
     }
     pub fn endpoints(
         &self,
@@ -800,57 +870,29 @@ impl Traffic {
         names: Option<(u64, &DisplayNames)>,
     ) -> Result<Value> {
         input.validate()?;
-        let scope = match input.scope {
-            EndpointScope::Inbound => "inbound",
-            EndpointScope::Outbound => "outbound",
-        };
+        let scope = input.scope;
         // A stopped core may still expose counters from an earlier applied revision.
         let labels = names
             .filter(|(revision, _)| *revision == self.revision)
-            .map(|(_, names)| {
-                if scope == "inbound" {
-                    &names.inbound
-                } else {
-                    &names.outbound
-                }
+            .map(|(_, names)| match scope {
+                EndpointScope::Inbound => &names.inbound,
+                EndpointScope::Outbound => &names.outbound,
             });
-        let live = self.state == "collecting" && self.last.is_some();
-        let mut rows: Vec<_> = self
-            .rows
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|row| row["scope"] == scope)
-            .map(|row| {
-                let tag = row["tag"].as_str().unwrap_or_default();
-                let name = labels
+        let live = self.live();
+        let mut rows: Vec<_> = self.counters[scope as usize]
+            .iter()
+            .take(if self.sample_id == 0 { 0 } else { usize::MAX })
+            .map(|(tag, row)| OrderedEndpoint {
+                row,
+                tag,
+                name: labels
                     .and_then(|names| names.get(tag))
-                    .map(String::as_str)
                     .unwrap_or(tag)
-                    .to_lowercase();
-                let value = match input.sort_by {
-                    EndpointSort::Name => None,
-                    EndpointSort::UploadBytes | EndpointSort::DownloadBytes => row
-                        [input.sort_by.field()]
-                    .as_str()
-                    .and_then(|v| v.parse::<u128>().ok())
-                    .map(EndpointValue::Count),
-                    EndpointSort::UploadPerSecond | EndpointSort::DownloadPerSecond => row
-                        [input.sort_by.field()]
-                    .as_f64()
-                    .filter(|v| live && v.is_finite() && *v >= 0.0)
-                    .map(EndpointValue::Rate),
-                };
-                OrderedEndpoint {
-                    row,
-                    name,
-                    tag,
-                    value,
-                }
+                    .to_lowercase(),
+                value: input.sort_by.value(row, live),
             })
             .collect();
-        // Cache keys once and sort borrowed rows before paging; totals never become floats.
-        rows.sort_unstable_by(|a, b| {
+        let compare = |a: &OrderedEndpoint<'_>, b: &OrderedEndpoint<'_>| {
             let primary = if input.sort_by == EndpointSort::Name {
                 input.direction.apply(a.name.cmp(&b.name))
             } else {
@@ -864,12 +906,32 @@ impl Traffic {
             primary
                 .then_with(|| a.name.cmp(&b.name))
                 .then_with(|| a.tag.cmp(b.tag))
+        };
+        let total = rows.len();
+        let mut result = json!({
+            "generation":self.generation,"revision":self.revision,"counterEpoch":self.counter_epoch,"sampleId":self.sample_id,
+            "scope":scope.key(),"offset":input.offset,"total":total,"sortBy":input.sort_by,"direction":input.direction,
         });
-        Ok(
-            json!({"generation":self.generation,"revision":self.revision,"counterEpoch":self.counter_epoch,"sampleId":self.sample_id,
-            "scope":scope,"offset":input.offset,"total":rows.len(),"sortBy":input.sort_by,"direction":input.direction,
-            "endpoints":rows.into_iter().skip(input.offset).take(input.limit).map(|r| r.row).collect::<Vec<_>>() }),
-        )
+        let page = if input.offset >= total {
+            Vec::new()
+        } else {
+            // Partition around the requested slice, then order only that page.
+            let end = (input.offset + input.limit).min(total);
+            if end < total {
+                rows.select_nth_unstable_by(end, compare);
+            }
+            let prefix = &mut rows[..end];
+            if input.offset > 0 {
+                prefix.select_nth_unstable_by(input.offset, compare);
+            }
+            let page = &mut prefix[input.offset..];
+            page.sort_unstable_by(compare);
+            page.iter()
+                .map(|row| row.row.json(scope, row.tag, live))
+                .collect()
+        };
+        result["endpoints"] = Value::Array(page);
+        Ok(result)
     }
     pub fn history(&self) -> Value {
         json!({"generation":self.generation,"revision":self.revision,"counterEpoch":self.counter_epoch,"points":self.history})
@@ -970,15 +1032,19 @@ mod tests {
             100,
         )
         .unwrap();
-        let mut rows = Vec::new();
-        for scope in ["inbound", "outbound"] {
-            rows.extend([
-                json!({"scope":scope,"tag":"a","uploadBytes":"9007199254740993","downloadBytes":"2","uploadPerSecond":null,"downloadPerSecond":0}),
-                json!({"scope":scope,"tag":"z","uploadBytes":"9007199254740992","downloadBytes":"900000","uploadPerSecond":2,"downloadPerSecond":10000}),
-                json!({"scope":scope,"tag":"m","uploadBytes":"340282366920938463463374607431768211455","downloadBytes":"10","uploadPerSecond":0,"downloadPerSecond":2}),
-            ]);
+        for endpoints in &mut t.counters {
+            for (tag, up, down, up_rate, down_rate) in [
+                ("a", 9007199254740993, 2, None, 0.0),
+                ("z", 9007199254740992, 900000, Some(2.0), 10000.0),
+                ("m", u128::MAX, 10, Some(0.0), 2.0),
+            ] {
+                let endpoint = endpoints.get_mut(tag).unwrap();
+                endpoint.upload.total = up;
+                endpoint.download.total = down;
+                endpoint.upload.rate = up_rate;
+                endpoint.download.rate = Some(down_rate);
+            }
         }
-        t.rows = Value::Array(rows);
         let labels = BTreeMap::from([
             ("a".into(), "Zulu".into()),
             ("z".into(), "alpha".into()),
@@ -1374,6 +1440,7 @@ mod tests {
             8000
         );
         assert_eq!(points[2]["timestampMs"], 11000);
+        assert_eq!(points[2]["intervalMs"], 8000);
     }
     #[test]
     fn catch_up_is_not_due_and_short_final_reads_keep_bytes_without_a_rate() {
@@ -1430,13 +1497,43 @@ mod tests {
         t.record(&missing, now + Duration::from_secs(4), 5000)
             .unwrap();
         assert_eq!(t.snapshot()["downloadPerSecond"], Value::Null);
+        assert_eq!(t.snapshot()["uploadPerSecond"], 100.0);
         t.record(&counters(700, 2000), now + Duration::from_secs(6), 7000)
             .unwrap();
         assert_eq!(t.snapshot()["downloadBytes"], "2000");
         assert_eq!(t.snapshot()["downloadPerSecond"], Value::Null);
+        assert_eq!(t.snapshot()["uploadPerSecond"], 100.0);
         t.record(&counters(900, 2600), now + Duration::from_secs(8), 9000)
             .unwrap();
         assert_eq!(t.snapshot()["downloadPerSecond"], 300.0);
+    }
+    #[test]
+    fn outbound_gaps_and_resets_do_not_interrupt_other_measurements() {
+        let mut t = tracker();
+        let now = Instant::now();
+        t.record(&counters(100, 200), now, 1000).unwrap();
+        let mut missing = counters(300, 800);
+        missing["outbound"]["hop"] = json!({"downlink":800});
+        t.record(&missing, now + Duration::from_secs(2), 3000)
+            .unwrap();
+        let snapshot = t.snapshot();
+        let hop = &snapshot["endpoints"][2];
+        assert_eq!(hop["tag"], "hop");
+        assert!(hop["uploadPerSecond"].is_null());
+        assert_eq!(hop["downloadPerSecond"], 300.0);
+        assert_eq!(snapshot["uploadPerSecond"], 100.0);
+        let mut returned = counters(500, 1400);
+        returned["outbound"]["hop"]["downlink"] = json!(10);
+        t.record(&returned, now + Duration::from_secs(4), 5000)
+            .unwrap();
+        let snapshot = t.snapshot();
+        assert_eq!(snapshot["downloadPerSecond"], 300.0);
+        assert!(snapshot["endpoints"][2]["uploadPerSecond"].is_null());
+        assert!(snapshot["endpoints"][2]["downloadPerSecond"].is_null());
+        assert_eq!(snapshot["endpoints"][2]["downloadBytes"], "810");
+        t.record(&counters(700, 2000), now + Duration::from_secs(6), 7000)
+            .unwrap();
+        assert_eq!(t.snapshot()["endpoints"][2]["uploadPerSecond"], 100.0);
     }
     #[test]
     fn never_active_missing_counters_do_not_hide_other_measured_rates() {

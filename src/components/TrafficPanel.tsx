@@ -51,7 +51,22 @@ const contextKey = (runtime: RuntimeController) =>
 const byteTitle = (value: string | undefined) =>
   value == null ? 'No measurement' : `${value} bytes`;
 
-export default function TrafficPanel({
+// Keep the history when the dialog closes, with rendering and endpoint paging
+// confined to the open dialog.
+export default function TrafficMonitor({
+  runtime,
+  open,
+  onClose,
+}: {
+  runtime: RuntimeController;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const history = useTrafficHistory(runtime);
+  return open ? <TrafficPanel runtime={runtime} history={history} onClose={onClose} /> : null;
+}
+
+function TrafficPanel({
   runtime,
   history,
   onClose,
@@ -105,6 +120,16 @@ export default function TrafficPanel({
   const traffic = paused ? paused.traffic : currentTraffic;
   const points = paused ? paused.points : history.points;
   const endpoints = paused ? paused.endpoints : currentEndpoints;
+  const emptyEndpointsMessage =
+    paused && endpoints.paged && endpoints.total
+      ? 'No endpoint page was available when paused.'
+      : currentEndpoints.loading
+        ? 'Loading endpoint counters…'
+        : runtime.desktop && !runtime.connected
+          ? 'Endpoint counters are unavailable while the service is offline.'
+          : runtime.snapshot?.core?.state === 'stopped'
+            ? 'No endpoint counters. Start the applied graph to collect statistics.'
+            : 'No endpoint counters available for this session.';
   const ratesAvailable = paused ? paused.ratesAvailable : live;
   const liveNames =
     currentTraffic?.revision === runtime.savedRevision ? runtime.savedDisplayNames : undefined;
@@ -442,15 +467,7 @@ export default function TrafficPanel({
                   ))}
                   {!rows.length && (
                     <tr>
-                      <td colSpan={5}>
-                        {endpoints.paged && endpoints.total
-                          ? paused
-                            ? 'No endpoint page was available when paused.'
-                            : 'Loading endpoint counters…'
-                          : runtime.connected && runtime.snapshot?.core?.state === 'stopped'
-                            ? 'No endpoint counters. Start the applied graph to collect statistics.'
-                            : 'No endpoint counters available for this session.'}
-                      </td>
+                      <td colSpan={5}>{emptyEndpointsMessage}</td>
                     </tr>
                   )}
                 </tbody>
@@ -472,7 +489,7 @@ export default function TrafficPanel({
               <div className="action-row action-row--spread compact-controls pagination traffic-pagination">
                 <button
                   className="secondary-button"
-                  disabled={!!paused || !endpoints.offset}
+                  disabled={!!paused || !runtime.connected || !endpoints.offset}
                   onClick={() =>
                     currentEndpoints.setOffset(endpoints.offset - LIMITS.endpointPageSize)
                   }
@@ -483,16 +500,19 @@ export default function TrafficPanel({
                   {endpoints.total
                     ? `${endpoints.offset + 1}–${Math.min(endpoints.offset + LIMITS.endpointPageSize, endpoints.total)} of ${endpoints.total.toLocaleString()}`
                     : 'No endpoint counters'}
-                  {!endpoints.fresh && endpoints.total > 0
-                    ? paused
+                  {endpoints.total > 0 &&
+                    (paused && !endpoints.fresh
                       ? ' · page was incomplete when paused'
-                      : ' · updating'
-                    : ''}
+                      : currentEndpoints.loading
+                        ? ' · updating'
+                        : '')}
                 </span>
                 <button
                   className="secondary-button"
                   disabled={
-                    !!paused || endpoints.offset + LIMITS.endpointPageSize >= endpoints.total
+                    !!paused ||
+                    !runtime.connected ||
+                    endpoints.offset + LIMITS.endpointPageSize >= endpoints.total
                   }
                   onClick={() =>
                     currentEndpoints.setOffset(endpoints.offset + LIMITS.endpointPageSize)
