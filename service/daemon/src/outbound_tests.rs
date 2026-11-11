@@ -3,7 +3,7 @@ use crate::native::{spawn_core, CoreIdentity};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{BTreeMap, HashSet, VecDeque},
     io::Read,
     net::TcpListener,
     path::PathBuf,
@@ -20,6 +20,9 @@ use windows_sys::Win32::Security::Cryptography::{
 };
 
 const MAX_BATCH: usize = 8;
+const RESULT_PAGE: usize = 128;
+const PLAN_PAGE: usize = 256;
+const PLAN_PAGE_BYTES: usize = 2 * 1024 * 1024;
 mod policy;
 mod speed;
 pub(crate) mod timezone;
@@ -48,7 +51,93 @@ struct Input {
     speed_url: String,
     #[serde(default)]
     udp_url: String,
+    #[serde(default)]
     targets: Vec<Target>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlannedInput {
+    source_token: String,
+    settings: Input,
+}
+enum Preparation {
+    StashTimezone(Value),
+    Outbounds(String),
+}
+#[derive(Deserialize)]
+struct Prepared {
+    plan: Plan,
+    #[serde(rename = "preparedTargets")]
+    targets: Vec<PreparedTarget>,
+    fragments: Vec<Value>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreparedTarget {
+    id: String,
+    outbound_tag: String,
+    outbounds: Vec<usize>,
+    fields: BTreeMap<String, usize>,
+}
+enum QueuedTarget {
+    Inline(Target),
+    Prepared(PreparedTarget),
+}
+impl QueuedTarget {
+    fn id(&self) -> &str {
+        match self {
+            Self::Inline(target) => &target.id,
+            Self::Prepared(target) => &target.id,
+        }
+    }
+    fn materialize(self, fragments: &[Value]) -> Result<Target> {
+        let target = match self {
+            Self::Prepared(target) => target,
+            Self::Inline(target) => return Ok(target),
+        };
+        let get = |index: usize| {
+            fragments
+                .get(index)
+                .cloned()
+                .ok_or_else(|| invalid("An outbound test configuration fragment is missing."))
+        };
+        let mut config = serde_json::Map::new();
+        for (key, index) in target.fields {
+            config.insert(key, get(index)?);
+        }
+        let outbounds = target
+            .outbounds
+            .into_iter()
+            .map(get)
+            .collect::<Result<Vec<_>>>()?;
+        config.insert("outbounds".into(), Value::Array(outbounds));
+        Ok(Target {
+            id: target.id,
+            config: Value::Object(config),
+            outbound_tag: target.outbound_tag,
+        })
+    }
+}
+#[derive(Deserialize)]
+struct Plan {
+    rows: Vec<Value>,
+    targets: Vec<Value>,
+}
+impl Plan {
+    fn page(items: &[Value], offset: usize) -> &[Value] {
+        let mut bytes = 0;
+        let rest = &items[offset.min(items.len())..];
+        let count = rest
+            .iter()
+            .take(PLAN_PAGE)
+            .take_while(|item| {
+                let first = bytes == 0;
+                bytes += item.to_string().len() + 1;
+                first || bytes <= PLAN_PAGE_BYTES
+            })
+            .count();
+        &rest[..count]
+    }
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -57,10 +146,14 @@ struct Target {
     config: Value,
     outbound_tag: String,
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct JobInput {
     job: u64,
+    #[serde(default)]
+    offset: usize,
+    row_offset: Option<usize>,
+    target_offset: Option<usize>,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,11 +173,15 @@ struct TestResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     udp: Option<udp::Measurement>,
 }
+#[derive(Default)]
 struct State {
     job: u64,
     busy: bool,
     total: usize,
     results: Vec<TestResult>,
+    planned: bool,
+    plan: Option<Plan>,
+    error: Option<ApiError>,
     reservation: Option<crate::operation_gate::Foreground>,
 }
 // Publish completion and release admission even if the coordinator unwinds.
@@ -94,50 +191,97 @@ impl Drop for Completion {
         let mut state = self.0.lock().unwrap();
         state.busy = false;
         state.reservation = None;
+        if state.planned && std::thread::panicking() {
+            state.error = Some(ApiError::new(
+                "TEST_WORKER",
+                "The outbound test job ended unexpectedly.",
+            ));
+        }
     }
 }
-pub struct Manager {
+#[derive(Clone, Default)]
+struct Job {
     state: Arc<Mutex<State>>,
     stop: Arc<AtomicBool>,
-    sequence: u64,
+}
+pub struct Manager {
+    current: Job,
+    last_planned: Option<Job>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Manager {
     pub fn new() -> Self {
         Self {
-            state: Arc::new(Mutex::new(State {
-                job: 0,
-                busy: false,
-                total: 0,
-                results: vec![],
-                reservation: None,
-            })),
-            stop: Arc::new(AtomicBool::new(false)),
-            sequence: 0,
+            current: Job::default(),
+            last_planned: None,
             worker: None,
         }
     }
     pub fn busy(&self) -> bool {
-        self.state.lock().unwrap().busy
+        self.current.state.lock().unwrap().busy
     }
     pub(crate) fn retain_reservation(
         &mut self,
         reservation: Option<crate::operation_gate::Foreground>,
     ) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.current.state.lock().unwrap();
         if state.busy {
             state.reservation = reservation;
         }
     }
     pub fn shutdown(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.current.stop.store(true, Ordering::SeqCst);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
     }
-    fn snapshot(&self) -> Value {
-        let s = self.state.lock().unwrap();
-        json!({"job":s.job,"busy":s.busy,"total":s.total,"completed":s.results.len(),"cancelled":self.stop.load(Ordering::SeqCst),"results":s.results})
+    fn snapshot(job: &Job, page: JobInput) -> Value {
+        let s = job.state.lock().unwrap();
+        let offset = page.offset.min(s.results.len());
+        let end = if s.planned {
+            (offset + RESULT_PAGE).min(s.results.len())
+        } else {
+            s.results.len()
+        };
+        let mut snapshot = json!({"job":s.job,"busy":s.busy,"total":s.total,"completed":s.results.len(),"cancelled":job.stop.load(Ordering::SeqCst),"results":&s.results[offset..end]});
+        if s.planned {
+            snapshot["error"] = json!(s.error);
+            if let Some(plan) = &s.plan {
+                snapshot["planReady"] = json!(true);
+                snapshot["totalRows"] = json!(plan.rows.len());
+                if let Some(offset) = page.row_offset {
+                    snapshot["rows"] = json!(Plan::page(&plan.rows, offset));
+                }
+                if let Some(offset) = page.target_offset {
+                    snapshot["targets"] = json!(Plan::page(&plan.targets, offset));
+                }
+            }
+        }
+        snapshot
+    }
+    pub(crate) fn start_planned(
+        &mut self,
+        value: Value,
+        subscriptions: &crate::subscriptions::Manager,
+        exe: PathBuf,
+        owner: String,
+        egress: Option<crate::tun::OutboundEgress>,
+        active: Option<ActivePolicy>,
+    ) -> Result<Value> {
+        let request: PlannedInput = params(value)?;
+        if !request.settings.targets.is_empty() || request.settings.mode == Mode::Timezone {
+            return Err(invalid("Choose a delay or speed test for the draft."));
+        }
+        validate_endpoints(&request.settings)?;
+        let source = subscriptions.take_outbound_test_source(&request.source_token)?;
+        self.start(
+            request.settings,
+            Some(Preparation::Outbounds(source)),
+            exe,
+            owner,
+            egress,
+            active,
+        )
     }
     pub(crate) fn stash_timezone(
         &mut self,
@@ -156,7 +300,7 @@ impl Manager {
                 udp_url: String::new(),
                 targets: vec![],
             },
-            Some(preparation),
+            Some(Preparation::StashTimezone(preparation)),
             exe,
             owner,
             egress,
@@ -166,7 +310,7 @@ impl Manager {
     fn start(
         &mut self,
         mut input: Input,
-        preparation: Option<Value>,
+        preparation: Option<Preparation>,
         exe: PathBuf,
         owner: String,
         egress: Option<crate::tun::OutboundEgress>,
@@ -193,21 +337,24 @@ impl Manager {
         {
             return Err(invalid("Cannot create an outbound test job."));
         }
-        self.sequence = (u64::from_le_bytes(random) & ((1u64 << 53) - 1)).max(1);
-        self.stop = Arc::new(AtomicBool::new(false));
-        self.state = Arc::new(Mutex::new(State {
-            job: self.sequence,
-            busy: true,
-            total: if preparation.is_some() {
-                1
-            } else {
-                input.targets.len()
-            },
-            results: vec![],
-            reservation: None,
-        }));
-        let state = self.state.clone();
-        let stop = self.stop.clone();
+        let id = (u64::from_le_bytes(random) & ((1u64 << 53) - 1)).max(1);
+        let planned = matches!(preparation, Some(Preparation::Outbounds(_)));
+        let job = Job {
+            state: Arc::new(Mutex::new(State {
+                job: id,
+                busy: true,
+                total: if matches!(preparation, Some(Preparation::StashTimezone(_))) {
+                    1
+                } else {
+                    input.targets.len()
+                },
+                planned,
+                ..State::default()
+            })),
+            stop: Arc::new(AtomicBool::new(false)),
+        };
+        let state = job.state.clone();
+        let stop = job.stop.clone();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -216,7 +363,8 @@ impl Manager {
             .spawn(move || {
                 let _completion = Completion(state.clone());
                 let mut name = None;
-                if let Some(preparation) = preparation {
+                let mut prepared_targets = None;
+                if let Some(Preparation::StashTimezone(preparation)) = preparation {
                     let prepared = (|| {
                         let plan = crate::subscriptions::prepare_probe(&preparation, &stop, &stop)?;
                         input.targets = params(plan["targets"].clone())?;
@@ -235,8 +383,40 @@ impl Manager {
                             .push(failed("companion-custom".into(), &error.message));
                         return;
                     }
+                } else if let Some(Preparation::Outbounds(source)) = preparation {
+                    match prepare_outbounds(source, input.mode, &stop) {
+                        Ok(prepared) => {
+                            let mut state = state.lock().unwrap();
+                            state.total = prepared.targets.len();
+                            state.plan = Some(prepared.plan);
+                            prepared_targets = Some((prepared.targets, prepared.fragments));
+                        }
+                        Err(error) => {
+                            if !stop.load(Ordering::Acquire) {
+                                state.lock().unwrap().error = Some(error);
+                            }
+                            return;
+                        }
+                    }
                 }
-                let queue = Mutex::new(VecDeque::from(input.targets));
+                let (queue, fragments): (VecDeque<_>, _) = match prepared_targets {
+                    Some((targets, fragments)) => (
+                        targets.into_iter().map(QueuedTarget::Prepared).collect(),
+                        fragments,
+                    ),
+                    None => (
+                        input
+                            .targets
+                            .into_iter()
+                            .map(QueuedTarget::Inline)
+                            .collect(),
+                        Vec::new(),
+                    ),
+                };
+                if queue.is_empty() {
+                    return;
+                }
+                let queue = Mutex::new(queue);
                 std::thread::scope(|scope| {
                     for _ in 0..if input.mode == Mode::Speed { 1 } else { 4 } {
                         let queue = &queue;
@@ -252,6 +432,7 @@ impl Manager {
                         let active = active.as_ref();
                         let egress = egress.as_ref();
                         let name = name.as_ref();
+                        let fragments = &fragments;
                         let work = move || loop {
                             if stop.load(Ordering::SeqCst) {
                                 break;
@@ -259,8 +440,9 @@ impl Manager {
                             let Some(target) = queue.lock().unwrap().pop_front() else {
                                 break;
                             };
-                            let id = target.id.clone();
+                            let id = target.id().to_owned();
                             let checked = std::panic::catch_unwind(|| {
+                                let target = target.materialize(fragments)?;
                                 run(
                                     &target,
                                     &Probe {
@@ -292,19 +474,21 @@ impl Manager {
                             .spawn_scoped(scope, work)
                             .is_err()
                         {
+                            state.lock().unwrap().error = Some(ApiError::new(
+                                "TEST_WORKER",
+                                "Could not start an outbound test worker.",
+                            ));
                             stop.store(true, Ordering::SeqCst);
                         }
                     }
                 });
             });
-        match worker {
-            Ok(worker) => self.worker = Some(worker),
-            Err(error) => {
-                self.state.lock().unwrap().busy = false;
-                return Err(ApiError::io("Start outbound test worker", error));
-            }
+        self.worker = Some(worker.map_err(|e| ApiError::io("Start outbound test worker", e))?);
+        if planned {
+            self.last_planned = Some(job.clone());
         }
-        Ok(self.snapshot())
+        self.current = job;
+        Ok(Self::snapshot(&self.current, JobInput::default()))
     }
     pub fn handle(
         &mut self,
@@ -319,16 +503,24 @@ impl Manager {
             "outbounds.testStart" => self.start(params(value)?, None, exe, owner, egress, active),
             "outbounds.testGet" | "outbounds.testCancel" => {
                 let input: JobInput = params(value)?;
-                if input.job != self.sequence || self.sequence == 0 {
-                    return Err(ApiError::new(
-                        "TEST_JOB_CHANGED",
-                        "This outbound test is no longer available.",
-                    ));
-                }
+                let job =
+                    if input.job == self.current.state.lock().unwrap().job && input.job != 0 {
+                        Some(&self.current)
+                    } else {
+                        self.last_planned
+                            .as_ref()
+                            .filter(|job| job.state.lock().unwrap().job == input.job)
+                    }
+                    .ok_or_else(|| {
+                        ApiError::new(
+                            "TEST_JOB_CHANGED",
+                            "This outbound test is no longer available.",
+                        )
+                    })?;
                 if method == "outbounds.testCancel" {
-                    self.stop.store(true, Ordering::SeqCst);
+                    job.stop.store(true, Ordering::SeqCst);
                 }
-                Ok(self.snapshot())
+                Ok(Self::snapshot(job, input))
             }
             _ => Err(ApiError::new(
                 "METHOD_NOT_FOUND",
@@ -374,7 +566,7 @@ fn checked_url(text: &str) -> Result<url::Url> {
     }
     Ok(parsed)
 }
-fn validate_input(input: &Input) -> Result<()> {
+fn validate_endpoints(input: &Input) -> Result<()> {
     if input.mode == Mode::Speed {
         checked_url(&input.speed_url)?;
     } else {
@@ -386,6 +578,10 @@ fn validate_input(input: &Input) -> Result<()> {
             checked_url(&input.country_url)?;
         }
     }
+    Ok(())
+}
+fn validate_input(input: &Input) -> Result<()> {
+    validate_endpoints(input)?;
     if input.targets.is_empty() || input.targets.len() > MAX_BATCH {
         return Err(invalid(
             "Choose between one and eight outbound tests per batch.",
@@ -411,6 +607,33 @@ fn validate_input(input: &Input) -> Result<()> {
         return Err(invalid("Outbound test batch exceeds 16 MiB."));
     }
     Ok(())
+}
+fn prepare_outbounds(source: String, mode: Mode, stop: &AtomicBool) -> Result<Prepared> {
+    let mut request: Value =
+        serde_json::from_str(&source).map_err(|_| invalid("Invalid outbound test draft."))?;
+    drop(source);
+    let object = request
+        .as_object_mut()
+        .ok_or_else(|| invalid("Invalid outbound test draft."))?;
+    object.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "graph" | "stash" | "nodeIds" | "entries" | "selection"
+        )
+    });
+    request["operation"] = json!("outboundTests");
+    request["mode"] = json!(if mode == Mode::Speed {
+        "speed"
+    } else {
+        "latency"
+    });
+    let prepared: Prepared = params(crate::subscriptions::prepare_probe(&request, stop, stop)?)?;
+    if prepared.targets.len() != prepared.plan.targets.len() {
+        return Err(invalid(
+            "The outbound test plan does not match its targets.",
+        ));
+    }
+    Ok(prepared)
 }
 fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
     let mut config = target.config.clone();
@@ -967,7 +1190,7 @@ mod tests {
     fn shutdown_joins_the_test_coordinator() {
         let mut m = Manager::new();
         let finished = Arc::new(AtomicBool::new(false));
-        let (stop, done) = (m.stop.clone(), finished.clone());
+        let (stop, done) = (m.current.stop.clone(), finished.clone());
         m.worker = Some(std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
                 std::thread::yield_now();
@@ -983,10 +1206,10 @@ mod tests {
         for unwind in [false, true] {
             let gate = crate::operation_gate::Gate::default();
             let mut manager = Manager::new();
-            manager.state.lock().unwrap().busy = true;
+            manager.current.state.lock().unwrap().busy = true;
             manager.retain_reservation(Some(gate.foreground(&AtomicBool::new(false)).unwrap()));
             assert!(gate.background().is_none());
-            let state = manager.state.clone();
+            let state = manager.current.state.clone();
             let result = std::panic::catch_unwind(move || {
                 let _completion = Completion(state);
                 if unwind {
@@ -1069,7 +1292,7 @@ mod tests {
     #[test]
     fn stale_cancel_cannot_cancel_a_new_job() {
         let mut manager = Manager::new();
-        manager.sequence = 2;
+        manager.current.state.lock().unwrap().job = 2;
         assert!(manager
             .handle(
                 "outbounds.testCancel",
@@ -1080,6 +1303,88 @@ mod tests {
                 None
             )
             .is_err());
-        assert!(!manager.stop.load(Ordering::SeqCst));
+        assert!(!manager.current.stop.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn planned_pages_remain_available_after_another_probe_starts() {
+        let mut manager = Manager::new();
+        let completed = Manager::new();
+        let total = RESULT_PAGE * 2 + 3;
+        {
+            let mut state = completed.current.state.lock().unwrap();
+            state.job = 1;
+            state.planned = true;
+            state.total = total;
+            state.results = (0..total)
+                .map(|i| failed(i.to_string(), "fixture"))
+                .collect();
+            state.plan = Some(Plan {
+                rows: (0..total).map(|i| json!({"key":i.to_string()})).collect(),
+                targets: (0..total).map(|i| json!({"id":i.to_string()})).collect(),
+            });
+        }
+        manager.last_planned = Some(completed.current.clone());
+        manager.current.state.lock().unwrap().job = 2;
+        let read = |manager: &mut Manager, page: Value| {
+            manager
+                .handle(
+                    "outbounds.testGet",
+                    page,
+                    PathBuf::new(),
+                    String::new(),
+                    None,
+                    None,
+                )
+                .unwrap()
+        };
+        let first = read(
+            &mut manager,
+            json!({"job":1,"rowOffset":0,"targetOffset":0}),
+        );
+        assert_eq!(first["results"].as_array().unwrap().len(), RESULT_PAGE);
+        assert_eq!(first["rows"].as_array().unwrap().len(), PLAN_PAGE);
+        let end = read(
+            &mut manager,
+            json!({"job":1,"offset":2 * RESULT_PAGE,"rowOffset":PLAN_PAGE,"targetOffset":PLAN_PAGE}),
+        );
+        assert_eq!(end["completed"], total);
+        assert_eq!(end["results"].as_array().unwrap().len(), 3);
+        assert_eq!(end["results"][0]["id"], (2 * RESULT_PAGE).to_string());
+        assert_eq!(end["targets"][0]["id"], PLAN_PAGE.to_string());
+        assert_eq!(end["busy"], false);
+    }
+
+    #[test]
+    fn restricted_planner_prepares_a_whole_stash_selection_with_shared_fragments() {
+        let links = (0..32)
+            .map(|i| format!("socks://127.0.0.1:{}#Server-{i}", 20000 + i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let refreshed = crate::subscription_engine::execute(
+            &json!({"operation":"refresh","stash":"","groupId":"wayrill:default","text":links}),
+        )
+        .unwrap();
+        let entries: Vec<_> = refreshed["catalog"][0]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| json!({"groupId":"wayrill:default","entryId":entry["id"]}))
+            .collect();
+        let prepared: Prepared = params(crate::subscription_engine::execute(&json!({"operation":"outboundTests","mode":"latency","stash":refreshed["stash"],"entries":entries})).unwrap()).unwrap();
+        assert_eq!(prepared.targets.len(), 32);
+        assert_eq!(prepared.plan.rows.len(), 32);
+        assert!(
+            prepared.fragments.len() < 40,
+            "Common routing and defaults should be shared"
+        );
+        for (i, target) in prepared.targets.into_iter().enumerate() {
+            let target = QueuedTarget::Prepared(target)
+                .materialize(&prepared.fragments)
+                .unwrap();
+            assert_eq!(target.id, prepared.plan.targets[i]["id"]);
+            assert_eq!(target.config["outbounds"][0]["tag"], target.outbound_tag);
+            assert!(test_config(&target, 19999, "test-password").is_ok());
+        }
     }
 }

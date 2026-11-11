@@ -20,6 +20,9 @@ pub(crate) use worker::helper as prepare_probe;
 
 const MAX_UPLOAD: usize = 256 * 1024 * 1024;
 const CHUNK: usize = 512 * 1024;
+fn staged_document(kind: &str) -> bool {
+    matches!(kind, "source" | "outbound-tests")
+}
 pub(super) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -206,6 +209,7 @@ struct Dispatch {
 }
 struct State {
     source: Option<(String, String, Instant)>,
+    outbound_test_source: Option<(String, String, Instant)>,
     library: Arc<Library>,
     error: Option<ApiError>,
     statuses: BTreeMap<String, Status>,
@@ -290,6 +294,7 @@ impl Manager {
         Self {
             state: Arc::new(Mutex::new(State {
                 source: None,
+                outbound_test_source: None,
                 library: Arc::new(library),
                 error,
                 statuses: BTreeMap::new(),
@@ -384,11 +389,15 @@ impl Manager {
         let mut state = self.state.lock().unwrap();
         // Applying a saved graph must remain possible when the separate library
         // cannot be opened. Source staging never replaces that damaged file.
-        let source_transfer = method == "subscriptions.uploadStart" && input["kind"] == "source"
+        let source_transfer = method == "subscriptions.uploadStart"
+            && input["kind"].as_str().is_some_and(staged_document)
             || matches!(
                 method,
                 "subscriptions.uploadChunk" | "subscriptions.uploadCommit"
-            ) && state.upload.as_ref().is_some_and(|u| u.kind == "source");
+            ) && state
+                .upload
+                .as_ref()
+                .is_some_and(|u| staged_document(&u.kind));
         if state.error.is_some()
             && !source_transfer
             && !matches!(
@@ -434,7 +443,7 @@ impl Manager {
             }
             "subscriptions.uploadStart" => {
                 let p: Begin = params(input)?;
-                if !["save", "context", "source"].contains(&p.kind.as_str())
+                if !["save", "context"].contains(&p.kind.as_str()) && !staged_document(&p.kind)
                     || p.bytes > MAX_UPLOAD
                     || p.kind == "source" && p.bytes > 64 * 1024 * 1024
                 {
@@ -482,12 +491,22 @@ impl Manager {
                 if state.upload.as_ref().is_some_and(|u| u.id == p.token) {
                     state.upload = None;
                 }
+                if state
+                    .outbound_test_source
+                    .as_ref()
+                    .is_some_and(|(id, _, _)| *id == p.token)
+                {
+                    state.outbound_test_source = None;
+                }
                 Ok(json!({}))
             }
             "subscriptions.uploadCommit" => {
                 let p: Token = params(input)?;
                 if state.queue.len() >= 4
-                    && !state.upload.as_ref().is_some_and(|u| u.kind == "source")
+                    && !state
+                        .upload
+                        .as_ref()
+                        .is_some_and(|u| staged_document(&u.kind))
                 {
                     return Err(ApiError::new("BUSY", "Subscription work queue is full."));
                 }
@@ -498,6 +517,18 @@ impl Manager {
                     .ok_or_else(|| invalid("Missing or expired subscription upload."))?;
                 if upload.text.len() != upload.expected {
                     return Err(invalid("Incomplete subscription upload."));
+                }
+                if staged_document(&upload.kind) {
+                    let upload = state.upload.take().unwrap();
+                    let token = upload.id.clone();
+                    let document = Some((upload.id, upload.text, Instant::now()));
+                    return if upload.kind == "source" {
+                        state.source = document;
+                        Ok(json!({"sourceGraphToken":token}))
+                    } else {
+                        state.outbound_test_source = document;
+                        Ok(json!({"outboundTestToken":token}))
+                    };
                 }
                 let queued_bytes: usize = state
                     .queue
@@ -514,11 +545,6 @@ impl Manager {
                     ));
                 }
                 let upload = state.upload.take().unwrap();
-                if upload.kind == "source" {
-                    let token = upload.id.clone();
-                    state.source = Some((upload.id, upload.text, Instant::now()));
-                    return Ok(json!({"sourceGraphToken":token}));
-                }
                 let id = u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
                     .map_err(|_| invalid("Cannot create subscription job identity."))?
                     .max(1);
@@ -685,6 +711,19 @@ impl Manager {
             return Err(invalid("The source graph upload expired. Apply again."));
         }
         Ok(state.source.take().unwrap().1)
+    }
+    pub(crate) fn take_outbound_test_source(&self, token: &str) -> Result<String> {
+        let mut state = self.state.lock().unwrap();
+        if !state
+            .outbound_test_source
+            .as_ref()
+            .is_some_and(|(id, _, at)| id == token && at.elapsed() < Duration::from_secs(120))
+        {
+            return Err(invalid(
+                "The outbound test draft expired. Start the test again.",
+            ));
+        }
+        Ok(state.outbound_test_source.take().unwrap().1)
     }
     fn status(&self, id: &str, state: &'static str, message: impl Into<String>) {
         let message = message.into();
@@ -1013,8 +1052,34 @@ mod tests {
         manager
             .handle("subscriptions.uploadCommit", json!({"token":token}))
             .unwrap();
+        let outbound = manager
+            .handle(
+                "subscriptions.uploadStart",
+                json!({"kind":"outbound-tests","bytes":2}),
+            )
+            .unwrap();
+        let draft_token = outbound["token"].as_str().unwrap();
+        manager
+            .handle(
+                "subscriptions.uploadChunk",
+                json!({"token":draft_token,"offset":0,"text":"{}"}),
+            )
+            .unwrap();
+        assert_eq!(
+            manager
+                .handle("subscriptions.uploadCommit", json!({"token":draft_token}))
+                .unwrap()["outboundTestToken"],
+            draft_token
+        );
+        assert!(manager.take_source(draft_token).is_err());
+        assert!(manager.take_outbound_test_source(token).is_err());
         assert_eq!(manager.take_source(token).unwrap(), "🛰abc");
         assert!(manager.take_source(token).is_err());
+        assert_eq!(
+            manager.take_outbound_test_source(draft_token).unwrap(),
+            "{}"
+        );
+        assert!(manager.take_outbound_test_source(draft_token).is_err());
     }
     #[test]
     fn cancellation_removes_only_matching_queued_runs_and_preserves_saves() {

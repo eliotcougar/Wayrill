@@ -30,9 +30,9 @@ pub(crate) fn helper(input: &Value, stop: &AtomicBool, shutdown: &AtomicBool) ->
     loop {
         check(stop, shutdown)?;
         if process.exit_code()?.is_some() {
-            if let Some(value) = process.private_reply()? {
+            if let Some(mut value) = process.private_reply()? {
                 return if value["ok"] == true {
-                    Ok(value["result"].clone())
+                    Ok(value["result"].take())
                 } else {
                     Err(serde_json::from_value(value["error"].clone())
                         .unwrap_or_else(|_| invalid("Subscription worker failed.")))

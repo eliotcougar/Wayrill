@@ -784,7 +784,9 @@ async fn client(
                 if result.is_ok()
                     && matches!(
                         request.method.as_str(),
-                        "outbounds.testStart" | "companion.timezoneStart"
+                        "outbounds.testStart"
+                            | "outbounds.testPlanStart"
+                            | "companion.timezoneStart"
                     )
                 {
                     k.retain_test_reservation(reservation.take());

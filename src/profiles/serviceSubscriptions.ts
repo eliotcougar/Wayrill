@@ -100,7 +100,13 @@ export async function waitSubscriptionJob(job: number, signal?: AbortSignal) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
-async function transferSubscriptionDocument(kind: 'save' | 'context' | 'source', payload: unknown) {
+type TransferKind = 'save' | 'context' | 'source' | 'outbound-tests';
+async function transferSubscriptionDocument(
+  kind: TransferKind,
+  payload: unknown,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
   const bytes = new TextEncoder().encode(
     kind === 'source' ? String(payload) : JSON.stringify(payload),
   );
@@ -111,18 +117,21 @@ async function transferSubscriptionDocument(kind: 'save' | 'context' | 'source',
   let committed = false;
   try {
     for (let offset = 0; offset < bytes.length;) {
+      signal?.throwIfAborted();
       let end = Math.min(offset + started.chunkBytes, bytes.length);
       while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(offset, end));
       await serviceCall('subscriptions.uploadChunk', { token: started.token, offset, text });
       offset = end;
     }
-    const result = await serviceCall<{ job: number; sourceGraphToken?: string }>(
-      'subscriptions.uploadCommit',
-      {
-        token: started.token,
-      },
-    );
+    signal?.throwIfAborted();
+    const result = await serviceCall<{
+      job: number;
+      sourceGraphToken?: string;
+      outboundTestToken?: string;
+    }>('subscriptions.uploadCommit', {
+      token: started.token,
+    });
     committed = true;
     return result;
   } finally {
@@ -133,15 +142,18 @@ async function transferSubscriptionDocument(kind: 'save' | 'context' | 'source',
 // Only byte transfers share the service's single upload slot. Waiting for a
 // library job must not block staging the graph for a command that will drain it.
 let transfers: Promise<unknown> = Promise.resolve();
+function transferDocument(kind: TransferKind, payload: unknown, signal?: AbortSignal) {
+  const transfer = transfers
+    .catch(() => {})
+    .then(() => transferSubscriptionDocument(kind, payload, signal));
+  transfers = transfer;
+  return transfer;
+}
 export async function uploadSubscriptionDocument(
   kind: 'save' | 'context' | 'source',
   payload: unknown,
 ) {
-  const transfer = transfers
-    .catch(() => {})
-    .then(() => transferSubscriptionDocument(kind, payload));
-  transfers = transfer;
-  const { job, sourceGraphToken } = await transfer;
+  const { job, sourceGraphToken } = await transferDocument(kind, payload);
   if (kind === 'source') {
     if (!sourceGraphToken) throw new Error('The service did not retain the source graph.');
     return sourceGraphToken;
@@ -230,6 +242,11 @@ export function sendSubscriptionContext(value: SubscriptionContext): Promise<voi
   return contextOperation;
 }
 export const stageSubscriptionGraph = (text: string) => uploadSubscriptionDocument('source', text);
+export async function stageOutboundTests(draft: unknown, signal: AbortSignal) {
+  const { outboundTestToken } = await transferDocument('outbound-tests', draft, signal);
+  if (!outboundTestToken) throw new Error('The service did not retain the outbound test draft.');
+  return outboundTestToken;
+}
 
 /** An explicit assignment, ordered after library saves, resolved by the service. */
 export async function replaceRunningOutbound(nodeId: string, link: StashLink) {

@@ -1691,7 +1691,7 @@
               "maximum": 18446744073709552000
             },
             "method": {
-              "const": "outbounds.testGet"
+              "enum": ["outbounds.testGet", "outbounds.testCancel"]
             },
             "params": {
               "type": "object",
@@ -1699,7 +1699,10 @@
                 "job": {
                   "type": "integer",
                   "minimum": 1
-                }
+                },
+                "offset": { "type": "integer", "minimum": 0 },
+                "rowOffset": { "type": "integer", "minimum": 0 },
+                "targetOffset": { "type": "integer", "minimum": 0 }
               },
               "required": [
                 "job"
@@ -1726,19 +1729,26 @@
               "maximum": 18446744073709552000
             },
             "method": {
-              "const": "outbounds.testCancel"
+              "const": "outbounds.testPlanStart"
             },
             "params": {
               "type": "object",
               "properties": {
-                "job": {
-                  "type": "integer",
-                  "minimum": 1
+                "sourceToken": { "type": "string" },
+                "settings": {
+                  "type": "object",
+                  "properties": {
+                    "mode": { "enum": ["latency", "speed"] },
+                    "testUrl": { "type": "string", "maxLength": 2048 },
+                    "countryUrl": { "type": "string", "maxLength": 2048 },
+                    "speedUrl": { "type": "string", "maxLength": 2048 },
+                    "udpUrl": { "type": "string" }
+                  },
+                  "required": ["testUrl", "countryUrl"],
+                  "additionalProperties": false
                 }
               },
-              "required": [
-                "job"
-              ],
+              "required": ["sourceToken", "settings"],
               "additionalProperties": false
             }
           },
@@ -2227,7 +2237,8 @@
                   "enum": [
                     "save",
                     "context",
-                    "source"
+                    "source",
+                    "outbound-tests"
                   ]
                 },
                 "bytes": {

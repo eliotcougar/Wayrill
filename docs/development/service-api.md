@@ -50,6 +50,14 @@ clear changes the selected channel, restore checks its owned snapshot. Resource
 updates track content/reload generations independently from authored graph
 revision. Probe jobs have explicit lifetimes and preserve unrelated prior results.
 
+`outbounds.testPlanStart` accepts settings and a one-shot token from an
+`outbound-tests` document upload. The document contains the editor graph and
+Stash snapshots and the selected node or entry IDs. The service prepares the
+plan in its restricted helper and schedules the whole run. `outbounds.testGet`
+pages completed results by `offset` and plan metadata by `rowOffset` and
+`targetOffset`. `outbounds.testCancel` cancels preparation and queued probes.
+Preparation and probes use snapshots and do not apply the draft.
+
 `routing.diagnosticStart` accepts a normalized configuration snapshot and either
 a synthetic routing context or a DNS query. It returns a job token; poll
 `routing.diagnosticGet`, and cancel with `routing.diagnosticCancel`. The job

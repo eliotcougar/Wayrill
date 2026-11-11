@@ -7,10 +7,15 @@ import { serviceCall } from './serviceClient';
 import { makeNode } from './graph/catalog';
 import type { GraphState } from './graph/types';
 import { type Stash } from './profiles/import';
-import { createTestPlan, type TestPlanInput } from './outboundTestPlan';
+import { createTestPlan, type TestSelection } from './outboundTestPlan';
+import { stageOutboundTests } from './profiles/serviceSubscriptions';
+import { parseGraph } from './graph/model';
+import { parseStash } from './profiles/import';
+import { findStashEntry } from './profiles/stashModel';
+import type { StashLink } from './graph/types';
 import { createPolicyExample } from './graph/policyExample';
 import OutboundTestResults from './components/OutboundTestResults';
-vi.mock('./profiles/serviceSubscriptions', () => ({}));
+vi.mock('./profiles/serviceSubscriptions', () => ({ stageOutboundTests: vi.fn() }));
 vi.mock('./serviceClient', () => ({
   serviceCall: vi.fn(),
   desktopServiceAvailable: () => true,
@@ -23,55 +28,54 @@ const graph: GraphState = {
   edges: [],
 };
 const stash: Stash = { format: 'wayrill.stash', version: 3, groups: [] };
-const workers: FakeWorker[] = [];
-class FakeWorker {
-  static failSend = false;
-  static realPlans = false;
-  prepared?: ReturnType<typeof createTestPlan>;
-  onmessage: ((e: MessageEvent) => void) | null = null;
-  onerror: (() => void) | null = null;
-  terminated = false;
-  constructor() {
-    workers.push(this);
-  }
-  postMessage(message: { input?: unknown; ids?: string[] }) {
-    if (FakeWorker.failSend) throw new DOMException('Cannot clone draft', 'DataCloneError');
-    if (message.input && FakeWorker.realPlans)
-      this.prepared = createTestPlan(message.input as TestPlanInput);
-    const reply = this.prepared
-      ? message.input
-        ? { plan: this.prepared.plan }
-        : { batch: this.prepared.batch(message.ids ?? []) }
-      : message.input
-        ? {
-            plan: {
-              rows: [
-                {
-                  key: 'node:direct',
-                  name: 'Direct',
-                  kind: 'direct-outbound',
-                  targets: ['test-1'],
-                },
-              ],
-              targets: [{ id: 'test-1', name: 'Direct' }],
-            },
-          }
-        : {
-            batch: [
-              {
-                id: 'test-1',
-                outboundTag: 'direct',
-                config: { outbounds: [{ tag: 'direct', protocol: 'freedom' }] },
-              },
-            ],
-          };
-    queueMicrotask(() => {
-      if (!this.terminated) this.onmessage?.({ data: reply } as MessageEvent);
+function respondToTests(
+  result: (id: string, round: number, index: number, mode: string) => unknown,
+) {
+  let round = 0;
+  let reply: Record<string, unknown>;
+  let batch: ReturnType<ReturnType<typeof createTestPlan>['batch']> = [];
+  vi.mocked(serviceCall).mockImplementation(async (method, params) => {
+    if (method !== 'outbounds.testPlanStart') {
+      expect(method).toBe('outbounds.testGet');
+      return reply;
+    }
+    round++;
+    const draft = vi.mocked(stageOutboundTests).mock.lastCall![0] as {
+      graph: string;
+      stash: string;
+      nodeIds?: string[];
+      entries?: StashLink[];
+      selection?: TestSelection;
+    };
+    const mode = (params!.settings as { mode: 'speed' | 'latency' }).mode;
+    const library = parseStash(draft.stash);
+    const prepared = createTestPlan({
+      ...draft,
+      graph: parseGraph(draft.graph),
+      stash: library,
+      entries: draft.entries?.map((link) => findStashEntry(library, link)!),
+      mode,
     });
-  }
-  terminate() {
-    this.terminated = true;
-  }
+    const { rows, targets } = prepared.plan;
+    batch = prepared.batch(targets.map(({ id }) => id));
+    const status = {
+      job: round,
+      busy: false,
+      cancelled: false,
+      planReady: true,
+      totalRows: rows.length,
+      total: targets.length,
+      completed: targets.length,
+    };
+    reply = {
+      ...status,
+      rows,
+      targets,
+      results: targets.map(({ id }, i) => result(id, round, i, mode)),
+    };
+    return { ...status, results: [] };
+  });
+  return () => batch;
 }
 function Probe({
   g = graph,
@@ -87,12 +91,9 @@ function Probe({
 }
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  vi.stubGlobal('Worker', FakeWorker);
   localStorage.clear();
   vi.mocked(serviceCall).mockReset();
-  workers.length = 0;
-  FakeWorker.failSend = false;
-  FakeWorker.realPlans = false;
+  vi.mocked(stageOutboundTests).mockReset().mockResolvedValue('staged-test-draft');
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -101,23 +102,16 @@ beforeEach(() => {
   root = createRoot(host);
 });
 it('retests both measurements in-place and keeps the dialog, other results and individual members', async () => {
-  FakeWorker.realPlans = true;
-  let round = 0;
-  vi.mocked(serviceCall).mockImplementation(async (_method, params) => ({
-    job: ++round,
-    busy: false,
-    cancelled: false,
-    results: (params!.targets as { id: string }[]).map((target) => ({
-      id: target.id,
-      latencyMs: 10 * round,
-      ip: '203.0.113.1',
-      country: 'FI',
-      error: null,
-      countryError: null,
-      ...(params!.mode === 'speed'
-        ? { speed: { bytesPerSecond: round * 1_000_000, bytes: 5_000_000, elapsedMs: 5000 } }
-        : { udp: { reachable: true, error: null } }),
-    })),
+  const batch = respondToTests((id, round, _index, mode) => ({
+    id,
+    latencyMs: 10 * round,
+    ip: '203.0.113.1',
+    country: 'FI',
+    error: null,
+    countryError: null,
+    ...(mode === 'speed'
+      ? { speed: { bytesPerSecond: round * 1_000_000, bytes: 5_000_000, elapsedMs: 5000 } }
+      : { udp: { reachable: true, error: null } }),
   }));
   await act(() => root.render(<Probe g={createPolicyExample()} show />));
   await act(() => latest.start());
@@ -144,26 +138,23 @@ it('retests both measurements in-place and keeps the dialog, other results and i
   // Both the two latency members and the speed-tested policy route remain visible.
   expect(host.querySelectorAll('[role="row"]')).toHaveLength(4);
   await act(() => clicked('Speed test Test destination B').click());
-  const request = vi.mocked(serviceCall).mock.calls.at(-1)![1]!;
-  expect(request.targets).toHaveLength(1);
-  const config = (request.targets as { config: { outbounds: { protocol: string }[] } }[])[0].config;
+  expect(batch()).toHaveLength(1);
+  const config = batch()[0].config as { outbounds: { protocol: string }[] };
   expect(config.outbounds.map((o) => o.protocol)).toEqual(['freedom']);
   expect(latest.speedSummaries.get('node:test-group')?.text).toBe('16.00 Mbit/s');
   expect(latest.speedSummaries.get('node:test-second')?.text).toBe('32.00 Mbit/s');
   expect(latest.records.latency.results.size).toBe(2);
   expect(host.querySelector('dialog')).toBe(dialog);
 });
-it('cleans up a failed worker submission immediately and permits a later test', async () => {
+it('cleans up a failed draft upload immediately and permits a later test', async () => {
   vi.useFakeTimers();
   await act(() => root.render(<Probe />));
-  FakeWorker.failSend = true;
+  vi.mocked(stageOutboundTests).mockRejectedValueOnce(new Error('Cannot upload draft'));
   await act(() => latest.start());
-  expect(latest.error).toContain('Cannot clone draft');
+  expect(latest.error).toContain('Cannot upload draft');
   expect(latest.busy).toBe(false);
-  expect(workers[0].terminated).toBe(true);
   expect(vi.getTimerCount()).toBe(0);
   expect(serviceCall).not.toHaveBeenCalled();
-  FakeWorker.failSend = false;
   vi.mocked(serviceCall).mockResolvedValue({
     job: 4,
     busy: false,
@@ -177,8 +168,7 @@ it('cleans up a failed worker submission immediately and permits a later test', 
   });
   expect(latest.error).toBe('');
   expect(latest.busy).toBe(false);
-  expect(workers[1].terminated).toBe(true);
-  expect(serviceCall).toHaveBeenCalledWith('outbounds.testStart', expect.anything());
+  expect(serviceCall).toHaveBeenCalledWith('outbounds.testPlanStart', expect.anything());
 });
 afterEach(async () => {
   await act(() => root.unmount());
@@ -191,7 +181,7 @@ it.each(['latency', 'speed'] as const)(
   async (mode) => {
     let finish: ((v: unknown) => void) | undefined;
     vi.mocked(serviceCall).mockImplementation((method) =>
-      method === 'outbounds.testStart'
+      method === 'outbounds.testPlanStart'
         ? new Promise((resolve) => {
             finish = resolve;
           })
@@ -224,29 +214,22 @@ it.each(['latency', 'speed'] as const)(
 );
 
 it('requests UDP alongside latency only when enabled, with separate results and no UDP in speed jobs', async () => {
-  vi.mocked(serviceCall).mockResolvedValue({
-    job: 5,
-    busy: false,
-    results: [
-      {
-        id: 'test-1',
-        latencyMs: 25,
-        ip: null,
-        country: null,
-        error: null,
-        countryError: null,
-        udp: {
-          reachable: false,
-          error: 'No valid UDP reply within 5 seconds.',
-        },
-      },
-    ],
-    cancelled: false,
-  });
+  respondToTests((id) => ({
+    id,
+    latencyMs: 25,
+    ip: null,
+    country: null,
+    error: null,
+    countryError: null,
+    udp: {
+      reachable: false,
+      error: 'No valid UDP reply within 5 seconds.',
+    },
+  }));
   await act(() => root.render(<Probe />));
   expect(latest.settings.value.udpEnabled).toBe(false);
   await act(() => latest.start());
-  expect(vi.mocked(serviceCall).mock.calls[0][1]).not.toHaveProperty('udpUrl');
+  expect(vi.mocked(serviceCall).mock.calls[0][1]!.settings).not.toHaveProperty('udpUrl');
   await act(() =>
     latest.settings.save({
       ...latest.settings.value,
@@ -255,9 +238,11 @@ it('requests UDP alongside latency only when enabled, with separate results and 
     }),
   );
   await act(() => latest.start());
-  expect(serviceCall).toHaveBeenLastCalledWith(
-    'outbounds.testStart',
-    expect.objectContaining({ udpUrl: 'dns://9.9.9.9:9953' }),
+  expect(serviceCall).toHaveBeenCalledWith(
+    'outbounds.testPlanStart',
+    expect.objectContaining({
+      settings: expect.objectContaining({ udpUrl: 'dns://9.9.9.9:9953' }),
+    }),
   );
   expect(latest.summaries.get('node:direct')).toMatchObject({
     text: '25 ms',
@@ -265,13 +250,17 @@ it('requests UDP alongside latency only when enabled, with separate results and 
   });
   expect(JSON.parse(localStorage.getItem('wayrill.outboundTest.settings')!).udpEnabled).toBe(true);
   await act(() => latest.start(undefined, undefined, 'speed'));
-  expect(vi.mocked(serviceCall).mock.lastCall?.[1]).not.toHaveProperty('udpUrl');
+  const [, lastStart] = vi
+    .mocked(serviceCall)
+    .mock.calls.filter(([m]) => m === 'outbounds.testPlanStart')
+    .at(-1)!;
+  expect(lastStart!.settings).not.toHaveProperty('udpUrl');
 });
 it('drains a foreground job after a polling error before clearing its busy state', async () => {
   vi.useFakeTimers();
   let polled = false;
   vi.mocked(serviceCall).mockImplementation(async (method) => {
-    if (method === 'outbounds.testStart') return { job: 8, busy: true, results: [] };
+    if (method === 'outbounds.testPlanStart') return { job: 8, busy: true, results: [] };
     if (method === 'outbounds.testCancel') return { job: 8, busy: true, results: [] };
     if (!polled) {
       polled = true;
@@ -292,43 +281,76 @@ it('drains a foreground job after a polling error before clearing its busy state
     await work;
   });
   expect(latest.busy).toBe(false);
-  expect(workers[0].terminated).toBe(true);
+});
+
+it('reads the final plan and results across multiple pages from one service job', async () => {
+  const targets = Array.from({ length: 301 }, (_, i) => ({ id: `test-${i}`, name: `Server ${i}` }));
+  const rows = targets.map(({ id, name }) => ({
+    key: `node:${id}`,
+    name,
+    kind: 'outbound',
+    targets: [id],
+  }));
+  const results = targets.map(({ id }, latencyMs) => ({ id, latencyMs }));
+  const completed = {
+    job: 9,
+    busy: false,
+    planReady: true,
+    total: targets.length,
+    totalRows: rows.length,
+    completed: results.length,
+    cancelled: false,
+  };
+  vi.mocked(serviceCall).mockImplementation(async (method, params) => {
+    if (method === 'outbounds.testPlanStart') return { ...completed, results: [] };
+    expect(method).toBe('outbounds.testGet');
+    const { job, offset, rowOffset, targetOffset } = params as Record<string, number>;
+    expect(job).toBe(completed.job);
+    return {
+      ...completed,
+      results: results.slice(offset, offset + 128),
+      rows: rowOffset === undefined ? undefined : rows.slice(rowOffset, rowOffset + 256),
+      targets:
+        targetOffset === undefined ? undefined : targets.slice(targetOffset, targetOffset + 256),
+    };
+  });
+  await act(() => root.render(<Probe />));
+  await act(() => latest.start());
+  expect(latest.plan).toEqual({ targets, rows: rows.map((row) => ({ ...row, hidden: false })) });
+  expect([...latest.results.keys()]).toEqual(targets.map(({ id }) => id));
+  expect(latest.status).toBe('301 outbounds tested');
+  expect(vi.mocked(serviceCall).mock.calls.map(([method]) => method)).toEqual([
+    'outbounds.testPlanStart',
+    'outbounds.testGet',
+    'outbounds.testGet',
+    'outbounds.testGet',
+  ]);
 });
 it.each(['latency', 'speed'] as const)(
   'retains other %s results and policy summaries when retesting one server, including after preparation fails',
   async (mode) => {
-    FakeWorker.realPlans = true;
-    let round = 0;
-    vi.mocked(serviceCall).mockImplementation(async (_method, params) => {
-      round++;
-      return {
-        job: round,
-        busy: false,
-        cancelled: false,
-        results: (params!.targets as { id: string }[]).map((target, index) => ({
-          id: target.id,
-          latencyMs: round === 1 ? 20 + index * 10 : 99,
-          ip: '203.0.113.1',
-          country: 'FI',
-          error: null,
-          countryError: null,
-          ...(mode === 'speed'
-            ? {
-                speed: {
-                  bytesPerSecond: round === 1 ? 1_000_000 + index : 9_000_000,
-                  bytes: 5_000_000,
-                  elapsedMs: 5000,
-                },
-              }
-            : {
-                udp: {
-                  reachable: round === 1,
-                  error: round === 1 ? null : 'No UDP reply.',
-                },
-              }),
-        })),
-      };
-    });
+    respondToTests((id, round, index) => ({
+      id,
+      latencyMs: round === 1 ? 20 + index * 10 : 99,
+      ip: '203.0.113.1',
+      country: 'FI',
+      error: null,
+      countryError: null,
+      ...(mode === 'speed'
+        ? {
+            speed: {
+              bytesPerSecond: round === 1 ? 1_000_000 + index : 9_000_000,
+              bytes: 5_000_000,
+              elapsedMs: 5000,
+            },
+          }
+        : {
+            udp: {
+              reachable: round === 1,
+              error: round === 1 ? null : 'No UDP reply.',
+            },
+          }),
+    }));
     await act(() => root.render(<Probe g={createPolicyExample()} />));
     await act(() => latest.start(undefined, undefined, mode));
     const summaries = () => (mode === 'speed' ? latest.speedSummaries : latest.summaries);
@@ -356,9 +378,9 @@ it.each(['latency', 'speed'] as const)(
       expect(summaries().get('node:test-group')).toEqual(group);
     }
     const completed = latest.results;
-    FakeWorker.failSend = true;
+    vi.mocked(stageOutboundTests).mockRejectedValueOnce(new Error('Cannot upload draft'));
     await act(() => latest.start(undefined, ['test-second'], mode));
-    expect(latest.error).toContain('Cannot clone draft');
+    expect(latest.error).toContain('Cannot upload draft');
     expect(latest.results).toBe(completed);
     expect(summaries().get('node:test-first')).toEqual(first);
   },

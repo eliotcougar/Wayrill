@@ -114,8 +114,9 @@ export function testIdentity(config: Record<string, unknown>, tag: string): stri
           : v;
   return JSON.stringify({ config: walk(config), target: tags.get(tag) ?? tag });
 }
-export function createTestPlan(input: TestPlanInput) {
+export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTarget) => void) {
   const selection = input.selection;
+  const selectedTarget = selection && 'id' in selection ? selection.id : undefined;
   if (selection) {
     const key = 'key' in selection ? selection.key : selection.origin.key;
     if (key.startsWith('node:')) input = { ...input, nodeIds: [key.slice(5)] };
@@ -230,6 +231,7 @@ export function createTestPlan(input: TestPlanInput) {
   let dns: ReturnType<typeof compileDnsGraph> | undefined;
   const options = graph.nodes.find((n) => n.data.kind === 'xray-options');
   const policy = options ? nativeConfig(options.data).policy : undefined;
+  const environment = udpListenerEnvironment(graph.defaults ?? factoryDefaults());
   const targets = new Map<string, { node: RuleNode; name: string; origin: TestOrigin }>(),
     identities = new Map<string, string>();
   const rows: TestRow[] = [];
@@ -334,7 +336,6 @@ export function createTestPlan(input: TestPlanInput) {
       });
       outboundTag = wrapper;
     }
-    const environment = udpListenerEnvironment(graph.defaults ?? factoryDefaults());
     if (Object.keys(environment).length) config.env = environment;
     if (policy) config.policy = policy;
     const known = new Set(outputs.map((o) => String(o.tag)));
@@ -436,6 +437,8 @@ export function createTestPlan(input: TestPlanInput) {
     }
     const id = `test-${stableProfileKey(identity)}`;
     if (targets.has(id)) throw new Error('Conflicting outbound test identities.');
+    if (!selectedTarget || id === selectedTarget)
+      onTarget?.({ id, config: config.config, outboundTag: config.outboundTag });
     identities.set(identity, id);
     targets.set(id, { node, name: node.data.label, origin });
     return [id];

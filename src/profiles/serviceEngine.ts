@@ -5,7 +5,7 @@ import { prepareRefresh, materializeRefresh } from './refreshPreparation';
 import { parseGraph, serializeGraph } from '../graph/model';
 import { refreshAppliedSubscriptions } from './subscriptionRuntime';
 import { analyzeGraph } from '../graph/analysis';
-import { createTestPlan } from '../outboundTestPlan';
+import { createTestPlan, type TestSelection } from '../outboundTestPlan';
 import { applySubscriptionHealth } from './subscriptionHealth';
 import { refreshStashComposites } from '../graph/policySources';
 import { policyProfileId } from '../graph/profileIdentity';
@@ -20,7 +20,8 @@ import { decodeStashGroups } from './stashEncoding';
 import { preparePublications, readPublication } from './subscriptionPublication';
 
 interface Request {
-  operation: 'validate' | 'merge' | 'refresh' | 'health' | 'plan' | 'runtime' | 'cycle';
+  operation:
+    'validate' | 'merge' | 'refresh' | 'health' | 'plan' | 'outboundTests' | 'runtime' | 'cycle';
   stash: string;
   base?: string;
   local?: string;
@@ -32,6 +33,9 @@ interface Request {
   removeDead?: boolean;
   entryIds?: string[];
   mode?: 'latency' | 'speed';
+  nodeIds?: string[];
+  entries?: StashLink[];
+  selection?: TestSelection;
   cycleAt?: number | null;
   lastTestAt?: number;
   trusted?: boolean;
@@ -100,6 +104,58 @@ export function subscriptionEngine(request: Request) {
         identities: Object.fromEntries(
           entries.filter((e) => e.profile).map((e) => [e.id, policyProfileId(e.profile!)]),
         ),
+      };
+    }
+    case 'outboundTests': {
+      const entries = request.entries?.map((link) => {
+        const entry = findStashEntry(stash, link);
+        if (!entry) throw new Error('This Stash entry no longer exists.');
+        return entry;
+      });
+      // A large Stash test can share the same DNS context and dialer outbounds
+      // across thousands of probes. Send each fragment once to the coordinator.
+      const fragments: unknown[] = [];
+      const indices = new Map<string, number>();
+      const shared = new WeakMap<object, number>();
+      const intern = (value: unknown) => {
+        const object = typeof value === 'object' && value !== null ? value : undefined;
+        const previous = object && shared.get(object);
+        if (previous !== undefined) return previous;
+        const key = JSON.stringify(value);
+        const index = indices.get(key) ?? fragments.push(value) - 1;
+        indices.set(key, index);
+        if (object) shared.set(object, index);
+        return index;
+      };
+      const targets = new Map<
+        string,
+        { id: string; outboundTag: string; outbounds: number[]; fields: Record<string, number> }
+      >();
+      const prepared = createTestPlan(
+        {
+          graph,
+          stash,
+          entries,
+          nodeIds: request.nodeIds,
+          mode: request.mode,
+          selection: request.selection,
+        },
+        ({ id, outboundTag, config }) => {
+          const { outbounds, ...fields } = config;
+          targets.set(id, {
+            id,
+            outboundTag,
+            outbounds: (outbounds as unknown[]).map(intern),
+            fields: Object.fromEntries(
+              Object.entries(fields).map(([key, value]) => [key, intern(value)]),
+            ),
+          });
+        },
+      );
+      return {
+        plan: prepared.plan,
+        preparedTargets: prepared.plan.targets.map(({ id }) => targets.get(id)!),
+        fragments,
       };
     }
     case 'runtime': {

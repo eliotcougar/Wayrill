@@ -92,6 +92,7 @@ pub(crate) fn requires_foreground(method: &str) -> bool {
             | "appProtection.set"
             | "startup.set"
             | "outbounds.testStart"
+            | "outbounds.testPlanStart"
             | "companion.timezoneStart"
             | "routing.diagnosticStart"
             | "resources.update"

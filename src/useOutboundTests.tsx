@@ -9,18 +9,20 @@ import {
 } from 'react';
 import { desktopServiceAvailable, serviceCall, errorText } from './serviceClient';
 import type { GraphState } from './graph/types';
-import type { Stash, StashEntry } from './profiles/import';
+import { toDocument } from './graph/model';
+import { serializeStash, type Stash, type StashEntry } from './profiles/import';
+import { entryLink } from './profiles/stashModel';
+import { stageOutboundTests } from './profiles/serviceSubscriptions';
 import {
   mergeTestPlans,
   stashTestKey,
   type TestPlan,
   type TestRow,
-  type TestTarget,
   type TestSelection,
 } from './outboundTestPlan';
 import { useOutboundTestSettings } from './outboundTestSettings';
 import { ObservatoryContext } from './observatorySummary';
-import { testBatches, drainTestJob } from './outboundTestJobs';
+import { drainTestJob } from './outboundTestJobs';
 import { sameTestLibrary } from './profiles/library';
 import { Gauge } from 'lucide-react';
 import UdpTestBadge from './components/UdpTestBadge';
@@ -40,8 +42,27 @@ export interface OutboundTestResult {
 interface Job {
   job: number;
   busy: boolean;
+  total: number;
+  completed: number;
   results: OutboundTestResult[];
   cancelled: boolean;
+  planReady?: boolean;
+  totalRows?: number;
+  rows?: TestPlan['rows'];
+  targets?: TestPlan['targets'];
+  error?: { message: string } | null;
+}
+interface TestRun {
+  controller: AbortController;
+  mode: TestMode;
+  job?: number;
+  wake?: () => void;
+}
+function cancelRun(run: TestRun) {
+  run.controller.abort();
+  run.wake?.();
+  if (run.job !== undefined)
+    void serviceCall('outbounds.testCancel', { job: run.job }).catch(() => {});
 }
 interface TestSummary {
   text: string;
@@ -143,35 +164,19 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
         : { ...current, [mode]: { ...current[mode], ...value } },
     );
   }, []);
-  const active = useRef<{
-    stop: boolean;
-    mode: TestMode;
-    worker?: Worker;
-    job?: number;
-    wake?: () => void;
-  }>(undefined);
+  const active = useRef<TestRun>(undefined);
   const current = useRef({ graph, stash });
   current.current = { graph, stash };
   const cancel = useCallback(() => {
     const run = active.current;
     if (!run) return;
-    run.stop = true;
-    run.worker?.terminate();
-    run.wake?.();
-    if (run.job !== undefined)
-      void serviceCall('outbounds.testCancel', { job: run.job }).catch(() => {});
+    cancelRun(run);
     patch(run.mode, { status: 'Cancelled. Completed results are retained.' });
   }, [patch]);
   useEffect(
     () => () => {
       const run = active.current;
-      if (run) {
-        run.stop = true;
-        run.worker?.terminate();
-        run.wake?.();
-        if (run.job !== undefined)
-          void serviceCall('outbounds.testCancel', { job: run.job }).catch(() => {});
-      }
+      if (run) cancelRun(run);
     },
     [],
   );
@@ -226,16 +231,8 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
       selection?: TestSelection,
     ) => {
       if (active.current) return;
-      const run: {
-        stop: boolean;
-        mode: TestMode;
-        worker?: Worker;
-        job?: number;
-        wake?: () => void;
-      } = {
-        stop: false,
-        mode: testMode,
-      };
+      const run: TestRun = { controller: new AbortController(), mode: testMode };
+      const { signal } = run.controller;
       active.current = run;
       setMode(testMode);
       const setStatus = (status: string) => patch(testMode, { status });
@@ -248,55 +245,20 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
             plan: mergeTestPlans(current[testMode].plan, plan),
           },
         }));
-      const setResults = (
-        value:
-          | Map<string, OutboundTestResult>
-          | ((previous: Map<string, OutboundTestResult>) => Map<string, OutboundTestResult>),
-      ) => {
+      const publishResults = (fresh: OutboundTestResult[]) => {
+        if (!fresh.length) return;
         setRecords((current) => {
-          const results = typeof value === 'function' ? value(current[testMode].results) : value;
-          return results === current[testMode].results
-            ? current
-            : { ...current, [testMode]: { ...current[testMode], results } };
+          const results = new Map(current[testMode].results);
+          for (const result of fresh)
+            results.set(result.id, { ...result, udp: result.udp ?? results.get(result.id)?.udp });
+          return { ...current, [testMode]: { ...current[testMode], results } };
         });
       };
       setOpen(true);
       setBusy(true);
       setError('');
       setStatus('Preparing outbound tests…');
-      const receive = <T,>(message: unknown) =>
-        new Promise<T>((resolve, reject) => {
-          const worker = run.worker!;
-          const cleanup = () => {
-            clearTimeout(timer);
-            run.wake = undefined;
-            worker.onmessage = null;
-            worker.onerror = null;
-            worker.onmessageerror = null;
-          };
-          const fail = (error: Error) => {
-            cleanup();
-            reject(error);
-          };
-          const timer = setTimeout(
-            () => fail(new Error('Preparing outbound tests timed out.')),
-            60000,
-          );
-          run.wake = () => fail(new Error('Cancelled.'));
-          worker.onmessage = (event: MessageEvent<T & { error?: string }>) => {
-            cleanup();
-            if (event.data.error) reject(new Error(event.data.error));
-            else resolve(event.data);
-          };
-          worker.onerror = () => fail(new Error('Unable to prepare outbound tests.'));
-          worker.onmessageerror = () =>
-            fail(new Error('Unable to read the prepared outbound tests.'));
-          try {
-            worker.postMessage(message);
-          } catch (error) {
-            fail(error instanceof Error ? error : new Error(errorText(error)));
-          }
-        });
+      let staged: string | undefined;
       const wait = () =>
         new Promise<void>((resolve) => {
           const timer = setTimeout(() => {
@@ -310,78 +272,80 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
           };
         });
       try {
-        if (run.stop) return;
-        run.worker = new Worker(new URL('./outboundTestPlan.worker.ts', import.meta.url), {
-          type: 'module',
+        const draft = current.current;
+        staged = await stageOutboundTests(
+          {
+            graph: JSON.stringify(toDocument(draft.graph)),
+            stash: serializeStash(draft.stash),
+            entries: entries?.map((entry) => entryLink(draft.stash, entry)),
+            nodeIds,
+            selection,
+          },
+          signal,
+        );
+        signal.throwIfAborted();
+        let job = await serviceCall<Job>('outbounds.testPlanStart', {
+          sourceToken: staged,
+          settings: {
+            testUrl: settings.value.testUrl,
+            countryUrl: settings.value.countryUrl,
+            mode: testMode,
+            ...(testMode === 'speed'
+              ? { speedUrl: settings.value.speedUrl }
+              : settings.value.udpEnabled
+                ? { udpUrl: settings.value.udpUrl }
+                : {}),
+          },
         });
-        const { plan: prepared } = await receive<{ plan: TestPlan }>({
-          input: { ...current.current, entries, nodeIds, mode: testMode, selection },
-        });
-        if (run.stop) return;
-        setPlan(prepared);
-        let completed = 0;
-        for (let offset = 0; offset < prepared.targets.length && !run.stop; offset += 8) {
-          const ids = prepared.targets.slice(offset, offset + 8).map((t) => t.id);
-          const { batch } = await receive<{ batch: TestTarget[] }>({ ids });
-          if (run.stop) break;
-          for (const targets of testBatches(batch)) {
-            if (run.stop) break;
-            let job = await serviceCall<Job>('outbounds.testStart', {
-              targets,
-              ...{
-                testUrl: settings.value.testUrl,
-                countryUrl: settings.value.countryUrl,
-              },
-              ...(testMode === 'speed'
-                ? { mode: testMode, speedUrl: settings.value.speedUrl }
-                : settings.value.udpEnabled
-                  ? { udpUrl: settings.value.udpUrl }
-                  : {}),
-            });
-            run.job = job.job;
-            if (run.stop) await serviceCall('outbounds.testCancel', { job: run.job });
-            const published = new Set<string>();
-            const publish = () => {
-              const fresh = job.results.filter((r) => !published.has(r.id));
-              for (const result of fresh) published.add(result.id);
-              if (fresh.length)
-                setResults((current) => {
-                  const next = new Map(current);
-                  for (const result of fresh)
-                    next.set(result.id, {
-                      ...result,
-                      udp: result.udp ?? current.get(result.id)?.udp,
-                    });
-                  return next;
-                });
-              setStatus(`${completed + job.results.length}/${prepared.targets.length} tested`);
-            };
-            if (!run.stop) publish();
-            while (job.busy) {
-              await wait();
-              job = await serviceCall<Job>('outbounds.testGet', {
-                job: run.job,
-              });
-              if (!run.stop) publish();
-            }
-            if (!run.stop) {
-              publish();
-              completed += job.results.length;
-            }
-            run.job = undefined;
+        staged = undefined;
+        run.job = job.job;
+        const plan: TestPlan = { rows: [], targets: [] };
+        let offset = 0,
+          planPublished = false;
+        while (!signal.aborted) {
+          publishResults(job.results);
+          offset += job.results.length;
+          if (job.error) throw new Error(job.error.message);
+          if (job.cancelled) {
+            setStatus('Cancelled. Completed results are retained.');
+            break;
           }
+          if (job.planReady && !planPublished) {
+            plan.rows.push(...(job.rows ?? []));
+            plan.targets.push(...(job.targets ?? []));
+            if (plan.rows.length === job.totalRows && plan.targets.length === job.total) {
+              setPlan(plan);
+              planPublished = true;
+            }
+          }
+          const readingPlan = job.planReady && !planPublished;
+          const readingResults = offset < job.completed;
+          if (!job.busy && !readingPlan && !readingResults) {
+            run.job = undefined;
+            setStatus(
+              offset
+                ? `${offset} ${offset === 1 ? 'outbound' : 'outbounds'} tested`
+                : 'No testable outbounds.',
+            );
+            break;
+          }
+          if (job.planReady) setStatus(`${job.completed}/${job.total} tested`);
+          if (!readingPlan && !readingResults) await wait();
+          if (signal.aborted) break;
+          job = await serviceCall<Job>('outbounds.testGet', {
+            job: run.job,
+            offset,
+            ...(readingPlan
+              ? { rowOffset: plan.rows.length, targetOffset: plan.targets.length }
+              : {}),
+          });
         }
-        if (!run.stop)
-          setStatus(
-            prepared.targets.length
-              ? `${completed} ${completed === 1 ? 'outbound' : 'outbounds'} tested`
-              : 'No testable outbounds.',
-          );
       } catch (e) {
-        if (!run.stop) setError(errorText(e));
+        if (!signal.aborted) setError(errorText(e));
       } finally {
+        if (staged)
+          await serviceCall('subscriptions.uploadAbort', { token: staged }).catch(() => {});
         if (run.job !== undefined) await drainTestJob(run.job);
-        run.worker?.terminate();
         active.current = undefined;
         setBusy(false);
       }

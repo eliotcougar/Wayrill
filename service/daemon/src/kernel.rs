@@ -789,17 +789,16 @@ impl Kernel {
             return self.routing_diagnostics.get(method, input);
         }
         if method.starts_with("outbounds.test") {
-            if method == "outbounds.testStart" && self.resources.snapshot()["busy"] == true {
+            let starting = matches!(method, "outbounds.testStart" | "outbounds.testPlanStart");
+            if starting && self.resources.snapshot()["busy"] == true {
                 return Err(ApiError::new(
                     "BUSY",
                     "Wait for the resource update to finish.",
                 ));
             }
-            let egress = (method == "outbounds.testStart")
-                .then(|| self.outbound_egress().ok())
-                .flatten();
-            let active = if method == "outbounds.testStart"
-                && input["mode"] == "speed"
+            let egress = starting.then(|| self.outbound_egress().ok()).flatten();
+            let active = if starting
+                && (input["mode"] == "speed" || input["settings"]["mode"] == "speed")
                 && self.core_state == CoreState::Running
             {
                 self.control
@@ -812,6 +811,16 @@ impl Kernel {
             } else {
                 None
             };
+            if method == "outbounds.testPlanStart" {
+                return self.outbound_tests.start_planned(
+                    input,
+                    &self.subscriptions,
+                    self.exe.clone(),
+                    self.owner.clone(),
+                    egress,
+                    active,
+                );
+            }
             return self.outbound_tests.handle(
                 method,
                 input,
