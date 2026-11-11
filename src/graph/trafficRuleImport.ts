@@ -3,7 +3,7 @@ import { LIMITS } from '../limits';
 import { parseXrayJson, jsonRecord, jsonText, jsonArray } from './xrayJson';
 import { parseApplicationSelectors, type ApplicationSelector } from './applications';
 import { readWayrillRules, trafficRulesFormat } from './trafficRuleExport';
-import { remapTrafficSource } from './ruleSourceRemap';
+import { remapSourceOutputs as remapTrafficSource } from './ruleSourceRemap';
 import type { RuleSource } from './ruleSourceModel';
 import {
   bindOutputs,

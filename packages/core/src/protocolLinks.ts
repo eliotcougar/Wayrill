@@ -1,4 +1,5 @@
-import { jsonRecord, parseXrayJson, jsonText, jsonArray, parseJson } from '../graph/xrayJson';
+import { jsonRecord, parseXrayJson, jsonText, jsonArray, parseJson } from './xrayJson';
+import { decodeBase64 as decode } from './base64';
 const record = (v: unknown): Record<string, unknown> => (jsonRecord(v) ? v : {});
 const list = (value: string) =>
   value
@@ -7,12 +8,16 @@ const list = (value: string) =>
     .filter(Boolean);
 export function protocolLink(
   text: string,
-  decode: (s: string) => string,
+  maxConfigBytes: number,
 ): { config: Record<string, unknown>; name?: string } {
   let scheme = text.slice(0, text.indexOf(':')).toLowerCase(),
     source = text;
   if (scheme === 'vmess') {
-    const value = parseXrayJson(decode(text.slice(text.indexOf('://') + 3).split('#')[0])),
+    const value = parseXrayJson(
+        decode(text.slice(text.indexOf('://') + 3).split('#')[0]),
+        undefined,
+        maxConfigBytes,
+      ),
       v = record(value);
     const allowed = [
       'v',
@@ -324,7 +329,7 @@ export function protocolLink(
       ...(q.get('host') ? { host: q.get('host') } : {}),
       ...(q.get('path') ? { path: q.get('path') } : {}),
     };
-  const parsedMask = q.get('fm') ? parseXrayJson(q.get('fm')!) : {};
+  const parsedMask = q.get('fm') ? parseXrayJson(q.get('fm')!, undefined, maxConfigBytes) : {};
   if (!jsonRecord(parsedMask))
     throw new Error('FinalMask must be a JSON object. Original retained.');
   let mask: Record<string, unknown> = parsedMask;

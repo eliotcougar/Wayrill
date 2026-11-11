@@ -10,7 +10,9 @@ import {
 } from './dns';
 import { dnsSourceLists, type DnsSourceRule, type DnsSourceRow } from './dnsRuleSourceModel';
 import type { RuleSource } from './ruleSourceModel';
-import { sourceEntries, sourceEntryKey } from './ruleSourceEdits';
+import { sourceEntries, sourceEntryKey, applySourceList } from './ruleSourceEdits';
+import { remapSourceOutputs as remapDnsSource } from './ruleSourceRemap';
+export { remapSourceOutputs as remapDnsSource } from './ruleSourceRemap';
 import { matchSourceRows, preserveLocalRows } from './ruleSourceMerge';
 import { bindOutputs, type PresetBindings, type PresetMode } from './routingPresets';
 import type { RuleNodeData } from './types';
@@ -81,47 +83,6 @@ export function exportDnsRules(filter: DnsFilter, name: string, embedOverrides =
   );
 }
 export { editSourcedDnsRule } from './dnsRuleSourceEdits';
-export function remapDnsSource(filter: DnsFilter, ids: ReadonlyMap<string, string>): DnsFilter {
-  const remap = (id: string) => ids.get(id) ?? id;
-  return {
-    ...filter,
-    ...(filter.source
-      ? {
-          source: {
-            ...filter.source,
-            bindings: Object.fromEntries(
-              Object.entries(filter.source.bindings).map(([role, id]) => [role, remap(id)]),
-            ),
-          },
-        }
-      : {}),
-    rules: filter.rules.map((rule) => ({
-      ...rule,
-      output: remap(rule.output),
-      ...(rule.source
-        ? {
-            source: {
-              ...rule.source,
-              base: { ...rule.source.base, output: remap(rule.source.base.output) },
-              edits: {
-                ...rule.source.edits,
-                ...(rule.source.edits.fields
-                  ? {
-                      fields: {
-                        ...rule.source.edits.fields,
-                        ...(rule.source.edits.fields.output
-                          ? { output: remap(rule.source.edits.fields.output) }
-                          : {}),
-                      },
-                    }
-                  : {}),
-              },
-            },
-          }
-        : {}),
-    })),
-  };
-}
 export function detachDnsSource(filter: DnsFilter): DnsFilter {
   return {
     ...filter,
@@ -191,10 +152,7 @@ function materialize(base: DnsSourceRule, source: DnsSourceRow, id: string): Dns
     const edit = source.edits.lists?.[key],
       kind = listKind(key);
     if (!edit) continue;
-    const removed = new Set(edit.removed.map((value) => sourceEntryKey(value, kind)));
-    rule[key] = sourceEntries([...sourceEntries(base[key], kind), ...edit.added].join('\n'), kind)
-      .filter((value) => !removed.has(sourceEntryKey(value, kind)))
-      .join('\n');
+    rule[key] = applySourceList(base[key], edit, kind);
     // A removed domain/IP constraint must never turn into an unrestricted resolver preference.
     if (sourceEntries(base[key], kind).length && !sourceEntries(rule[key], kind).length)
       rule.enabled = false;

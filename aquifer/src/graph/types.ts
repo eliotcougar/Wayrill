@@ -1,3 +1,5 @@
+import type { NativeProjection, XrayGraphMetadata } from '@wayrill/core/nativeProjection';
+export type { NativeProjection, XrayGraphMetadata } from '@wayrill/core/nativeProjection';
 import type { Edge, Node, Viewport } from '@xyflow/react';
 
 import type { ProtocolInboundKind, ProtocolOutboundKind } from '@wayrill/core/protocolCatalog';
@@ -62,31 +64,6 @@ export interface GraphState {
   captureOptions?: import('./capture').CaptureOptions;
   defaults?: GlobalDefaults;
   xray?: XrayGraphMetadata;
-}
-export interface NativeProjection {
-  version: 1;
-  original: Record<string, unknown>;
-  projection: Record<string, unknown>;
-  overrideKeys?: string[];
-  // Explicit shared-field edits, including values equal to import placeholders.
-  editedKeys?: string[];
-}
-export interface XrayGraphMetadata {
-  version: 1;
-  optionsNodeId: string;
-  routingNodeId: string;
-  dnsNodeId?: string;
-  inboundOrder: string[];
-  outboundOrder: string[];
-  outboundPool?: { id: string; config: Record<string, unknown> }[];
-  balancerOrder: string[];
-  inboundsPresent: boolean;
-  outboundsPresent: boolean;
-  routingPresent: boolean;
-  rulesPresent: boolean;
-  balancersPresent: boolean;
-  dnsServersPresent: boolean;
-  defaultsProjection: Record<string, unknown>;
 }
 export interface GraphDocument extends GraphState {
   format: 'wayrill.graph';

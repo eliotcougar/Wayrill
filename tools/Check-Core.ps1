@@ -10,6 +10,10 @@ if (-not (Test-Path -LiteralPath $CorePath) -or -not (Test-Path -LiteralPath (Jo
 if ((Get-FileHash -LiteralPath $CorePath).Hash -ne $taskPins.xray.executableSha256) { throw 'The test core does not match service/dependencies.json.' }
 $CorePath = (Resolve-Path -LiteralPath $CorePath).Path
 $SourceDirectory = (Resolve-Path -LiteralPath $SourceDirectory).Path
+$taskGo = Join-Path $taskProject ('.tools/go-sdk/go' + $taskPins.xray.build.goVersion + '/go/bin/go.exe')
+if (-not (Test-Path -LiteralPath $taskGo)) {
+    throw 'Build the public core first to prepare the pinned Go SDK for routing integration checks.'
+}
 $taskVitest = Join-Path $taskProject 'node_modules/.bin/vitest.cmd'
 if (-not (Test-Path -LiteralPath $taskVitest)) { throw 'Run npm ci before core integration tests.' }
 & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1')
@@ -19,7 +23,7 @@ foreach ($taskFile in $taskPins.resourceData.files) {
     Copy-Item -LiteralPath (Join-Path $taskProject ('service/resource-assets/' + $taskFile.path)) -Destination $taskFixture
 }
 $taskEnvironment = @{}
-foreach ($taskName in @('WAYRILL_XRAY_TEST_EXE', 'WAYRILL_XRAY_FIXTURE_DIR', 'WAYRILL_XRAY_SOURCE', 'XRAY_LOCATION_ASSET', 'RUSTFLAGS')) {
+foreach ($taskName in @('WAYRILL_XRAY_TEST_EXE', 'WAYRILL_XRAY_FIXTURE_DIR', 'WAYRILL_XRAY_SOURCE', 'WAYRILL_ROUTING_TEST_EXE', 'XRAY_LOCATION_ASSET', 'RUSTFLAGS', 'GOCACHE', 'GOMODCACHE', 'CGO_ENABLED', 'GOTOOLCHAIN')) {
     $taskEnvironment[$taskName] = [Environment]::GetEnvironmentVariable($taskName, 'Process')
 }
 Push-Location $taskProject
@@ -29,6 +33,19 @@ try {
     $env:WAYRILL_XRAY_SOURCE = $SourceDirectory
     $env:XRAY_LOCATION_ASSET = $taskFixture
     $env:RUSTFLAGS = ($env:RUSTFLAGS + ' -C target-feature=+crt-static').Trim()
+    $env:GOCACHE = Join-Path $taskProject '.tools/go-cache'
+    $env:GOMODCACHE = Join-Path $taskProject '.tools/go-modules'
+    $env:CGO_ENABLED = '0'
+    $env:GOTOOLCHAIN = 'local'
+    if ((& $taskGo version) -notmatch ('^go version go' + [regex]::Escape($taskPins.xray.build.goVersion) + ' windows/amd64$')) {
+        throw 'Pinned Xray Go toolchain mismatch.'
+    }
+    $env:WAYRILL_ROUTING_TEST_EXE = Join-Path $taskFixture 'routing-oracle.exe'
+    Push-Location $SourceDirectory
+    try {
+        & $taskGo build -mod=readonly -o $env:WAYRILL_ROUTING_TEST_EXE (Join-Path $taskProject 'src/test/routingOracle.go')
+        if ($LASTEXITCODE) { throw 'Routing oracle build failed.' }
+    } finally { Pop-Location }
     & $taskVitest run --config vitest.core.config.ts
     if ($LASTEXITCODE) { throw 'Graph/core integration tests failed.' }
     & cargo clippy --manifest-path service/Cargo.toml --locked -p wayrill-service --features core-integration --all-targets -- -D warnings

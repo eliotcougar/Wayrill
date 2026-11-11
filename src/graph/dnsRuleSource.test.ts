@@ -99,6 +99,7 @@ it('keeps source metadata through graph/export round trips, remaps every destina
   expect(embedded.source).toBeUndefined();
   expect(embedded.rules[0].source).toBeUndefined();
   expect(embedded.rules[0].domains).toContain('full:mine.test');
+  const snapshot = structuredClone(filter);
   const remapped = remapDnsSource(
     filter,
     new Map([
@@ -110,6 +111,23 @@ it('keeps source metadata through graph/export round trips, remaps every destina
   expect(remapped.rules[0].output).toBe('fallback-2');
   expect(remapped.rules[0].source?.base.output).toBe('other');
   expect(remapped.rules[0].source?.edits.fields?.output).toBe('fallback-2');
+  expect(filter).toEqual(snapshot);
+  const restored = parseDnsRules(
+    exportDnsRules(
+      {
+        ...remapped,
+        outputs: remapped.outputs.map((output) => ({
+          ...output,
+          id: output.fallback ? 'fallback-2' : 'other',
+        })),
+      },
+      'Restored DNS',
+    ),
+  );
+  const refreshed = refreshDnsSource(restored, source(), {});
+  expect(refreshed.rules[0].output).toBe('fallback-2');
+  expect(refreshed.rules[0].source?.base.output).toBe('other');
+  expect(refreshed.rules[0].domains).toBe('domain:source.test\nfull:mine.test');
   expect(detachDnsSource(filter).rules[0].domains).toContain('full:mine.test');
 });
 

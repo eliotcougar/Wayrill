@@ -16,6 +16,7 @@
     "./menus.css": "./src/menus.css",
     "./styles.css": "./src/styles.css",
     "./schematic/edgeGeometry": "./src/schematic/edgeGeometry.ts",
+    "./schematic/nodePlacement": "./src/schematic/nodePlacement.ts",
     "./schematic/edgePaths": "./src/schematic/edgePaths.ts",
     "./schematic/edgeRoutePreview": "./src/schematic/edgeRoutePreview.ts",
     "./schematic/edgeRoutingClient": "./src/schematic/edgeRoutingClient.ts",

@@ -4,6 +4,79 @@ import { diagnoseGraph, parseGraph, serializeGraph } from './model';
 import { outboundPreview, validVlessEncryption } from './outbounds';
 import { fieldProblem } from './settingValidation';
 import type { NodeKind } from './types';
+import type { SettingValue } from '@wayrill/core/settings';
+import { makeNode as makeAquiferNode } from '../../aquifer/src/graph/catalog';
+import { diagnoseGraph as diagnoseAquifer } from '../../aquifer/src/graph/model';
+
+type BasicOutboundKind = 'vless-outbound' | 'socks-outbound' | 'direct-outbound' | 'block-outbound';
+type Settings = Record<string, SettingValue>;
+
+it.each([
+  [
+    'Wayrill',
+    (kind: BasicOutboundKind, settings: Settings) => {
+      const node = makeNode(kind, { x: 0, y: 0 }, 'out');
+      Object.assign(node.data.settings, settings);
+      return diagnoseGraph({ name: 'Validation', nodes: [node], edges: [] });
+    },
+  ],
+  [
+    'Aquifer',
+    (kind: BasicOutboundKind, settings: Settings) => {
+      const node = makeAquiferNode(kind, { x: 0, y: 0 }, 'out');
+      Object.assign(node.data.settings, settings);
+      return diagnoseAquifer({ name: 'Validation', nodes: [node], edges: [] });
+    },
+  ],
+] as const)(
+  '%s diagnoses invalid outbound edits and accepts their corrections',
+  (_name, validate) => {
+    const cases: { kind: BasicOutboundKind; valid: Settings; invalid: Settings; field: string }[] =
+      [
+        {
+          kind: 'direct-outbound',
+          valid: { redirect: '[::1]:8080' },
+          invalid: { redirect: '[::1]:70000' },
+          field: 'redirect',
+        },
+        {
+          kind: 'block-outbound',
+          valid: { response: 'custom', customResponseData: 'SGVsbG8=' },
+          invalid: { customResponseData: '%%%' },
+          field: 'customResponseData',
+        },
+        {
+          kind: 'socks-outbound',
+          valid: {
+            address: 'proxy.example',
+            auth: 'password',
+            username: 'я'.repeat(127),
+            password: 'pass',
+          },
+          invalid: { username: 'я'.repeat(128) },
+          field: 'username',
+        },
+        {
+          kind: 'vless-outbound',
+          valid: {
+            address: 'proxy.example',
+            id: 'user',
+            security: 'tls',
+            tlsMinVersion: '1.2',
+            tlsMaxVersion: '1.3',
+          },
+          invalid: { tlsMinVersion: '1.3', tlsMaxVersion: '1.2' },
+          field: 'tlsMaxVersion',
+        },
+      ];
+    for (const { kind, valid, invalid, field } of cases) {
+      expect(
+        validate(kind, { ...valid, ...invalid }).filter(({ severity }) => severity === 'error'),
+      ).toEqual(expect.arrayContaining([expect.objectContaining({ fieldKey: field })]));
+      expect(validate(kind, valid).filter(({ severity }) => severity === 'error')).toEqual([]);
+    }
+  },
+);
 
 function configured(kind: NodeKind = 'vless-outbound') {
   const node = makeNode(kind, { x: 0, y: 0 }, 'outbound');

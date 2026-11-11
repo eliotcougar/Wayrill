@@ -3,6 +3,7 @@ import {
   sourceEntryKey as entryKey,
   sourceEntries as entries,
   editSourceConditions,
+  applySourceList,
 } from './ruleSourceEdits';
 import { nativeProcessSelectors, type ApplicationSelector } from './applications';
 import {
@@ -19,9 +20,6 @@ import type { RuleNodeData } from './types';
 import { LIMITS, CONFIG_LIMIT_LABEL } from '../limits';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const unique = <T>(rows: T[], key: (row: T) => string) => [
-  ...new Map(rows.map((row) => [key(row), row])).values(),
-];
 export function applicationIdentity(row: ApplicationSelector) {
   let value = row.value.trim().replaceAll('\\', '/');
   if (row.mode === 'folder') value = value.replace(/\/+$/, '');
@@ -127,13 +125,7 @@ function materialize(base: SourceRule, source: SourceRow, id: string): TableRule
   for (const key of ['domain', 'ip'] as const) {
     const edit = source.edits[key];
     if (!edit) continue;
-    const removed = new Set(edit.removed.map((v) => entryKey(v, key)));
-    rule.conditions[key] = unique(
-      [...entries(base.conditions[key] ?? '', key), ...edit.added],
-      (v) => entryKey(v, key),
-    )
-      .filter((v) => !removed.has(entryKey(v, key)))
-      .join('\n');
+    rule.conditions[key] = applySourceList(base.conditions[key] ?? '', edit, key);
   }
   const apps = source.edits.applications;
   if (apps) {
@@ -351,4 +343,4 @@ export function detachTrafficSource(table: RuleTable): RuleTable {
     rules: table.rules.map(({ source: _row, ...rule }) => rule),
   };
 }
-export { remapTrafficSource } from './ruleSourceRemap';
+export { remapSourceOutputs as remapTrafficSource } from './ruleSourceRemap';

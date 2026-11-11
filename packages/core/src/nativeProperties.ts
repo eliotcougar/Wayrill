@@ -1,5 +1,21 @@
 import { cloneJson, jsonArray, jsonRecord, jsonText } from './xrayJson';
 
+/** Named sniffing controls own only their protocols; preserve FakeDNS and other native modes. */
+export function setSniffingProtocols(
+  sniffing: Record<string, unknown>,
+  enabled: { http: boolean; tls: boolean; quic: boolean },
+): Record<string, unknown> {
+  const overrides = nativeValue(sniffing, 'destOverride');
+  return setNative(sniffing, 'destOverride', [
+    ...(jsonArray(overrides)
+      ? overrides.filter((name) => !Object.hasOwn(enabled, String(name)))
+      : []),
+    ...Object.entries(enabled)
+      .filter(([, on]) => on)
+      .map(([name]) => name),
+  ]);
+}
+
 export const nativeValue = (o: Record<string, unknown>, key: string): unknown =>
   o[Object.keys(o).find((k) => k.toLowerCase() === key.toLowerCase()) ?? key];
 export function setNative(

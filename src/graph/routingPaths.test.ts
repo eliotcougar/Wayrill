@@ -2,86 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { makeNode, makeProxyInbound } from './catalog';
 import { createChainedExample } from './chainedExample';
 import { RoutingPathError, intersectPredicates, routingPaths } from './routingPaths';
-import { readRuleTable, routingRuleFields, tableSettings, type TableRule } from './rules';
+import { readRuleTable, tableSettings, type TableRule } from './rules';
 import { compileRuntimeGraph } from './runtime';
 import { compileXrayGraph } from './xrayCompiler';
 import { importXrayConfig } from './xrayImport';
 import { diagnoseRuntimeGraph } from './diagnostics';
 import { parseGraph, serializeGraph } from './model';
 import type { GraphState, RuleNode } from './types';
+import {
+  compiledRoute as actual,
+  expectedRoute as expected,
+  routingPackets,
+  routingScenario,
+  routingSeeds,
+} from '../test/routingScenarios';
 
-type Packet = {
-  inboundTag: string;
-  port: number;
-  network: string;
-  domain: string;
-  protocol: string;
-};
 type Fields = Record<string, unknown>;
-// Independent evaluator: follow the original graph one rule at a time. No path
-// expansion or predicate intersection code is used to compute expected results.
-function matches(fields: Fields, packet: Packet) {
-  return Object.entries(fields).every(([key, value]) => {
-    if (key === 'type') return true;
-    if (key === 'port')
-      return String(value)
-        .split(',')
-        .some((r) => {
-          const [low, high = low] = r.split('-').map(Number);
-          return low <= packet.port && packet.port <= high;
-        });
-    if (key === 'domain')
-      return (value as string[]).some((d) => {
-        const [kind, ...nameParts] = d.split(':'),
-          name = nameParts.join(':').toLowerCase();
-        const host = packet.domain.toLowerCase();
-        return kind === 'full' ? host === name : host === name || host.endsWith(`.${name}`);
-      });
-    if (key === 'network') return String(value).split(',').includes(packet.network);
-    if (key === 'protocol')
-      return !!packet.protocol && (value as string[]).some((p) => packet.protocol.startsWith(p));
-    return (value as string[]).includes(packet[key as keyof Packet] as string);
-  });
-}
-function follow(graph: GraphState, id: string, packet: Packet): string {
-  const node = graph.nodes.find((n) => n.id === id)!;
-  if (node.data.kind !== 'routing-filter') return String(node.data.settings.tag);
-  const table = readRuleTable(node.data.settings);
-  const row = table.rules.find(
-    (r) => r.enabled && (r.matchAll || matches(routingRuleFields(r), packet)),
-  );
-  const port = row?.output ?? table.defaultOutput;
-  return follow(
-    graph,
-    graph.edges.find((e) => e.source === id && e.sourceHandle === port)!.target,
-    packet,
-  );
-}
-function expected(graph: GraphState, packet: Packet) {
-  const input = graph.nodes.find((n) => n.data.settings.tag === packet.inboundTag)!;
-  const port =
-    packet.port === 53 && (input.data.settings.mode !== 'http' || packet.network === 'tcp')
-      ? 'dns'
-      : 'data';
-  return follow(
-    graph,
-    graph.edges.find((e) => e.source === input.id && e.sourceHandle === port)!.target,
-    packet,
-  );
-}
-function actual(config: Record<string, unknown>, packet: Packet) {
-  const rule = (config.routing as { rules: Fields[] }).rules.find((r) =>
-    matches(
-      Object.fromEntries(
-        Object.entries(r).filter(([k]) => !['outboundTag', 'balancerTag'].includes(k)),
-      ),
-      packet,
-    ),
-  );
-  return String(
-    rule?.outboundTag ?? rule?.balancerTag ?? (config.outbounds as { tag: string }[])[0].tag,
-  );
-}
 const change = (node: RuleNode, rules: TableRule[], defaultOutput = 'blocked') => {
   const table = readRuleTable(node.data.settings);
   Object.assign(node.data.settings, tableSettings({ ...table, rules, defaultOutput }));
@@ -116,6 +52,22 @@ function assertEquivalent(graph: GraphState) {
 }
 
 describe('Flattened routing paths', () => {
+  it('preserves routing decisions in generated shared graphs through save and native roundtrip', () => {
+    const packets = routingPackets();
+    for (const native of [false, true])
+      for (const seed of routingSeeds) {
+        const graph = routingScenario(seed, native);
+        const saved = parseGraph(serializeGraph(graph));
+        const config = compileRuntimeGraph(saved).config;
+        const roundtrip = compileXrayGraph(importXrayConfig(JSON.stringify(config))).config;
+        for (const packet of packets) {
+          const route = expected(graph, packet);
+          const label = `${graph.name}: ${JSON.stringify(packet)}`;
+          expect(actual(config, packet), label).toBe(route);
+          expect(actual(roundtrip, packet), `roundtrip ${label}`).toBe(route);
+        }
+      }
+  });
   it('preserves parent precedence, child defaults and shared branches across two input scopes', () => {
     const graph = createChainedExample(),
       root = graph.nodes.find((n) => n.id === 'entry-filter')!;

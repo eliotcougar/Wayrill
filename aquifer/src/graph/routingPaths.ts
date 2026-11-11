@@ -1,8 +1,11 @@
+import {
+  intersectPredicates as intersect,
+  routingPredicateKeys as predicates,
+} from '@wayrill/core/routingPredicates';
 import { setRoutingTrace, type RoutingHop } from './routingTrace';
 import { LIMITS } from '../limits';
-import { intersectNativeProcesses, intersectProtocolPrefixes } from './nativePredicates';
 import { readRuleTable, routingRuleVariants, type TableRule } from './rules';
-import { jsonEqual, jsonText, jsonArray } from './xrayJson';
+import { jsonArray } from './xrayJson';
 import type { GraphState, RuleNode } from './types';
 
 type Fields = Record<string, unknown>;
@@ -15,165 +18,8 @@ export class RoutingPathError extends Error {
     super(message);
   }
 }
-const sets = new Set(['inboundTag', 'user', 'protocol', 'process', 'localOS']);
-const ports = new Set(['port', 'sourcePort', 'localPort', 'vlessRoute']);
-const ips = new Set(['ip', 'sourceIP', 'localIP']);
-const predicates = new Set([
-  ...sets,
-  ...ports,
-  ...ips,
-  'domain',
-  'network',
-  'attrs',
-  '_wayrillApplications',
-]);
-const array = (v: unknown): string[] => (jsonArray(v) ? v.map(String) : [String(v)]);
-const sameSet = (a: string[], b: string[]) =>
-  a.length === b.length && a.every((v) => b.includes(v));
-function ranges(v: unknown): [number, number][] {
-  return String(v)
-    .split(',')
-    .map((s) => {
-      const [a, b = a] = s.trim().split('-').map(Number);
-      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b > 65535 || a > b)
-        throw new Error('Invalid range in a routing predicate.');
-      return [a, b];
-    });
-}
-function intersectRanges(a: unknown, b: unknown): string | null {
-  const intersections: [number, number][] = [];
-  for (const [al, ah] of ranges(a))
-    for (const [bl, bh] of ranges(b)) {
-      const low = Math.max(al, bl),
-        high = Math.min(ah, bh);
-      if (low <= high) intersections.push([low, high]);
-    }
-  intersections.sort((x, y) => x[0] - y[0]);
-  const merged: [number, number][] = [];
-  for (const range of intersections) {
-    const last = merged.at(-1);
-    if (last && range[0] <= last[1] + 1) last[1] = Math.max(last[1], range[1]);
-    else merged.push([...range]);
-  }
-  return merged.length
-    ? merged.map(([l, h]) => (l === h ? String(l) : `${l}-${h}`)).join(',')
-    : null;
-}
-function subnet(text: string): { family: number; low: bigint; high: bigint } | undefined {
-  const [address, rawMask] = text.split('/');
-  const family = address.includes(':') ? 128 : 32;
-  const mask = rawMask === undefined ? family : Number(rawMask);
-  if (!Number.isInteger(mask) || mask < 0 || mask > family || text.startsWith('!')) return;
-  let number: bigint;
-  if (family === 32) {
-    const parts = address.split('.');
-    if (parts.length !== 4 || parts.some((v) => !/^\d+$/.test(v) || Number(v) > 255)) return;
-    number = parts.reduce((a, v) => (a << 8n) | BigInt(v), 0n);
-  } else {
-    if (address.includes('.') || address.split('::').length > 2) return;
-    const halves = address.split('::'),
-      left = halves[0] ? halves[0].split(':') : [],
-      right = halves[1] ? halves[1].split(':') : [];
-    const words =
-      halves.length === 1
-        ? left
-        : [
-            ...left,
-            ...Array.from({ length: Math.max(0, 8 - left.length - right.length) }, () => '0'),
-            ...right,
-          ];
-    if (words.length !== 8 || words.some((v) => !/^[a-fA-F0-9]{1,4}$/.test(v))) return;
-    number = words.reduce((a, v) => (a << 16n) | BigInt(`0x${v}`), 0n);
-  }
-  const size = 1n << BigInt(family - mask),
-    low = (number / size) * size;
-  return { family, low, high: low + size - 1n };
-}
-function domain(text: string): { kind: 'full' | 'domain'; value: string } | undefined {
-  const match = /^(full|domain):(.+)$/.exec(text);
-  return match ? { kind: match[1] as 'full' | 'domain', value: match[2].toLowerCase() } : undefined;
-}
-function suffix(name: string, parent: string) {
-  return name === parent || name.endsWith(`.${parent}`);
-}
-// Each list is OR; a path is AND. Never turn (A OR B) AND (C OR D) into a union.
-function intersectLists(a: string[], b: string[], field: string): string[] | null {
-  if (sameSet(a, b)) return a;
-  const result = new Set<string>();
-  for (const x of a)
-    for (const y of b) {
-      if (x === y) result.add(x);
-      else if (ips.has(field)) {
-        const sx = subnet(x),
-          sy = subnet(y);
-        if (!sx || !sy) throw new Error('Opaque GeoIP or negated IP predicates');
-        if (sx.family === sy.family && sx.low <= sy.high && sy.low <= sx.high)
-          result.add(sx.low >= sy.low && sx.high <= sy.high ? x : y);
-      } else {
-        const dx = domain(x),
-          dy = domain(y);
-        if (!dx || !dy) throw new Error('Opaque domain, regexp, keyword or geosite predicates');
-        if (dx.kind === 'full' && dy.kind === 'full') {
-          if (dx.value === dy.value) result.add(x);
-        } else if (dx.kind === 'full') {
-          if (suffix(dx.value, dy.value)) result.add(x);
-        } else if (dy.kind === 'full') {
-          if (suffix(dy.value, dx.value)) result.add(y);
-        } else if (suffix(dx.value, dy.value)) result.add(x);
-        else if (suffix(dy.value, dx.value)) result.add(y);
-      }
-      if (result.size > LIMITS.maxPredicateTerms)
-        throw new Error('Predicate expansion exceeds its term budget');
-    }
-  return result.size ? [...result] : null;
-}
-export function intersectPredicates(a: Fields, b: Fields): Fields | null {
-  const result = { ...a };
-  for (const [key, value] of Object.entries(b)) {
-    if (value === undefined) continue;
-    if (!Object.hasOwn(result, key)) {
-      result[key] = value;
-      continue;
-    }
-    const old = result[key];
-    if (jsonEqual(old, value)) continue;
-    if (key === '_wayrillApplications')
-      result[key] = [...new Set([...array(old), ...array(value)])];
-    else if (ports.has(key)) result[key] = intersectRanges(old, value);
-    else if (key === 'process') result[key] = intersectNativeProcesses(array(old), array(value));
-    else if (key === 'protocol') result[key] = intersectProtocolPrefixes(array(old), array(value));
-    else if (sets.has(key) || key === 'network') {
-      const lhs =
-          key === 'network'
-            ? String(old)
-                .split(',')
-                .map((v) => v.trim())
-            : array(old),
-        rhs =
-          key === 'network'
-            ? jsonText(value)
-                .split(',')
-                .map((v) => v.trim())
-            : array(value),
-        overlap = lhs.filter((v) =>
-          rhs.some((r) => (key === 'localOS' ? r.toLowerCase() === v.toLowerCase() : r === v)),
-        );
-      result[key] = overlap.length ? (key === 'network' ? overlap.join(',') : overlap) : null;
-    } else if (ips.has(key) || key === 'domain')
-      result[key] = intersectLists(array(old), array(value), key);
-    else if (key === 'attrs') {
-      const attributes = { ...(old as Fields) };
-      for (const [name, pattern] of Object.entries(value as Fields)) {
-        if (Object.hasOwn(attributes, name) && !jsonEqual(attributes[name], pattern))
-          throw new Error(`Different expressions for HTTP attribute ${name}`);
-        attributes[name] = pattern;
-      }
-      result[key] = attributes;
-    } else throw new Error(`Different native ${key} values`);
-    if (result[key] === null) return null;
-  }
-  return result;
-}
+export const intersectPredicates = (a: Fields, b: Fields): Fields | null =>
+  intersect(a, b, LIMITS.maxPredicateTerms);
 
 export function routingPaths(graph: GraphState, initialRules = 0) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n])),

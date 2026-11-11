@@ -37,7 +37,7 @@ import { fieldProblem } from './settingValidation';
 import { policyProblems, policyNeedsObservation } from './policies';
 import { compilePolicies } from './policyCompilation';
 import { policyCandidates, readPolicySources, resolvePolicyReference } from './policySources';
-import { readRuleTable, ruleTableProblems } from './rules';
+import { readRuleTable, ruleTableProblems, projectNativeRule } from './rules';
 import {
   isXrayOutbound,
   nativeConfig,
@@ -425,12 +425,7 @@ export function compileXrayGraph(
             `${_node.data.label}: ${row.name} — child-process, app and service matching applies only to local capture; proxy requests use supported conditions and fallback.`,
           );
         return captureRuleVariants(row, captureAvailable ? 'shared' : 'native').map((projected) => {
-          const raw = row.native
-            ? (patchProjection(row.native.original, row.native.projection, projected) as Record<
-                string,
-                unknown
-              >)
-            : projected;
+          const raw = projectNativeRule(row, projected);
           if (
             jsonArray(raw.inboundTag) &&
             row.native &&

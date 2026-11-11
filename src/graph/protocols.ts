@@ -50,6 +50,7 @@ export const protocolSpecs: readonly ProtocolSpec[] = sharedSpecs;
 import {
   nativeValue,
   setNative,
+  setSniffingProtocols,
   commonPath,
   getNativePath as getPath,
   putNativePath as putPath,
@@ -337,22 +338,14 @@ export function protocolPreview(data: RuleNodeData): Record<string, unknown> {
     );
     if (sniffChanged && s.sniffing) {
       const old = nativeValue(raw, 'sniffing');
-      const overrides = jsonRecord(old) ? nativeValue(old, 'destOverride') : undefined;
       raw = setNative(
         raw,
         'sniffing',
-        setNative(
-          jsonRecord(old) ? old : {},
-          'destOverride',
-          [
-            ...(jsonArray(overrides)
-              ? overrides.filter((name) => !['http', 'tls', 'quic'].includes(String(name)))
-              : []),
-            s.sniffHttp && 'http',
-            s.sniffTls && 'tls',
-            s.sniffQuic && 'quic',
-          ].filter(Boolean),
-        ),
+        setSniffingProtocols(jsonRecord(old) ? old : {}, {
+          http: !!s.sniffHttp,
+          tls: !!s.sniffTls,
+          quic: !!s.sniffQuic,
+        }),
       );
     }
   }
@@ -743,49 +736,7 @@ export function protocolProblems(data: RuleNodeData): Diagnostic[] {
   }
 }
 
-export function outboundDependencyProblems(
-  config: Record<string, unknown>,
-): { tag: string; message: string }[] {
-  const outputs = jsonArray(config.outbounds) ? config.outbounds.filter(jsonRecord) : [];
-  const byTag = new Map(
-    outputs
-      .filter((o) => typeof nativeValue(o, 'tag') === 'string' && nativeValue(o, 'tag'))
-      .map((o) => [String(nativeValue(o, 'tag')), o]),
-  );
-  const dependencies = new Map<string, string[]>();
-  const problems: { tag: string; message: string }[] = [];
-  for (const [tag, output] of byTag) {
-    const stream = nativeValue(output, 'streamSettings'),
-      sock = jsonRecord(stream) ? nativeValue(stream, 'sockopt') : undefined,
-      proxy = nativeValue(output, 'proxySettings');
-    const targets = [
-      jsonRecord(sock) ? nativeValue(sock, 'dialerProxy') : undefined,
-      jsonRecord(proxy) ? nativeValue(proxy, 'tag') : undefined,
-    ].filter((t): t is string => typeof t === 'string' && !!t);
-    dependencies.set(tag, [...new Set(targets)]);
-    for (const target of targets)
-      if (!byTag.has(target))
-        problems.push({
-          tag,
-          message: `Dial-through destination ${target} is not defined in this configuration.`,
-        });
-  }
-  for (const tag of byTag.keys()) {
-    const seen = new Set<string>(),
-      todo = [...(dependencies.get(tag) ?? [])];
-    while (todo.length) {
-      const next = todo.pop()!;
-      if (next === tag) {
-        problems.push({ tag, message: 'Dial-through settings create an outbound loop.' });
-        break;
-      }
-      if (seen.has(next)) continue;
-      seen.add(next);
-      todo.push(...(dependencies.get(next) ?? []));
-    }
-  }
-  return problems;
-}
+export { outboundDependencyProblems } from '@wayrill/core/outboundDependencies';
 
 export function loopbackProblems(
   config: Record<string, unknown>,

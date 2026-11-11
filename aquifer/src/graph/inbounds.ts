@@ -1,13 +1,6 @@
-import {
-  jsonText,
-  jsonArray,
-  jsonRecord,
-  parseJson,
-  parseJsonObject,
-  parseJsonArray,
-} from './xrayJson';
-import { portRangeProblem, portRangesOverlap } from './portRanges';
-import { isIpLiteral } from './addressValidation';
+import { proxyInboundConfig, proxyInboundProblems } from '@wayrill/core/proxyInbound';
+import { listenerEndpointKeys } from '@wayrill/core/listeners';
+export { listenerEndpointKeys } from '@wayrill/core/listeners';
 export { isIpLiteral } from './addressValidation';
 import { omitCoreDefaults } from './coreDefaults';
 import type {
@@ -229,36 +222,6 @@ export const captureDefinition: NodeDefinition = {
 export const isInboundKind = (kind: string) =>
   isProtocolInbound(kind) || kind === 'windivert-inbound' || kind === 'proxy-inbound';
 
-// Match the actual socket networks, rather than treating TCP and UDP on one
-// numeric port as a collision. Invalid drafts are diagnosed separately.
-export function listenerEndpointKeys(input: Record<string, unknown>): string[] {
-  const protocol = jsonText(input.protocol ?? '').toLowerCase();
-  if (protocol === 'tun') return [];
-  const stream = input.streamSettings as Record<string, unknown> | undefined,
-    settings = input.settings as Record<string, unknown> | undefined;
-  const transport = jsonText(stream?.method ?? stream?.network ?? 'raw').toLowerCase(),
-    udpOnly = protocol === 'wireguard' || ['hysteria', 'masque', 'kcp'].includes(transport);
-  const rawNetworks = settings?.network ?? settings?.allowedNetwork ?? 'tcp',
-    networks = jsonArray(rawNetworks)
-      ? rawNetworks
-      : jsonText(rawNetworks)
-          .split(',')
-          .map((n) => n.trim());
-  let address = jsonText(input.listen ?? '');
-  if (address === 'localhost') address = '127.0.0.1';
-  else if (address.includes(':'))
-    try {
-      address = new URL(`http://[${address}]/`).hostname;
-    } catch {
-      /* Invalid literals have separate field diagnostics. */
-    }
-  const tunnel = ['tunnel', 'dokodemo-door', 'shadowsocks'].includes(protocol),
-    keys: string[] = [],
-    endpoint = `${address}:${jsonText(input.port)}`;
-  if (!udpOnly && (!tunnel || networks.includes('tcp'))) keys.push(`tcp:${endpoint}`);
-  if (udpOnly || (tunnel && networks.includes('udp'))) keys.push(`udp:${endpoint}`);
-  return keys;
-}
 // SOCKS/Mixed UDP ASSOCIATE uses per-request ephemeral sockets, not this port.
 export function inboundEndpoints(data: RuleNodeData): string[] {
   try {
@@ -268,92 +231,10 @@ export function inboundEndpoints(data: RuleNodeData): string[] {
   }
 }
 
-const loopback = (address: string) =>
-  address === 'localhost' ||
-  address === '::1' ||
-  (isIpLiteral(address) && address.startsWith('127.'));
-const bytes = (value: string) => new TextEncoder().encode(value).length;
-
 export function inboundProblems(data: RuleNodeData): Diagnostic[] {
   if (isProtocolInbound(data.kind)) return protocolProblems(data);
   if (!isInboundKind(data.kind)) return [];
-  const s = data.settings;
-  const issues: Diagnostic[] = [];
-  const add = (fieldKey: string, message: string, severity: Diagnostic['severity'] = 'error') =>
-    issues.push({ fieldKey, message, severity });
-  for (const key of ['dnsPorts', 'encryptedDnsPorts']) {
-    const problem = portRangeProblem(String(s[key] ?? ''));
-    if (problem) add(key, problem);
-  }
-  if (portRangesOverlap(String(s.dnsPorts || '53'), String(s.encryptedDnsPorts || '')))
-    add('encryptedDnsPorts', 'Plain and encrypted DNS port sets overlap. Choose disjoint ports.');
-  if (s.listen && s.listen !== 'localhost' && !isIpLiteral(String(s.listen)))
-    add('listen', 'Enter an IP address or localhost, without a port or URL.');
-  if (
-    s.listen &&
-    (s.listen === 'localhost' || isIpLiteral(String(s.listen))) &&
-    !loopback(String(s.listen)) &&
-    s.auth === 'noauth'
-  )
-    add(
-      'auth',
-      'This address accepts clients beyond loopback without authentication. SOCKS/HTTP credentials and traffic are not encrypted by the listener itself.',
-      'warning',
-    );
-  if (!isHttpInbound(data) && s.udp && s.udpAddress && !isIpLiteral(String(s.udpAddress)))
-    add('udpAddress', 'Enter an IP address, without a port or URL.');
-  if (s.auth === 'password') {
-    for (const key of ['username', 'password'])
-      if (!isHttpInbound(data) && bytes(String(s[key])) > 255)
-        add(key, 'SOCKS5 limits each credential to 255 UTF-8 bytes.');
-    try {
-      const accounts: unknown = s.extraAccounts ? parseJsonArray(String(s.extraAccounts)) : [];
-      if (jsonArray(accounts)) {
-        const names = new Set([String(s.username)]);
-        for (const item of accounts) {
-          if (
-            !jsonRecord(item) ||
-            typeof item.user !== 'string' ||
-            typeof item.pass !== 'string' ||
-            bytes(item.user) < 1 ||
-            (!isHttpInbound(data) && bytes(item.user) > 255) ||
-            bytes(item.pass) < 1 ||
-            (!isHttpInbound(data) && bytes(item.pass) > 255)
-          ) {
-            add(
-              'extraAccounts',
-              isHttpInbound(data)
-                ? 'Each account needs nonempty user and pass strings.'
-                : 'Each account needs user and pass strings of 1–255 UTF-8 bytes.',
-            );
-            break;
-          }
-          if (names.has(item.user)) {
-            add('extraAccounts', 'Usernames must be unique, including the first account.');
-            break;
-          }
-          names.add(item.user);
-        }
-      }
-    } catch {
-      /* Field-level JSON validation reports invalid drafts. */
-    }
-  }
-  if (s.sniffing) {
-    if (!s.sniffHttp && !s.sniffTls && !s.sniffQuic && !s.sniffFakeDns)
-      add(
-        'sniffing',
-        'Choose at least one name-detection method or turn inspection off.',
-        'warning',
-      );
-    if (s.metadataOnly && (s.sniffHttp || s.sniffTls || s.sniffQuic))
-      add(
-        'metadataOnly',
-        'Metadata-only inspection does not read HTTP/TLS/QUIC payloads.',
-        'warning',
-      );
-  }
-  return issues;
+  return proxyInboundProblems(data.settings, isHttpInbound(data));
 }
 
 function configuredInboundPreview(data: RuleNodeData): Record<string, unknown> {
@@ -373,52 +254,7 @@ function configuredInboundPreview(data: RuleNodeData): Record<string, unknown> {
           userLevel: 0,
         }
       : data.settings;
-  const additional = s.settingsExtra ? parseJsonObject(String(s.settingsExtra)) : {};
-  for (const key of ['accounts', 'users', 'auth', 'udp', 'userLevel', 'ip', 'allowTransparent'])
-    delete additional[key];
-  const settings = {
-    ...additional,
-    ...(s.mode !== 'http'
-      ? { auth: s.auth, udp: s.udp }
-      : { allowTransparent: s.allowTransparent }),
-    userLevel: s.userLevel,
-    ...(s.mode !== 'http' && s.udp && s.udpAddress ? { ip: s.udpAddress } : {}),
-    ...(s.auth === 'password'
-      ? {
-          [s.mode === 'socks' ? 'users' : 'accounts']: [
-            { user: s.username, pass: s.password },
-            ...(s.extraAccounts ? parseJsonArray(String(s.extraAccounts)) : []),
-          ],
-        }
-      : {}),
-  };
-  const destOverride = [
-    s.sniffHttp && 'http',
-    s.sniffTls && 'tls',
-    s.sniffQuic && 'quic',
-    s.sniffFakeDns && 'fakedns',
-  ].filter(Boolean);
-  return {
-    tag: s.tag,
-    listen: s.listen,
-    port: s.port,
-    protocol: s.mode,
-    settings,
-    sniffing: {
-      ...(s.sniffingExtra ? parseJsonObject(String(s.sniffingExtra)) : {}),
-      enabled: s.sniffing,
-      ...(s.sniffing
-        ? {
-            destOverride,
-            routeOnly: s.routeOnly,
-            metadataOnly: s.metadataOnly,
-            ...(s.domainsExcluded ? { domainsExcluded: parseJson(String(s.domainsExcluded)) } : {}),
-            ...(s.ipsExcluded ? { ipsExcluded: parseJson(String(s.ipsExcluded)) } : {}),
-          }
-        : {}),
-    },
-    ...(s.streamSettings ? { streamSettings: parseJson(String(s.streamSettings)) } : {}),
-  };
+  return proxyInboundConfig(s);
 }
 
 // Ordered branch predicates for the runtime graph compiler. These are not SOCKS protocol output channels.

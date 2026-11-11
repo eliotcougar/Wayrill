@@ -4,7 +4,6 @@ import { compileRemote } from './remoteExport';
 import { emptyLayout, restoreRemoteDocument, saveRemoteDocument } from './remoteDocument';
 import { createUserWorkspace, emptyLibrary } from './users/model';
 import { inspectXrayCapitalization } from './graph/xrayConfigNames';
-import { outboundDependencyProblems } from './graph/protocols';
 
 it('exports canonical Xray field names while preserving values and dictionary keys', () => {
   const source = JSON.stringify({
@@ -61,37 +60,6 @@ it.each(['cycle', 'missing', 'untagged'] as const)(
   },
 );
 
-it.each(['xhttpSettings', 'splithttpSettings'])(
-  'checks active %s download dependencies while preserving unused transport settings',
-  (field) => {
-    const outbounds = [
-      {
-        tag: 'a',
-        protocol: 'vless',
-        streamSettings: {
-          network: 'xhttp',
-          [field]: { extra: { downloadSettings: { sockopt: { dialerProxy: 'a' } } } },
-        },
-      },
-    ];
-    expect(
-      outboundDependencyProblems({ outbounds }).some((problem) => problem.message.includes('loop')),
-    ).toBe(true);
-    outbounds[0].streamSettings.network = 'ws';
-    expect(outboundDependencyProblems({ outbounds })).toEqual([]);
-  },
-);
-it('handles substantial terminating chains and externally generated handlers without recursion', () => {
-  const outbounds = Array.from({ length: 10000 }, (_, index) => ({
-    tag: `hop-${index}`,
-    protocol: 'freedom',
-    streamSettings: {
-      sockopt: { dialerProxy: index < 9999 ? `hop-${index + 1}` : 'reverse-handler' },
-    },
-  }));
-  expect(outboundDependencyProblems({ outbounds }, new Set(['reverse-handler']))).toEqual([]);
-});
-
 it('recognizes core-generated metrics and reverse portal handlers without inventing outbounds', () => {
   const config = {
     metrics: { tag: 'metrics-handler', listen: '127.0.0.1:10085' },
@@ -106,42 +74,4 @@ it('recognizes core-generated metrics and reverse portal handlers without invent
   const result = compileRemote(view, createUserWorkspace(view.original, emptyLibrary()));
   expect(result.errors).toEqual([]);
   expect(result.config).toEqual(config);
-});
-
-it.each([{}, null])('does not inspect download settings replaced by extra %j', (extra) => {
-  expect(
-    outboundDependencyProblems({
-      outbounds: [
-        {
-          tag: 'a',
-          protocol: 'freedom',
-          streamSettings: {
-            network: 'xhttp',
-            xhttpSettings: {
-              downloadSettings: { sockopt: { dialerProxy: 'a' } },
-              extra,
-            },
-          },
-        },
-      ],
-    }),
-  ).toEqual([]);
-});
-
-it('uses modern XHTTP settings in preference to legacy SplitHTTP settings', () => {
-  expect(
-    outboundDependencyProblems({
-      outbounds: [
-        {
-          tag: 'a',
-          protocol: 'freedom',
-          streamSettings: {
-            network: 'splithttp',
-            xhttpSettings: {},
-            splithttpSettings: { downloadSettings: { sockopt: { dialerProxy: 'a' } } },
-          },
-        },
-      ],
-    }),
-  ).toEqual([]);
 });

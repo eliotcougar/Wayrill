@@ -17,6 +17,14 @@ export const sourceEntries = (text: string, kind: string) =>
     (v) => sourceEntryKey(v, kind),
   );
 
+/** Merge current provider entries with local additions/exclusions using one identity rule. */
+export function applySourceList(base: string, edits: ListEdits, kind: string): string {
+  const removed = new Set(edits.removed.map((value) => sourceEntryKey(value, kind)));
+  return sourceEntries([base, ...edits.added].join('\n'), kind)
+    .filter((value) => !removed.has(sourceEntryKey(value, kind)))
+    .join('\n');
+}
+
 export function editSourceList(
   previous: ListEdits | undefined,
   before: string[],

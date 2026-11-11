@@ -7,6 +7,12 @@ import { cloneJson, jsonDifferences } from './xrayJson';
 import { dnsServerFields, nativeFieldText } from './nativeFields';
 import { updateImportedCoreDefaults } from './nativeCore';
 import { nativeJson, nativeProblems } from './xrayNodes';
+import { importXrayConfig as importAquifer } from '../../aquifer/src/graph/xrayImport';
+import { compileXrayGraph as compileAquifer } from '../../aquifer/src/graph/xrayCompiler';
+import {
+  parseGraph as parseAquifer,
+  serializeGraph as serializeAquifer,
+} from '../../aquifer/src/graph/model';
 
 function source(): Record<string, unknown> {
   return {
@@ -86,13 +92,29 @@ const configOf = (graph: ReturnType<typeof graphOf>) =>
   compileRuntimeGraph(parseGraph(serializeGraph(graph))).config;
 
 describe('Mixed listener controls', () => {
-  it('edits an account or sniffing flag without filling omitted defaults', () => {
-    const original = source(),
-      graph = graphOf(original),
-      input = graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!;
-    input.data.settings.password = 'changed';
-    input.data.settings.routeOnly = true;
-    expect(jsonDifferences(original, configOf(graph))).toEqual([
+  it.each([
+    [
+      'Wayrill',
+      (text: string) => {
+        const graph = importXrayConfig(text);
+        const input = graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!;
+        Object.assign(input.data.settings, { password: 'changed', routeOnly: true });
+        return configOf(graph);
+      },
+    ],
+    [
+      'Aquifer',
+      (text: string) => {
+        const graph = importAquifer(text);
+        const input = graph.nodes.find((n) => n.data.kind === 'proxy-inbound')!;
+        Object.assign(input.data.settings, { password: 'changed', routeOnly: true });
+        return compileAquifer(parseAquifer(serializeAquifer(graph))).config;
+      },
+    ],
+  ] as const)('%s edits accounts and sniffing without filling omitted defaults', (_app, edit) => {
+    const { inbounds, outbounds, routing } = source();
+    const original = { inbounds, outbounds, routing };
+    expect(jsonDifferences(original, edit(JSON.stringify(original)))).toEqual([
       '/inbounds/0/settings/accounts/0/pass',
       '/inbounds/0/sniffing/routeOnly',
     ]);

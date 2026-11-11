@@ -15,6 +15,8 @@ import {
 } from './protocols';
 import { compileXrayGraph } from './xrayCompiler';
 import { importXrayConfig } from './xrayImport';
+import { importXrayConfig as importAquifer } from '../../aquifer/src/graph/xrayImport';
+import { compileXrayGraph as compileAquifer } from '../../aquifer/src/graph/xrayCompiler';
 const wrap = (outbound: Record<string, unknown>) => ({
   inbounds: [
     {
@@ -29,6 +31,80 @@ const wrap = (outbound: Record<string, unknown>) => ({
   routing: { rules: [] },
 });
 describe('Every pinned Xray protocol family', () => {
+  it.each(['vless', 'missing'])(
+    'diagnoses nested XHTTP dial-through to %s before activation',
+    (target) => {
+      const graph = importXrayConfig(
+        JSON.stringify(
+          wrap({
+            tag: 'vless',
+            protocol: 'vless',
+            settings: { address: 'example.test', port: 443, id: fixtureId, encryption: 'none' },
+            streamSettings: {
+              network: 'xhttp',
+              security: 'tls',
+              xhttpSettings: {
+                extra: { downloadSettings: { network: 'raw', sockopt: { dialerProxy: target } } },
+              },
+            },
+          }),
+        ),
+      );
+      expect(diagnoseGraph(graph)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            severity: 'error',
+            message: expect.stringMatching(target === 'vless' ? /outbound loop/ : /not defined/),
+          }),
+        ]),
+      );
+    },
+  );
+
+  it.each([
+    [
+      'Wayrill',
+      (source: string) => {
+        const graph = importXrayConfig(source);
+        graph.nodes.find((node) => node.data.kind === 'vmess-inbound')!.data.settings.sniffHttp =
+          false;
+        return compileXrayGraph(graph).config;
+      },
+    ],
+    [
+      'Aquifer',
+      (source: string) => {
+        const graph = importAquifer(source);
+        graph.nodes.find((node) => node.data.kind === 'vmess-inbound')!.data.settings.sniffHttp =
+          false;
+        return compileAquifer(graph).config;
+      },
+    ],
+  ] as const)(
+    '%s retains custom sniffing protocols when toggling HTTP sniffing',
+    (_app, editAndCompile) => {
+      const config = {
+        inbounds: [
+          {
+            tag: 'in',
+            protocol: 'vmess',
+            port: 12345,
+            settings: { clients: [{ id: fixtureId }] },
+            sniffing: { enabled: true, destOverride: ['fakedns', 'http', 'tls'], routeOnly: true },
+          },
+        ],
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      };
+      const result = editAndCompile(JSON.stringify(config));
+      expect(result.inbounds).toEqual([
+        {
+          ...config.inbounds[0],
+          sniffing: { enabled: true, destOverride: ['fakedns', 'tls'], routeOnly: true },
+        },
+      ]);
+    },
+  );
+
   // Native TUN JSON does not carry the service-owned ICS role; its graph round trip
   // and activation metadata are tested in internetSharing.test.ts.
   for (const kind of [

@@ -3,7 +3,8 @@ import { jsonArray, parseJson } from './xrayJson';
 import { isDisabledInbound } from './inboundState';
 import type { GraphState } from './types';
 import { RoutingPathError } from './routingPaths';
-import { intersectNativeProcesses } from './nativePredicates';
+import { intersectNativeProcesses } from '@wayrill/core/nativePredicates';
+import { LIMITS } from '../limits';
 import { readRuleTable } from './rules';
 
 export type { ApplicationSelector as CaptureSelector } from './applications';
@@ -220,7 +221,8 @@ export function compileCaptureRouting(
       // package group must not disappear and broaden the remaining predicates.
       if (nativeGroups.every((names) => names.length)) {
         const processes = nativeGroups.reduce(
-          (previous, names) => intersectNativeProcesses(previous, names) ?? [],
+          (previous, names) =>
+            intersectNativeProcesses(previous, names, LIMITS.maxPredicateTerms) ?? [],
         );
         if (processes.length)
           output.push(

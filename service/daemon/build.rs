@@ -26,15 +26,18 @@ fn main() {
         "cargo:rustc-env=WAYRILL_XRAY_SHA={}",
         hash.to_ascii_lowercase()
     );
-    println!("cargo:rerun-if-changed={}", root.join("src").display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("tools/Build-SubscriptionEngine.mjs").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("package-lock.json").display()
-    );
+    // The service embeds the same compiler as the editors. Changes to shared
+    // modules and their budgets must invalidate its bundle as well.
+    for input in [
+        "src",
+        "packages/core",
+        "service/limits.json",
+        "tools/Build-SubscriptionEngine.mjs",
+        "package.json",
+        "package-lock.json",
+    ] {
+        println!("cargo:rerun-if-changed={}", root.join(input).display());
+    }
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("subscription-engine.js");
     let status=Command::new("node").arg(root.join("tools/Build-SubscriptionEngine.mjs")).arg(output)
         .current_dir(&root).status().expect("Node.js and the pinned frontend dependencies are required to build the subscription engine");

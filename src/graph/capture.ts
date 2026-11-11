@@ -6,7 +6,7 @@ import { jsonArray, parseJson } from './xrayJson';
 import { isDisabledInbound } from './inboundState';
 import type { GraphState } from './types';
 import { routingPaths, RoutingPathError } from './routingPaths';
-import { intersectNativeProcesses } from './nativePredicates';
+import { intersectNativeProcesses } from '@wayrill/core/nativePredicates';
 import { readRuleTable } from './rules';
 import { NAT_ROUTING_TAG } from './tun';
 
@@ -232,7 +232,8 @@ export function compileCaptureRouting(
       // package group must not disappear and broaden the remaining predicates.
       if (nativeGroups.every((names) => names.length)) {
         const processes = nativeGroups.reduce(
-          (previous, names) => intersectNativeProcesses(previous, names) ?? [],
+          (previous, names) =>
+            intersectNativeProcesses(previous, names, LIMITS.maxPredicateTerms) ?? [],
         );
         if (processes.length)
           output.push(

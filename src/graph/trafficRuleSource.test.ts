@@ -75,7 +75,7 @@ describe('manual traffic source updates', () => {
     const saved = readRuleTable(tableSettings(current));
     current = update(saved, [
       {
-        ...row('web', ['domain:new.example', 'domain:local.example']),
+        ...row('web', ['domain:new.example', 'DOMAIN:LOCAL.EXAMPLE']),
         ip: ['198.51.100.9'],
         blocks: undefined,
         process: ['source.exe'],
@@ -164,7 +164,7 @@ describe('manual traffic source updates', () => {
   });
   it('does not broaden an emptied selector into a catch-all and persists exclusions if the entry returns', () => {
     let current = edit(attach([row('one')]), 0, { conditions: { domain: '' } });
-    current = update(current, [row('one')]);
+    current = update(current, [row('one', ['DOMAIN:SOURCE.EXAMPLE'])]);
     expect(current.rules[0].enabled).toBe(false);
     current = update(current, [row('one', ['other.example'])]);
     expect(current.rules[0].enabled).toBe(true);
@@ -177,6 +177,7 @@ describe('manual traffic source updates', () => {
       output: 'block',
       conditions: { domain: 'domain:source.example\nlocal.example' },
     });
+    const snapshot = structuredClone(current);
     const mapped = remapTrafficSource(
       current,
       new Map([
@@ -187,6 +188,21 @@ describe('manual traffic source updates', () => {
     expect(mapped.source?.bindings['outbound:proxy']).toBe('new-proxy');
     expect(mapped.rules[0].source?.base.output).toBe('new-proxy');
     expect(mapped.rules[0].source?.edits.fields?.output).toBe('new-block');
+    expect(current).toEqual(snapshot);
+    const restored = readRuleTable(
+      tableSettings({
+        ...mapped,
+        outputs: mapped.outputs.map((output) => ({
+          ...output,
+          id: output.id === 'direct' ? output.id : `new-${output.id}`,
+        })),
+        tunAmbiguity: { action: 'allow', output: 'new-proxy' },
+      }),
+    );
+    const refreshed = update(restored, [row('one', ['updated.example'])]);
+    expect(refreshed.rules[0].output).toBe('new-block');
+    expect(refreshed.rules[0].source?.base.output).toBe('new-proxy');
+    expect(refreshed.rules[0].conditions.domain).toBe('updated.example\nlocal.example');
     const detached = detachTrafficSource(current);
     expect(detached.source).toBeUndefined();
     expect(detached.rules[0].source).toBeUndefined();

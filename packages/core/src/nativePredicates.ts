@@ -1,5 +1,3 @@
-import { LIMITS } from '../limits';
-
 // Match the pinned Xray ProcessNameMatcher on Windows. These are OR lists;
 // their conjunction must never become a broader union.
 function process(value: string) {
@@ -33,25 +31,31 @@ function processPair(a: string, b: string): string | null {
       : b
     : null;
 }
-export function intersectNativeProcesses(a: string[], b: string[]): string[] | null {
+export function intersectNativeProcesses(
+  a: string[],
+  b: string[],
+  maxTerms: number,
+): string[] | null {
   const result = new Set<string>();
   for (const x of a)
     for (const y of b) {
       const intersection = processPair(x, y);
       if (intersection !== null) result.add(intersection);
-      if (result.size > LIMITS.maxPredicateTerms)
-        throw new Error('Process predicate term budget exceeded');
+      if (result.size > maxTerms) throw new Error('Process predicate term budget exceeded');
     }
   return result.size ? [...result] : null;
 }
-export function intersectProtocolPrefixes(a: string[], b: string[]): string[] | null {
+export function intersectProtocolPrefixes(
+  a: string[],
+  b: string[],
+  maxTerms: number,
+): string[] | null {
   const result = new Set<string>();
   for (const x of a)
     for (const y of b) {
       if (x.startsWith(y)) result.add(x);
       else if (y.startsWith(x)) result.add(y);
-      if (result.size > LIMITS.maxPredicateTerms)
-        throw new Error('Protocol predicate term budget exceeded');
+      if (result.size > maxTerms) throw new Error('Protocol predicate term budget exceeded');
     }
   return result.size ? [...result] : null;
 }

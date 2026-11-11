@@ -10,6 +10,7 @@ import { importProxyInbound, projectProxyInbound } from './xrayInbound';
 import { hydrateCoreDefaults } from './nativeCore';
 import {
   tableSettings,
+  effectiveRoutingFields,
   routingConditionFields,
   routingRuleFields,
   type NamedOutput,
@@ -408,13 +409,14 @@ export function importXrayConfig(
     if (typeof raw[type] !== 'string' || !raw[type])
       throw new Error('Every routing rule needs an outboundTag or balancerTag.');
     const conditions: Record<string, string> = {};
+    const effective = effectiveRoutingFields(raw);
     for (const f of routingConditionFields)
-      if (raw[f.key] !== undefined)
+      if (effective[f.key] !== undefined)
         conditions[f.key] = f.list
-          ? lines(raw[f.key])
+          ? lines(effective[f.key])
           : f.key === 'attrs'
-            ? JSON.stringify(raw[f.key])
-            : String(raw[f.key]);
+            ? JSON.stringify(effective[f.key])
+            : String(effective[f.key]);
     const row: TableRule = {
       id: `native-rule-${i}`,
       name: `Rule ${i + 1}`,

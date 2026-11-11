@@ -65,6 +65,19 @@ its own resource/configuration directory and runs both TypeScript and Rust
 acceptance tests. Xray is invoked with `run -test`; it validates configurations
 without activating traffic capture or system proxy settings.
 
+Routing checks also compare deterministic, generated small graphs with an
+independent path evaluator. They cover shared branches, first-match precedence,
+child fallbacks, literal IPv4/IPv6 predicates and imported rule representations,
+including save/import roundtrips. Native routing scenarios also pass through
+Aquifer's compiler using its own defaults and import/save boundaries. The core
+suite builds a small test-only runner
+inside the pinned Xray source module, using the Go SDK prepared by the core build.
+It runs the same decisions through Xray's router and public `TestRoute` handler
+without listeners, DNS lookups or outbound connections. A failure identifies the
+graph seed and input flow; generated inputs and results remain in the fixture
+directory. These checks establish routing semantics, not packet delivery or
+live policy selection.
+
 There are no optional private inputs and no success-by-early-return cases. If
 the executable or source is missing, the command explains what to build. Generated
 configurations and core output are under `.tools/core-tests/`. The complete

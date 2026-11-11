@@ -1,6 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import { listenerEndpointsConflict } from './listeners';
 import { listenerEndpointKeys } from './inbounds';
+import { importXrayConfig } from './xrayImport';
+import { diagnoseGraph } from './model';
+import { importXrayConfig as importAquifer } from '../../aquifer/src/graph/xrayImport';
+import { diagnoseGraph as diagnoseAquifer } from '../../aquifer/src/graph/model';
+
+describe.each([
+  ['Wayrill', (source: string) => diagnoseGraph(importXrayConfig(source))],
+  ['Aquifer', (source: string) => diagnoseAquifer(importAquifer(source))],
+] as const)('%s listener diagnostics', (_app, diagnose) => {
+  it.each([
+    ['xhttp', 'h3', false],
+    ['masque', 'h2', true],
+  ] as const)('checks %s/%s against a TCP listener on the same port', (network, alpn, conflict) => {
+    const listener = { listen: '127.0.0.1', port: 2090 };
+    const config = {
+      inbounds: [
+        {
+          ...listener,
+          tag: 'transport',
+          protocol: 'vless',
+          settings: {
+            decryption: 'none',
+            clients: [{ id: '11111111-2222-4333-8444-555555555555' }],
+          },
+          streamSettings: { network, security: 'tls', tlsSettings: { alpn: [alpn] } },
+        },
+        { ...listener, tag: 'proxy', protocol: 'http', settings: {} },
+      ],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    };
+    const issues = diagnose(JSON.stringify(config)).filter((issue) =>
+      /Listener conflicts/.test(issue.message),
+    );
+    expect(issues).toHaveLength(conflict ? 2 : 0);
+    if (conflict) expect(issues.every((issue) => issue.severity === 'error')).toBe(true);
+  });
+});
 
 describe('Socket overlap semantics', () => {
   it.each([

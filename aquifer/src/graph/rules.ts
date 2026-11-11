@@ -1,3 +1,4 @@
+export { effectiveRoutingFields, projectNativeRule } from '@wayrill/core/routingFields';
 import { jsonText, jsonArray, parseJson } from './xrayJson';
 import { portRangeProblem } from './portRanges';
 import {

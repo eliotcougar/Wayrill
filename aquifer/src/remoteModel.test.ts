@@ -22,6 +22,56 @@ it('exports ordered graph rules instead of replaying the source configuration', 
   expect(exported.config.outbounds).toEqual(demoConfig.outbounds);
 });
 
+it('edits effective imported routing aliases without retaining a competing predicate', () => {
+  const config = {
+    outbounds: [
+      { tag: 'direct', protocol: 'freedom' },
+      { tag: 'block', protocol: 'blackhole' },
+    ],
+    routing: {
+      rules: [
+        {
+          domain: ['full:ignored.example'],
+          domains: ['full:active.example'],
+          source: ['192.0.2.0/24'],
+          sourceIP: ['10.0.0.0/8'],
+          port: '443',
+          outboundTag: 'block',
+          ruleTag: 'keep-this-tag',
+        },
+      ],
+    },
+  };
+  const view = remoteView(JSON.stringify(config));
+  const workspace = createUserWorkspace(view.original, emptyLibrary());
+  const filter = view.graph.nodes.find((node) => node.id === view.graph.xray!.routingNodeId)!;
+  const table = readRuleTable(filter.data.settings);
+  expect(table.rules[0].conditions.domain).toBe('full:active.example');
+  expect(table.rules[0].conditions.sourceIP).toBe('10.0.0.0/8');
+  expect(compileRemote(view, workspace).config).toEqual(config);
+
+  table.rules[0].conditions.domain = 'full:edited.example';
+  table.rules[0].conditions.sourceIP = '';
+  filter.data.settings = tableSettings(table);
+  const result = compileRemote(view, workspace);
+  expect(result.errors).toEqual([]);
+  expect(result.config.routing).toEqual({
+    rules: [
+      {
+        domain: ['full:edited.example'],
+        port: '443',
+        outboundTag: 'block',
+        ruleTag: 'keep-this-tag',
+      },
+    ],
+  });
+  // A reload must retain the edited behavior, not revive either source alias.
+  const reloaded = remoteView(JSON.stringify(result.config));
+  expect(
+    compileRemote(reloaded, createUserWorkspace(reloaded.original, emptyLibrary())).config,
+  ).toEqual(result.config);
+});
+
 describe('read-only remote graph projection', () => {
   it('keeps all source values and ordered rules with an internal API endpoint', () => {
     const view = remoteView(JSON.stringify(demoConfig));

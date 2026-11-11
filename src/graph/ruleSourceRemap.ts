@@ -1,10 +1,11 @@
 import type { RuleTable } from './rules';
+import type { DnsFilter } from './dns';
 
 /** Rebind all materialized, baseline and override destinations as one operation. */
-export function remapTrafficSource(
-  table: RuleTable,
+export function remapSourceOutputs<T extends RuleTable | DnsFilter>(
+  table: T,
   outputs: ReadonlyMap<string, string>,
-): RuleTable {
+): T {
   const remap = (id: string) => outputs.get(id) ?? id;
   return {
     ...table,
