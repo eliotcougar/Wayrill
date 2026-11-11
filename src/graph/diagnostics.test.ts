@@ -1,13 +1,47 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { diagnoseRuntimeGraph } from './diagnostics';
 import { createTrafficExample } from './example';
 import { makeNode } from './catalog';
 import { readRuleTable, tableSettings } from './rules';
 import { parseGraph, serializeGraph } from './model';
+import { analyzeGraph } from './analysis';
+import * as runtime from './runtime';
+import { importXrayConfig } from './xrayImport';
 describe('Runtime graph diagnostics', () => {
   it('accepts the complete current example and its round trip', () => {
     for (const g of [createTrafficExample(), parseGraph(serializeGraph(createTrafficExample()))])
       expect(diagnoseRuntimeGraph(g).filter((i) => i.severity === 'error')).toEqual([]);
+  });
+  it('uses the same compilation for runtime diagnostics and the Apply preview', () => {
+    const compile = vi.spyOn(runtime, 'compileRuntimeGraph');
+    try {
+      const graph = createTrafficExample();
+      const result = analyzeGraph(graph);
+      expect(compile).toHaveBeenCalledExactlyOnceWith(graph);
+      expect(result.compilation).toBe(compile.mock.results[0].value);
+      expect(result.configBytes).toBeGreaterThan(0);
+      expect(result.issues.filter((issue) => issue.severity === 'error')).toEqual([]);
+    } finally {
+      compile.mockRestore();
+    }
+  });
+  it('checks the actual runtime configuration for an imported graph', () => {
+    const graph = importXrayConfig(
+      JSON.stringify({ outbounds: [{ protocol: 'freedom', tag: 'direct' }] }),
+    );
+    const compilation = runtime.compileRuntimeGraph(graph);
+    compilation.config.metrics = { listen: '0.0.0.0:20500' };
+    const compile = vi.spyOn(runtime, 'compileRuntimeGraph').mockReturnValue(compilation);
+    try {
+      const result = analyzeGraph(graph);
+      expect(compile).toHaveBeenCalledExactlyOnceWith(graph);
+      expect(result.compilation).toBe(compilation);
+      expect(result.issues.some((issue) => issue.message.includes('Metrics can be exported'))).toBe(
+        true,
+      );
+    } finally {
+      compile.mockRestore();
+    }
   });
   it('reports localhost listener collisions and reserved tags while accepting native process metadata', () => {
     const g = createTrafficExample();

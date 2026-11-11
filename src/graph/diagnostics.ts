@@ -6,7 +6,7 @@ import { policyCandidates, readPolicySources, resolvePolicyReference } from './p
 import { diagnoseXrayGraph } from './xrayCompiler';
 import { loopbackProblems, outboundDependencyProblems } from './protocols';
 import { inboundPreview, inboundEndpoints } from './inbounds';
-import { compileRuntimeGraph, compileResolvedRuntimeGraph } from './runtime';
+import { compileRuntimeGraph, type RuntimeCompilation } from './runtime';
 import { diagnoseGraph } from './model';
 import { getOutputPorts, portLabel } from './catalog';
 import { isInboundKind } from './inbounds';
@@ -18,9 +18,38 @@ import { resolveGraph } from './defaults';
 import type { Diagnostic, GraphState, RuleNode } from './types';
 import { expandCompositeOutbounds, compositeDiagnostics } from './composites';
 
-export function diagnoseRuntimeGraph(source: GraphState, internal = false): Diagnostic[] {
+export function inspectRuntimeGraph(
+  source: GraphState,
+  preview = false,
+): { issues: Diagnostic[]; compilation: RuntimeCompilation | null } {
+  let compilation: RuntimeCompilation | null = null;
+  let attempted = false;
+  const compile = () => {
+    attempted = true;
+    return (compilation = compileRuntimeGraph(source));
+  };
+  const issues = checkRuntimeGraph(source, compile);
+  if (preview && !attempted) {
+    try {
+      compile();
+    } catch {
+      // Structural checks already explain why this draft cannot run.
+    }
+  }
+  return { issues, compilation };
+}
+
+export function diagnoseRuntimeGraph(source: GraphState): Diagnostic[] {
+  return inspectRuntimeGraph(source).issues;
+}
+
+function checkRuntimeGraph(
+  source: GraphState,
+  compile: () => RuntimeCompilation,
+  internal = false,
+): Diagnostic[] {
   if (source.xray) {
-    const issues = diagnoseXrayGraph(resolveGraph(source));
+    const issues = diagnoseXrayGraph(resolveGraph(source), compile);
     if (
       source.nodes.some((n) => isGraphInbound(n.data.kind)) &&
       !source.nodes.some((n) => isGraphInbound(n.data.kind) && !isDisabledInbound(n.data))
@@ -35,7 +64,7 @@ export function diagnoseRuntimeGraph(source: GraphState, internal = false): Diag
   try {
     const expansion = expandCompositeOutbounds(resolveGraph(source));
     if (expansion.changed)
-      return compositeDiagnostics(expansion, diagnoseRuntimeGraph(expansion.graph, true));
+      return compositeDiagnostics(expansion, checkRuntimeGraph(expansion.graph, compile, true));
   } catch (error) {
     const p = error as Error & { nodeId?: string; fieldKey?: string };
     return [{ severity: 'error', message: p.message, nodeId: p.nodeId, fieldKey: p.fieldKey }];
@@ -232,9 +261,7 @@ export function diagnoseRuntimeGraph(source: GraphState, internal = false): Diag
       );
   if (!issues.some((i) => i.severity === 'error')) {
     try {
-      const compiled = internal
-        ? compileResolvedRuntimeGraph(graph, true)
-        : compileRuntimeGraph(graph);
+      const compiled = compile();
       for (const issue of [
         ...loopbackProblems(compiled.config),
         ...outboundDependencyProblems(compiled.config).map((p) => ({

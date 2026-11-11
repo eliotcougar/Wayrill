@@ -656,11 +656,14 @@ export function compileXrayGraph(
 export function requiredXrayAssets(config: Record<string, unknown>): string[] {
   return resourceDependencies(config);
 }
-export function diagnoseXrayGraph(graph: GraphState): Diagnostic[] {
+export function diagnoseXrayGraph(
+  graph: GraphState,
+  compile?: () => RuntimeCompilation,
+): Diagnostic[] {
   try {
     const expansion = expandCompositeOutbounds(resolveGraph(graph));
     if (expansion.changed)
-      return compositeDiagnostics(expansion, diagnoseXrayGraph(expansion.graph));
+      return compositeDiagnostics(expansion, diagnoseXrayGraph(expansion.graph, compile));
   } catch (error) {
     const p = error as Error & { nodeId?: string; fieldKey?: string };
     return [{ severity: 'error', message: p.message, nodeId: p.nodeId, fieldKey: p.fieldKey }];
@@ -817,7 +820,7 @@ export function diagnoseXrayGraph(graph: GraphState): Diagnostic[] {
     }
   }
   try {
-    const compiled = compileXrayGraph(graph);
+    const compiled = compile ? compile() : compileXrayGraph(graph);
     for (const warning of compiled.warnings) add(undefined, warning, 'warning');
     for (const issue of outboundDependencyProblems(compiled.config))
       add(

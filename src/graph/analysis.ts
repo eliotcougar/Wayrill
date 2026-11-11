@@ -1,6 +1,6 @@
-import { diagnoseRuntimeGraph } from './diagnostics';
+import { inspectRuntimeGraph } from './diagnostics';
 import { diagnoseGraph } from './model';
-import { compileRuntimeGraph, type RuntimeCompilation } from './runtime';
+import type { RuntimeCompilation } from './runtime';
 import type { Diagnostic, GraphState } from './types';
 export interface GraphAnalysis {
   issues: Diagnostic[];
@@ -14,9 +14,16 @@ export const emptyAnalysis = (): GraphAnalysis => ({
 });
 export type AnalysisScope = 'runtime' | 'nodes';
 export function analyzeGraph(graph: GraphState, scope: AnalysisScope = 'runtime'): GraphAnalysis {
-  let issues: Diagnostic[];
   try {
-    issues = scope === 'nodes' ? diagnoseGraph(graph) : diagnoseRuntimeGraph(graph);
+    if (scope === 'nodes') return { ...emptyAnalysis(), issues: diagnoseGraph(graph) };
+    const { issues, compilation } = inspectRuntimeGraph(graph, true);
+    return {
+      issues,
+      compilation,
+      configBytes: compilation
+        ? new TextEncoder().encode(JSON.stringify(compilation.config)).length
+        : 0,
+    };
   } catch (error) {
     return {
       ...emptyAnalysis(),
@@ -27,17 +34,6 @@ export function analyzeGraph(graph: GraphState, scope: AnalysisScope = 'runtime'
         },
       ],
     };
-  }
-  if (scope === 'nodes') return { ...emptyAnalysis(), issues };
-  try {
-    const compilation = compileRuntimeGraph(graph);
-    return {
-      issues,
-      compilation,
-      configBytes: new TextEncoder().encode(JSON.stringify(compilation.config)).length,
-    };
-  } catch {
-    return { issues, compilation: null, configBytes: 0 };
   }
 }
 export function largeGraph(graph: GraphState) {
