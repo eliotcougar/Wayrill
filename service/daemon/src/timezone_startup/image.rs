@@ -1,4 +1,5 @@
 //! Classify timezone initialization needs without loading or executing an image.
+use super::{Architecture, IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_I386};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -15,10 +16,11 @@ pub(super) fn node(path: &Path) -> bool {
         || (exports(path, &[b"GetHandleVerifier", b"IsSandboxedProcess"]).unwrap_or(false)
             && path.parent().is_some_and(|parent| exports(&parent.join("chrome.dll"), &node).unwrap_or(false)))
 }
-pub(super) fn supported(path: &Path) -> bool {
+pub(super) fn architecture(path: &Path) -> Option<Architecture> {
     Image::open(path)
-        .and_then(|mut i| i.supported())
-        .unwrap_or(false)
+        .and_then(|mut i| i.architecture())
+        .ok()
+        .flatten()
 }
 pub(super) fn cached(path: &Path) -> bool {
     Image::open(path)
@@ -124,21 +126,27 @@ impl Image {
             .ok_or_else(invalid)?;
         self.read(rva, available.min(limit))
     }
-    fn supported(&mut self) -> io::Result<bool> {
-        if self.machine == 0x8664 {
-            return Ok(true);
+    fn architecture(&mut self) -> io::Result<Option<Architecture>> {
+        match (self.machine, self.directory) {
+            (IMAGE_FILE_MACHINE_AMD64, 112) => return Ok(Some(Architecture::X64)),
+            (IMAGE_FILE_MACHINE_I386, 96) => {}
+            _ => return Ok(None),
         }
         let cli = self.directory(14);
-        if self.machine != 0x14c || cli == 0 {
-            return Ok(false);
+        if cli == 0 {
+            return Ok(Some(Architecture::X86));
         }
         let cli = self.read(cli, 20)?;
         let flags = u32::from_le_bytes(cli[16..20].try_into().unwrap());
         // AnyCPU IL executables without Required/Preferred32Bit run as native x64.
-        Ok(flags & 1 != 0 && flags & (2 | 0x20000) == 0)
+        Ok(Some(if flags & 1 != 0 && flags & (2 | 0x20000) == 0 {
+            Architecture::X64
+        } else {
+            Architecture::X86
+        }))
     }
     fn exports(&mut self, expected: &[&[u8]]) -> io::Result<bool> {
-        if !self.supported()? {
+        if self.architecture()?.is_none() {
             return Ok(false);
         }
         let export_rva = self.directory(0);
@@ -178,7 +186,7 @@ impl Image {
         Ok(true)
     }
     fn cached(&mut self) -> io::Result<bool> {
-        if !self.supported()? {
+        if self.architecture()?.is_none() {
             return Ok(false);
         }
         if self.directory(14) != 0 {
@@ -258,7 +266,7 @@ fn exports(path: &Path, expected: &[&[u8]]) -> io::Result<bool> {
 mod tests {
     use super::*;
     #[test]
-    fn detects_x64_node_exports_in_standalone_and_split_images() {
+    fn detects_node_exports_in_x86_and_x64_standalone_and_split_images() {
         let directory = std::env::temp_dir().join(format!(
             "wayrill-image-{}-{}",
             std::process::id(),
@@ -300,6 +308,11 @@ mod tests {
         bytes[132..134].copy_from_slice(&[0x4c, 0x01]);
         std::fs::write(&path, &bytes).unwrap();
         assert!(!node(&path));
+        bytes[152..154].copy_from_slice(&[0x0b, 0x01]);
+        bytes[248..252].copy_from_slice(&0x1000u32.to_le_bytes());
+        bytes[264..268].fill(0);
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(node(&path));
         std::fs::write(&path, &bytes[..70]).unwrap();
         assert!(!node(&path));
         std::fs::write(directory.join("chrome.dll"), original.clone()).unwrap();
@@ -338,12 +351,20 @@ mod tests {
         for (at, value) in [(360, 0x1100u32), (404, 0x1000), (408, 512), (412, 512)] {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
-        for (flags, expected) in [(1u32, true), (3, false), (0x20001, false), (0, false)] {
+        for (flags, expected) in [
+            (1u32, Architecture::X64),
+            (3, Architecture::X86),
+            (0x20001, Architecture::X86),
+            (0, Architecture::X86),
+        ] {
             bytes[784..788].copy_from_slice(&flags.to_le_bytes());
             std::fs::write(&path, &bytes).unwrap();
-            assert_eq!(supported(&path), expected, "CLI flags {flags:#x}");
-            assert_eq!(cached(&path), expected);
+            assert_eq!(architecture(&path), Some(expected), "CLI flags {flags:#x}");
+            assert!(cached(&path));
         }
+        bytes[360..364].fill(0);
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(architecture(&path), Some(Architecture::X86));
         bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());
         bytes[134..136].copy_from_slice(&2u16.to_le_bytes());
         bytes[152..154].copy_from_slice(&[0x0b, 0x02]);

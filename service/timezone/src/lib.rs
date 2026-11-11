@@ -42,19 +42,24 @@ unsafe extern "system" {
 }
 // Microsoft Detours allocates transaction entries with MSVC operator new while
 // previously enrolled threads are suspended. Use a private heap so these calls
-// cannot wait on the browser's CRT/process heap. These are the x64 MSVC ABI
-// allocation symbols used by the pinned library, not a second hooking engine.
+// cannot wait on the browser's CRT/process heap.
+#[link(
+    name = "wayrill-detours-allocator",
+    kind = "static",
+    modifiers = "+whole-archive"
+)]
+extern "C" {}
 static DETOURS_HEAP: OnceLock<usize> = OnceLock::new();
-#[export_name = "??2@YAPEAX_K@Z"]
-unsafe extern "C" fn detours_new(size: usize) -> *mut c_void {
+#[no_mangle]
+extern "C" fn wayrill_detours_alloc(size: usize) -> *mut c_void {
     let heap = *DETOURS_HEAP.get_or_init(|| unsafe { HeapCreate(0, 0, 0) as usize });
     if heap == 0 {
         return ptr::null_mut();
     }
     unsafe { HeapAlloc(heap as HANDLE, 0, size) }
 }
-#[export_name = "??3@YAXPEAX@Z"]
-unsafe extern "C" fn detours_delete(value: *mut c_void) {
+#[no_mangle]
+extern "C" fn wayrill_detours_free(value: *mut c_void) {
     if let Some(heap) = DETOURS_HEAP.get() {
         if !value.is_null() {
             unsafe {
@@ -63,13 +68,6 @@ unsafe extern "C" fn detours_delete(value: *mut c_void) {
         }
     }
 }
-#[export_name = "??3@YAXPEAX_K@Z"]
-unsafe extern "C" fn detours_sized_delete(value: *mut c_void, _: usize) {
-    unsafe {
-        detours_delete(value);
-    }
-}
-
 #[derive(Clone, Copy)]
 struct State {
     zone: Option<DYNAMIC_TIME_ZONE_INFORMATION>,
@@ -241,7 +239,7 @@ impl Attachment {
     /// stays in place until that transaction ends.
     unsafe fn queue(&mut self) -> Result<(), u32> {
         let mut trampoline = ptr::null_mut();
-        // On x64 the trampoline returned by Detours begins at its code.
+        // The pinned x86 and x64 Detours trampolines begin with executable code.
         let code = unsafe {
             DetourAttachEx(
                 &raw mut self.target,
@@ -375,11 +373,11 @@ fn install(at_startup: bool) -> Result<(), u32> {
             }
         }
         // Initialize the private allocator before suspending any browser thread.
-        let warmup = detours_new(1);
+        let warmup = wayrill_detours_alloc(1);
         if warmup.is_null() {
             return Err(ERROR_NOT_ENOUGH_MEMORY);
         }
-        detours_delete(warmup);
+        wayrill_detours_free(warmup);
         let code = DetourTransactionBegin();
         if code != 0 {
             return Err(code as u32);

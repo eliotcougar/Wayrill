@@ -20,7 +20,7 @@ advertising, remote scripts, developer-operated collection endpoint, or external
 uploads. It does not change your browser's proxy settings or intercept page content.
 The separately installed Wayrill app handles traffic according to your graph.
 
-Chromium's optional **Timezone override · Experimental** applies one selected
+Chromium's optional **Timezone override** applies one selected
 timezone across regular web tabs. The manual mode makes no external lookup.
 **Main outbound** and **Custom outbound** ask the local Wayrill service to query
 `ipwho.is` through the applied Main or the selected Stash outbound. That provider sees the outbound's exit IP, without

@@ -69,7 +69,7 @@ foreach ($taskEntry in $taskManifest.files) {
 if ([IO.Path]::GetFullPath($taskBundle) -ne [IO.Path]::GetFullPath($taskTarget)) { Copy-Item -LiteralPath (Join-Path $taskBundle 'manifest.json') -Destination $taskTarget -Force }
 # AppContainer targets need read/execute access to this public DLL, in addition
 # to the user's access. Keep service state and all write permissions unchanged.
-foreach ($taskEntry in $taskManifest.files | Where-Object path -Match '^timezone[\\/]wayrill-timezone-[0-9a-f]{16}\.dll$') {
+foreach ($taskEntry in $taskManifest.files | Where-Object path -Match '^timezone[\\/](x86[\\/])?wayrill-timezone-[0-9a-f]{16}\.dll$') {
     $taskDll=Join-Path $taskTarget $taskEntry.path
     $taskAcl=Get-Acl -LiteralPath $taskDll
     $taskAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-15-2-1'),[Security.AccessControl.FileSystemRights]::ReadAndExecute,[Security.AccessControl.AccessControlType]::Allow))

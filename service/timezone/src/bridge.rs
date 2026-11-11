@@ -19,6 +19,10 @@ use windows_sys::Win32::{
         LibraryLoader::*,
         Memory::*,
         RemoteDesktop::ProcessIdToSessionId,
+        SystemInformation::{
+            GetSystemDirectoryW, GetSystemWow64DirectoryW, IMAGE_FILE_MACHINE_AMD64,
+            IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_UNKNOWN,
+        },
         Threading::*,
     },
     UI::WindowsAndMessaging::*,
@@ -178,11 +182,21 @@ struct Module {
 }
 fn modules(pid: u32) -> Result<Vec<Module>, u32> {
     unsafe {
-        let raw = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
-        if raw == INVALID_HANDLE_VALUE {
-            return Err(GetLastError());
-        }
-        let snapshot = Handle(raw);
+        // The helper and target have matching bitness. Windows can reject a
+        // module snapshot while the loader is adding or removing a DLL.
+        let mut retries = 3;
+        let snapshot = loop {
+            let raw = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+            if raw != INVALID_HANDLE_VALUE {
+                break Handle(raw);
+            }
+            let error = GetLastError();
+            if error != ERROR_BAD_LENGTH || retries == 0 {
+                return Err(error);
+            }
+            retries -= 1;
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
         let mut item: MODULEENTRY32W = mem::zeroed();
         item.dwSize = mem::size_of_val(&item) as u32;
         let mut result = Vec::new();
@@ -195,6 +209,10 @@ fn modules(pid: u32) -> Result<Vec<Module>, u32> {
                 path: text(&item.szExePath).into(),
             });
             if Module32NextW(snapshot.0, &mut item) == 0 {
+                let error = GetLastError();
+                if error != ERROR_NO_MORE_FILES {
+                    return Err(error);
+                }
                 break;
             }
         }
@@ -329,6 +347,14 @@ fn system_zone() -> Result<String, u32> {
     }
 }
 fn apply(target: &Browser, zone: &str, revision: u64) -> Result<(), u32> {
+    fn system_path(read: unsafe extern "system" fn(*mut u16, u32) -> u32) -> Result<PathBuf, u32> {
+        let mut path = [0; 260];
+        let length = unsafe { read(path.as_mut_ptr(), path.len() as u32) };
+        if length == 0 || length as usize >= path.len() {
+            return Err(ERROR_PATH_NOT_FOUND);
+        }
+        Ok(PathBuf::from(text(&path)))
+    }
     unsafe {
         let process = Handle(OpenProcess(
             PROCESS_CREATE_THREAD
@@ -350,29 +376,33 @@ fn apply(target: &Browser, zone: &str, revision: u64) -> Result<(), u32> {
         }
         let mut machine = 0;
         let mut native = 0;
-        if IsWow64Process2(process.0, &mut machine, &mut native) == 0
-            || machine != 0
-            || native != 0x8664
-        {
+        if IsWow64Process2(process.0, &mut machine, &mut native) == 0 {
+            return Err(GetLastError());
+        }
+        let expected = if cfg!(target_arch = "x86") {
+            IMAGE_FILE_MACHINE_I386
+        } else {
+            IMAGE_FILE_MACHINE_UNKNOWN
+        };
+        if machine != expected || native != IMAGE_FILE_MACHINE_AMD64 {
             return Err(ERROR_NOT_SUPPORTED);
         }
         let own = std::env::current_exe().map_err(|_| ERROR_PATH_NOT_FOUND)?;
         let directory = own.parent().ok_or(ERROR_PATH_NOT_FOUND)?;
-        let mut system = [0u16; 260];
-        let length = windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(
-            system.as_mut_ptr(),
-            system.len() as u32,
-        );
-        if length == 0 || length as usize >= system.len() {
-            return Err(ERROR_PATH_NOT_FOUND);
+        let system = system_path(GetSystemDirectoryW)?;
+        let mut asset_directories = vec![directory, system.as_path()];
+        let wow64;
+        if cfg!(target_arch = "x86") {
+            // Application Verifier can report the logical System32 path for
+            // the provider physically installed in SysWOW64.
+            wow64 = system_path(GetSystemWow64DirectoryW)?;
+            asset_directories.push(&wow64);
         }
-        let system = PathBuf::from(text(&system));
         let mut loaded = modules(target.pid)?.into_iter().find(|item| {
             item.path.parent().is_some_and(|parent| {
-                parent
-                    .as_os_str()
-                    .eq_ignore_ascii_case(directory.as_os_str())
-                    || parent.as_os_str().eq_ignore_ascii_case(system.as_os_str())
+                asset_directories
+                    .iter()
+                    .any(|path| parent.as_os_str().eq_ignore_ascii_case(path.as_os_str()))
             }) && item
                 .path
                 .file_name()
@@ -573,7 +603,9 @@ fn apply_serialized(target: &Browser, zone: &str, revision: u64) -> Result<(), u
 fn main() {
     if let Err(error) = run() {
         if error == ERROR_NOT_SUPPORTED {
-            eprintln!("This application architecture is not supported. Choose an x64 or compatible AnyCPU application; native x86 and ARM64 need matching timezone components.");
+            eprintln!(
+                "The timezone helper and application architectures must match on x64 Windows."
+            );
         }
         eprintln!("Native timezone error {error}");
         std::process::exit(error as i32);

@@ -1,4 +1,4 @@
-# Experimental native application timezone override
+# Native application timezone override
 
 The Chromium Companion is a controller for a service-owned browser preference.
 It requests no debugger permission and sends no DevTools commands. Firefox's
@@ -118,18 +118,22 @@ system zone is needed to invalidate the cache.
 
 ## Native boundary and packaging
 
-The helper and DLL are Rust, using Windows APIs through `windows-sys`. The pinned
-Microsoft Detours library remains third-party C++. Its allocation symbols use a
-private heap: enrolling threads suspends them, and allocating through a heap lock
-held by a suspended browser thread could deadlock. Rust allocations needed for
-the transaction are prepared before suspending threads.
+The helper and DLL use Rust and `windows-sys`. A small C++ bridge lets MSVC emit
+the correct allocation symbols for the pinned Detours library on each architecture.
+The allocator uses a private heap because Detours suspends threads that may hold
+the application's heap lock. Rust allocations needed for the transaction are
+prepared before suspending threads.
 
 `tools/Build-Timezone.ps1` downloads and verifies the pinned source, builds Detours,
-then builds the Rust component with the service's static-CRT settings. The DLL's
+then builds x86 and x64 Rust components with the service's static-CRT settings.
+The service checks the running process architecture before choosing a live helper.
+For startup overrides it checks the executable's PE/CLR metadata and stages the
+matching provider in System32 or SysWOW64. Both architectures use the same
+exact-image registration and per-user policy format. The DLL's
 hash forms its installed filename, so an upgrade can install a new binary while
 an existing browser still maps the old one. Compatible loaded versions are reused
 until browser exit. The helper accepts its installed asset directory and the
-protected System32 startup-provider location. Fully quit and reopen selected apps
+protected startup-provider location for its architecture. Fully quit and reopen selected apps
 after an upgrade to pick up newly added native hooks. The
 service package manifest covers the helper, asset descriptor, DLL and license.
 
@@ -144,10 +148,9 @@ executable's full path, publishes its native Windows zone and registration in
 one registry transaction, and removes its owned registration when switched Off
 or uninstalled. Other verifier/debugger settings are preserved. Changes require
 restarting the application. The immutable provider resides in System32, as required by
-the verifier loader; it reads the current user's application policy and does
+the verifier loader, using SysWOW64 for x86 images. It reads the current user's application policy and does
 nothing for users without one. No timezone lookup or library loading occurs
-inside the loader callback. This provider interface is experimental rather than
-a documented general-purpose application extension contract.
+inside the loader callback. The provider uses an undocumented Windows loader interface.
 
 Node/Electron detection reads the PE export table for Node's addon ABI; it never
 loads or executes the selected image. It also recognizes a Chromium launcher
@@ -174,9 +177,8 @@ disposable Windows VM.
 
 ## Limits
 
-This currently targets x64 and compatible AnyCPU Windows applications. Native x86
-and ARM64 applications require matching helper/provider binaries and are not
-supported by the current package. Protected processes,
+This targets x86, x64 and compatible AnyCPU applications on x64 Windows. Native
+ARM64 applications require matching helper and provider binaries. Protected processes,
 apps that use explicit zones and app-specific caches may not follow an override.
 Package selection is not a way around AppContainer or code-integrity restrictions.
 Node startup initialization does not invalidate a runtime that was already

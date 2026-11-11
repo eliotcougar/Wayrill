@@ -499,12 +499,12 @@ fn apply_process(
         .and_then(|v| u32::try_from(v).ok())
         .ok_or_else(|| ApiError::new("TIMEZONE_APPLICATION", "Invalid application session."))?;
     let input = json!({"target":{"pid":process["pid"],"created":process["created"],"path":process["path"]},"zone":zone,"revision":revision,"session":session});
-    let child = native::spawn_desktop(
-        &root.join("timezone/wayrill-timezone.exe"),
-        owner,
-        session,
-        &input,
-    )?;
+    let pid = process["pid"]
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+        .ok_or_else(|| ApiError::new("TIMEZONE_APPLICATION", "Invalid application process."))?;
+    let adapter = crate::timezone_startup::live_adapter(root, pid)?;
+    let child = native::spawn_desktop(&adapter, owner, session, &input)?;
     wait_adapter(child, stop, |_| Ok(Some(())))
 }
 fn wait_adapter<T>(
@@ -522,7 +522,10 @@ fn wait_adapter<T>(
         }
         if let Some(code) = child.exit_code()? {
             if code != 0 {
-                return Err(ApiError::new("TIMEZONE_APPLICATION", format!("Application refused timezone override (Windows error {code}). Protected and 32-bit processes may not support it.")));
+                return Err(ApiError::new(
+                    "TIMEZONE_APPLICATION",
+                    format!("Application refused timezone override (Windows error {code})."),
+                ));
             }
             // A resolver's output readers can finish after process exit.
             if let Some(result) = finish(&child)? {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wayrill",
-  "version": "0.36.8",
+  "version": "0.36.9",
   "identifier": "app.wayrill.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -70,6 +70,8 @@
       "../.tools/installer-aquifer/": "Aquifer/",
       "../.tools/installer-service/timezone/wayrill-timezone.exe": "Service/timezone/wayrill-timezone.exe",
       "../.tools/installer-service/timezone/asset.txt": "Service/timezone/asset.txt",
+      "../.tools/installer-service/timezone/x86/wayrill-timezone.exe": "Service/timezone/x86/wayrill-timezone.exe",
+      "../.tools/installer-service/timezone/x86/asset.txt": "Service/timezone/x86/asset.txt",
       "../.tools/installer-service/timezone/Detours-LICENSE.md": "Service/timezone/Detours-LICENSE.md"
     }
   }

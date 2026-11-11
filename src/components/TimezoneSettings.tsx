@@ -239,7 +239,7 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
   };
   return (
     <Dialog
-      title="Timezone spoofing · Experimental"
+      title="Timezone spoofing"
       onClose={onClose}
       className="timezone-settings"
       footer={
@@ -274,8 +274,8 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
       <div className="timezone-settings-content">
         <p>Give each application its own timezone. Windows timezone and UTC stay unchanged.</p>
         <p className="field-help">
-          The service watches app launches; Companion and routing can be off. Native 64-bit apps are
-          supported experimentally. Restart Firefox after changing its setting. Protected apps,
+          The service watches app launches; Companion and routing can be off. It supports 32-bit and
+          64-bit apps on x64 Windows. Restart Firefox after changing its setting. Protected apps,
           explicit timezone settings and cached values may not follow the override.
         </p>
         <div className="section-heading">

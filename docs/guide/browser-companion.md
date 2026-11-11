@@ -161,9 +161,9 @@ Routing continues unchanged until you **Apply** the graph. Existing observations
 may describe an older applied graph; they do not guarantee that a chosen rule in
 the draft will match every request from that domain.
 
-## Experimental timezone override (Chromium)
+## Timezone override (Chromium)
 
-Expand **Timezone override · Experimental** in the Companion. Choose **Main outbound**,
+Expand **Timezone override** in the Companion. Choose **Main outbound**,
 **Custom outbound** to select a Stash server, chain or policy group, or **Manual**
 to select a timezone from the dropdown. Then choose
 **Apply and reload web tabs**. The default is Off. One timezone applies to all
@@ -189,17 +189,16 @@ automatically.
 The service runs a normal-user adapter that loads a small Rust override into the browser's main
 process. Chromium propagates timezone changes to its renderers, workers and
 iframes through its own notification mechanism. Protected subprocesses are left
-alone. This currently requires a 64-bit Windows browser. Windows groups some IANA
+alone. Both x86 and x64 browsers are supported on x64 Windows. Windows groups some IANA
 zones under one native timezone; the popup shows the browser's actual zone name.
 Pages may execute before startup restoration finishes, and an application may
-retain previously created date formatters. This experimental feature is not a guarantee
-against every timezone/fingerprinting check. Windows' timezone, language and
+retain previously created date formatters. Windows' timezone, language and
 geolocation settings are unchanged. Firefox's signed add-on does not include it.
 
 You can also configure browsers without the extension in **Tools > Timezone
 spoofing**. That window detects installed browsers and lets you add an executable,
-running application or installed package. Native application support is experimental;
-protected apps and apps with their own timezone handling may refuse or ignore it.
+running application or installed package. Protected apps and apps with their own
+timezone handling may refuse or ignore an override.
 Recognized Electron and Node.js applications use startup initialization, because their
 JavaScript runtimes can cache timezone offsets before a live override arrives.
 Save the setting, wait for **startup timezone prepared**, then fully quit and
@@ -219,8 +218,8 @@ Qt runtimes before launch. If another app keeps its old timezone, choose
 **Before the app starts**, save, wait for preparation and completely quit and reopen
 it. Repeat that restart after changing its zone, switching Off or upgrading Wayrill.
 Selecting a shared executable such as `java.exe` or `python.exe` affects every app
-using that executable. Native x86 and ARM64 apps are currently unsupported;
-compatible AnyCPU apps running as x64 are supported.
+using that executable. Wayrill supports x86, x64, and compatible AnyCPU applications
+on x64 Windows. Native ARM64 apps are currently unsupported.
 WebView2 content can follow its host's live setting. Apps with their own explicit
 timezone handling or previously cached date formatters may still ignore an override.
 The setting does not change server/account timezones or clocks in WSL, containers

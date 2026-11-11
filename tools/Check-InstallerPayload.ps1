@@ -14,7 +14,7 @@ foreach($taskEntry in $taskManifest.files){
  if($taskRelative -eq 'windivert/WinDivert64.sys'){continue}
  # Hash-named native browser DLLs also use SetOverwrite off in the NSIS hook:
  # an existing browser can keep the immutable image mapped during an upgrade.
- if($taskRelative -cmatch '^timezone/wayrill-timezone-[0-9a-f]{16}\.dll$'){continue}
+ if($taskRelative -cmatch '^timezone/(x86/)?wayrill-timezone-[0-9a-f]{16}\.dll$'){continue}
  $taskInstalled='Service/'+$taskRelative
  $taskCovered=@($taskMappings|Where-Object {
   $taskDestination=[string]$_.Value

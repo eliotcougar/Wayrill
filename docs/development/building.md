@@ -39,11 +39,11 @@ selection is explicit for each workspace.
 For Tauri or Rust work, also install:
 
 - Windows x64 and PowerShell 7 (`pwsh`).
-- Rustup. The repository's `rust-toolchain.toml` selects the compiler, rustfmt and
-  Clippy; do not substitute a floating compiler version.
-- Visual Studio 2022 Build Tools with **Desktop development with C++** and a
-  Windows SDK. The scripts discover this installation automatically. An existing
-  x64 Developer PowerShell also works.
+- Rustup. The repository's `rust-toolchain.toml` selects the compiler, rustfmt,
+  Clippy, and the i686 target for 32-bit timezone components.
+- Visual Studio 2022 Build Tools with **Desktop development with C++**, x86 and
+  x64 MSVC libraries, and a Windows SDK. The scripts discover this installation
+  automatically. An existing x64 Developer PowerShell also works.
 
 Run the same native checks used by GitHub:
 

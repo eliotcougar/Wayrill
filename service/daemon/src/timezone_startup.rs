@@ -2,14 +2,79 @@
 //! Foreign verifier/debugger settings are never overwritten.
 use crate::native::wide;
 use sha2::{Digest, Sha256};
-use std::{fs, path::Path, ptr};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    ptr,
+};
 use wayrill_protocol::{ApiError, Result};
 use windows_sys::Win32::{
     Foundation::*,
     Storage::FileSystem::{CommitTransaction, CreateTransaction},
-    System::{Registry::*, SystemInformation::GetSystemDirectoryW},
+    System::{
+        Registry::*,
+        SystemInformation::{
+            GetSystemDirectoryW, GetSystemWow64DirectoryW, IMAGE_FILE_MACHINE_AMD64,
+            IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_UNKNOWN,
+        },
+        Threading::{IsWow64Process2, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    },
 };
 mod image;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Architecture {
+    X64,
+    X86,
+}
+impl Architecture {
+    fn package_directory(self, root: &Path) -> PathBuf {
+        match self {
+            Self::X64 => root.join("timezone"),
+            Self::X86 => root.join("timezone/x86"),
+        }
+    }
+
+    fn system_directory(self) -> Result<PathBuf> {
+        let mut path = [0; 260];
+        let length = unsafe {
+            match self {
+                Self::X64 => GetSystemDirectoryW(path.as_mut_ptr(), path.len() as u32),
+                Self::X86 => GetSystemWow64DirectoryW(path.as_mut_ptr(), path.len() as u32),
+            }
+        };
+        if length == 0 || length as usize >= path.len() {
+            return Err(crate::native::os_error("Find Windows system directory"));
+        }
+        Ok(String::from_utf16_lossy(&path[..length as usize]).into())
+    }
+}
+
+fn unsupported_application() -> ApiError {
+    ApiError::new(
+        "TIMEZONE_APPLICATION",
+        "Application timezone overrides support x86 and x64 applications on x64 Windows.",
+    )
+}
+
+pub fn live_adapter(root: &Path, pid: u32) -> Result<PathBuf> {
+    let process =
+        crate::native::Handle(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) });
+    let mut machine = 0;
+    let mut native = 0;
+    if process.0.is_null() || unsafe { IsWow64Process2(process.0, &mut machine, &mut native) } == 0
+    {
+        return Err(crate::native::os_error("Read application architecture"));
+    }
+    let architecture = match (native, machine) {
+        (IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_UNKNOWN) => Architecture::X64,
+        (IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_I386) => Architecture::X86,
+        _ => return Err(unsupported_application()),
+    };
+    Ok(architecture
+        .package_directory(root)
+        .join("wayrill-timezone.exe"))
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Target {
@@ -276,16 +341,9 @@ fn conflict() -> ApiError {
         "Application startup settings were changed outside Wayrill. They were left unchanged.",
     )
 }
-fn system_directory() -> Result<std::path::PathBuf> {
-    let mut path = [0; 260];
-    let length = unsafe { GetSystemDirectoryW(path.as_mut_ptr(), path.len() as u32) };
-    if length == 0 || length as usize >= path.len() {
-        return Err(crate::native::os_error("Find Windows system directory"));
-    }
-    Ok(String::from_utf16_lossy(&path[..length as usize]).into())
-}
-fn install_asset(root: &Path) -> Result<String> {
-    let name = fs::read_to_string(root.join("timezone/asset.txt"))
+fn install_asset(root: &Path, architecture: Architecture) -> Result<String> {
+    let directory = architecture.package_directory(root);
+    let name = fs::read_to_string(directory.join("asset.txt"))
         .map_err(|e| ApiError::io("Read timezone component", e))?;
     let name = name.trim();
     if !asset(name) {
@@ -294,8 +352,8 @@ fn install_asset(root: &Path) -> Result<String> {
             "Invalid native timezone asset.",
         ));
     }
-    let bytes = fs::read(root.join("timezone").join(name))
-        .map_err(|e| ApiError::io("Read timezone component", e))?;
+    let bytes =
+        fs::read(directory.join(name)).map_err(|e| ApiError::io("Read timezone component", e))?;
     let hash: String = Sha256::digest(&bytes)
         .iter()
         .map(|v| format!("{v:02x}"))
@@ -306,7 +364,7 @@ fn install_asset(root: &Path) -> Result<String> {
             "Native timezone asset hash mismatch.",
         ));
     }
-    let target = system_directory()?.join(name);
+    let target = architecture.system_directory()?.join(name);
     if target.exists() {
         if fs::read(&target).map_err(|e| ApiError::io("Verify startup component", e))? != bytes {
             return Err(conflict());
@@ -319,15 +377,6 @@ fn install_asset(root: &Path) -> Result<String> {
         crate::storage::write_bytes(&target, &bytes)?;
     }
     Ok(name.into())
-}
-fn x64(path: &str) -> Result<()> {
-    if !image::supported(Path::new(path)) {
-        return Err(ApiError::new(
-            "TIMEZONE_APPLICATION",
-            "Startup timezone override supports x64 and compatible AnyCPU applications. Native x86 and ARM64 require matching timezone components.",
-        ));
-    }
-    Ok(())
 }
 pub struct Resolved {
     key: String,
@@ -404,7 +453,8 @@ pub fn configure(
         }
     }
     if let Some(zone) = windows_zone {
-        x64(path)?;
+        let architecture =
+            image::architecture(Path::new(path)).ok_or_else(unsupported_application)?;
         let data = &zone.data;
         let zone = &zone.key;
         if zone.is_empty()
@@ -436,7 +486,7 @@ pub fn configure(
                 }
             }
         }
-        let dll = install_asset(root)?;
+        let dll = install_asset(root, architecture)?;
         let policy = Key::open(HKEY_USERS, &policy_path, true, tx)?.ok_or_else(conflict)?;
         let iana = if target.node { iana_zone } else { "" };
         if iana.len() > 127 || iana.contains(':') || iana.chars().any(char::is_control) {
@@ -544,22 +594,25 @@ pub fn uninstall() -> Result<()> {
     // harmlessly in place; never schedule deletion that could break a reinstall.
     let installed = std::env::current_exe()
         .map_err(|e| ApiError::io("Find installed timezone component", e))?;
-    let assets = installed.parent().ok_or_else(conflict)?.join("timezone");
-    let files = match fs::read_dir(assets) {
-        Ok(files) => files,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(ApiError::io("Find startup components", error)),
-    };
-    for file in files {
-        let file = file.map_err(|e| ApiError::io("Find startup component", e))?;
-        if file.file_name().to_str().is_some_and(asset) {
-            let target = system_directory()?.join(file.file_name());
-            if fs::read(file.path())
-                .ok()
-                .zip(fs::read(&target).ok())
-                .is_some_and(|(source, current)| source == current)
-            {
-                let _ = fs::remove_file(target);
+    let root = installed.parent().ok_or_else(conflict)?;
+    for architecture in [Architecture::X64, Architecture::X86] {
+        let files = match fs::read_dir(architecture.package_directory(root)) {
+            Ok(files) => files,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(ApiError::io("Find startup components", error)),
+        };
+        let system = architecture.system_directory()?;
+        for file in files {
+            let file = file.map_err(|e| ApiError::io("Find startup component", e))?;
+            if file.file_name().to_str().is_some_and(asset) {
+                let target = system.join(file.file_name());
+                if fs::read(file.path())
+                    .ok()
+                    .zip(fs::read(&target).ok())
+                    .is_some_and(|(source, current)| source == current)
+                {
+                    let _ = fs::remove_file(target);
+                }
             }
         }
     }

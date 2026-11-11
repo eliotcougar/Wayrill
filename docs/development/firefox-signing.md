@@ -2,7 +2,7 @@
 
 The Chromium and Firefox packages share the request-observation JavaScript, HTML
 and CSS. Chromium adds a separate background entry point and popup fragment for
-its experimental native timezone override. Those files and its restoration-alarm
+its native timezone override. Those files and its restoration-alarm
 permission are excluded from Firefox. Neither package requests debugger access.
 `tools/Build-CompanionExtension.mjs` generates Firefox's module event page,
 stable Gecko ID, minimum Firefox version, data-transmission declaration and

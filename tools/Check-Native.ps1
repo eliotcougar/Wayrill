@@ -27,7 +27,7 @@ try {
                 $env:RUSTFLAGS = ($env:RUSTFLAGS + ' -C target-feature=+crt-static').Trim()
             }
             if ($taskComponent -eq 'service') {
-                & (Join-Path $PSScriptRoot 'Build-Timezone.ps1') -PrepareOnly -CurlPath $CurlPath
+                & (Join-Path $PSScriptRoot 'Build-Timezone.ps1') -PrepareOnly -CheckX86 -SkipTests:$SkipTests -CurlPath $CurlPath
                 & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -IncludeRegional:(-not $SkipTests) -CurlPath $CurlPath
                 if (-not $SkipTests) {
                     # Synthetic build/installer contracts; no installation or system changes.

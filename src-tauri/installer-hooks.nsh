@@ -89,6 +89,8 @@ FunctionEnd
   SetOutPath "$INSTDIR\Service\timezone"
   SetOverwrite off
   File "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\timezone\wayrill-timezone-*.dll"
+  SetOutPath "$INSTDIR\Service\timezone\x86"
+  File "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\timezone\x86\wayrill-timezone-*.dll"
   SetOverwrite on
   ; Retire the previous Aquifer-owned redistribution, not the user's WinSCP.
   Delete "$INSTDIR\Aquifer\third-party\WinSCP-6.5.7-source.zip"
