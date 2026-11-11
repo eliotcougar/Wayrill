@@ -52,22 +52,22 @@ function assertEquivalent(graph: GraphState) {
 }
 
 describe('Flattened routing paths', () => {
-  it('preserves routing decisions in generated shared graphs through save and native roundtrip', () => {
-    const packets = routingPackets();
-    for (const native of [false, true])
-      for (const seed of routingSeeds) {
-        const graph = routingScenario(seed, native);
-        const saved = parseGraph(serializeGraph(graph));
-        const config = compileRuntimeGraph(saved).config;
-        const roundtrip = compileXrayGraph(importXrayConfig(JSON.stringify(config))).config;
-        for (const packet of packets) {
-          const route = expected(graph, packet);
-          const label = `${graph.name}: ${JSON.stringify(packet)}`;
-          expect(actual(config, packet), label).toBe(route);
-          expect(actual(roundtrip, packet), `roundtrip ${label}`).toBe(route);
-        }
+  const packets = routingPackets();
+  it.each([false, true].flatMap((native) => routingSeeds.map((seed) => ({ native, seed }))))(
+    'preserves routing decisions through save and Xray round-trip (native: $native, seed: $seed)',
+    ({ native, seed }) => {
+      const graph = routingScenario(seed, native);
+      const saved = parseGraph(serializeGraph(graph));
+      const config = compileRuntimeGraph(saved).config;
+      const roundtrip = compileXrayGraph(importXrayConfig(JSON.stringify(config))).config;
+      for (const packet of packets) {
+        const route = expected(graph, packet);
+        const label = `${graph.name}: ${JSON.stringify(packet)}`;
+        expect(actual(config, packet), label).toBe(route);
+        expect(actual(roundtrip, packet), `roundtrip ${label}`).toBe(route);
       }
-  });
+    },
+  );
   it('preserves parent precedence, child defaults and shared branches across two input scopes', () => {
     const graph = createChainedExample(),
       root = graph.nodes.find((n) => n.id === 'entry-filter')!;
