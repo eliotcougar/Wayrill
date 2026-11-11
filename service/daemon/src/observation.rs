@@ -1,7 +1,8 @@
 //! Project the existing authenticated metrics response into bounded group summaries.
 //! Errors/reasons, identities and arbitrary core diagnostics never reach the UI.
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
+use std::ops::Range;
 
 pub fn sanitize(raw: &Value) -> Value {
     let Some(raw) = raw
@@ -30,57 +31,129 @@ pub fn sanitize(raw: &Value) -> Value {
     Value::Object(result)
 }
 
-pub fn groups(config: &Value, raw: &Value) -> Value {
-    let Some(reports) = raw.as_object() else {
-        return json!([]);
-    };
-    let outbounds: BTreeSet<_> = config["outbounds"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|o| o["tag"].as_str())
-        .collect();
-    let mut groups = Vec::new();
-    for group in config["routing"]["balancers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .take(wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS)
-    {
-        let Some(tag) = group["tag"].as_str() else {
-            continue;
+#[derive(Default)]
+pub struct GroupPlan {
+    tags: Vec<String>,
+    groups: Vec<Group>,
+    selected: Vec<Range<usize>>,
+}
+
+struct Group {
+    tag: String,
+    strategy: String,
+    members: Vec<Range<usize>>,
+    total: usize,
+}
+
+fn merge_ranges(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    ranges.sort_unstable_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        if let Some(previous) = merged
+            .last_mut()
+            .filter(|previous| range.start <= previous.end)
+        {
+            previous.end = previous.end.max(range.end);
+        } else {
+            merged.push(range);
+        }
+    }
+    merged
+}
+
+impl GroupPlan {
+    pub fn new(config: &Value) -> Self {
+        let Some(groups) = config["routing"]["balancers"]
+            .as_array()
+            .filter(|groups| !groups.is_empty())
+        else {
+            return Self::default();
         };
-        let mut candidates = BTreeMap::new();
-        for prefix in group["selector"]
+        let tags: Vec<&str> = config["outbounds"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(Value::as_str)
-        {
-            for candidate in outbounds
-                .range(prefix..)
-                .take_while(|tag| tag.starts_with(prefix))
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let groups: Vec<_> = groups
+            .iter()
+            .take(wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS)
+            .filter_map(|group| {
+                let tag = group["tag"].as_str()?;
+                let strategy = group["strategy"]["type"].as_str().unwrap_or("random");
+                let ranges = group["selector"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter_map(|prefix| {
+                        let start = tags.partition_point(|tag| *tag < prefix);
+                        let len = tags[start..].partition_point(|tag| tag.starts_with(prefix));
+                        (len != 0).then_some(start..start + len)
+                    })
+                    .collect();
+                // Prefix matches occupy contiguous runs of sorted tags. Keep
+                // the union of those runs without copying tags into each group.
+                let members = merge_ranges(ranges);
+                let total = members.iter().map(ExactSizeIterator::len).sum();
+                Some(Group {
+                    tag: tag.into(),
+                    strategy: strategy.into(),
+                    members,
+                    total,
+                })
+            })
+            .collect();
+        let selected = merge_ranges(
+            groups
+                .iter()
+                .flat_map(|group| group.members.iter().cloned())
+                .collect(),
+        );
+        Self {
+            tags: tags.into_iter().map(str::to_owned).collect(),
+            groups,
+            selected,
+        }
+    }
+
+    pub fn summarize(&self, reports: &serde_json::Map<String, Value>) -> Value {
+        // Resolve each report once, even when many groups share the outbound.
+        // Outer None means untested; inner None means checked but unavailable.
+        let mut readings = vec![None; self.tags.len()];
+        for range in &self.selected {
+            for (tag, reading) in self.tags[range.clone()]
+                .iter()
+                .zip(&mut readings[range.clone()])
             {
-                candidates.insert(*candidate, reports.get(*candidate));
+                *reading = reports.get(tag).map(|value| value["delay"].as_u64());
             }
         }
-        let checked = candidates.values().filter(|r| r.is_some()).count();
-        let live: Vec<_> = candidates
-            .values()
-            .filter_map(|r| r.and_then(|v| v["delay"].as_u64()))
-            .collect();
-        let strategy = group["strategy"]["type"].as_str().unwrap_or("random");
-        let minimum = matches!(strategy, "leastPing" | "leastLoad");
-        let latency = if live.is_empty() {
-            None
-        } else if minimum {
-            live.iter().copied().min()
-        } else {
-            Some((live.iter().sum::<u64>() + live.len() as u64 / 2) / live.len() as u64)
-        };
-        groups.push(json!({"tag":tag,"strategy":strategy,"total":candidates.len(),"checked":checked,"alive":live.len(),"latencyMs":latency}));
+        Value::Array(self.groups.iter().map(|group| {
+            let mut checked = 0;
+            let mut alive = 0;
+            let mut sum = 0;
+            let mut min = u64::MAX;
+            for reading in group.members.iter().flat_map(|range| readings[range.clone()].iter().flatten()) {
+                checked += 1;
+                if let Some(delay) = reading {
+                    alive += 1;
+                    sum += delay;
+                    min = min.min(*delay);
+                }
+            }
+            let latency = if alive == 0 {
+                None
+            } else if matches!(group.strategy.as_str(), "leastPing" | "leastLoad") {
+                Some(min)
+            } else {
+                Some((sum + alive / 2) / alive)
+            };
+            json!({"tag":group.tag,"strategy":group.strategy,"total":group.total,"checked":checked,"alive":alive,"latencyMs":latency})
+        }).collect())
     }
-    json!(groups)
 }
 
 /// Only canvas monitoring aliases are projected; large policy candidate sets
@@ -115,6 +188,7 @@ pub fn outbounds(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn returns_only_canvas_path_reports_including_unchecked_and_failed() {
         let config = json!({"outbounds":[{"tag":"wob-AAAAAAAAAAAAAAAAAAAAAA"},{"tag":"wayrill-observed-chain"},{"tag":"wayrill-observed-waiting"},{"tag":"plain"},{"tag":"internal-candidate"}]});
@@ -150,25 +224,29 @@ mod tests {
         assert!(raw["strange"].is_null());
         assert!(!raw.to_string().contains("private"));
         let config = json!({"outbounds":[{"tag":"peer-a"},{"tag":"peer-b"},{"tag":"peer-c"},{"tag":"control"}],"routing":{"balancers":[{"tag":"pool","selector":["peer-","peer-a"],"strategy":{"type":"roundRobin"}}]}});
-        let stats = groups(&config, &raw);
+        let stats = GroupPlan::new(&config).summarize(raw.as_object().unwrap());
         assert_eq!(stats[0]["total"], 3);
         assert_eq!(stats[0]["checked"], 3);
         assert_eq!(stats[0]["alive"], 2);
         assert_eq!(stats[0]["latencyMs"], 41);
         let mut least = config;
         least["routing"]["balancers"][0]["strategy"]["type"] = json!("leastLoad");
-        assert_eq!(groups(&least, &raw)[0]["latencyMs"], 20);
+        assert_eq!(
+            GroupPlan::new(&least).summarize(raw.as_object().unwrap())[0]["latencyMs"],
+            20
+        );
     }
     #[test]
     fn distinguishes_untested_failure_and_omitted_successful_zero() {
         let config = json!({"outbounds":[{"tag":"a"},{"tag":"b"}],"routing":{"balancers":[{"tag":"pool","selector":[""]}]}});
-        let no_reports = groups(&config, &sanitize(&json!({})));
+        let plan = GroupPlan::new(&config);
+        let no_reports = plan.summarize(sanitize(&json!({})).as_object().unwrap());
         assert_eq!(no_reports[0]["checked"], 0);
         assert!(no_reports[0]["latencyMs"].is_null());
-        let failed = groups(&config, &sanitize(&json!({"a":{}})));
+        let failed = plan.summarize(sanitize(&json!({"a":{}})).as_object().unwrap());
         assert_eq!(failed[0]["checked"], 1);
         assert_eq!(failed[0]["alive"], 0);
-        let live = groups(&config, &sanitize(&json!({"a":{"alive":true}})));
+        let live = plan.summarize(sanitize(&json!({"a":{"alive":true}})).as_object().unwrap());
         assert_eq!(live[0]["latencyMs"], 0);
         assert!(sanitize(&json!(["invalid"])).is_null());
     }

@@ -2658,7 +2658,7 @@ impl Kernel {
                     crate::fakedns::Usage::from_metrics(&value.counters["fakeDns"])
                         .map(|usage| (generation, value.observed_at, usage));
                 self.observation = self.control.as_ref().map(|control| {
-                    let groups = crate::observation::groups(&control.config, &value.counters["observatory"]);
+                    let groups = control.observed_groups(&value.counters["observatory"]);
                     let truncated = control.config["routing"]["balancers"].as_array().is_some_and(|groups| groups.len() > wayrill_protocol::MAX_SNAPSHOT_ENDPOINTS);
                     let outbounds = self.profile.as_ref().map(|profile| crate::observation::outbounds(&control.config, &value.counters["observatory"], &profile.display_names)).unwrap_or_else(|| json!([]));
                     (generation, value.observed_at, json!({"generation":generation,"revision":self.revision(),"sampledAtMs":value.timestamp_ms,"groups":groups,"outbounds":outbounds,"truncated":truncated}))

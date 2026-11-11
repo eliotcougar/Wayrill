@@ -4,7 +4,7 @@ use crate::native::{self, CoreIdentity};
 use serde_json::{json, Value};
 use std::{
     path::Path,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 use wayrill_protocol::{ApiError, Result};
@@ -16,6 +16,7 @@ pub struct Control {
     address: String,
     password: String,
     rule: Value,
+    observation: Arc<OnceLock<crate::observation::GroupPlan>>,
 }
 impl Control {
     pub fn new(config: &Value) -> Result<Self> {
@@ -45,6 +46,7 @@ impl Control {
             address: address.to_string(),
             password,
             rule,
+            observation: Arc::default(),
         })
     }
     pub fn routing(&self, routing: &Value) -> Value {
@@ -121,7 +123,19 @@ impl Control {
         }
     }
     pub fn commit(&mut self, routing: Value) {
+        if self.config["routing"]["balancers"] != routing["balancers"] {
+            self.observation = Arc::default();
+        }
         Arc::make_mut(&mut self.config)["routing"] = routing;
+    }
+
+    pub fn observed_groups(&self, reports: &Value) -> Value {
+        let Some(reports) = reports.as_object() else {
+            return json!([]);
+        };
+        self.observation
+            .get_or_init(|| crate::observation::GroupPlan::new(&self.config))
+            .summarize(reports)
     }
 }
 pub fn same_except_adapter_names(a: &Value, b: &Value) -> bool {
@@ -275,6 +289,24 @@ pub fn main_routing(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn observation_follows_the_active_group_membership_and_new_probe_results() {
+        let mut control = Control::new(&json!({
+            "inbounds": [],
+            "outbounds": [{"tag":"peer-a"},{"tag":"peer-b"}],
+            "routing": {"balancers":[{"tag":"pool","selector":["peer-a"]}]}
+        }))
+        .unwrap();
+        let report = |a, b| json!({"peer-a":{"delay":a},"peer-b":{"delay":b}});
+        assert_eq!(control.observed_groups(&report(15, 50))[0]["latencyMs"], 15);
+        assert_eq!(control.observed_groups(&report(20, 60))[0]["latencyMs"], 20);
+        let mut routing = control.config["routing"].clone();
+        routing["balancers"][0]["selector"] = json!(["peer-b"]);
+        control.commit(routing);
+        let result = control.observed_groups(&report(20, 60));
+        assert_eq!(result[0]["total"], 1);
+        assert_eq!(result[0]["latencyMs"], 60);
+    }
     #[test]
     fn name_only_apply_does_not_include_routing_peers_or_geometry_edits() {
         let old = json!({"inbounds":[{"protocol":"tun","settings":{"name":"Owned","gateway":["10.90.0.1/24"]}}],"outbounds":[{"protocol":"freedom","tag":"direct"}],"routing":{"rules":[]}});
