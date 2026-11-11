@@ -151,6 +151,55 @@ describe('Flattened routing paths', () => {
     expect(graph.nodes.filter((n) => n.data.kind === 'routing-filter')).toHaveLength(2);
     expect(compileXrayGraph(parseGraph(serializeGraph(imported))).config).toEqual(config);
   });
+  it('keeps native network arrays effective when an imported rule becomes a child filter', () => {
+    const graph = importXrayConfig(
+      JSON.stringify({
+        inbounds: [
+          {
+            tag: 'input',
+            protocol: 'socks',
+            listen: '127.0.0.1',
+            port: 1080,
+            settings: { udp: true },
+          },
+        ],
+        outbounds: [
+          { tag: 'direct', protocol: 'freedom' },
+          { tag: 'block', protocol: 'blackhole' },
+        ],
+        routing: {
+          rules: [
+            { type: 'field', network: 'tcp', outboundTag: 'block' },
+            { type: 'field', network: ['tcp', 'udp'], port: '443', outboundTag: 'block' },
+          ],
+        },
+      }),
+    );
+    const root = graph.nodes.find((node) => node.id === graph.xray!.routingNodeId)!;
+    const table = readRuleTable(root.data.settings);
+    const child = makeNode('routing-filter', { x: 500, y: 300 }, 'child');
+    Object.assign(child.data.settings, tableSettings({ ...table, rules: [table.rules[1]] }));
+    Object.assign(root.data.settings, tableSettings({ ...table, rules: [table.rules[0]] }));
+    const childEdges = graph.edges
+      .filter((edge) => edge.source === root.id)
+      .map((edge) => ({ ...edge, id: `child-${edge.id}`, source: child.id }));
+    graph.edges.find(
+      (edge) => edge.source === root.id && edge.sourceHandle === table.rules[0].output,
+    )!.target = child.id;
+    graph.nodes.push(child);
+    graph.edges.push(...childEdges);
+    const config = compileRuntimeGraph(parseGraph(serializeGraph(graph))).config;
+    const packet = {
+      inboundTag: 'input',
+      network: 'tcp',
+      port: 443,
+      domain: 'example.test',
+      protocol: 'tls',
+    };
+    expect(actual(config, packet)).toBe('block');
+    expect(actual(config, { ...packet, port: 80 })).toBe('direct');
+    expect(actual(config, { ...packet, network: 'udp' })).toBe('direct');
+  });
   it('attaches non-expressible intersections and cycles to the responsible node', () => {
     const graph = createChainedExample(),
       root = graph.nodes.find((n) => n.id === 'entry-filter')!,

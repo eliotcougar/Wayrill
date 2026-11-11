@@ -12,7 +12,7 @@ import {
   routingRuleVariants,
   type TableRule,
 } from './rules';
-import { jsonEqual, jsonText, jsonArray } from './xrayJson';
+import { jsonEqual, jsonArray, xrayStringList } from './xrayJson';
 import type { GraphState, RuleNode } from './types';
 
 type Fields = Record<string, unknown>;
@@ -40,6 +40,7 @@ const predicates = new Set([
   '_wayrillApplications',
 ]);
 const array = (v: unknown): string[] => (jsonArray(v) ? v.map(String) : [String(v)]);
+const networks = (v: unknown) => xrayStringList(v).map((network) => String(network).trim());
 const sameSet = (a: string[], b: string[]) =>
   a.length === b.length && a.every((v) => b.includes(v));
 function ranges(v: unknown): [number, number][] {
@@ -152,18 +153,8 @@ export function intersectPredicates(a: Fields, b: Fields): Fields | null {
     else if (key === 'process') intersection = intersectNativeProcesses(array(old), array(value));
     else if (key === 'protocol') intersection = intersectProtocolPrefixes(array(old), array(value));
     else if (sets.has(key) || key === 'network') {
-      const lhs =
-          key === 'network'
-            ? String(old)
-                .split(',')
-                .map((v) => v.trim())
-            : array(old),
-        rhs =
-          key === 'network'
-            ? jsonText(value)
-                .split(',')
-                .map((v) => v.trim())
-            : array(value),
+      const lhs = key === 'network' ? networks(old) : array(old),
+        rhs = key === 'network' ? networks(value) : array(value),
         overlap = lhs.filter((v) =>
           rhs.some((r) => (key === 'localOS' ? r.toLowerCase() === v.toLowerCase() : r === v)),
         );
