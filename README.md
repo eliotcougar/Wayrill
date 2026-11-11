@@ -6,18 +6,18 @@
 The entire application, apart from Xray-core and third-party dependencies, was
 vibe-coded using **OpenAI Codex GPT-6.1 Sol and GPT-6 Astra**.
 
-Wayrill is an open-source application for deciding how traffic leaves your
-computer. Keep local destinations on your normal connection, send selected apps
-through a proxy, choose different exits for different sites, and give DNS its own
-rules. The node editor brings these decisions together in a graph you can inspect
-and change.
+Build a graph that shows how traffic enters your PC, which rules it matches,
+and where it leaves. Keep local destinations on your normal connection, send
+selected apps through a proxy, and give DNS its own rules. Wayrill runs the graph
+as a Windows service. The bundled **Wayrill Aquifer** uses the same editing
+approach to manage Xray on a Linux server over SSH.
 
 [**Download the Windows beta**](https://github.com/eliotcougar/Wayrill/releases) ·
 [Getting started](docs/guide/getting-started.md) ·
 [Documentation](docs/README.md) ·
 [Report a problem](https://github.com/eliotcougar/Wayrill/issues)
 
-Windows 10/11 · x64 · First public beta
+Windows 10/11 · x64 · Public beta
 
 [![Checks](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml)
 
@@ -41,6 +41,21 @@ another exit, and use a local DNS resolver only for particular domains. A separa
 sharing path can route streaming destinations for a connected TV while leaving
 other shared traffic direct.
 
+Turn on **Settings → Appearance → Traffic glow on graph** to see activity as it
+happens. Capture and inbound outputs glow with throughput. Filter branches glow
+with recent matches, so two branches that share an outbound light up independently.
+
+## Manage your Xray server with Aquifer
+
+Open **Tools → Wayrill Aquifer** and select a saved WinSCP session. Read an
+existing Linux Xray configuration or start one in the editor, then configure
+inbounds, users, routing rules, DNS and outbounds. Aquifer validates the generated
+configuration on the server before you deploy it. It backs up the previous
+configuration and can restore it if deployment fails.
+
+Aquifer uses your existing WinSCP installation and its saved sessions and host
+keys. [Aquifer setup and deployment](aquifer/README.md).
+
 ## From a webpage to its routing rules
 
 **Browser Companion** brings the graph into your browser. Open it on a page to
@@ -57,6 +72,16 @@ uses a Mozilla-signed add-on; Chromium browsers load the included extension
 folder. Destination data stays on your computer. Route labels are observations
 across this PC's apps and tabs, rather than proof of an individual request's
 route. [Set up Companion](docs/guide/browser-companion.md).
+
+## Set a timezone for an individual app
+
+Use **Tools → Timezone spoofing** to set a timezone for a browser, executable or
+supported packaged app. Pick a timezone manually or use the exit IP of the Main
+outbound or a saved server, policy group or chain. Both 32-bit and 64-bit apps
+are supported on x64 Windows. Some runtimes need the override in place before
+launch, and protected apps may refuse it. Chromium Companion can configure the
+same browser-wide override without debugger permissions.
+[Timezone setup and supported behavior](docs/guide/browser-companion.md#timezone-override-chromium).
 
 ## What you can do
 
