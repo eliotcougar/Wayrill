@@ -12,6 +12,7 @@ included code/data is covered by the root MIT license.
 | WinDivert | LGPL-3.0-or-later; unmodified vendor distribution, [source](https://github.com/basil00/WinDivert) |
 | Wintun | License/notices supplied with the pinned Xray vendor archive |
 | libavoid-js/libavoid | [LGPL-2.1-or-later](public/licenses/libavoid-LGPL-2.1.txt); [notice and source](public/licenses/libavoid-NOTICE.txt) |
+| node-semver | [ISC](public/licenses/node-semver-ISC.txt) |
 | NSIS template from Tauri | [Original MIT notice](docs/licenses/tauri-installer.md); [template provenance](src-tauri/installer/README.md) |
 | gRPC/protobuf dependencies | [Notices/full licenses](docs/licenses/grpc.md) and language lockfiles |
 | GeoSite/GeoIP resources | Retained GPL notices in `service/routing-assets`; exact upstream releases, hashes and sources in `service/dependencies.json` |

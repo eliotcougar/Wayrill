@@ -1,6 +1,6 @@
 [package]
 name = "wayrill"
-version = "0.36.9"
+version = "0.37.0"
 description = "Wayrill routing workspace"
 edition = "2021"
 rust-version = "1.77.2"

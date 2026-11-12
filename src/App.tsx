@@ -153,6 +153,7 @@ import type {
 import useGraphEditor from './useGraphEditor';
 import useTheme from './useTheme';
 import AppearanceSettings from './components/AppearanceSettings';
+import UpdateDialog from './components/UpdateDialog';
 import CompanionSettings from './components/CompanionSettings';
 import TimezoneSettings from './components/TimezoneSettings';
 import CompanionRuleDialog from './components/CompanionRuleDialog';
@@ -170,7 +171,7 @@ import type { StashLink } from './graph/types';
 
 const nodeTypes = { rule: RuleNode };
 const edgeTypes = { schematic: SchematicEdge };
-type DialogKind = 'help' | 'about' | 'validation' | null;
+type DialogKind = 'help' | 'updates' | 'about' | 'validation' | null;
 
 export default function App() {
   const trafficUnits = useTrafficUnits();
@@ -1189,6 +1190,7 @@ export default function App() {
           action: () => setDialog('help'),
         },
         { label: 'Application logs…', action: () => setLogsOpen(true) },
+        { label: 'Check for updates…', action: () => setDialog('updates') },
         { label: 'About Wayrill', action: () => setDialog('about') },
       ],
     },
@@ -2219,7 +2221,8 @@ export default function App() {
                           onIssue={reviewIssue}
                         />
                       )}
-                      {dialog && dialog !== 'validation' && (
+                      {dialog === 'updates' && <UpdateDialog onClose={() => setDialog(null)} />}
+                      {(dialog === 'help' || dialog === 'about') && (
                         <Dialog
                           title={dialog === 'help' ? 'Keyboard & canvas' : 'About Wayrill'}
                           onClose={() => setDialog(null)}

@@ -10,6 +10,7 @@ mod companion;
 mod diagnostics;
 mod export;
 mod picker;
+mod release_page;
 mod routing_source;
 // Reuse the bounded WinHTTP reader; manual rule downloads run under the desktop token.
 #[path = "../../service/subscription_http.rs"]
@@ -313,6 +314,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             aquifer::aquifer_open,
+            release_page::open_release_page,
             companion::companion_status,
             companion::companion_register,
             companion::companion_unregister,
