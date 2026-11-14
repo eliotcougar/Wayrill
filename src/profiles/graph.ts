@@ -26,6 +26,7 @@ export function applyStashedProfile(
       'The graph supports at most 500 nodes. Keep other configurations in the stash.',
     );
   const node = makeNode(entry.profile.kind, previous?.position ?? position, previous?.id);
+  if (previous?.data.poolOutbound) node.data.poolOutbound = true;
   if (!previous) node.position = clearNodePosition(graph.nodes, position);
   node.selected = true;
   node.data.label = entry.name;

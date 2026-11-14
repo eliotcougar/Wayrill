@@ -1,9 +1,10 @@
 import { isDisabledInbound } from './graph/inboundState';
 import { runtimeProgress } from './runtimeProgress';
 import { runtimePresentation } from './runtimePresentation';
-import { serializeGraph } from './graph/model';
-import { stageSubscriptionGraph } from './profiles/serviceSubscriptions';
-import { jsonArray } from './graph/xrayJson';
+import { parseGraph, serializeGraph } from './graph/model';
+import { readSubscriptionDocument, stageSubscriptionGraph } from './profiles/serviceSubscriptions';
+import { jsonArray, jsonEqual } from './graph/xrayJson';
+import { poolRoutingState } from './pool/model';
 import type { ConfigValidationResult } from './serviceClient';
 import type { GraphState } from './graph/types';
 import type useGraphAnalysis from './useGraphAnalysis';
@@ -13,6 +14,7 @@ export default function createGraphRuntimeActions(
   graph: GraphState,
   checks: ReturnType<typeof useGraphAnalysis>,
   runtime: RuntimeController,
+  personalRulesChanged = false,
 ) {
   const { snapshot, connected, busy, desktop } = runtime;
   const canCall = desktop && connected && !!snapshot && !busy && !runtimeProgress(runtime);
@@ -40,7 +42,7 @@ export default function createGraphRuntimeActions(
   const captureOwnership = snapshot?.capture?.availability;
   const ownershipUnavailable = !!captureOwnership && captureOwnership.state !== 'available';
   const captureBlocked = !!winCapture && ownershipUnavailable;
-  const view = runtimePresentation(runtime, compiled);
+  const view = runtimePresentation(runtime, compiled, personalRulesChanged);
   const mode = view.appliedMatch
     ? snapshot?.core.state === 'stopped'
       ? 'start'
@@ -155,6 +157,16 @@ export default function createGraphRuntimeActions(
         revision: snapshot.config.revision,
       });
       return true;
+    }
+    if (graph.poolId) {
+      const { text } = await readSubscriptionDocument('applied');
+      if (
+        (!text || !jsonEqual(poolRoutingState(parseGraph(text)), poolRoutingState(graph))) &&
+        !window.confirm(
+          'Apply personal routing changes? Pool updates will pause. To resume updates, open Connect to Pool and apply your configuration choices again.',
+        )
+      )
+        return false;
     }
     await runtime.run(
       'config.applyAndStart',

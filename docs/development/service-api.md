@@ -41,6 +41,48 @@ merging a concurrent edit; never retry a stale save as an unconditional overwrit
 Large subscription documents use bounded reads/staging and a validated commit.
 The accepted source/hash and applied revision distinguish library changes from
 activation. A disconnected UI does not cancel healthy service-owned maintenance.
+
+### Managed Pool
+
+`pool.preview` takes a new enrollment's `source` (`kind`, `address`, `invite`),
+or uses the connected Pool when `source` is omitted. It takes `capture`
+(`current`, `proxy` or `tun`) and `expectedRevision`. Once its job completes,
+`pool.previewResult` returns the named placeholders, local inbounds, suggested or
+saved `bindings`, the revision, and the publication digest. Layer deliveries
+also return the current `selection` and the assigned graph, Stash, compatible
+filter and outbound options. Repeat preview with a `selection` and the
+reviewed `expectedDigest` to change the graph or Stash choices. Supply
+`bindings` to retain draft inbound assignments, or `resetBindings` when
+switching graphs.
+
+`pool.enroll` takes `source`, `capture`, `start`, `expectedRevision`, optional
+`refreshMinutes`, and the reviewed `bindings` and `expectedDigest`.
+`pool.bind` applies the reviewed `capture`, `bindings`, `expectedRevision` and
+`expectedDigest` to an existing enrollment. A binding maps a local inbound ID
+to a placeholder ID. Bindings are committed with the applied candidate and
+reused on subsequent updates. Enrollment and binding changes accept
+`selection` with a graph ID, optional list of Stash layer IDs, optional
+filter-node to layer map, and optional outbound-node to Stash-link map.
+Absent maps or lists use publication defaults. The applied choices are
+committed with the graph and Stash. A removed explicit choice prevents a
+refresh from replacing the last working configuration.
+`pool.setInterval` saves `refreshMinutes` on the current connection. `pool.refresh` checks the
+saved source now. `pool.disconnect` clears enrollment. Pass `keepStash: false`
+to remove the entries delivered by the current invitation in the same transaction.
+Omitting the parameter keeps the Stash for older callers. These operations return a `job` to monitor through
+`subscriptions.job`. `pool.status` reports the connection, last applied time,
+current work, latest error and `lastCheckAt` (milliseconds since the Unix epoch,
+or null before the first check in the current service run). It omits the private
+invite. `pool.previewResult` identifies incompatible choices in `options.unavailable`.
+
+The service authenticates and compiles a candidate in restricted workers. A
+protected library checkpoint binds the prepared Stash to the exact candidate
+source graph and runtime hash. The subscription actor commits the library after
+activation or reconciles it against the authoritative profile on service
+restart. An automatic replacement requires the current applied routing to match
+the last accepted managed routing, excluding local listener settings and layout.
+Subscribers can explicitly resume management by applying their configuration
+choices. Regular subscription jobs continue to use their own sources.
 Background context updates coalesce without holding the library-save lane.
 Explicit library saves and outbound assignments interrupt maintenance checks or
 downloads; their completed work is retained and drained before the edit runs.

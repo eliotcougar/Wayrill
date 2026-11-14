@@ -19,6 +19,7 @@ import {
   parseOverrides,
   resolveGraph,
 } from './defaults';
+import { parsePoolSettings } from './poolSettings';
 import { connectionProblem, structureProblems } from './structure';
 export { connectionProblem } from './structure';
 import {
@@ -102,6 +103,8 @@ export function toDocument(graph: GraphState): GraphDocument {
     format: 'wayrill.graph',
     version: 2,
     name: graph.name,
+    ...(graph.poolId ? { poolId: graph.poolId } : {}),
+    ...(graph.poolId && graph.poolSettings ? { poolSettings: { ...graph.poolSettings } } : {}),
     ...(mainOutbound(graph) ? { mainOutboundId: graph.mainOutboundId } : {}),
     nodes: graph.nodes.map((node) => ({
       id: node.id,
@@ -122,6 +125,7 @@ export function toDocument(graph: GraphState): GraphDocument {
         ...(node.data.overrides ? { overrides: [...node.data.overrides] } : {}),
         ...(node.data.native ? { native: node.data.native } : {}),
         ...(node.data.stashLink ? { stashLink: { ...node.data.stashLink } } : {}),
+        ...(node.data.poolOutbound ? { poolOutbound: true as const } : {}),
       },
     })),
     edges: graph.edges.map((edge) => ({
@@ -229,6 +233,9 @@ export function parseGraph(text: string): GraphState {
         ...(item.data.enabled === false ? { enabled: false } : {}),
         settings,
         overrides,
+        ...(item.data.poolOutbound === true && isOutboundKind(item.data.kind)
+          ? { poolOutbound: true as const }
+          : {}),
         ...(native ? { native } : {}),
         ...(stashLink
           ? {
@@ -249,7 +256,16 @@ export function parseGraph(text: string): GraphState {
       !nodes.some((node) => node.id === raw.mainOutboundId && isOutboundKind(node.data.kind)))
   )
     throw new Error('Main must refer to an existing outbound, policy group or proxy chain.');
+  if (
+    raw.poolId !== undefined &&
+    (typeof raw.poolId !== 'string' || !/^[0-9a-f]{32}$/.test(raw.poolId))
+  )
+    throw new Error('Invalid Pool graph identity.');
+  const poolSettings = parsePoolSettings(raw.poolSettings);
+  if (poolSettings && !raw.poolId) throw new Error('Pool settings require a Pool graph.');
   const graph: GraphState = {
+    ...(raw.poolId ? { poolId: raw.poolId } : {}),
+    ...(poolSettings ? { poolSettings } : {}),
     ...(raw.mainOutboundId === undefined ? {} : { mainOutboundId: raw.mainOutboundId }),
     name: raw.name,
     defaults,

@@ -10,11 +10,11 @@ mod companion;
 mod diagnostics;
 mod export;
 mod picker;
+mod pool_open;
+#[allow(dead_code)]
+mod pool_transfer;
 mod release_page;
 mod routing_source;
-// Reuse the bounded WinHTTP reader; manual rule downloads run under the desktop token.
-#[path = "../../service/subscription_http.rs"]
-mod routing_http;
 mod shutdown;
 mod tray;
 mod vault;
@@ -47,49 +47,6 @@ async fn process_picker(
     .map_err(|_| "Process picker task failed.")?
 }
 
-#[tauri::command]
-async fn routing_source_file(
-    window: tauri::WebviewWindow,
-    path: Option<String>,
-) -> Result<Option<Value>, String> {
-    let owner = window.hwnd().map_err(|_| "Cannot find the app window.")?.0 as usize;
-    tauri::async_runtime::spawn_blocking(move || {
-        let path = match path {
-            Some(path) => Some(path),
-            None => std::thread::spawn(move || picker::choose(owner, "routing"))
-                .join()
-                .map_err(|_| "Routing file picker failed.")??,
-        };
-        path.map(|path| routing_source::read(&path).map(|text| json!({"path": path, "text": text})))
-            .transpose()
-    })
-    .await
-    .map_err(|_| "Routing file task failed.")?
-}
-
-#[tauri::command]
-async fn routing_source_download(
-    url: String,
-    allow_http: bool,
-    proxy_port: Option<u16>,
-) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let text = routing_http::fetch(
-            &url,
-            allow_http,
-            "",
-            &std::collections::BTreeMap::new(),
-            proxy_port,
-        )?;
-        if text.len() > wayrill_protocol::MAX_CONFIG {
-            return Err("Routing files must be at most 16 MiB.".into());
-        }
-        Ok(text)
-    })
-    .await
-    .map_err(|_| "Routing download task failed.")?
-}
-
 use tauri::{Emitter, Manager};
 struct VaultLock {
     write: Mutex<()>,
@@ -103,6 +60,9 @@ async fn protected_read(
     key: String,
     lock: tauri::State<'_, Arc<VaultLock>>,
 ) -> Result<Option<String>, String> {
+    if key == "pools" {
+        return Err("Pool settings are managed in Wayrill Pool.".into());
+    }
     let base = app
         .path()
         .app_local_data_dir()
@@ -122,6 +82,9 @@ async fn protected_write(
     text: String,
     lock: tauri::State<'_, Arc<VaultLock>>,
 ) -> Result<(), String> {
+    if key == "pools" {
+        return Err("Pool settings are managed in Wayrill Pool.".into());
+    }
     let base = app
         .path()
         .app_local_data_dir()
@@ -315,6 +278,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             aquifer::aquifer_open,
             release_page::open_release_page,
+            pool_open::pool_open,
+            pool_open::pool_send,
             companion::companion_status,
             companion::companion_register,
             companion::companion_unregister,
@@ -330,8 +295,8 @@ fn main() {
             protected_write,
             export_json,
             process_picker,
-            routing_source_file,
-            routing_source_download,
+            routing_source::routing_source_file,
+            routing_source::routing_source_download,
             diagnostics::diagnostics_read,
             diagnostics::diagnostics_open,
             diagnostics::diagnostics_record

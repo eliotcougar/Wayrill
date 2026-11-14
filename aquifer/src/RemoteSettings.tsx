@@ -29,6 +29,7 @@ export default function RemoteSettings({
   schema,
   destinations,
   userCount,
+  saveLabel = 'Apply changes',
   onManageUsers,
   onSave,
   onClose,
@@ -40,6 +41,7 @@ export default function RemoteSettings({
   schema: string;
   destinations: RouteDestination[];
   userCount?: number;
+  saveLabel?: string;
   onManageUsers?: () => void;
   apiListeners?: ApiListener[];
   routingOutputs?: RoutingOutput[];
@@ -403,7 +405,7 @@ export default function RemoteSettings({
             Cancel
           </button>
           <button type="submit" className="primary-button">
-            Apply changes
+            {saveLabel}
           </button>
         </footer>
       </form>

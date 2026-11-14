@@ -61,6 +61,8 @@ it('lists used outbounds and all groups/chains in separate tabs with accurate gr
       <RemoteStash
         view={view}
         visible={new Set(['native-out-0'])}
+        canAdd={() => true}
+        onAdd={vi.fn()}
         onEdit={edit}
         onEditChain={editChain}
         onShow={show}
@@ -85,6 +87,52 @@ it('lists used outbounds and all groups/chains in separate tabs with accurate gr
   await click('Edit relay-eu');
   expect(editChain).toHaveBeenCalledWith('native-out-2');
 });
+it('commits a new outbound to the configuration only after saving its Stash editor', async () => {
+  const view = remoteView(JSON.stringify(demoConfig));
+  const save = vi.fn();
+  await act(async () =>
+    root.render(
+      <RemoteStash
+        view={view}
+        visible={new Set()}
+        canAdd={() => true}
+        onAdd={save}
+        onEdit={vi.fn()}
+        onEditChain={vi.fn()}
+        onShow={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  const begin = async () => {
+    await click('Add outbound');
+    const field = host.querySelector<HTMLSelectElement>('dialog.app-dialog select')!;
+    await act(async () => {
+      field.value = 'outbound:freedom';
+      field.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click('Continue');
+  };
+
+  await begin();
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>('.remote-settings-dialog footer button[type="button"]')!
+      .click(),
+  );
+  expect(host.querySelector('.remote-settings-dialog')).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+
+  await begin();
+  await click('Save to Stash');
+  expect(save).toHaveBeenCalledOnce();
+  const next = save.mock.calls[0][0] as typeof view;
+  expect(next.original.outbounds).toEqual([
+    ...(view.original.outbounds as object[]),
+    expect.objectContaining({ tag: 'direct-2', protocol: 'freedom' }),
+  ]);
+});
+
 it('edits chain hops without losing credentials or unknown fields and blocks cycles', async () => {
   const outbounds = [
     {
@@ -128,6 +176,8 @@ it('starts each stash result page at the top and keeps actions attached to its r
       <RemoteStash
         view={view}
         visible={new Set()}
+        canAdd={() => true}
+        onAdd={vi.fn()}
         onEdit={edit}
         onEditChain={vi.fn()}
         onShow={vi.fn()}
@@ -243,6 +293,8 @@ it('keeps all Stash tabs connected to their visible, correctly labelled panel', 
       <RemoteStash
         view={view}
         visible={new Set()}
+        canAdd={() => true}
+        onAdd={vi.fn()}
         onEdit={vi.fn()}
         onEditChain={vi.fn()}
         onShow={vi.fn()}

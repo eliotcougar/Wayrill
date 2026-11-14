@@ -27,7 +27,7 @@ import {
 import { getDefinition, getOutputPorts, portLabel } from '../graph/catalog';
 import { connectionTypes, sourceConnectionKind } from '../graph/connectionTypes';
 import { connectionDescription, connectionIsEditable } from '../graph/connectionEditing';
-import { isExecutableOutboundKind, outboundBundle } from '../graph/outbounds';
+import { isExecutableOutboundKind, isOutboundKind, outboundBundle } from '../graph/outbounds';
 import { isFieldVisible } from '../graph/settingValidation';
 import { inboundPreview, isInboundKind } from '../graph/inbounds';
 import { isNativeConfigEditor } from '../graph/xrayNodes';
@@ -57,6 +57,7 @@ import { isGraphInbound, isDisabledInbound } from '../graph/inboundState';
 
 interface Props {
   libraryEdit?: boolean;
+  poolLayer?: boolean;
   graph: GraphState;
   diagnostics: Diagnostic[];
   node?: RuleNode;
@@ -133,6 +134,7 @@ function NodeDescription({
 
 export default function Inspector({
   libraryEdit = false,
+  poolLayer = false,
   graph,
   diagnostics,
   node,
@@ -332,6 +334,20 @@ export default function Inspector({
             value={node.data.description}
             onChange={(description) => onUpdate(node.id, { description })}
           />
+          {poolLayer && isOutboundKind(node.data.kind) && (
+            <label className="check-control check-control--compact">
+              <input
+                type="checkbox"
+                checked={!!node.data.poolOutbound}
+                onChange={(event) =>
+                  onUpdate(node.id, {
+                    poolOutbound: event.currentTarget.checked ? true : undefined,
+                  })
+                }
+              />
+              Outbound placeholder
+            </label>
+          )}
           <div className="inspector-section-title">Configuration</div>
           {autoFakeRecovery && <p className="field-help">FakeDNS name recovery · Automatic</p>}
           {autoFake &&

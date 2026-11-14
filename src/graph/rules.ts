@@ -29,6 +29,7 @@ export interface NamedOutput {
   id: string;
   name: string;
 }
+export type PoolRulePlacement = 'before' | 'after';
 export interface TableRule {
   id: string;
   name: string;
@@ -41,6 +42,7 @@ export interface TableRule {
   applications?: ApplicationSelector[];
   native?: NativeProjection;
   source?: SourceRow;
+  poolPlacement?: PoolRulePlacement;
 }
 export interface RuleTable {
   outputs: NamedOutput[];
@@ -206,6 +208,15 @@ const id = (value: unknown): value is string =>
   typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 const text = (value: unknown, max = 4096): value is string =>
   typeof value === 'string' && value.length <= max;
+
+export function orderTrafficRules(rules: TableRule[]): TableRule[] {
+  if (!rules.some((rule) => rule.poolPlacement)) return rules;
+  return [
+    ...rules.filter((rule) => rule.poolPlacement === 'before'),
+    ...rules.filter((rule) => !rule.poolPlacement),
+    ...rules.filter((rule) => rule.poolPlacement === 'after'),
+  ];
+}
 export function readRuleTable(settings: Record<string, SettingValue>): RuleTable {
   const outputs: unknown = parseJson(String(settings.outputs));
   const rules: unknown = parseJson(String(settings.rules));
@@ -257,6 +268,12 @@ export function readRuleTable(settings: Record<string, SettingValue>): RuleTable
     if (rule.applications !== undefined) parseApplicationSelectors(rule.applications);
     if (rule.native !== undefined) parseNativeProjection(rule.native);
     if (typeof rule.matchAll !== 'boolean') throw new Error('Invalid match-all setting.');
+    if (
+      rule.poolPlacement !== undefined &&
+      ((rule.poolPlacement !== 'before' && rule.poolPlacement !== 'after') ||
+        rule.source !== undefined)
+    )
+      throw new Error('Invalid personal Pool rule.');
     for (const [key, value] of Object.entries(rule.conditions))
       if (!routingConditionFields.some((field) => field.key === key) || !text(value, 16384))
         throw new Error('Invalid rule condition.');
@@ -281,7 +298,7 @@ export function readRuleTable(settings: Record<string, SettingValue>): RuleTable
   }
   return {
     outputs: outputs as NamedOutput[],
-    rules: rules as TableRule[],
+    rules: orderTrafficRules(rules as TableRule[]),
     defaultOutput: String(settings.defaultOutput),
     ...(source ? { source } : {}),
     ...(tunAmbiguity === undefined
@@ -292,7 +309,7 @@ export function readRuleTable(settings: Record<string, SettingValue>): RuleTable
 export function tableSettings(table: RuleTable): Record<string, SettingValue> {
   return {
     outputs: JSON.stringify(table.outputs),
-    rules: JSON.stringify(table.rules),
+    rules: JSON.stringify(orderTrafficRules(table.rules)),
     defaultOutput: table.defaultOutput,
     ruleSource: table.source ? JSON.stringify(table.source) : '',
     ...(table.tunAmbiguity ? { tunAmbiguity: JSON.stringify(table.tunAmbiguity) } : {}),

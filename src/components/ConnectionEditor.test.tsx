@@ -31,20 +31,13 @@ const choose = async (id: string) => {
 };
 const setup = async (request: ConnectionRequest, graph = createVerificationExample()) => {
   const apply = vi.fn((): string | null => null),
-    close = vi.fn(),
-    editExisting = vi.fn();
+    close = vi.fn();
   const render = (next: GraphState) =>
     root.render(
-      <ConnectionEditor
-        graph={next}
-        request={request}
-        onApply={apply}
-        onEditExisting={editExisting}
-        onClose={close}
-      />,
+      <ConnectionEditor graph={next} request={request} onApply={apply} onClose={close} />,
     );
   await act(() => render(graph));
-  return { graph, apply, close, editExisting, render };
+  return { graph, apply, close, render };
 };
 
 it('prefers an unused output for Add while honoring an explicit occupied output', async () => {
@@ -56,9 +49,14 @@ it('prefers an unused output for Add while honoring an explicit occupied output'
   expect(host.querySelector<HTMLSelectElement>('#connection-output')!.value).toBe('dns');
   expect(host.textContent).not.toContain('This output is already connected');
   await act(() => root.render(null));
-  await setup({ sourceId: 'socks', port: 'data' }, graph);
+  const { apply } = await setup({ sourceId: 'socks', port: 'data' }, graph);
   expect(host.querySelector<HTMLSelectElement>('#connection-output')!.value).toBe('data');
-  expect(host.textContent).toContain('This output is already connected');
+  const existing = graph.edges.find(
+    (edge) => edge.source === 'socks' && edge.sourceHandle === 'data',
+  )!;
+  await choose('block');
+  await act(() => button('Apply connection').click());
+  expect(apply).toHaveBeenCalledWith(expect.objectContaining({ target: 'block' }), existing.id);
 });
 it('searches destination names and tags while retaining the explicitly selected endpoint in the preview', async () => {
   const graph = createVerificationExample(),

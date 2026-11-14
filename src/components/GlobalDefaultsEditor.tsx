@@ -35,6 +35,7 @@ import {
 } from '../graph/coreDefaults';
 import PolicyFields from './PolicyFields';
 import { jsonRecord, parseJson } from '../graph/xrayJson';
+import { formatPoolSetting, poolSettingKeys } from '../graph/poolSettings';
 
 export default function GlobalDefaultsEditor({
   graph,
@@ -141,6 +142,12 @@ export default function GlobalDefaultsEditor({
         ? resetCoreDefault(current, key)
         : { ...current, settings: { ...current.settings, [key]: value } },
     );
+  const poolHints = new Map<string, string>(
+    poolSettingKeys.flatMap((key) => {
+      const value = graph.poolSettings?.[key];
+      return value === undefined ? [] : [[key, formatPoolSetting(key, value)]];
+    }),
+  );
   const renderFields = (fields: typeof globalFields) => (
     <div className="field-grid defaults-field-grid">
       {fields.map((f) => (
@@ -217,6 +224,11 @@ export default function GlobalDefaultsEditor({
               resetPolicyDraft(f.key);
             }}
           />
+          {poolHints.has(f.key) && (
+            <p className="resolved-default-hint">
+              Pool override · {poolHints.get(f.key)}. The value above is your local default.
+            </p>
+          )}
           {f.key === 'policy' && policy && (
             <PolicyFields
               key={policyRevision}

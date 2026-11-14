@@ -7,6 +7,7 @@ target/
 **/target/
 .vite/
 src-tauri/gen/schemas/
+src-tauri/pool/gen/schemas/
 /service/subscription-engine/
 *.tsbuildinfo
 __pycache__/

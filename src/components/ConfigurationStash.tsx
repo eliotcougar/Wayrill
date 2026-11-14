@@ -1,5 +1,8 @@
 import { OutboundTestsContext, OutboundTestSummary } from '../useOutboundTests';
 import StashStar from './StashStar';
+import StashOutboundPicker from '@wayrill/ui/StashOutboundPicker';
+import { availableNodes } from '../graph/catalog';
+import { isExecutableOutboundKind } from '../graph/outbounds';
 import OutboundTestButtons from './OutboundTestButtons';
 import SubscriptionGroups from './SubscriptionGroups';
 import {
@@ -13,6 +16,8 @@ import { readImportText } from '../importText';
 import StashEntryEditor from './StashEntryEditor';
 import {
   DEFAULT_GROUP_ID,
+  defaultGroup,
+  isPoolStashGroup,
   stashRows,
   entryIsPrepared,
   entryLink,
@@ -29,7 +34,7 @@ import { EditorTabs, EditorTabPanels, useEditorTabs } from './EditorTabs';
 import ResultPager from './ResultPager';
 import { libraryRows, libraryTerm, searchLibrary } from '../profiles/library';
 import { refreshStashComposites, readPolicySources } from '../graph/policySources';
-import type { GraphState, StashLink } from '../graph/types';
+import type { GraphState, NodeKind, StashLink } from '../graph/types';
 import useModalDialog from './useModalDialog';
 import {
   useContext,
@@ -62,16 +67,23 @@ type Props = {
   replaceLabel?: string;
   replacementConnections?: number;
   graph?: GraphState;
-  onUse: (entry: StashEntry, replace: boolean, link: StashLink) => void;
+  onUse?: (entry: StashEntry, replace: boolean, link: StashLink) => void;
+  onCommit?: () => Promise<void>;
+  layerMode?: boolean;
   onClose: () => void;
 };
 const PAGE = 60;
+const outboundTypes = availableNodes()
+  .filter(({ kind }) => isExecutableOutboundKind(kind) || kind === 'xray-outbound')
+  .map(({ kind, title }) => ({ id: kind, name: title }));
 export default function ConfigurationStash({
   store,
   replaceLabel,
   replacementConnections = 0,
   graph,
   onUse,
+  onCommit,
+  layerMode,
   onClose,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null),
@@ -86,6 +98,7 @@ export default function ConfigurationStash({
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
     [error, setError] = useState('');
+  const [committing, setCommitting] = useState(false);
   const [editor, setEditor] = useState<{ group?: StashGroup } | null>(null);
   const [removeId, setRemoveId] = useState('');
   const [batch, setBatch] = useState<RefreshProgress | null>(null);
@@ -122,6 +135,8 @@ export default function ConfigurationStash({
   const [availability, setAvailability] = useState('all');
   const candidate = chosen ? findStashEntry(store.stash, chosen) : undefined;
   const [editingEntry, setEditingEntry] = useState<StashEntryEdit>();
+  const [addOutbound, setAddOutbound] = useState(false);
+  const [newOutbound, setNewOutbound] = useState<{ kind: NodeKind; group: string }>();
   const policies = useMemo(() => stashRows(store.stash, 'policy-group'), [store.stash]);
   const chains = useMemo(() => stashRows(store.stash, 'proxy-chain'), [store.stash]);
   const choiceId = useId();
@@ -433,7 +448,7 @@ export default function ConfigurationStash({
     try {
       if (!entryAvailable(entry))
         throw new Error('This entry has no usable outbound configuration.');
-      onUse(entry, replace, entryLink(store.stash, entry));
+      onUse?.(entry, replace, entryLink(store.stash, entry));
       setError('');
       if (replace) {
         onClose();
@@ -463,7 +478,7 @@ export default function ConfigurationStash({
       onCancel={(e) => {
         if (busy) {
           e.preventDefault();
-          cancelOperation();
+          if (!committing) cancelOperation();
         } else if (editor) {
           e.preventDefault();
           closeEditor();
@@ -473,7 +488,12 @@ export default function ConfigurationStash({
       <div className="rule-editor-titlebar">
         <div>
           <h2 id="stash-title">
-            <Archive size={19} /> {replaceLabel ? 'Replace outbound' : 'Configuration stash'}
+            <Archive size={19} />{' '}
+            {replaceLabel
+              ? 'Replace outbound'
+              : onCommit
+                ? 'Edit Stash layer'
+                : 'Configuration stash'}
           </h2>
         </div>
         <button
@@ -487,6 +507,15 @@ export default function ConfigurationStash({
       </div>
       <EditorTabs tabs={tabs} label="Stash sections" disabled={busy} />
       <div className="action-row stash-toolbar">
+        {tab === 'outbounds' && (
+          <button
+            className="secondary-button"
+            disabled={busy || !store.ready || !!editor}
+            onClick={() => setAddOutbound(true)}
+          >
+            <Plus size={14} /> Add outbound
+          </button>
+        )}
         <button
           ref={importTrigger}
           aria-expanded={!!editor && !editor.group}
@@ -500,7 +529,7 @@ export default function ConfigurationStash({
             setRemoveId('');
           }}
         >
-          <Upload size={14} /> Import / add subscription
+          <Upload size={14} /> {layerMode ? 'Import outbounds' : 'Import / add subscription'}
         </button>
         <button
           className="secondary-button"
@@ -904,14 +933,16 @@ export default function ConfigurationStash({
                             Select
                           </label>
                         ) : (
-                          <button
-                            className="secondary-button"
-                            disabled={busy || pending || !entryAvailable(entry)}
-                            aria-label={`Add ${entry.name} from ${group.name} to graph`}
-                            onClick={() => chooseEntry(entry, false)}
-                          >
-                            <Plus size={13} /> Add node
-                          </button>
+                          onUse && (
+                            <button
+                              className="secondary-button"
+                              disabled={busy || pending || !entryAvailable(entry)}
+                              aria-label={`Add ${entry.name} from ${group.name} to graph`}
+                              onClick={() => chooseEntry(entry, false)}
+                            >
+                              <Plus size={13} /> Add node
+                            </button>
+                          )
                         )}
                       </div>
                     </div>
@@ -938,7 +969,7 @@ export default function ConfigurationStash({
                 replace={!!replaceLabel}
                 chosen={chosen ?? undefined}
                 onChoose={(entry) => setChosen(entryLink(store.stash, entry))}
-                onUse={(entry) => chooseEntry(entry, false)}
+                onUse={onUse ? (entry) => chooseEntry(entry, false) : undefined}
                 onSave={(entry, edit) =>
                   store.update((current) => putStashEntry(current, entry, edit?.link, edit?.entry))
                 }
@@ -987,6 +1018,7 @@ export default function ConfigurationStash({
           <SubscriptionSettingsForm
             key={editor.group?.id ?? 'new'}
             group={editor.group}
+            localOnly={layerMode}
             groups={groups}
             busy={busy}
             error={error}
@@ -1023,6 +1055,42 @@ export default function ConfigurationStash({
         </div>
       )}
 
+      {addOutbound && (
+        <StashOutboundPicker
+          types={outboundTypes}
+          groups={[
+            ...(groups.some((group) => group.id === DEFAULT_GROUP_ID) ? [] : [defaultGroup()]),
+            ...groups.filter((group) => !isPoolStashGroup(group.id)),
+          ]}
+          preferredGroup={
+            selectedGroup && !isPoolStashGroup(selectedGroup.id)
+              ? selectedGroup.id
+              : DEFAULT_GROUP_ID
+          }
+          onContinue={(kind, group) => {
+            setAddOutbound(false);
+            setNewOutbound({ kind, group });
+          }}
+          onClose={() => setAddOutbound(false)}
+        />
+      )}
+      {newOutbound && (
+        <StashEntryEditor
+          kind={newOutbound.kind}
+          graph={graph}
+          onSave={(entry) => {
+            const { group } = newOutbound;
+            const saved = store.update((current) => putStashEntry(current, entry, group));
+            const count = stashRows(saved).filter((row) => row.group.id === group).length;
+            setGroupId(group);
+            setQuery('');
+            setAvailability('all');
+            setPage(Math.floor((count - 1) / PAGE));
+            setChosen({ groupId: group, entryId: entry.id });
+          }}
+          onClose={() => setNewOutbound(undefined)}
+        />
+      )}
       {editingEntry && (
         <StashEntryEditor
           entry={editingEntry.entry}
@@ -1064,11 +1132,13 @@ export default function ConfigurationStash({
             ? 'Processing…'
             : store.saving
               ? 'Saving encrypted stash…'
-              : protectedStorageAvailable()
-                ? 'Service-managed · encrypted storage'
-                : 'Session only · export to keep configurations'}
+              : layerMode
+                ? 'Pool layer draft'
+                : protectedStorageAvailable()
+                  ? 'Service-managed · encrypted storage'
+                  : 'Session only · export to keep configurations'}
         </span>
-        {busy && (
+        {busy && !committing && (
           <button className="secondary-button" onClick={cancelOperation}>
             Cancel operation
           </button>
@@ -1085,8 +1155,20 @@ export default function ConfigurationStash({
           </button>
         )}
         <button className="secondary-button" disabled={busy} onClick={onClose}>
-          Close
+          {onCommit ? 'Cancel' : 'Close'}
         </button>
+        {onCommit && (
+          <button
+            className="primary-button"
+            disabled={busy || !store.ready}
+            onClick={() => {
+              setCommitting(true);
+              void perform(onCommit).finally(() => setCommitting(false));
+            }}
+          >
+            Save layer
+          </button>
+        )}
       </div>
     </dialog>
   );

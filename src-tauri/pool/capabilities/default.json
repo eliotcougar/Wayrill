@@ -1,0 +1,6 @@
+{
+  "identifier": "pool",
+  "description": "Wayrill Pool administration window",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

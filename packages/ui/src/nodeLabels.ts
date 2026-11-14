@@ -1,6 +1,7 @@
 const kindLabels: Record<string, string> = {
   fakedns: 'FAKEDNS',
   'proxy-inbound': 'PROXY',
+  'inbound-placeholder': 'INBOUND PLACEHOLDER',
   'policy-group': 'POLICY GROUP',
   'proxy-chain': 'PROXY CHAIN',
   observatory: 'OBSERVATORY',

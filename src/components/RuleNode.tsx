@@ -83,7 +83,9 @@ function RuleNode({ id, data, selected, isConnectable }: NodeProps<RuleNodeType>
         <span>
           {definition.group === 'Local capture'
             ? 'LOCAL CAPTURE'
-            : nodeKindLabel(data.kind, definition.category)}
+            : data.poolOutbound
+              ? 'OUTBOUND PLACEHOLDER'
+              : nodeKindLabel(data.kind, definition.category)}
         </span>
         {main ? (
           <span className="node-main-badge">

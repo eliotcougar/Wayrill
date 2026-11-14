@@ -122,6 +122,44 @@ const setValue = async (element: HTMLInputElement | HTMLSelectElement, value: st
       }),
     );
   });
+it('adds an outbound to an existing group and preserves it when the source refreshes', async () => {
+  await act(async () => root.render(<Harness />));
+  await act(async () => store.importResult(imported()));
+  const group = store.get().groups.find((item) => item.name === 'Public source')!;
+  const click = (label: string) =>
+    act(async () =>
+      [...container.querySelectorAll('button')]
+        .find((b) => b.textContent?.trim() === label)!
+        .click(),
+    );
+  await click('Add outbound');
+  const [type, destination] = container.querySelectorAll<HTMLSelectElement>(
+    'dialog.app-dialog select',
+  );
+  await setValue(type, 'direct-outbound');
+  await setValue(destination, group.id);
+  await click('Continue');
+  await setValue(container.querySelector<HTMLInputElement>('#node-label')!, 'Local exit');
+  await click('Save to Stash');
+
+  const local = store.get().groups.find((item) => item.id === group.id)!.entries[1];
+  expect(local).toMatchObject({
+    name: 'Local exit',
+    manual: true,
+    profile: { kind: 'direct-outbound' },
+  });
+  expect(container.querySelector('.stash-body')?.textContent).toContain('Local exit');
+  expect(use).not.toHaveBeenCalled();
+
+  await act(async () =>
+    store.importResult(
+      importProfiles('vless://updated@b.example.net:443?security=tls#Updated', group.name),
+      group.id,
+    ),
+  );
+  expect(store.get().groups.find((item) => item.id === group.id)!.entries).toContainEqual(local);
+});
+
 it('saves an outbound edit after background health refresh without losing its current lock or health', async () => {
   await act(async () => root.render(<Harness />));
   await act(async () => store.importResult(imported()));

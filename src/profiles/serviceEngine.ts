@@ -17,11 +17,36 @@ import type { HealthObservation } from './subscriptionState';
 import { maintenanceDefaults, normalizeMaintenance, entryAvailable } from './subscriptionState';
 import { protectedSubscriptionEntries } from './subscriptionReferences';
 import { decodeStashGroups } from './stashEncoding';
+import {
+  inspectPoolEntries,
+  poolRoutingState,
+  preparePoolWorkspace,
+  type PoolBindings,
+  type PoolCapture,
+} from '../pool/model';
+import { resolvePoolDelivery, type PoolChoiceNames, type PoolSelection } from '../pool/delivery';
 import { preparePublications, readPublication } from './subscriptionPublication';
 
 interface Request {
   operation:
-    'validate' | 'merge' | 'refresh' | 'health' | 'plan' | 'outboundTests' | 'runtime' | 'cycle';
+    | 'validate'
+    | 'merge'
+    | 'refresh'
+    | 'health'
+    | 'plan'
+    | 'outboundTests'
+    | 'runtime'
+    | 'cycle'
+    | 'poolPrepare'
+    | 'poolRoutingState'
+    | 'poolForgetStash'
+    | 'poolInspect';
+  bundle?: unknown;
+  recipient?: string;
+  capture?: PoolCapture;
+  bindings?: PoolBindings;
+  poolSelection?: PoolSelection;
+  poolChoiceNames?: PoolChoiceNames;
   stash: string;
   base?: string;
   local?: string;
@@ -47,12 +72,68 @@ const emptyGraph = (): GraphState => ({ name: 'Subscriptions', nodes: [], edges:
 export function subscriptionEngine(request: Request) {
   const graph = request.graph ? parseGraph(request.graph) : emptyGraph();
   const applied = request.appliedGraph ? parseGraph(request.appliedGraph) : undefined;
+  if (request.operation === 'poolRoutingState')
+    return { poolRoutingState: poolRoutingState(applied!) };
+  if (request.operation === 'poolInspect') {
+    const { bundle, selection, options } = resolvePoolDelivery(
+      request.bundle,
+      request.poolSelection,
+      true,
+      request.poolChoiceNames,
+    );
+    return {
+      poolEntries: {
+        ...inspectPoolEntries(bundle, applied, request.capture!, request.bindings),
+        selection,
+        options,
+      },
+    };
+  }
   let stash: Stash = request.stash
     ? request.trusted && !['validate', 'merge'].includes(request.operation)
       ? readValidatedStash(request.stash)
       : parseStash(request.stash)
     : { format: 'wayrill.stash', version: 3, groups: [defaultGroup()] };
   let summary: unknown;
+  if (request.operation === 'poolForgetStash') {
+    const prefix = `pool-${request.recipient!}-`;
+    const next = { ...stash, groups: stash.groups.filter((group) => !group.id.startsWith(prefix)) };
+    return { stash: serializeStash(next), catalog: libraryCatalog(next) };
+  }
+  if (request.operation === 'poolPrepare') {
+    const { bundle, selection, choiceNames } = resolvePoolDelivery(
+      request.bundle,
+      request.poolSelection,
+      false,
+      request.poolChoiceNames,
+    );
+    const prepared = preparePoolWorkspace(
+      bundle,
+      applied,
+      stash,
+      request.recipient!,
+      request.capture!,
+      request.bindings,
+    );
+    const analysis = analyzeGraph(prepared.graph);
+    const problem = analysis.issues.find((issue) => issue.severity === 'error');
+    if (problem || !analysis.compilation)
+      throw new Error(
+        `Cannot apply “${prepared.name}”. ${problem?.message ?? 'Check the published routing paths.'} Review your choices or ask your Pool administrator to check the graph.`,
+      );
+    const preparedGraph = serializeGraph(prepared.graph);
+    return {
+      ...analysis.compilation,
+      name: prepared.name,
+      bindings: prepared.bindings,
+      poolSelection: selection,
+      poolChoiceNames: choiceNames,
+      poolRoutingState: poolRoutingState(parseGraph(preparedGraph)),
+      graph: preparedGraph,
+      stash: serializeStash(prepared.stash),
+      catalog: libraryCatalog(prepared.stash),
+    };
+  }
   const previous = stash;
   switch (request.operation) {
     case 'merge':
@@ -237,26 +318,30 @@ export function subscriptionEngine(request: Request) {
     publications,
     changedGroups: changedGroups.map((g) => g.id),
     summary,
-    catalog: stash.groups.map((g) => ({
-      id: g.id,
-      name: g.name,
-      url: g.url,
-      userAgent: g.userAgent,
-      headers: g.headers,
-      allowHttp: g.allowHttp,
-      maintenance: g.maintenance ?? maintenanceDefaults,
-      maintenancePaused: !!g.maintenancePaused,
-      updatedAt: g.updatedAt,
-      lastTestAt: g.lastTestAt ?? null,
-      testCycleAt: g.testCycleAt ?? null,
-      entries: g.entries.map((e) => ({
-        id: e.id,
-        kind: e.profile?.kind ?? null,
-        retained: !!e.retained,
-        checkedAt: e.health?.checkedAt ?? null,
-      })),
-    })),
+    catalog: libraryCatalog(stash),
   };
+}
+
+function libraryCatalog(stash: Stash) {
+  return stash.groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    url: g.url,
+    userAgent: g.userAgent,
+    headers: g.headers,
+    allowHttp: g.allowHttp,
+    maintenance: g.maintenance ?? maintenanceDefaults,
+    maintenancePaused: !!g.maintenancePaused,
+    updatedAt: g.updatedAt,
+    lastTestAt: g.lastTestAt ?? null,
+    testCycleAt: g.testCycleAt ?? null,
+    entries: g.entries.map((e) => ({
+      id: e.id,
+      kind: e.profile?.kind ?? null,
+      retained: !!e.retained,
+      checkedAt: e.health?.checkedAt ?? null,
+    })),
+  }));
 }
 
 function runtimeSignature(group: Stash['groups'][number] | undefined) {

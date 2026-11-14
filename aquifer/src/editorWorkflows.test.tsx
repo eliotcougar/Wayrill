@@ -424,6 +424,8 @@ it('bounds Stash rows and finds Unicode names beyond the current page', async ()
       <RemoteStash
         view={view}
         visible={new Set()}
+        canAdd={() => true}
+        onAdd={vi.fn()}
         onEditChain={vi.fn()}
         onEdit={onEdit}
         onShow={vi.fn()}

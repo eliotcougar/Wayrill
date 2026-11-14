@@ -12,6 +12,7 @@ export type NodeKind =
   | ProtocolOutboundKind
   | 'windivert-inbound'
   | 'proxy-inbound'
+  | 'inbound-placeholder'
   | 'xray-inbound'
   | 'xray-outbound'
   | 'xray-options'
@@ -37,6 +38,8 @@ export type RuleNodeData = {
   /** Canvas-only inbound activation. Omitted means enabled; never an Xray field. */
   enabled?: boolean;
   stashLink?: StashLink;
+  /** Pool editor marker. The configured outbound is the subscriber's default. */
+  poolOutbound?: true;
   kind: NodeKind;
   label: string;
   description: string;
@@ -56,6 +59,10 @@ export interface GlobalDefaults {
   settings: Record<string, SettingValue>;
 }
 export interface GraphState {
+  /** Identifies the enrollment that supplied the managed routing graph. */
+  poolId?: string;
+  /** Published settings for this revision. Local defaults remain editable and intact. */
+  poolSettings?: import('./poolSettings').PoolSettings;
   /** Workspace quick-switch target; never an Xray setting. */
   mainOutboundId?: string;
   name: string;

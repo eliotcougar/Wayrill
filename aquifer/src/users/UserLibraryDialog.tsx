@@ -237,13 +237,15 @@ export default function UserLibraryDialog({
             </div>
           )}
           {draft ? (
-            <UserSetEditor
-              key={`${draft.id}:${editorRevision}`}
-              value={draft}
-              isNew={!saved}
-              onChange={setDraft}
-              onPendingJson={setPendingJson}
-            />
+            <>
+              <UserSetEditor
+                key={`${draft.id}:${editorRevision}`}
+                value={draft}
+                isNew={!saved}
+                onChange={setDraft}
+                onPendingJson={setPendingJson}
+              />
+            </>
           ) : (
             <div className="user-library-empty">
               <Users size={36} />

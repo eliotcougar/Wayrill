@@ -83,6 +83,7 @@ import { canConnectUsers, userNodeId, withUserNodes } from './users/view';
 import { exportJson, userStore, type UserStore } from './users/storage';
 import UserLibraryDialog from './users/UserLibraryDialog';
 import { InboundUserAssignments, UserSetDetails } from './users/UserAssignments';
+import { cacheObservedPoolAccounts } from './users/observedPoolAccounts';
 
 const DEFAULT_CONFIG_PATH = '/usr/local/etc/xray/config.json';
 
@@ -112,6 +113,7 @@ export default function App({
   const [discovery, setDiscovery] = useState<Discovery | null>(null),
     [path, setPath] = useState(DEFAULT_CONFIG_PATH);
   const [discoveryNote, setDiscoveryNote] = useState('');
+  const [poolCacheError, setPoolCacheError] = useState('');
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
   const [deploymentOpen, setDeploymentOpen] = useState(false);
@@ -336,11 +338,20 @@ export default function App({
       setError('Graph conversion: ' + errorMessage(reason));
     }
   };
+  const cacheObserved = (server: SavedSession | undefined, result: ConfigSnapshot) => {
+    if (!server || !desktopAvailable || client !== nativeClient) return;
+    void cacheObservedPoolAccounts(server, result).then(
+      () => setPoolCacheError(''),
+      (reason: unknown) => setPoolCacheError('Pool account cache: ' + errorMessage(reason)),
+    );
+  };
   const read = async (name: string, filename: string, token: number) => {
     setBusy('Reading configuration');
     const result = await client.read(name, filename);
     if (token !== requests.sequence || requests.cancelled) return;
-    present(result, sessions.find((item) => item.id === name)?.name ?? 'Remote server', name);
+    const server = sessions.find((item) => item.id === name);
+    present(result, server?.name ?? 'Remote server', name);
+    cacheObserved(server, result);
   };
   const connect = async () => {
     if (!mayReplaceDraft()) return;
@@ -571,6 +582,7 @@ export default function App({
       : JSON.stringify(reveal ? raw : redact(raw), null, 2);
   const notices = [
     ...(discoveryNote ? [discoveryNote] : []),
+    ...(poolCacheError ? [poolCacheError] : []),
     ...(discovery?.warnings ?? []),
     ...(view?.notices ?? []),
   ];
@@ -1563,7 +1575,7 @@ export default function App({
           changed={serverDraftChanged}
           onApplied={(sha256, wayrillSha256) => {
             const text = deploymentConfigText;
-            setSnapshot({
+            const applied = {
               path: snapshot.path,
               text,
               sha256,
@@ -1575,7 +1587,9 @@ export default function App({
                 text: documentText,
                 sha256: wayrillSha256,
               },
-            });
+            };
+            setSnapshot(applied);
+            cacheObserved(activeSession, applied);
             setDocumentBaseline(documentText);
             setDocumentSynced(true);
             setSettingsDirty(false);
@@ -1589,6 +1603,11 @@ export default function App({
         <RemoteStash
           view={view}
           visible={visibleNodeIds}
+          canAdd={discardInline}
+          onAdd={(next) => {
+            setView(next);
+            setSettingsDirty(true);
+          }}
           onEdit={(id) => {
             if (discardInline()) setSettingsId(id);
           }}

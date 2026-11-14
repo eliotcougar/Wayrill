@@ -1,0 +1,44 @@
+.app-dialog.pool-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.pool-dialog fieldset {
+  min-inline-size: 0;
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  padding: var(--space-3);
+}
+
+.pool-dialog legend {
+  padding-inline: var(--space-2);
+  font-weight: 600;
+}
+
+.pool-dialog :is(p, legend) {
+  overflow-wrap: anywhere;
+}
+
+.pool-dialog fieldset > button {
+  margin: 0 var(--space-2) var(--space-2) 0;
+}
+
+.pool-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.pool-stash-groups {
+  max-height: 180px;
+  overflow: auto;
+}
+
+.pool-member {
+  flex-wrap: wrap;
+}
+
+.pool-member > .item-content {
+  flex-basis: 150px;
+}

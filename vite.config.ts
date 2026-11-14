@@ -30,6 +30,10 @@ export default defineConfig({
   build: {
     target: 'chrome105',
     rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        pool: fileURLToPath(new URL('./pool.html', import.meta.url)),
+      },
       output: {
         strictExecutionOrder: true,
         codeSplitting: {

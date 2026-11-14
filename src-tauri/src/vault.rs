@@ -39,6 +39,7 @@ pub fn slot(key: &str) -> Result<(&'static str, usize), String> {
     match key {
         "workspace" => Ok(("workspace.dpapi", MAX)),
         "stash" => Ok(("stash.dpapi", MAX)),
+        "pools" => Ok(("pools.dpapi", MAX)),
         _ => Err("Unknown protected storage slot.".into()),
     }
 }
@@ -92,8 +93,10 @@ fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
 }
 pub fn read(base: &Path, key: &str) -> Result<Option<String>, String> {
     let (name, limit) = slot(key)?;
-    let path = base.join(name);
-    let meta = match fs::metadata(&path) {
+    read_document(&base.join(name), limit)
+}
+pub fn read_document(path: &Path, limit: usize) -> Result<Option<String>, String> {
+    let meta = match fs::metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("Cannot read protected storage.".into()),
@@ -101,7 +104,7 @@ pub fn read(base: &Path, key: &str) -> Result<Option<String>, String> {
     if meta.len() > (limit + 65536) as u64 {
         return Err("Protected storage exceeds its limit.".into());
     }
-    let encrypted = fs::read(&path).map_err(|_| "Cannot read protected storage.")?;
+    let encrypted = fs::read(path).map_err(|_| "Cannot read protected storage.")?;
     let clear = crypt(&encrypted, false)?;
     if clear.len() > limit {
         return Err("Protected storage exceeds its limit.".into());
@@ -112,12 +115,22 @@ pub fn read(base: &Path, key: &str) -> Result<Option<String>, String> {
 }
 pub fn write(base: &Path, key: &str, text: &str) -> Result<(), String> {
     let (name, limit) = slot(key)?;
+    write_document(&base.join(name), text, limit)
+}
+pub fn write_document(path: &Path, text: &str, limit: usize) -> Result<(), String> {
+    let base = path
+        .parent()
+        .ok_or("Invalid protected storage directory.")?;
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid protected storage name.")?;
     if text.len() > limit {
         return Err("Protected storage exceeds its limit.".into());
     }
     let encrypted = crypt(text.as_bytes(), true)?;
     fs::create_dir_all(base).map_err(|_| "Cannot create protected storage.")?;
-    let path = base.join(name);
+
     let temporary = base.join(format!(
         "{name}.{}.{}.tmp",
         std::process::id(),
@@ -143,7 +156,7 @@ pub fn write(base: &Path, key: &str, text: &str) -> Result<(), String> {
     if unsafe {
         MoveFileExW(
             wide(&temporary).as_ptr(),
-            wide(&path).as_ptr(),
+            wide(path).as_ptr(),
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         )
     } == 0
@@ -151,7 +164,7 @@ pub fn write(base: &Path, key: &str, text: &str) -> Result<(), String> {
         return Err("Cannot commit protected storage. Previous data was preserved.".into());
     }
     // Confirm that the committed ciphertext decrypts to this exact document.
-    if read(base, key)?.as_deref() != Some(text) {
+    if read_document(path, limit)?.as_deref() != Some(text) {
         return Err("Protected storage verification failed.".into());
     }
     Ok(())

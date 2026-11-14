@@ -41,7 +41,7 @@ export default function PreparedOutboundLibrary({
   replace: boolean;
   chosen?: StashLink;
   onChoose: (entry: StashEntry) => void;
-  onUse: (entry: StashEntry) => void;
+  onUse?: (entry: StashEntry) => void;
   onSave: (entry: StashEntry, edit?: StashEntryEdit) => void;
   onDelete: (entry: StashEntry) => void;
   onLock: (entry: StashEntry) => void;
@@ -222,15 +222,17 @@ export default function PreparedOutboundLibrary({
                   <span>Select</span>
                 </label>
               ) : (
-                <button
-                  className="secondary-button"
-                  disabled={!ready || !entry.profile}
-                  aria-label={'Add ' + entry.name + ' to graph'}
-                  onClick={() => safe(() => onUse(entry))}
-                >
-                  <Plus size={13} />
-                  Add node
-                </button>
+                onUse && (
+                  <button
+                    className="secondary-button"
+                    disabled={!ready || !entry.profile}
+                    aria-label={'Add ' + entry.name + ' to graph'}
+                    onClick={() => safe(() => onUse(entry))}
+                  >
+                    <Plus size={13} />
+                    Add node
+                  </button>
+                )
               )}
             </div>
           </div>

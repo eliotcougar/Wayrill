@@ -2,7 +2,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { TrafficSnapshot } from './traffic';
 import type { RuntimeProgress } from './runtimeProgress';
-export const desktopServiceAvailable = () => isTauri();
+export const desktopServiceAvailable = () =>
+  isTauri() && document.documentElement.dataset.app !== 'pool';
 export type ServiceError = {
   code: string;
   message: string;

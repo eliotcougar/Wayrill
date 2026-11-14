@@ -164,7 +164,10 @@ fn preserve_access(path: &Path, temporary: &Path) -> io::Result<()> {
     }
     Ok(())
 }
-fn write_export(path: &Path, write: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
+pub(crate) fn write_export(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let directory = path
         .parent()
         .ok_or_else(|| io::Error::other("The export has no directory."))?;

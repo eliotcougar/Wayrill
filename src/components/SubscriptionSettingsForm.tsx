@@ -26,6 +26,7 @@ export type SubscriptionSubmission =
 export default function SubscriptionSettingsForm({
   group,
   groups,
+  localOnly,
   busy,
   error: operationError,
   onSubmit,
@@ -33,6 +34,7 @@ export default function SubscriptionSettingsForm({
 }: {
   group?: StashGroup;
   groups: StashGroup[];
+  localOnly?: boolean;
   busy: boolean;
   error: string;
   onSubmit: (value: SubscriptionSubmission) => void;
@@ -44,7 +46,7 @@ export default function SubscriptionSettingsForm({
   useEffect(() => {
     nameInput.current?.focus();
   }, []);
-  const [mode, setMode] = useState<'url' | 'paste'>('url');
+  const [mode, setMode] = useState<'url' | 'paste'>(localOnly && !group ? 'paste' : 'url');
   const [name, setName] = useState(group?.name ?? 'Imported configurations');
   const [url, setUrl] = useState(group?.url ?? '');
   const [acknowledgedUrl, setAcknowledgedUrl] = useState('');
@@ -202,7 +204,7 @@ export default function SubscriptionSettingsForm({
           </div>
         )}
         <fieldset className="stash-settings-fields" disabled={busy}>
-          {!group && (
+          {!group && !localOnly && (
             <div className="action-row" role="group" aria-label="Import source">
               <button
                 type="button"
@@ -252,154 +254,161 @@ export default function SubscriptionSettingsForm({
               />
             </label>
           ) : (
-            <>
-              <div className="stash-subscription">
-                <label className="editor-field">
-                  <span>Subscription URL{group && !group.url ? ' (optional)' : ''}</span>
-                  <input
-                    className="text-control"
-                    autoComplete="off"
-                    type={urlFocused ? 'text' : 'password'}
-                    spellCheck={false}
-                    autoCapitalize="off"
-                    onFocus={() => setUrlFocused(true)}
-                    onBlur={() => setUrlFocused(false)}
-                    value={url}
-                    onChange={(event) => setUrl(event.target.value)}
-                    placeholder="https://…"
-                  />
-                </label>
-                {hasUrl && (
+            !localOnly && (
+              <>
+                <div className="stash-subscription">
                   <label className="editor-field">
-                    <span>Download via</span>
-                    <select
+                    <span>Subscription URL{group && !group.url ? ' (optional)' : ''}</span>
+                    <input
                       className="text-control"
-                      value={maintenance.viaProxy ? 'proxy' : 'direct'}
-                      onChange={(event) => set({ viaProxy: event.target.value === 'proxy' })}
-                    >
-                      <option value="direct">Direct connection</option>
-                      <option value="proxy">Running Wayrill proxy</option>
-                    </select>
+                      autoComplete="off"
+                      type={urlFocused ? 'text' : 'password'}
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      onFocus={() => setUrlFocused(true)}
+                      onBlur={() => setUrlFocused(false)}
+                      value={url}
+                      onChange={(event) => setUrl(event.target.value)}
+                      placeholder="https://…"
+                    />
                   </label>
+                  {hasUrl && (
+                    <label className="editor-field">
+                      <span>Download via</span>
+                      <select
+                        className="text-control"
+                        value={maintenance.viaProxy ? 'proxy' : 'direct'}
+                        onChange={(event) => set({ viaProxy: event.target.value === 'proxy' })}
+                      >
+                        <option value="direct">Direct connection</option>
+                        <option value="proxy">Running Wayrill proxy</option>
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {duplicate && (
+                  <div className="subscription-duplicate notice">
+                    <span>
+                      This URL is already used by <bdi>{duplicate.name}</bdi>.
+                    </span>
+                    <label className="check-control">
+                      <input
+                        type="checkbox"
+                        checked={!duplicatePending}
+                        onChange={(event) =>
+                          setAcknowledgedUrl(event.target.checked ? subscriptionUrlKey(url) : '')
+                        }
+                      />
+                      Use it in a separate group
+                    </label>
+                  </div>
                 )}
-              </div>
-              {duplicate && (
-                <div className="subscription-duplicate notice">
-                  <span>
-                    This URL is already used by <bdi>{duplicate.name}</bdi>.
-                  </span>
+                {hasUrl && (
+                  <>
+                    <div className="subscription-refresh-fields">
+                      <label className="check-control">
+                        <input
+                          type="checkbox"
+                          checked={maintenance.autoRefresh}
+                          onChange={(event) => set({ autoRefresh: event.target.checked })}
+                        />
+                        Refresh automatically
+                      </label>
+                      {hasUrl && (
+                        <label className="editor-field">
+                          <span>Update interval (minutes)</span>
+                          <input
+                            className="text-control"
+                            type="number"
+                            min="1"
+                            max="10080"
+                            disabled={!maintenance.autoRefresh}
+                            value={
+                              Number.isNaN(maintenance.refreshMinutes)
+                                ? ''
+                                : maintenance.refreshMinutes
+                            }
+                            onChange={(event) =>
+                              set({ refreshMinutes: event.currentTarget.valueAsNumber })
+                            }
+                          />
+                        </label>
+                      )}
+                    </div>
+                    <details
+                      ref={advanced}
+                      className="editor-advanced subscription-request-settings"
+                    >
+                      <summary>Advanced request settings</summary>
+                      <label className="editor-field">
+                        <span>User-Agent</span>
+                        <input
+                          className="text-control"
+                          autoComplete="off"
+                          value={agent}
+                          maxLength={512}
+                          onChange={(event) => setAgent(event.target.value)}
+                          placeholder={`Wayrill/${appVersion}`}
+                        />
+                      </label>
+                      <label className="editor-field">
+                        <span>Request headers (JSON)</span>
+                        <textarea
+                          className="text-control"
+                          spellCheck={false}
+                          value={headers}
+                          onChange={(event) => setHeaders(event.target.value)}
+                        />
+                      </label>
+                      <label className="check-control">
+                        <input
+                          type="checkbox"
+                          checked={allowHttp}
+                          onChange={(event) => setAllowHttp(event.target.checked)}
+                        />
+                        Allow unencrypted HTTP
+                      </label>
+                    </details>
+                  </>
+                )}
+                <fieldset className="subscription-health-fields">
+                  <legend>Server health</legend>
                   <label className="check-control">
                     <input
                       type="checkbox"
-                      checked={!duplicatePending}
-                      onChange={(event) =>
-                        setAcknowledgedUrl(event.target.checked ? subscriptionUrlKey(url) : '')
-                      }
+                      checked={maintenance.removeUnreachable}
+                      onChange={(event) => set({ removeUnreachable: event.target.checked })}
                     />
-                    Use it in a separate group
+                    Remove unreachable servers
                   </label>
-                </div>
-              )}
-              {hasUrl && (
-                <>
-                  <div className="subscription-refresh-fields">
-                    <label className="check-control">
-                      <input
-                        type="checkbox"
-                        checked={maintenance.autoRefresh}
-                        onChange={(event) => set({ autoRefresh: event.target.checked })}
-                      />
-                      Refresh automatically
-                    </label>
-                    {hasUrl && (
+                  {maintenance.removeUnreachable && (
+                    <div className="subscription-health-intervals">
                       <label className="editor-field">
-                        <span>Update interval (minutes)</span>
+                        <span>Max retries after the first attempt</span>
                         <input
                           className="text-control"
                           type="number"
-                          min="1"
-                          max="10080"
-                          disabled={!maintenance.autoRefresh}
-                          value={
-                            Number.isNaN(maintenance.refreshMinutes)
-                              ? ''
-                              : maintenance.refreshMinutes
-                          }
+                          min="0"
+                          max="5"
+                          value={Number.isNaN(maintenance.maxRetries) ? '' : maintenance.maxRetries}
                           onChange={(event) =>
-                            set({ refreshMinutes: event.currentTarget.valueAsNumber })
+                            set({ maxRetries: event.currentTarget.valueAsNumber })
                           }
                         />
                       </label>
-                    )}
-                  </div>
-                  <details ref={advanced} className="editor-advanced subscription-request-settings">
-                    <summary>Advanced request settings</summary>
-                    <label className="editor-field">
-                      <span>User-Agent</span>
-                      <input
-                        className="text-control"
-                        autoComplete="off"
-                        value={agent}
-                        maxLength={512}
-                        onChange={(event) => setAgent(event.target.value)}
-                        placeholder={`Wayrill/${appVersion}`}
-                      />
-                    </label>
-                    <label className="editor-field">
-                      <span>Request headers (JSON)</span>
-                      <textarea
-                        className="text-control"
-                        spellCheck={false}
-                        value={headers}
-                        onChange={(event) => setHeaders(event.target.value)}
-                      />
-                    </label>
-                    <label className="check-control">
-                      <input
-                        type="checkbox"
-                        checked={allowHttp}
-                        onChange={(event) => setAllowHttp(event.target.checked)}
-                      />
-                      Allow unencrypted HTTP
-                    </label>
-                  </details>
-                </>
-              )}
-              <fieldset className="subscription-health-fields">
-                <legend>Server health</legend>
-                <label className="check-control">
-                  <input
-                    type="checkbox"
-                    checked={maintenance.removeUnreachable}
-                    onChange={(event) => set({ removeUnreachable: event.target.checked })}
-                  />
-                  Remove unreachable servers
-                </label>
-                {maintenance.removeUnreachable && (
-                  <div className="subscription-health-intervals">
-                    <label className="editor-field">
-                      <span>Max retries after the first attempt</span>
-                      <input
-                        className="text-control"
-                        type="number"
-                        min="0"
-                        max="5"
-                        value={Number.isNaN(maintenance.maxRetries) ? '' : maintenance.maxRetries}
-                        onChange={(event) => set({ maxRetries: event.currentTarget.valueAsNumber })}
-                      />
-                    </label>
-                  </div>
-                )}
-                {maintenance.removeUnreachable && (
-                  <p className="field-help">Used and locked entries are kept.</p>
-                )}
-              </fieldset>
-              <p className="field-help">
-                {group?.maintenancePaused
-                  ? 'Automatic maintenance is paused. Manual refresh remains available.'
-                  : 'The networking service runs automatic maintenance.'}
-              </p>
-            </>
+                    </div>
+                  )}
+                  {maintenance.removeUnreachable && (
+                    <p className="field-help">Used and locked entries are kept.</p>
+                  )}
+                </fieldset>
+                <p className="field-help">
+                  {group?.maintenancePaused
+                    ? 'Automatic maintenance is paused. Manual refresh remains available.'
+                    : 'The networking service runs automatic maintenance.'}
+                </p>
+              </>
+            )
           )}
         </fieldset>
         <div className="action-row subscription-settings-actions">

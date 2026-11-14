@@ -7,12 +7,14 @@ export default function Dialog({
   children,
   onClose,
   footer,
+  busy = false,
   className = '',
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   footer?: ReactNode;
+  busy?: boolean;
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -23,18 +25,21 @@ export default function Dialog({
       ref={ref}
       className={`app-dialog ${className}`}
       onClose={onClose}
+      onCancel={(event) => {
+        if (busy) event.preventDefault();
+      }}
       aria-labelledby={titleId}
     >
       <div className="dialog-header">
         <h2 id={titleId}>{title}</h2>
-        <button className="icon-button" aria-label="Close dialog" onClick={onClose}>
+        <button className="icon-button" aria-label="Close dialog" disabled={busy} onClick={onClose}>
           <X size={18} />
         </button>
       </div>
       <div className="dialog-body">{children}</div>
       <div className="dialog-footer">
         {footer ?? (
-          <button className="primary-button" onClick={onClose}>
+          <button className="primary-button" disabled={busy} onClick={onClose}>
             Done
           </button>
         )}

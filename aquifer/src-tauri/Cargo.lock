@@ -4164,7 +4164,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-aquifer"
-version = "0.2.3"
+version = "0.2.6"
 dependencies = [
  "base64 0.22.1",
  "flate2",

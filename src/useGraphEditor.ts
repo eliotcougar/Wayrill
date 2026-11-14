@@ -53,8 +53,11 @@ export default function useGraphEditor(
   stash?: Stash,
   store?: Pick<ReturnType<typeof useStash>, 'get' | 'update'>,
   blocked = false,
+  initial?: GraphState,
 ) {
-  const [history, setHistory] = useState(() => initialWorkspaceHistory(createProxyStarter()));
+  const [history, setHistory] = useState(() =>
+    initialWorkspaceHistory(initial ?? createProxyStarter()),
+  );
   const [loadVersion, setLoadVersion] = useState(0);
   const viewportKey = useRef(0);
   const [libraryError, setLibraryError] = useState('');
@@ -313,7 +316,7 @@ export default function useGraphEditor(
     change(
       (graph) => ({
         ...graph,
-        nodes: graph.nodes.map((node) => ({ ...node, selected: true })),
+        nodes: graph.nodes.map((node) => ({ ...node, selected: node.selectable !== false })),
       }),
       false,
     );

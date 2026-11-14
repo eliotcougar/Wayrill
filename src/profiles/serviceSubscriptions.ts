@@ -86,12 +86,31 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
   }
   throw new Error('Subscription document changed while reading.');
 }
+export async function readSubscriptionProgress<T>(
+  method: 'subscriptions.job' | 'pool.status',
+  params?: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    signal?.throwIfAborted();
+    try {
+      return await serviceCall<T>(method, params);
+    } catch (error) {
+      const failure = error as Partial<ServiceError> | null;
+      if (failure?.code !== 'BUSY' || !failure.retryable || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+}
+
 export async function waitSubscriptionJob(job: number, signal?: AbortSignal) {
   for (;;) {
     signal?.throwIfAborted();
-    const result = await serviceCall<{ busy: boolean; error: ServiceError | null }>(
+    const result = await readSubscriptionProgress<{ busy: boolean; error: ServiceError | null }>(
       'subscriptions.job',
       { job },
+      signal,
     );
     if (!result.busy) {
       if (result.error) throw Object.assign(new Error(result.error.message), result.error);
@@ -196,9 +215,9 @@ export function writeServiceStash(text: string, sourceBase = base) {
     pendingSaves--;
   });
 }
-export function refreshServiceStash(expectedVersion: number) {
+export function refreshServiceStash(expectedVersion?: number) {
   return enqueue(async () => {
-    if (version === expectedVersion && !checkpoint) return;
+    if (expectedVersion !== undefined && version === expectedVersion && !checkpoint) return;
     const result = await readSubscriptionDocument('stash');
     if (result.text) {
       await confirmSave(result.text);

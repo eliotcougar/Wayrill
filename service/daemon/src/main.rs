@@ -87,7 +87,9 @@ fn main() {
                 }
                 let input: serde_json::Value = serde_json::from_slice(&bytes)
                     .map_err(|e| ApiError::io("Decode subscription task", e))?;
-                if input["operation"] == "download" {
+                if input["operation"] == "poolDownload" {
+                    subscriptions::pool::download(input["source"].clone())
+                } else if input["operation"] == "download" {
                     #[derive(Deserialize)]
                     #[serde(rename_all = "camelCase", deny_unknown_fields)]
                     struct Download {

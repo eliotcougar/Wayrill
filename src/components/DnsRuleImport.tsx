@@ -18,11 +18,13 @@ export default function DnsRuleImport({
   filter,
   graph,
   node,
+  fixedOutputs = false,
   onImport,
 }: {
   filter: DnsFilter;
   graph: GraphState;
   node: RuleNode;
+  fixedOutputs?: boolean;
   onImport: (filter: DnsFilter) => void;
 }) {
   const [incoming, setIncoming] = useState<DnsFilter | null>(null),
@@ -56,7 +58,7 @@ export default function DnsRuleImport({
             : (filter.outputs.find(
                 (output) =>
                   !output.fallback && output.name.toLowerCase() === role.name.toLowerCase(),
-              )?.id ?? newPresetOutput)),
+              )?.id ?? (fixedOutputs ? '' : newPresetOutput))),
       ];
     }),
   );
@@ -116,6 +118,7 @@ export default function DnsRuleImport({
           )}
           <button
             className="primary-button preset-import-button"
+            disabled={Object.values(resolved).includes('')}
             onClick={() => {
               try {
                 const next = refresh
@@ -147,7 +150,13 @@ export default function DnsRuleImport({
                     setBindings((old) => ({ ...old, [role.id]: event.target.value }))
                   }
                 >
-                  <option value={newPresetOutput}>New output · {role.name}</option>
+                  {fixedOutputs ? (
+                    <option value="" disabled>
+                      Select an existing output
+                    </option>
+                  ) : (
+                    <option value={newPresetOutput}>New output · {role.name}</option>
+                  )}
                   {filter.outputs.map((output) => (
                     <option key={output.id} value={output.id}>
                       {output.name} → {destination(output.id) ?? 'Not connected'}

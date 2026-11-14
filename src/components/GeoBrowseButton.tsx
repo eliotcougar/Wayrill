@@ -27,6 +27,7 @@ export default function GeoBrowseButton({
     scrollTop: number;
     scrollLeft: number;
   } | null>(null);
+  if (document.documentElement.dataset.app === 'pool') return null;
   const name = kind === 'geosite' ? 'GeoSite' : 'GeoIP';
   return (
     <>

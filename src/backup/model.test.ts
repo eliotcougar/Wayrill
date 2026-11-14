@@ -1,11 +1,6 @@
+import { graphDependencies } from '../profiles/workspaceDependencies';
 import { expect, it } from 'vitest';
-import {
-  createContent,
-  prepareRestore,
-  validateContent,
-  graphDependencies,
-  type RestoreSelection,
-} from './model';
+import { createContent, prepareRestore, validateContent, type RestoreSelection } from './model';
 import { makeNode, getOutputPorts } from '../graph/catalog';
 import { factoryDefaults } from '../graph/defaults';
 import {

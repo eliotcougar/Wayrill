@@ -36,6 +36,9 @@ The Rust browser timezone override statically links Microsoft Detours 4.0.1
 https://github.com/microsoft/Detours. Its license is packaged beside the native
 bridge. `tools/Build-Timezone.ps1` verifies the source archive before compiling it.
 
+Pool uses RustCrypto AES-GCM for authenticated encryption of each recipient’s
+configuration. See the [Pool cryptography notices](../docs/licenses/pool-cryptography.md).
+
 ## Subscription engine
 
 The service embeds QuickJS-NG through rquickjs 0.14.0 (MIT). Sources and exact

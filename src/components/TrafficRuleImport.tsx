@@ -26,11 +26,13 @@ export default function TrafficRuleImport({
   table,
   graph,
   node,
+  fixedOutputs = false,
   onImport,
 }: {
   table: RuleTable;
   graph: GraphState;
   node: RuleNode;
+  fixedOutputs?: boolean;
   onImport: (table: RuleTable, strategy: string | null) => void;
 }) {
   const reviewTitle = useRef<HTMLHeadingElement>(null),
@@ -67,7 +69,7 @@ export default function TrafficRuleImport({
     (role.kind === 'outbound'
       ? inferTrafficOutput(table.outputs, destination, role.tag)
       : undefined) ??
-    newPresetOutput;
+    (fixedOutputs ? '' : newPresetOutput);
   const roles = source ? rolesForTrafficImport(source, refresh ? 'append' : mode) : [];
   const resolved = Object.fromEntries(
     roles.map((r) => {
@@ -131,6 +133,7 @@ export default function TrafficRuleImport({
           )}
           <button
             className="primary-button preset-import-button"
+            disabled={Object.values(resolved).includes('')}
             onClick={() => {
               try {
                 const base = trafficImportBase(
@@ -172,7 +175,13 @@ export default function TrafficRuleImport({
                   value={resolved[role.id]}
                   onChange={(e) => setBindings((b) => ({ ...b, [role.id]: e.target.value }))}
                 >
-                  <option value={newPresetOutput}>New output · {role.name}</option>
+                  {fixedOutputs ? (
+                    <option value="" disabled>
+                      Select an existing output
+                    </option>
+                  ) : (
+                    <option value={newPresetOutput}>New output · {role.name}</option>
+                  )}
                   {table.outputs.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name || 'Unnamed output'} →{' '}

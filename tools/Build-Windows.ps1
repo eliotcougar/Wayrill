@@ -22,6 +22,7 @@ try {
         & (Join-Path $PSScriptRoot 'Check-Core.ps1')
         & (Join-Path $PSScriptRoot 'Check-AquiferCore.ps1')
     }
+    & (Join-Path $PSScriptRoot 'Build-Pool.ps1') -SkipTests:$SkipTests
     & (Join-Path $PSScriptRoot 'Check-InstallerPayload.ps1')
     & npm.cmd run desktop:build -- --target x86_64-pc-windows-msvc --ci -- --locked 2>&1 | Tee-Object -FilePath (Join-Path $taskLogRoot 'desktop-build.log')
     if ($LASTEXITCODE -ne 0) { throw "Desktop build failed; see $taskLogRoot" }

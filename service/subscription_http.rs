@@ -96,6 +96,17 @@ pub fn fetch(
     headers: &BTreeMap<String, String>,
     proxy_port: Option<u16>,
 ) -> Result<String, String> {
+    fetch_with_policy(text, allow_http, agent, headers, proxy_port, false)
+}
+
+pub fn fetch_with_policy(
+    text: &str,
+    allow_http: bool,
+    agent: &str,
+    headers: &BTreeMap<String, String>,
+    proxy_port: Option<u16>,
+    pool: bool,
+) -> Result<String, String> {
     let url = validate_url(text, allow_http)?;
     validate_headers(headers, agent)?;
     let proxy = proxy_port.map(|p| wide(&format!("127.0.0.1:{p}")));
@@ -175,6 +186,20 @@ pub fn fetch(
     {
         return Err("Cannot set subscription redirect policy.".into());
     }
+    if pool {
+        let policy = WINHTTP_AUTOLOGON_SECURITY_LEVEL_HIGH;
+        if unsafe {
+            WinHttpSetOption(
+                request.0,
+                WINHTTP_OPTION_AUTOLOGON_POLICY,
+                (&policy as *const u32).cast(),
+                4,
+            )
+        } == 0
+        {
+            return Err("Cannot disable automatic Windows authentication for the Pool URL.".into());
+        }
+    }
     let header_text = headers
         .iter()
         .map(|(k, v)| format!("{k}: {v}\r\n"))
@@ -240,7 +265,12 @@ pub fn fetch(
         if read == 0 {
             break;
         }
-        if bytes.len() + read as usize > MAX {
+        let limit = if pool {
+            wayrill_protocol::MAX_CONFIG
+        } else {
+            MAX
+        };
+        if bytes.len() + read as usize > limit {
             return Err("Subscription exceeds 32 MiB.".into());
         }
         bytes.extend_from_slice(&chunk[..read as usize]);

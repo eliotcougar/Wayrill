@@ -1,7 +1,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { readServiceStash, writeServiceStash } from './profiles/serviceSubscriptions';
 
-export const protectedStorageAvailable = () => isTauri();
+export const protectedStorageAvailable = () =>
+  isTauri() && document.documentElement.dataset.app !== 'pool';
 export type StorageSlot = 'workspace' | 'stash';
 const operations = new Map<StorageSlot, Promise<unknown>>();
 let savedWorkspace: string | null | undefined;

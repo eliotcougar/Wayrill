@@ -22,7 +22,7 @@ impl Drop for Apartment {
 }
 
 pub fn choose(owner: usize, mode: &str) -> Result<Option<String>, String> {
-    if !["name", "path", "folder", "routing"].contains(&mode) {
+    if !["name", "path", "folder", "pool-folder", "routing"].contains(&mode) {
         return Err("Invalid file picker mode.".into());
     }
     unsafe {
@@ -32,15 +32,20 @@ pub fn choose(owner: usize, mode: &str) -> Result<Option<String>, String> {
         let _apartment = Apartment;
         let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
             .map_err(|e| e.to_string())?;
+        let folder = matches!(mode, "folder" | "pool-folder");
         let options = FOS_FORCEFILESYSTEM
             | FOS_PATHMUSTEXIST
-            | if mode == "folder" {
+            | if folder {
                 FOS_PICKFOLDERS
             } else {
                 FOS_FILEMUSTEXIST
             };
         dialog.SetOptions(options).map_err(|e| e.to_string())?;
-        if mode == "folder" {
+        if mode == "pool-folder" {
+            dialog
+                .SetTitle(w!("Select a Wayrill Pool folder"))
+                .map_err(|e| e.to_string())?;
+        } else if folder {
             dialog
                 .SetTitle(w!("Select application folder — Wayrill"))
                 .map_err(|e| e.to_string())?;
@@ -83,7 +88,7 @@ pub fn choose(owner: usize, mode: &str) -> Result<Option<String>, String> {
         let text = raw.to_string();
         CoTaskMemFree(Some(raw.0.cast()));
         let path = text.map_err(|e| e.to_string())?;
-        if mode != "folder"
+        if !folder
             && mode != "routing"
             && !std::path::Path::new(&path)
                 .extension()

@@ -103,7 +103,7 @@ export function outboundNeedsObservation(
 /** Import collisions must not make a copied policy follow an unrelated existing subscription. */
 export function remapPreparedSubscriptions(
   profile: Profile,
-  groupIds: Map<string, string>,
+  groupIds: Pick<ReadonlyMap<string, string>, 'get'>,
   depth = 0,
 ): Profile {
   if (!isCompositeKind(profile.kind)) return profile;

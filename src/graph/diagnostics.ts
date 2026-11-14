@@ -22,6 +22,18 @@ export function inspectRuntimeGraph(
   source: GraphState,
   preview = false,
 ): { issues: Diagnostic[]; compilation: RuntimeCompilation | null } {
+  const placeholder = source.nodes.find((node) => node.data.kind === 'inbound-placeholder');
+  if (placeholder)
+    return {
+      compilation: null,
+      issues: [
+        {
+          severity: 'error',
+          nodeId: placeholder.id,
+          message: 'Assign local inbounds to the Pool placeholders before running this graph.',
+        },
+      ],
+    };
   let compilation: RuntimeCompilation | null = null;
   let attempted = false;
   const compile = () => {

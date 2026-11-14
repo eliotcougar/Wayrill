@@ -22,6 +22,7 @@ sharing boundaries and capture behavior.
 | Use TUN/WinDivert or assign Windows proxy settings | [Windows capture](guide/capture.md) |
 | Route a TV/router through Windows sharing | [Internet sharing](guide/sharing.md) |
 | Import subscriptions and build reusable groups/chains | [Stash and subscriptions](guide/stash.md) |
+| Publish and receive managed configurations | [Wayrill Pool](guide/pool.md) |
 | Test a route or inspect traffic rates/history | [Testing and statistics](guide/testing-statistics.md) |
 | Inspect a browser page's domains and recent routes | [Browser Companion preview](guide/browser-companion.md) |
 | Understand Companion's local data use | [Companion privacy](guide/companion-privacy.md) |

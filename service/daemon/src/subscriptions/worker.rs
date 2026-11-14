@@ -8,7 +8,7 @@ pub(super) fn cancelled() -> ApiError {
         "Subscription work cancelled; committed results were retained.",
     )
 }
-fn check(stop: &AtomicBool, shutdown: &AtomicBool) -> Result<()> {
+pub(super) fn check(stop: &AtomicBool, shutdown: &AtomicBool) -> Result<()> {
     if stop.load(Ordering::Acquire) || shutdown.load(Ordering::Acquire) {
         Err(cancelled())
     } else {
@@ -16,11 +16,19 @@ fn check(stop: &AtomicBool, shutdown: &AtomicBool) -> Result<()> {
     }
 }
 pub(crate) fn helper(input: &Value, stop: &AtomicBool, shutdown: &AtomicBool) -> Result<Value> {
+    helper_as(input, CoreIdentity::LocalService, stop, shutdown)
+}
+pub(super) fn helper_as(
+    input: &Value,
+    identity: CoreIdentity<'_>,
+    stop: &AtomicBool,
+    shutdown: &AtomicBool,
+) -> Result<Value> {
     check(stop, shutdown)?;
     let exe = std::env::current_exe().map_err(|e| ApiError::io("Find subscription worker", e))?;
     let process = spawn_with_token(
         &exe,
-        CoreIdentity::LocalService.token()?,
+        identity.token()?,
         input,
         "--subscription-worker",
         None,
@@ -63,7 +71,7 @@ fn engine(
         .extend(extra.as_object().unwrap().clone());
     helper(&input, stop, shutdown)
 }
-fn accept(
+pub(super) fn accept(
     manager: &Manager,
     mut library: Library,
     value: Value,
@@ -787,6 +795,8 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
     let mut runtime_retry_after = BTreeMap::new();
     let mut last_runtime_group = String::new();
     let mut next_source = Instant::now();
+    let mut next_pool = Instant::now();
+    let mut next_pool_recovery = Instant::now();
     while !shutdown.load(Ordering::Acquire) {
         {
             let mut state = manager.state.lock().unwrap();
@@ -805,6 +815,22 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
                 state.source = None;
             }
         }
+        if library(&manager).pool_pending.is_some() {
+            if Instant::now() >= next_pool_recovery {
+                if let Some(_reservation) = manager.gate.background() {
+                    let result = kernel
+                        .lock()
+                        .map_err(|_| invalid("Routing controller unavailable."))
+                        .and_then(|routing| pool::finish_pending(&routing, &manager));
+                    next_pool_recovery = Instant::now() + Duration::from_secs(30);
+                    manager.state.lock().unwrap().pool_error = result.err();
+                }
+            }
+            if library(&manager).pool_pending.is_some() {
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+        }
         if let Some(Dispatch {
             work,
             _reservation,
@@ -816,6 +842,26 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
             let result = match work {
                 Work::Replace { selection, .. } => {
                     replace(&kernel, &manager, &selection, &stop, &shutdown)
+                }
+                Work::Pool { task, .. } => {
+                    let preview = matches!(task, pool::Task::Preview(_));
+                    let changes_interval = matches!(task, pool::Task::SetInterval(_));
+                    let refresh = matches!(task, pool::Task::Refresh);
+                    let result = pool::perform(&kernel, &manager, task, Some(id), &stop, &shutdown);
+                    let mut state = manager.state.lock().unwrap();
+                    if !preview {
+                        next_pool = pool::next_check(state.library.pool.as_ref());
+                    }
+                    state.pool_busy = false;
+                    if refresh && state.library.pool.is_some() {
+                        state.pool_last_check = Some(now());
+                    } else if state.library.pool.is_none() {
+                        state.pool_last_check = None;
+                    }
+                    if !preview && !changes_interval {
+                        state.pool_error = result.as_ref().err().cloned();
+                    }
+                    result
                 }
                 Work::Upload { kind, text, .. } => upload(&manager, &kind, &text, &stop, &shutdown),
                 Work::Run {
@@ -907,6 +953,28 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
                 Err(error) => {
                     manager.status("runtime", "error", error.message);
                     next_source = Instant::now() + Duration::from_secs(30);
+                }
+            }
+        }
+        if Instant::now() >= next_pool && library(&manager).pool.is_some() {
+            if let Some(reservation) = manager.gate.background() {
+                manager.state.lock().unwrap().pool_busy = true;
+                let result = pool::perform(
+                    &kernel,
+                    &manager,
+                    pool::Task::Refresh,
+                    None,
+                    &reservation.stop,
+                    &shutdown,
+                );
+                let mut state = manager.state.lock().unwrap();
+                next_pool = pool::next_check(state.library.pool.as_ref());
+                state.pool_busy = false;
+                state.pool_last_check = Some(now());
+                state.pool_error = result.err();
+                if state.library.pool_pending.is_some() {
+                    next_pool_recovery = Instant::now();
+                    continue;
                 }
             }
         }

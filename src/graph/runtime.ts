@@ -62,6 +62,8 @@ export interface RuntimeCompilation {
 // Xray evaluates one ordered rule list. Every client path gets an explicit fallback;
 // internally generated DNS queries precede client rules and unmatched traffic blocks.
 export function compileRuntimeGraph(source: GraphState): RuntimeCompilation {
+  if (source.nodes.some((node) => node.data.kind === 'inbound-placeholder'))
+    throw new Error('Assign local inbounds to the Pool placeholders before running this graph.');
   const saved = parseGraph(serializeGraph(source));
   const parsed = saved.xray ? saved : enabledInboundGraph(saved);
   return sharingIntent(saved, {
@@ -284,8 +286,11 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
     );
   }
   warnings.push(...paths.warnings);
-  const defaultSource = graph.defaults ?? factoryDefaults(),
-    defaults = effectiveDefaults(defaultSource);
+  const localDefaults = graph.defaults ?? factoryDefaults();
+  const defaultSource = graph.poolSettings
+    ? { ...localDefaults, settings: { ...localDefaults.settings, ...graph.poolSettings } }
+    : localDefaults;
+  const defaults = effectiveDefaults(defaultSource);
   const configured = (key: string) => Object.hasOwn(defaultSource.settings, key);
   const config = {
     ...(Object.keys(udpListenerEnvironment(defaultSource)).length

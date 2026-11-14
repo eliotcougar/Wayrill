@@ -5,19 +5,20 @@ import ProtocolEditor from './ProtocolEditor';
 import useModalDialog from './useModalDialog';
 import { factoryDefaults, resolveGraph } from '../graph/defaults';
 import { editGraphNode } from '../graph/nodeEditing';
+import { makeNode } from '../graph/catalog';
 import { stashEditorNode, snapshotGraphEntry } from '../profiles/workspace';
 import { checkPrepared } from '../profiles/preparedPreviewClient';
 import { parseEntry, type StashEntry } from '../profiles/import';
-import type { GraphState, RuleNodeData } from '../graph/types';
+import type { GraphState, NodeKind, RuleNodeData } from '../graph/types';
 import { boundedText } from '../text';
 
 export default function StashEntryEditor({
   entry,
+  kind,
   graph,
   onSave,
   onClose,
-}: {
-  entry: StashEntry;
+}: ({ entry: StashEntry; kind?: never } | { entry?: never; kind: NodeKind }) & {
   graph?: GraphState;
   onSave: (entry: StashEntry) => void;
   onClose: () => void;
@@ -31,12 +32,18 @@ export default function StashEntryEditor({
       edges: [],
       defaults: factoryDefaults(),
     };
-    if (!entry.profile && !entry.draft) return null;
-    const node = stashEditorNode(entry, context, 'stash-edit-' + crypto.randomUUID());
-    return { ...context, nodes: [...context.nodes, node], editingId: node.id };
+    const id = 'stash-edit-' + crypto.randomUUID();
+    const node = kind
+      ? makeNode(kind, { x: 0, y: 0 }, id)
+      : entry?.profile || entry?.draft
+        ? stashEditorNode(entry, context, id)
+        : undefined;
+    if (!node) return null;
+    const workspace = { ...context, nodes: [...context.nodes, node] };
+    return { ...(kind ? resolveGraph(workspace) : workspace), editingId: node.id };
   });
-  const [name, setName] = useState(entry.name),
-    [raw, setRaw] = useState(entry.raw),
+  const [name, setName] = useState(entry?.name ?? ''),
+    [raw, setRaw] = useState(entry?.raw ?? ''),
     [protocolOpen, setProtocolOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
@@ -66,11 +73,11 @@ export default function StashEntryEditor({
         if (!node.data.label.trim()) throw new Error('Enter an outbound name.');
         await checkPrepared(draft, node, controller.signal);
         controller.signal.throwIfAborted();
-        next = snapshotGraphEntry(draft, node, entry.id, entry);
+        next = snapshotGraphEntry(draft, node, entry?.id, entry);
         if (!next.profile) throw new Error(next.problem);
       } else {
         if (!name.trim()) throw new Error('Enter an outbound name.');
-        next = { ...entry, ...parseEntry(raw), id: entry.id, name: name.trim() };
+        next = { ...entry, ...parseEntry(raw), id: entry!.id, name: name.trim() };
       }
       onSave(next);
       onClose();
@@ -95,7 +102,7 @@ export default function StashEntryEditor({
       onClose={close}
     >
       <div className="rule-editor-titlebar">
-        <h2 id="stash-entry-title">Edit outbound</h2>
+        <h2 id="stash-entry-title">{entry ? 'Edit outbound' : 'New outbound'}</h2>
         <button className="icon-button" aria-label="Close outbound editor" onClick={close}>
           <X size={17} />
         </button>

@@ -23,8 +23,8 @@ const empty = (): Stash => ({
   version: 3,
   groups: [defaultGroup()],
 });
-export default function useStash() {
-  const [stash, setStash] = useState<Stash>(empty);
+export default function useStash(initial?: Stash) {
+  const [stash, setStash] = useState<Stash>(() => initial ?? empty());
   const [base, setBase] = useState('');
   const source = useRef('');
   const [serviceError, setServiceError] = useState('');
@@ -56,6 +56,7 @@ export default function useStash() {
     base,
   );
   useEffect(() => {
+    if (initial) return;
     let active = true;
     let syncing = Promise.resolve();
     const remove = subscribeLibrary((change) => {
@@ -85,7 +86,7 @@ export default function useStash() {
       active = false;
       remove();
     };
-  }, []);
+  }, [initial]);
   function importResult(result: ImportResult, replaceId?: string, expected?: StashGroup) {
     if (!storage.ready)
       throw new Error('Protected stash is not available. Existing data was preserved.');

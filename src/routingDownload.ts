@@ -1,7 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { LIMITS, CONFIG_LIMIT_LABEL } from './limits';
-import { httpProxyPorts } from './graph/proxy';
-import { serviceCall, type ServiceSnapshot } from './serviceClient';
 
 export function routingUrl(value: string, allowHttp: boolean): string {
   let url: URL;
@@ -33,30 +31,12 @@ export async function downloadRoutingRules(
   const url = routingUrl(value, allowHttp);
   signal.throwIfAborted();
   if (isTauri()) {
-    let proxyPort: number | null = null;
-    if (viaWayrill) {
-      const status = await serviceCall<ServiceSnapshot>('service.status');
-      const applied = await serviceCall<{
-        revision: number;
-        config: Record<string, unknown> | null;
-      }>('config.get');
-      proxyPort = httpProxyPorts(applied.config)[0] ?? null;
-      if (
-        status.core.state !== 'running' ||
-        applied.revision !== status.config.revision ||
-        !proxyPort
-      )
-        throw new Error(
-          'Start Wayrill with an unauthenticated HTTP-compatible input to download through it.',
-        );
-    }
-    signal.throwIfAborted();
     let text: string;
     try {
       text = await invoke<string>('routing_source_download', {
         url,
         allowHttp,
-        proxyPort,
+        viaWayrill,
       });
     } catch (error) {
       throw new Error(

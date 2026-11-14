@@ -1,4 +1,5 @@
 import { jsonArray } from './xrayJson';
+import { placeholderDefinition, placeholderKind, placeholderPorts } from './inboundPlaceholder';
 import { isNativeXrayKind, nativeOutputs, nativeSummary, xrayDefinitions } from './xrayNodes';
 import type { NodeDefinition, NodeKind, RuleNode, RuleNodeData, SettingValue } from './types';
 import { policyDefinitions, policyPorts } from './policies';
@@ -31,27 +32,29 @@ import {
 
 import { proxyChainDefinition, readProxyChain } from './proxyChains';
 
-export const catalog: NodeDefinition[] = [
-  captureDefinition,
-  proxyDefinition,
-  ...ruleTableDefinitions,
-  ...dnsDefinitions,
-  fakeDnsDefinition,
-  ...outboundDefinitions,
-  ...protocolDefinitions(
-    outboundDefinitions.find((d) => d.kind === 'socks-outbound')!,
+let catalog: NodeDefinition[] | undefined;
+export const availableNodes = () =>
+  (catalog ??= [
+    captureDefinition,
     proxyDefinition,
-  ),
-  ...policyDefinitions,
-  proxyChainDefinition,
-  ...xrayDefinitions,
-];
+    placeholderDefinition,
+    ...ruleTableDefinitions,
+    ...dnsDefinitions,
+    fakeDnsDefinition,
+    ...outboundDefinitions,
+    ...protocolDefinitions(
+      outboundDefinitions.find((d) => d.kind === 'socks-outbound')!,
+      proxyDefinition,
+    ),
+    ...policyDefinitions,
+    proxyChainDefinition,
+    ...xrayDefinitions,
+  ]);
 
-export const availableNodes = catalog;
-
-export const getDefinition = (kind: NodeKind) => catalog.find((item) => item.kind === kind)!;
+export const getDefinition = (kind: NodeKind) =>
+  availableNodes().find((item) => item.kind === kind)!;
 export const isNodeKind = (kind: unknown): kind is NodeKind =>
-  catalog.some((item) => item.kind === kind);
+  availableNodes().some((item) => item.kind === kind);
 export const getOutputPorts = (kind: NodeKind, data?: RuleNodeData): string[] => {
   const configured = data ?? {
     kind,
@@ -61,6 +64,7 @@ export const getOutputPorts = (kind: NodeKind, data?: RuleNodeData): string[] =>
   };
   if (isOutboundKind(kind) && kind !== 'block-outbound') return ['observation'];
   if (kind === 'fakedns') return [];
+  if (kind === placeholderKind) return placeholderPorts(configured);
   if (isNativeXrayKind(kind)) return nativeOutputs(configured).map((p) => p.id);
   if (kind === 'observatory') return policyPorts(configured).map((p) => p.id);
   if (isDnsEditor(configured)) return dnsOutputs(configured).map((output) => output.id);
@@ -151,6 +155,8 @@ export function summarizeNode(data: RuleNodeData): [string, string][] {
   const settings = data.settings;
   const value = (key: string): string => String(settings[key] ?? '');
   switch (data.kind) {
+    case placeholderKind:
+      return [];
     case 'fakedns': {
       try {
         const pools = fakeDnsPools(data);

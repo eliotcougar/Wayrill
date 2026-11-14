@@ -1,5 +1,6 @@
 import { isExecutableOutboundKind, isOutboundKind } from './outbounds';
 import { isInboundKind } from './inbounds';
+import { placeholderKind } from './inboundPlaceholder';
 import { FAKE_DNS_PORT } from './fakeDns';
 import type { RuleNodeData } from './types';
 import { connectionTypes, type ConnectionKind } from './connectionKinds';
@@ -18,7 +19,8 @@ export function sourceConnectionKind(data: RuleNodeData, port: string): Connecti
     data.kind === 'dns-servers' ||
     data.kind === 'xray-dns-servers' ||
     (data.kind === 'dns-handler' && port === 'forward') ||
-    (isInboundKind(data.kind) && ['dns', 'nat-dns', 'encrypted-dns'].includes(port))
+    ((isInboundKind(data.kind) || data.kind === placeholderKind) &&
+      ['dns', 'nat-dns', 'encrypted-dns'].includes(port))
   )
     return 'dns-traffic';
   return 'traffic';

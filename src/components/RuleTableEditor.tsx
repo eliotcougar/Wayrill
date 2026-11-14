@@ -34,6 +34,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   readRuleTable,
   normalizeRuleLists,
+  orderTrafficRules,
   isRuleTableKind,
   routingConditionFields,
   detectedProtocols,
@@ -41,9 +42,12 @@ import {
   ruleTableProblems,
   tableSettings,
   type NamedOutput,
+  type PoolRulePlacement,
+  type RuleTable,
   type TableRule,
 } from '../graph/rules';
 import type { GraphState, RuleNode, RuleNodeData } from '../graph/types';
+import { jsonEqual } from '../graph/xrayJson';
 
 export default function RuleTableEditor({
   node,
@@ -52,12 +56,22 @@ export default function RuleTableEditor({
   onApply,
   onClose,
   initialTab,
+  onExportPool,
+  layerMode = false,
+  fixedOutputs = false,
 }: {
   initialTab?: 'log' | 'export';
+  layerMode?: boolean;
+  fixedOutputs?: boolean;
+  onExportPool?: (table: RuleTable) => Promise<void>;
   node: RuleNode;
   resourceWarnings?: Partial<ResourceWarningReport> | null;
   graph: GraphState;
-  onApply: (id: string, data: Partial<RuleNodeData>, domainStrategy?: string | null) => void;
+  onApply: (
+    id: string,
+    data: Partial<RuleNodeData>,
+    domainStrategy?: string | null,
+  ) => void | Promise<void>;
   onClose: () => void;
 }) {
   const { save, saveError } = useEditorSave(onClose);
@@ -72,6 +86,8 @@ export default function RuleTableEditor({
   const requested = useRequestedDiagnostic();
   const dialog = useRef<HTMLDialogElement>(null);
   const [table, setTable] = useState(() => readRuleTable(node.data.settings));
+  const poolManaged = !!graph.poolId && !layerMode;
+  const [originalRules] = useState(() => new Map(table.rules.map((rule) => [rule.id, rule])));
   const [selected, setSelected] = useState<string | null>(
     () => requested?.rowId ?? table.rules[0]?.id ?? null,
   );
@@ -119,6 +135,10 @@ export default function RuleTableEditor({
   const errors = issues.filter((issue) => issue.severity === 'error');
   const selectedRule = table.rules.find((rule) => rule.id === selected);
   const index = table.rules.findIndex((rule) => rule.id === selected);
+  const canMove = (to: number) =>
+    !!selectedRule &&
+    !!table.rules[to] &&
+    selectedRule.poolPlacement === table.rules[to].poolPlacement;
   const removedEdges = graph.edges.filter(
     (edge) =>
       edge.source === node.id && !table.outputs.some((output) => output.id === edge.sourceHandle),
@@ -166,13 +186,13 @@ export default function RuleTableEditor({
       { key: 'import', label: 'Import' },
       { key: 'export', label: 'Export' },
       { key: 'preview', label: 'Plan preview' },
-      { key: 'log', label: 'Traffic log' },
+      ...(!layerMode ? [{ key: 'log' as const, label: 'Traffic log' }] : []),
     ],
     tab,
     setTab,
   );
 
-  function addRule(copy?: TableRule) {
+  function addRule(copy?: TableRule, placement = copy?.poolPlacement) {
     const rule: TableRule = copy
       ? {
           ...copy,
@@ -190,18 +210,23 @@ export default function RuleTableEditor({
           conditions: {},
           matchAll: false,
         };
-    setTable((current) => ({ ...current, rules: [...current.rules, rule] }));
+    setTable((current) => ({
+      ...current,
+      rules: orderTrafficRules([...current.rules, { ...rule, poolPlacement: placement }]),
+    }));
     setSelected(rule.id);
   }
   function move(id: string, to: number) {
-    setTable((current) => ({
-      ...current,
-      rules: moveEntry(
-        current.rules,
-        current.rules.findIndex((rule) => rule.id === id),
-        to,
-      ),
-    }));
+    setTable((current) => {
+      const from = current.rules.findIndex((rule) => rule.id === id);
+      if (
+        !current.rules[from] ||
+        !current.rules[to] ||
+        current.rules[from].poolPlacement !== current.rules[to].poolPlacement
+      )
+        return current;
+      return { ...current, rules: moveEntry(current.rules, from, to) };
+    });
   }
   const destination = (id: string) => {
     const name = table.outputs.find((output) => output.id === id)?.name || 'Missing output';
@@ -393,7 +418,11 @@ export default function RuleTableEditor({
                     <button
                       className="icon-button"
                       aria-label="Add rule"
-                      title="Add rule"
+                      title={
+                        poolManaged
+                          ? 'Add regular rule · applying changes to Pool rules pauses updates'
+                          : 'Add rule'
+                      }
                       onClick={() => addRule()}
                       disabled={table.rules.length >= 128}
                     >
@@ -402,7 +431,7 @@ export default function RuleTableEditor({
                     <button
                       className="icon-button"
                       aria-label="Move rule up"
-                      disabled={!selectedRule || index <= 0}
+                      disabled={!canMove(index - 1)}
                       onClick={() => move(selectedRule!.id, index - 1)}
                     >
                       <ArrowUp size={16} />
@@ -410,7 +439,7 @@ export default function RuleTableEditor({
                     <button
                       className="icon-button"
                       aria-label="Move rule down"
-                      disabled={!selectedRule || index >= table.rules.length - 1}
+                      disabled={!canMove(index + 1)}
                       onClick={() => move(selectedRule!.id, index + 1)}
                     >
                       <ArrowDown size={16} />
@@ -445,6 +474,30 @@ export default function RuleTableEditor({
                       <Trash2 size={15} />
                     </button>
                   </div>
+                  {poolManaged && (
+                    <div className="action-row" aria-label="Personal Pool rules">
+                      <button
+                        className="secondary-button"
+                        onClick={() => addRule(undefined, 'before')}
+                        disabled={table.rules.length >= 128}
+                      >
+                        Add Before rule
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={() => addRule(undefined, 'after')}
+                        disabled={table.rules.length >= 128}
+                      >
+                        Add After rule
+                      </button>
+                    </div>
+                  )}
+                  {poolManaged && (
+                    <p className="field-help">
+                      Before rules can override Pool rules. After rules handle traffic the Pool
+                      rules leave unmatched.
+                    </p>
+                  )}
                   <p className="rule-order-help">↑/↓ select · Alt+↑/↓ reorder</p>
                   <OrderedEntries
                     compact
@@ -455,7 +508,18 @@ export default function RuleTableEditor({
                     empty="No rules yet. All traffic follows the default output."
                     entries={table.rules.map((rule, order) => ({
                       ...rule,
-                      summary: ruleConditionSummary(rule),
+                      summary: [
+                        rule.poolPlacement === 'before'
+                          ? 'Before Pool'
+                          : rule.poolPlacement === 'after'
+                            ? 'After Pool'
+                            : poolManaged
+                              ? 'Pool'
+                              : '',
+                        ruleConditionSummary(rule),
+                      ]
+                        .filter(Boolean)
+                        .join(' · '),
                       destination: destination(rule.output),
                       notice:
                         rule.enabled && catchAll >= 0 && order > catchAll
@@ -610,6 +674,30 @@ export default function RuleTableEditor({
                                   : 'Local rule'}
                             </p>
                           )}
+                          {poolManaged && selectedRule.poolPlacement && (
+                            <label className="editor-field">
+                              <span>Run personal rule</span>
+                              <select
+                                className="text-control"
+                                value={selectedRule.poolPlacement}
+                                onChange={(event) => {
+                                  const poolPlacement = event.currentTarget
+                                    .value as PoolRulePlacement;
+                                  setTable((current) => ({
+                                    ...current,
+                                    rules: orderTrafficRules(
+                                      current.rules.map((rule) =>
+                                        rule.id === selected ? { ...rule, poolPlacement } : rule,
+                                      ),
+                                    ),
+                                  }));
+                                }}
+                              >
+                                <option value="before">Before Pool rules</option>
+                                <option value="after">After Pool rules</option>
+                              </select>
+                            </label>
+                          )}
                           <div className="editor-two-fields">
                             <label className="editor-field">
                               <span>Rule name</span>
@@ -759,11 +847,17 @@ export default function RuleTableEditor({
                     aria-label="Add output"
                     title="Add output"
                     onClick={addOutput}
-                    disabled={table.outputs.length >= 128}
+                    disabled={fixedOutputs || table.outputs.length >= 128}
                   >
                     <Plus size={16} />
                   </button>
                 </div>
+                {fixedOutputs && (
+                  <p className="field-help">
+                    The base graph defines these output connections. Edit the base graph to add or
+                    remove outputs.
+                  </p>
+                )}
                 <OutputList outputs={table.outputs} label="Routing outputs" onMove={moveOutput}>
                   {(output, order) => {
                     const connected = graph.edges.some(
@@ -787,6 +881,7 @@ export default function RuleTableEditor({
                           className="icon-button"
                           aria-label={`Delete output ${output.name}`}
                           title="Delete output and its connection"
+                          disabled={fixedOutputs}
                           onClick={() =>
                             setTable((current) => ({
                               ...current,
@@ -815,6 +910,7 @@ export default function RuleTableEditor({
                 table={table}
                 graph={graph}
                 node={node}
+                fixedOutputs={fixedOutputs}
                 onImport={(next, strategy) => {
                   setTable(next);
                   setSelected(next.rules[0]?.id ?? null);
@@ -823,7 +919,12 @@ export default function RuleTableEditor({
                 }}
               />
             ) : tab === 'export' ? (
-              <TrafficRuleExport table={table} graph={graph} node={node} />
+              <TrafficRuleExport
+                table={table}
+                graph={graph}
+                node={node}
+                onExportPool={onExportPool ? () => onExportPool(table) : undefined}
+              />
             ) : tab === 'presets' ? (
               <RoutingPresetPicker
                 kind="traffic"
@@ -870,14 +971,20 @@ export default function RuleTableEditor({
           disabled={errors.length > 0 || !!expanded}
           onClick={() =>
             save(() => {
-              onApply(
+              return onApply(
                 node.id,
                 {
                   settings: {
                     ...data.settings,
                     ...tableSettings({
                       ...table,
-                      rules: table.rules.map((r) => deduplicateRule(normalizeRuleLists(r))),
+                      rules: table.rules.map((rule) =>
+                        poolManaged &&
+                        !rule.poolPlacement &&
+                        jsonEqual(rule, originalRules.get(rule.id))
+                          ? rule
+                          : deduplicateRule(normalizeRuleLists(rule)),
+                      ),
                     }),
                   },
                 },

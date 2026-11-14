@@ -8,7 +8,13 @@ only the routes you actually use.
 Open it with the toolbar's **Stash** button or
 **File → Configuration stash / import…**.
 
-## Import and organize servers
+## Add and organize servers
+
+In **Outbounds**, choose **Add outbound**, select the protocol and destination
+group, then enter the connection settings and choose **Save to Stash**.
+Subscription refreshes preserve entries you add by hand. Pool's Stash layer
+editor has the same action. In Aquifer, saving adds the outbound to the server
+configuration draft for later deployment.
 
 Choose **Import / add subscription** for a URL or pasted configuration content,
 or **Import file** for a local file. Share links, plain/Base64 subscription lists

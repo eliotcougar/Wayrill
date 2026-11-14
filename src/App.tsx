@@ -79,6 +79,7 @@ import {
   ZoomIn,
   ZoomOut,
   Sparkles,
+  Waves,
 } from 'lucide-react';
 import Dialog from './components/Dialog';
 import XrayImportDialog from './components/XrayImportDialog';
@@ -154,6 +155,12 @@ import useGraphEditor from './useGraphEditor';
 import useTheme from './useTheme';
 import AppearanceSettings from './components/AppearanceSettings';
 import UpdateDialog from './components/UpdateDialog';
+import PoolExport from './pool/PoolExport';
+import { openPool, sendPoolExport } from './pool/handoff';
+import PoolConnection from './pool/PoolConnection';
+import usePoolStatus from './pool/usePoolStatus';
+import { personalRoutingState } from './pool/model';
+
 import CompanionSettings from './components/CompanionSettings';
 import TimezoneSettings from './components/TimezoneSettings';
 import CompanionRuleDialog from './components/CompanionRuleDialog';
@@ -166,31 +173,60 @@ import { setMainOutbound, starredChoices } from './quickSwitch';
 import useQuickSwitch from './useQuickSwitch';
 import OutboundTestButtons from './components/OutboundTestButtons';
 import { findStashEntry } from './profiles/stashModel';
-import type { StashEntry } from './profiles/import';
+import type { Stash, StashEntry } from './profiles/import';
+import PoolConnectionTests from './pool/PoolConnectionTests';
 import type { StashLink } from './graph/types';
 
 const nodeTypes = { rule: RuleNode };
 const edgeTypes = { schematic: SchematicEdge };
 type DialogKind = 'help' | 'updates' | 'about' | 'validation' | null;
 
-export default function App() {
+type LayerWorkspace = {
+  graph: GraphState;
+  stash: import('./profiles/import').Stash;
+  onSave: (graph: GraphState, stash: import('./profiles/import').Stash) => Promise<void>;
+  onClose: () => void;
+};
+
+export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
+  const [savingLayer, setSavingLayer] = useState(false);
+  const layerOperation = useRef(false);
   const trafficUnits = useTrafficUnits();
   const theme = useTheme();
   const trafficGlow = useGraphActivityPreference();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [companionOpen, setCompanionOpen] = useState(false);
   const [timezoneOpen, setTimezoneOpen] = useState(false);
+  const [poolOpen, setPoolOpen] = useState<'connect' | 'graph' | 'stash' | null>(null);
+
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
-  const stash = useStash();
+  const stash = useStash(layer?.stash);
   const runtime = useRuntime();
+  const poolStatus = usePoolStatus(
+    !layer && runtime.connected && runtime.capabilities.includes('pool.managed'),
+    poolOpen === 'connect',
+  );
+  const poolConnection = poolStatus.status?.connection;
+  const poolIssue = poolStatus.status?.error;
+  const poolLabel =
+    !runtime.connected || poolStatus.error
+      ? 'Pool offline'
+      : poolStatus.status?.busy
+        ? 'Checking Pool…'
+        : poolIssue?.code === 'POOL_LOCAL_ROUTING' || poolIssue?.code === 'POOL_REVIEW_REQUIRED'
+          ? 'Pool updates paused'
+          : poolIssue
+            ? 'Pool update issue'
+            : 'Pool connected';
   const progress = runtimeProgress(runtime);
   const [switchingOutbound, setSwitchingOutbound] = useState(false);
   const switching = useRef(false);
-  const graphBlocked = !!progress || switchingOutbound;
+  const graphBlocked = !!progress || switchingOutbound || savingLayer;
   const editor = useGraphEditor(
     stash.ready ? stash.stash : undefined,
     stash.ready ? stash : undefined,
     graphBlocked,
+    layer?.graph,
   );
   const graphFileRead = useFileRead();
   // Opening a different graph supersedes any file read still in progress.
@@ -214,6 +250,7 @@ export default function App() {
     ]),
   );
   const [testSettingsOpen, setTestSettingsOpen] = useState(false);
+  const [poolTest, setPoolTest] = useState<{ graph: GraphState; stash: Stash }>();
   const subscriptionMaintenance = useSubscriptionMaintenance(
     stash,
     editor.graph,
@@ -350,11 +387,32 @@ export default function App() {
     [],
   );
   const companionRule = useCompanionRuleRequest(
-    editor.storageReady && stash.ready && !graphBlocked,
+    !layer && editor.storageReady && stash.ready && !graphBlocked,
   );
   useEffect(() => {
     if (companionRule.error) notify(companionRule.error, true);
   }, [companionRule.error, notify]);
+  const saveLayer = async () => {
+    if (!layer || layerOperation.current) return;
+    layerOperation.current = true;
+    setSavingLayer(true);
+    try {
+      await layer.onSave(editor.getGraph(), stash.get());
+    } catch (reason) {
+      notify(errorText(reason), true);
+    } finally {
+      layerOperation.current = false;
+      setSavingLayer(false);
+    }
+  };
+  const closeLayer = () => {
+    if (
+      layer &&
+      !layerOperation.current &&
+      (!editor.canUndo || window.confirm('Discard changes to this Pool layer?'))
+    )
+      layer.onClose();
+  };
   const closeDesktop = useClosePersistence(
     editor.serializeForClose,
     editor.storageReady,
@@ -372,29 +430,31 @@ export default function App() {
     viewport: editor.graph.viewport,
     nodeIds: editor.graph.nodes.map((node) => node.id),
   });
-  const paletteNodes = availableNodes.filter((item) =>
-    editor.graph.xray
-      ? isProtocolKind(item.kind) ||
-        [
-          'proxy-inbound',
-          'xray-inbound',
-          'xray-outbound',
-          'xray-dns-servers',
-          'fakedns',
-          'vless-outbound',
-          'socks-outbound',
-          'direct-outbound',
-          'block-outbound',
-          'policy-group',
-        ].includes(item.kind) ||
-        (item.kind === 'observatory' &&
-          !editor.graph.nodes.some((n) => n.data.kind === 'observatory')) ||
-        (item.kind === 'xray-dns' && !editor.graph.nodes.some((n) => n.data.kind === 'xray-dns'))
-      : !isNativeXrayKind(item.kind),
+  const paletteNodes = availableNodes().filter((item) =>
+    layer
+      ? !isGraphInbound(item.kind) && !isNativeXrayKind(item.kind)
+      : editor.graph.xray
+        ? isProtocolKind(item.kind) ||
+          [
+            'proxy-inbound',
+            'xray-inbound',
+            'xray-outbound',
+            'xray-dns-servers',
+            'fakedns',
+            'vless-outbound',
+            'socks-outbound',
+            'direct-outbound',
+            'block-outbound',
+            'policy-group',
+          ].includes(item.kind) ||
+          (item.kind === 'observatory' &&
+            !editor.graph.nodes.some((n) => n.data.kind === 'observatory')) ||
+          (item.kind === 'xray-dns' && !editor.graph.nodes.some((n) => n.data.kind === 'xray-dns'))
+        : !isNativeXrayKind(item.kind) && item.kind !== 'inbound-placeholder',
   );
   const selectedCount = editor.selectedNodes.length + editor.selectedEdges.length;
   const executionGraph = useExecutionGraph(editor.graph);
-  const analysis = useGraphAnalysis(executionGraph);
+  const analysis = useGraphAnalysis(executionGraph, true, layer ? 'nodes' : 'runtime');
   const issues = analysis.issues;
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const issuesByNode = useMemo(
@@ -454,7 +514,6 @@ export default function App() {
       notify(e instanceof Error ? e.message : 'Could not configure sharing.', true);
     }
   };
-  const graphActions = createGraphRuntimeActions(executionGraph, analysis, runtime);
   const graphCompilation = analysis.compilation;
   const testDnsDraft = (nodeId: string, settings: RuleNodeData['settings']) => {
     try {
@@ -469,12 +528,26 @@ export default function App() {
       notify(error instanceof Error ? error.message : 'Cannot compile this draft.', true);
     }
   };
-  useAppliedSubscriptionGraph(
+  const appliedGraph = useAppliedSubscriptionGraph(
     stash,
     runtime,
     editor.storageReady,
     subscriptionMaintenance.appliedRevision,
     subscriptionMaintenance.appliedSourceHash,
+  );
+  const personalRulesChanged = useMemo(() => {
+    if (!executionGraph.poolId || executionGraph.poolId !== appliedGraph?.poolId) return false;
+    try {
+      return !jsonEqual(personalRoutingState(executionGraph), personalRoutingState(appliedGraph));
+    } catch {
+      return false; // Invalid draft rules are already diagnosed by graph analysis.
+    }
+  }, [executionGraph, appliedGraph]);
+  const graphActions = createGraphRuntimeActions(
+    executionGraph,
+    analysis,
+    runtime,
+    personalRulesChanged,
   );
   const compatibleObservations = useMemo(
     () =>
@@ -494,7 +567,7 @@ export default function App() {
       ),
     [runtime.connected, runtime.snapshot, compatibleObservations, runtime.savedRevision],
   );
-  const runtimeView = runtimePresentation(runtime, graphCompilation);
+  const runtimeView = runtimePresentation(runtime, graphCompilation, personalRulesChanged);
   if (analysis.pending) {
     runtimeView.draftState = 'Checking the current draft…';
     runtimeView.footer = runtimeView.footer.replace('Graph errors', 'Checking graph…');
@@ -897,12 +970,13 @@ export default function App() {
       const control = event.ctrlKey || event.metaKey;
       if (control && key === 's') {
         event.preventDefault();
-        void exportGraph();
+        if (layer) void saveLayer();
+        else void exportGraph();
         return;
       }
       if (control && key === 'o') {
         event.preventDefault();
-        fileInput.current?.click();
+        if (!layer) fileInput.current?.click();
         return;
       }
       if (typing) return;
@@ -969,6 +1043,16 @@ export default function App() {
           label: 'Export graph…',
           shortcut: 'Ctrl+S',
           action: () => void exportGraph(),
+        },
+        {
+          label: 'Export graph to Pool…',
+          disabled: !desktopServiceAvailable() || !stash.ready || !editor.storageReady,
+          action: () => setPoolOpen('graph'),
+        },
+        {
+          label: 'Export Stash layer to Pool…',
+          disabled: !desktopServiceAvailable() || !stash.ready,
+          action: () => setPoolOpen('stash'),
         },
         {
           label: 'Back up…',
@@ -1153,6 +1237,16 @@ export default function App() {
       label: 'Tools',
       items: [
         {
+          label: 'Wayrill Pool…',
+          disabled: !desktopServiceAvailable(),
+          action: () => void openPool().catch((reason: unknown) => notify(errorText(reason))),
+        },
+        {
+          label: 'Connect to Pool…',
+          disabled: !desktopServiceAvailable(),
+          action: () => setPoolOpen('connect'),
+        },
+        {
           label: 'Wayrill Aquifer…',
           disabled: !desktopServiceAvailable(),
           action: () => void openAquifer().catch((reason) => notify(errorText(reason))),
@@ -1234,7 +1328,23 @@ export default function App() {
                 <NodeEditorContext.Provider value={openNodeEditor}>
                   <DiagnosticFocusContext.Provider value={diagnosticFocus}>
                     <div className="app-shell">
-                      <MenuBar menus={menus} />
+                      <MenuBar
+                        brand={layer ? 'Wayrill Pool' : undefined}
+                        menus={
+                          layer
+                            ? menus
+                                .filter((menu) => ['Edit', 'View', 'Graph'].includes(menu.label))
+                                .map((menu) => ({
+                                  ...menu,
+                                  items: menu.items.filter(
+                                    (item) =>
+                                      !item.separator &&
+                                      !['Check graph', 'Traffic statistics…'].includes(item.label),
+                                  ),
+                                }))
+                            : menus
+                        }
+                      />
                       {testSettingsOpen && (
                         <OutboundTestSettings
                           settings={outboundTests.settings}
@@ -1242,6 +1352,9 @@ export default function App() {
                         />
                       )}
                       {outboundTests.open && <OutboundTestResults tests={outboundTests} />}
+                      {poolTest && (
+                        <PoolConnectionTests {...poolTest} onClose={() => setPoolTest(undefined)} />
+                      )}
                       {tunAdaptersOpen && (
                         <TunAdapterSettings
                           runtime={runtime}
@@ -1277,6 +1390,37 @@ export default function App() {
                         <CompanionSettings onClose={() => setCompanionOpen(false)} />
                       )}
                       {timezoneOpen && <TimezoneSettings onClose={() => setTimezoneOpen(false)} />}
+                      {poolOpen === 'connect' && (
+                        <PoolConnection
+                          poolStatus={poolStatus}
+                          revision={
+                            runtime.capabilities.includes('pool.managed')
+                              ? runtime.snapshot?.config.revision
+                              : undefined
+                          }
+                          testsBusy={outboundTests.busy || outboundTests.open || !!poolTest}
+                          onTestGraph={(graph) => {
+                            setPoolOpen(null);
+                            setPoolTest({ graph, stash: stash.get() });
+                          }}
+                          onOpenGraph={(graph) => {
+                            editor.restoreWorkspace(graph, stash.get(), true);
+                            setPoolOpen(null);
+                          }}
+                          hasDifferentDraft={(graph) =>
+                            !jsonEqual(toDocument(editor.getGraph()), toDocument(graph))
+                          }
+                          onClose={() => setPoolOpen(null)}
+                        />
+                      )}
+                      {(poolOpen === 'graph' || poolOpen === 'stash') && (
+                        <PoolExport
+                          mode={poolOpen}
+                          graph={editor.graph}
+                          stash={stash.stash}
+                          onClose={() => setPoolOpen(null)}
+                        />
+                      )}
                       {backupOpen && (
                         <BackupDialog
                           request={backupOpen}
@@ -1350,7 +1494,7 @@ export default function App() {
                         </button>
 
                         <div className="workspace-name">
-                          <label htmlFor="graph-name">WORKSPACE</label>
+                          <label htmlFor="graph-name">{layer ? 'GRAPH LAYER' : 'WORKSPACE'}</label>
                           <input
                             id="graph-name"
                             disabled={graphBlocked}
@@ -1424,61 +1568,109 @@ export default function App() {
                           Stash
                         </button>
                         <div className="toolbar-spacer" />
-                        <button
-                          className={`runtime-indicator${runtimeView.running ? ' running' : ''}`}
-                          title={runtimeView.description}
-                          onClick={() => setRuntimeOpen(true)}
-                          aria-label={`Open Run graph. ${runtimeView.description}`}
-                        >
-                          <span aria-hidden="true" className="runtime-dot" />
-                          {runtimeView.running
-                            ? 'Running'
-                            : runtimeView.current
-                              ? runtimeView.core.value.charAt(0).toUpperCase() +
-                                runtimeView.core.value.slice(1)
-                              : runtime.desktop
-                                ? 'Offline'
-                                : 'Preview'}
-                        </button>
-                        <button
-                          className="icon-button"
-                          title="Traffic statistics"
-                          aria-label="Open live traffic statistics"
-                          onClick={() => setTrafficOpen(true)}
-                        >
-                          <Activity size={18} />
-                        </button>
-                        <div className="toolbar-traffic" aria-label="Live traffic rates">
-                          <span>
-                            ↑{' '}
-                            {formatRate(
-                              runtime.connected ? runtime.snapshot?.traffic?.uploadPerSecond : null,
-                              trafficUnits.rate,
+                        {layer ? (
+                          <>
+                            <button
+                              className="secondary-button"
+                              disabled={savingLayer}
+                              onClick={closeLayer}
+                            >
+                              Back to Pool
+                            </button>
+                            <button
+                              className="primary-button"
+                              disabled={savingLayer}
+                              onClick={() => void saveLayer()}
+                            >
+                              Save layer
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {runtime.desktop && poolConnection && (
+                              <button
+                                className="pool-connection-indicator"
+                                data-state={
+                                  poolLabel === 'Pool connected'
+                                    ? 'connected'
+                                    : poolIssue
+                                      ? 'warning'
+                                      : 'idle'
+                                }
+                                title={
+                                  poolIssue?.message ??
+                                  (runtime.connected
+                                    ? `${poolConnection.poolName ?? poolConnection.name} · checks every ${poolConnection.refreshMinutes} min`
+                                    : 'The networking service is offline.')
+                                }
+                                onClick={() => setPoolOpen('connect')}
+                              >
+                                <Waves size={15} aria-hidden="true" />
+                                <span>{poolLabel}</span>
+                                <span className="pool-connection-name">
+                                  {poolConnection.poolName ?? poolConnection.name}
+                                </span>
+                              </button>
                             )}
-                          </span>
-                          <span>
-                            ↓{' '}
-                            {formatRate(
-                              runtime.connected
-                                ? runtime.snapshot?.traffic?.downloadPerSecond
-                                : null,
-                              trafficUnits.rate,
-                            )}
-                          </span>
-                        </div>
-                        <OutboundTestButtons
-                          all
-                          disabled={
-                            !runtime.connected ||
-                            !runtime.capabilities.includes('outbounds.testing')
-                          }
-                        />
-                        <GraphRuntimeToolbar
-                          actions={graphActions}
-                          onCheck={() => setDialog('validation')}
-                          onResult={notify}
-                          onError={() => setRuntimeOpen(true)}
-                        />
+                            <button
+                              className={`runtime-indicator${runtimeView.running ? ' running' : ''}`}
+                              title={runtimeView.description}
+                              onClick={() => setRuntimeOpen(true)}
+                              aria-label={`Open Run graph. ${runtimeView.description}`}
+                            >
+                              <span aria-hidden="true" className="runtime-dot" />
+                              {runtimeView.running
+                                ? 'Running'
+                                : runtimeView.current
+                                  ? runtimeView.core.value.charAt(0).toUpperCase() +
+                                    runtimeView.core.value.slice(1)
+                                  : runtime.desktop
+                                    ? 'Offline'
+                                    : 'Preview'}
+                            </button>
+                            <button
+                              className="icon-button"
+                              title="Traffic statistics"
+                              aria-label="Open live traffic statistics"
+                              onClick={() => setTrafficOpen(true)}
+                            >
+                              <Activity size={18} />
+                            </button>
+                            <div className="toolbar-traffic" aria-label="Live traffic rates">
+                              <span>
+                                ↑{' '}
+                                {formatRate(
+                                  runtime.connected
+                                    ? runtime.snapshot?.traffic?.uploadPerSecond
+                                    : null,
+                                  trafficUnits.rate,
+                                )}
+                              </span>
+                              <span>
+                                ↓{' '}
+                                {formatRate(
+                                  runtime.connected
+                                    ? runtime.snapshot?.traffic?.downloadPerSecond
+                                    : null,
+                                  trafficUnits.rate,
+                                )}
+                              </span>
+                            </div>
+                            <OutboundTestButtons
+                              all
+                              disabled={
+                                !runtime.connected ||
+                                !runtime.capabilities.includes('outbounds.testing')
+                              }
+                            />
+                            <GraphRuntimeToolbar
+                              actions={graphActions}
+                              onCheck={() => setDialog('validation')}
+                              onResult={notify}
+                              onError={() => setRuntimeOpen(true)}
+                            />
+                          </>
+                        )}
                         <div className="tool-group view-tools">
                           <button
                             className={`icon-button${inspectorVisible ? ' active-subtle' : ''}`}
@@ -1742,6 +1934,7 @@ export default function App() {
                         </main>
                         {inspectorVisible && (
                           <Inspector
+                            poolLayer={!!layer}
                             graph={editor.graph}
                             diagnostics={issues}
                             node={editor.selectedNodes[0]}
@@ -1778,15 +1971,29 @@ export default function App() {
                             {resourceScheduleError}
                           </span>
                         )}
-                        <button
-                          ref={runtimeTrigger}
-                          className={`status-runtime${runtimeView.running ? ' online' : ''}`}
-                          title={runtimeView.description}
-                          aria-label={`Open Run graph. ${runtimeView.description}`}
-                          onClick={() => setRuntimeOpen(true)}
-                        >
-                          {runtimeView.footer}
-                        </button>
+                        {!layer && (
+                          <button
+                            ref={runtimeTrigger}
+                            className={`status-runtime${runtimeView.running ? ' online' : ''}`}
+                            title={runtimeView.description}
+                            aria-label={`Open Run graph. ${runtimeView.description}`}
+                            onClick={() => setRuntimeOpen(true)}
+                          >
+                            {runtimeView.footer}
+                          </button>
+                        )}
+                        {editor.graph.poolId &&
+                          runtimeView.profileCurrent &&
+                          !runtimeView.appliedMatch &&
+                          !analysis.pending && (
+                            <button
+                              className="graph-status has-warnings"
+                              title="The graph in the editor differs from the applied routing. Review the current Pool configuration."
+                              onClick={() => setPoolOpen('connect')}
+                            >
+                              Pool draft differs
+                            </button>
+                          )}
                         {runtime.connected &&
                           runtime.snapshot?.capture?.availability &&
                           runtime.snapshot.capture.availability.state !== 'available' && (
@@ -1830,30 +2037,34 @@ export default function App() {
                               : 'Space + drag to pan · Scroll to zoom'}
                         </span>
 
-                        <button
-                          ref={graphCheckTrigger}
-                          aria-busy={analysis.pending}
-                          className={`graph-status${errors ? ' has-errors' : issues.length ? ' has-warnings' : ''}`}
-                          title="Check the graph, then validate it with Xray."
-                          onClick={() => setDialog('validation')}
-                        >
-                          {issues.length ? <AlertCircle size={13} /> : <Check size={13} />}
-                          {analysis.pending
-                            ? 'Checking graph…'
-                            : errors
-                              ? `${errors} ${errors === 1 ? 'issue' : 'issues'}`
-                              : issues.length
-                                ? `${issues.length} ${issues.length === 1 ? 'hint' : 'hints'}`
-                                : 'Graph checks passed'}
-                        </button>
+                        {!layer && (
+                          <button
+                            ref={graphCheckTrigger}
+                            aria-busy={analysis.pending}
+                            className={`graph-status${errors ? ' has-errors' : issues.length ? ' has-warnings' : ''}`}
+                            title="Check the graph, then validate it with Xray."
+                            onClick={() => setDialog('validation')}
+                          >
+                            {issues.length ? <AlertCircle size={13} /> : <Check size={13} />}
+                            {analysis.pending
+                              ? 'Checking graph…'
+                              : errors
+                                ? `${errors} ${errors === 1 ? 'issue' : 'issues'}`
+                                : issues.length
+                                  ? `${issues.length} ${issues.length === 1 ? 'hint' : 'hints'}`
+                                  : 'Graph checks passed'}
+                          </button>
+                        )}
                         <span className="status-divider" />
                         <span
                           className="save-status"
                           title={
-                            editor.storageError ||
-                            (runtime.desktop
-                              ? 'The graph draft is saved automatically in protected Windows storage. Saving does not apply it.'
-                              : 'This draft exists in this browser tab only. Export graph to keep a file copy.')
+                            layer
+                              ? 'Save this layer to keep your changes in Pool.'
+                              : editor.storageError ||
+                                (runtime.desktop
+                                  ? 'The graph draft is saved automatically in protected Windows storage. Saving does not apply it.'
+                                  : 'This draft exists in this browser tab only. Export graph to keep a file copy.')
                           }
                         >
                           {editor.saveStatus === 'saved' ? (
@@ -1863,13 +2074,15 @@ export default function App() {
                           ) : (
                             <AlertCircle size={12} />
                           )}
-                          {editor.saveStatus === 'saved'
-                            ? 'Draft saved'
-                            : editor.saveStatus === 'saving'
-                              ? 'Saving…'
-                              : editor.saveStatus === 'session'
-                                ? 'Draft unsaved'
-                                : 'Save failed'}
+                          {layer
+                            ? 'Pool layer draft'
+                            : editor.saveStatus === 'saved'
+                              ? 'Draft saved'
+                              : editor.saveStatus === 'saving'
+                                ? 'Saving…'
+                                : editor.saveStatus === 'session'
+                                  ? 'Draft unsaved'
+                                  : 'Save failed'}
                         </span>
                       </footer>
                       <input
@@ -2056,7 +2269,6 @@ export default function App() {
                           graph={editor.graph}
                           request={connectionRequest}
                           onApply={saveConnection}
-                          onEditExisting={(edgeId) => openConnection({ edgeId })}
                           onClose={() => {
                             setConnectionRequest(null);
                             requestAnimationFrame(() => {
@@ -2188,6 +2400,7 @@ export default function App() {
                       )}
                       {stashOpen && (
                         <ConfigurationStash
+                          layerMode={!!layer}
                           graph={editor.graph}
                           store={stash}
                           replaceLabel={
@@ -2403,7 +2616,23 @@ export default function App() {
                             node={editingNode}
                             graph={editor.graph}
                             onApply={saveNodeData}
-                            onTest={(settings) => testDnsDraft(editingNode.id, settings)}
+                            onTest={
+                              layer
+                                ? undefined
+                                : (settings) => testDnsDraft(editingNode.id, settings)
+                            }
+                            onExportPool={
+                              desktopServiceAvailable() &&
+                              editingNode.data.kind === 'dns-routing-filter'
+                                ? (filter) =>
+                                    sendPoolExport({
+                                      kind: 'dns',
+                                      name: editingNode.data.label,
+                                      nodeId: editingNode.id,
+                                      filter,
+                                    })
+                                : undefined
+                            }
                             onClose={closeNodeEditor}
                           />
                         ) : (
@@ -2412,6 +2641,17 @@ export default function App() {
                               runtime.connected ? runtime.snapshot?.resources : undefined
                             }
                             initialTab={editorInitialTab}
+                            layerMode={!!layer}
+                            onExportPool={
+                              desktopServiceAvailable() && stash.ready
+                                ? (table) =>
+                                    sendPoolExport({
+                                      kind: 'traffic',
+                                      name: editingNode.data.label,
+                                      filter: { nodeId: editingNode.id, table },
+                                    })
+                                : undefined
+                            }
                             key={editingNode.id}
                             node={editingNode}
                             graph={editor.graph}
@@ -2434,6 +2674,7 @@ export default function App() {
                             onClose={closeNodeEditor}
                           />
                         ))}
+
                       {playground && (
                         <RoutingDiagnostics
                           key={`${playground.mode}:${playground.nodeId ?? ''}`}

@@ -4176,7 +4176,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill"
-version = "0.37.0"
+version = "0.37.10"
 dependencies = [
  "serde",
  "serde_json",
@@ -4194,7 +4194,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-diagnostics"
-version = "0.37.0"
+version = "0.37.10"
 dependencies = [
  "regex",
  "serde_json",
@@ -4202,7 +4202,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-ipc"
-version = "0.37.0"
+version = "0.37.10"
 dependencies = [
  "serde_json",
  "tokio",
@@ -4211,8 +4211,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "wayrill-pool"
+version = "0.1.8"
+dependencies = [
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "url",
+ "wayrill-ipc",
+ "wayrill-protocol",
+ "windows",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "wayrill-protocol"
-version = "0.37.0"
+version = "0.37.10"
 dependencies = [
  "serde",
  "serde_json",

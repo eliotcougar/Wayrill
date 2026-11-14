@@ -30,30 +30,28 @@ export default function ConnectionEditor({
   graph,
   request,
   onApply,
-  onEditExisting,
   onClose,
 }: {
   graph: GraphState;
   request: ConnectionRequest;
   onApply: (connection: Connection, edgeId?: string) => string | null;
-  onEditExisting: (id: string) => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
   const applyButton = useRef<HTMLButtonElement>(null);
-  const old = graph.edges.find((edge) => edge.id === request.edgeId);
-  const initialSource = old?.source ?? request.sourceId ?? '';
+  const editing = graph.edges.find((edge) => edge.id === request.edgeId);
+  const initialSource = editing?.source ?? request.sourceId ?? '';
   const [sourceId, setSource] = useState(initialSource);
   const initialNode = graph.nodes.find((node) => node.id === initialSource);
   const [port, setPort] = useState(
-    old?.sourceHandle ??
+    editing?.sourceHandle ??
       request.port ??
       (initialNode ? preferredConnectionOutput(graph, initialNode) : '') ??
       '',
   );
-  const [targetId, setTarget] = useState(old?.target ?? '');
+  const [targetChoice, setTarget] = useState<string>();
   const [search, setSearch] = useState('');
   const [showUnavailable, setShowUnavailable] = useState(false);
   const [submitProblem, setSubmitProblem] = useState<string | null>(null);
@@ -62,6 +60,16 @@ export default function ConnectionEditor({
     dialog.current?.querySelector<HTMLSelectElement>('#connection-source')?.focus();
   }, []);
   const source = graph.nodes.find((node) => node.id === sourceId);
+  const occupied = graph.edges.find(
+    (edge) => edge.id !== request.edgeId && edge.source === sourceId && edge.sourceHandle === port,
+  );
+  const old = request.edgeId
+    ? editing
+    : occupied && connectionIsEditable(graph, occupied)
+      ? occupied
+      : undefined;
+  const edgeId = request.edgeId ?? old?.id;
+  const targetId = targetChoice ?? old?.target ?? '';
   const target = graph.nodes.find((node) => node.id === targetId);
   const ports = source ? getOutputPorts(source.data.kind, source.data) : [];
   const sources = connectionSources(graph);
@@ -81,10 +89,7 @@ export default function ConnectionEditor({
           ? 'Choose an output port.'
           : !targetId
             ? 'Choose a destination.'
-            : connectionEditProblem(graph, connection, request.edgeId);
-  const occupied = graph.edges.find(
-    (edge) => edge.id !== request.edgeId && edge.source === sourceId && edge.sourceHandle === port,
-  );
+            : connectionEditProblem(graph, connection, edgeId);
   const unchanged = !!old && sameConnection(old, connection);
   const candidates = useMemo(
     () =>
@@ -102,12 +107,12 @@ export default function ConnectionEditor({
                     target: node.id,
                     targetHandle: 'in',
                   },
-                  request.edgeId,
+                  edgeId,
                 )
               : 'Choose a source and output first.',
         }))
         .sort((a, b) => a.node.data.label.localeCompare(b.node.data.label)),
-    [graph, sourceId, port, request.edgeId],
+    [graph, sourceId, port, edgeId],
   );
   const compatible = candidates.filter((candidate) => !candidate.problem);
   const filtered = candidates.filter(
@@ -144,13 +149,13 @@ export default function ConnectionEditor({
         onSubmit={(event) => {
           event.preventDefault();
           if (problem || unchanged) return;
-          const error = onApply(connection, request.edgeId);
+          const error = onApply(connection, edgeId);
           if (error) setSubmitProblem(error);
           else onClose();
         }}
       >
         <div className="dialog-header">
-          <h2 id="connection-title">{request.edgeId ? 'Edit connection' : 'Add connection'}</h2>
+          <h2 id="connection-title">{edgeId ? 'Edit connection' : 'Add connection'}</h2>
           <button
             ref={closeButton}
             type="button"
@@ -175,6 +180,7 @@ export default function ConnectionEditor({
                     node = graph.nodes.find((n) => n.id === id);
                   setSource(id);
                   setPort(node ? preferredConnectionOutput(graph, node, request.edgeId) : '');
+                  if (!request.edgeId) setTarget(undefined);
                   draftChanged();
                 }}
               >
@@ -200,6 +206,7 @@ export default function ConnectionEditor({
                 disabled={!source}
                 onChange={(event) => {
                   setPort(event.target.value);
+                  if (!request.edgeId) setTarget(undefined);
                   draftChanged();
                 }}
               >
@@ -227,7 +234,7 @@ export default function ConnectionEditor({
               {role !== 'traffic' && ` ${connectionTypes[role].description}`}
             </p>
           )}
-          {occupied && (
+          {occupied && occupied.id !== edgeId && (
             <div className="connection-occupied">
               <p>
                 This output is already connected to{' '}
@@ -235,15 +242,6 @@ export default function ConnectionEditor({
                   'a missing node'}
                 .
               </p>
-              {connectionIsEditable(graph, occupied) && (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onEditExisting(occupied.id)}
-                >
-                  Edit existing connection…
-                </button>
-              )}
             </div>
           )}
           <fieldset className="connection-destinations">
@@ -349,7 +347,7 @@ export default function ConnectionEditor({
             type="submit"
             disabled={!!problem || unchanged}
           >
-            {request.edgeId ? 'Apply connection' : 'Add connection'}
+            {edgeId ? 'Apply connection' : 'Add connection'}
           </button>
         </div>
       </form>

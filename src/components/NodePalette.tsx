@@ -10,7 +10,7 @@ import NodeLibraryItem from '@wayrill/ui/NodeLibraryItem';
 export default function NodePalette({
   onAdd,
   onDrop,
-  items = availableNodes,
+  items = availableNodes(),
 }: {
   onAdd: (kind: NodeKind) => void;
   onDrop: (kind: NodeKind, point: DragPoint) => void;

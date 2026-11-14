@@ -46,10 +46,3 @@ export function httpProxyInputs(
     return !type || type === 'none';
   });
 }
-
-export function httpProxyPorts(
-  config: Record<string, unknown> | null,
-  capture?: CapturePlan | null,
-): number[] {
-  return httpProxyInputs(config, capture).map((input) => Number(input.port));
-}

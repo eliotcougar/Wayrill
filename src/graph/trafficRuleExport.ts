@@ -1,5 +1,5 @@
 import { portableTrafficRule } from '../portableJson';
-import { jsonArray } from './xrayJson';
+import { jsonArray, jsonRecord } from './xrayJson';
 import type { GraphState, RuleNode } from './types';
 import {
   captureRuleFields,
@@ -22,7 +22,7 @@ export function exportWayrillRules(table: RuleTable, name: string, embedOverride
     kind: 'traffic',
     name,
     outputs: table.outputs,
-    rules: table.rules.map(({ source, ...rule }) =>
+    rules: table.rules.map(({ source, poolPlacement: _placement, ...rule }) =>
       portableTrafficRule({ ...rule, ...(!embedOverrides && source ? { source } : {}) }, 'write'),
     ),
     ...(!embedOverrides && table.source ? { source: table.source } : {}),
@@ -37,7 +37,14 @@ export function readWayrillRules(value: Record<string, unknown>): RuleTable {
   if (!jsonArray(value.rules)) throw new Error('Wayrill rules must be an array.');
   return readRuleTable({
     outputs: JSON.stringify(value.outputs),
-    rules: JSON.stringify(value.rules.map((rule) => portableTrafficRule(rule, 'read'))),
+    rules: JSON.stringify(
+      value.rules.map((rule) => {
+        const entry = portableTrafficRule(rule, 'read');
+        if (!jsonRecord(entry)) return entry;
+        delete entry.poolPlacement;
+        return entry;
+      }),
+    ),
     defaultOutput: typeof value.defaultOutput === 'string' ? value.defaultOutput : '',
     ...(value.tunAmbiguity === undefined
       ? {}

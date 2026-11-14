@@ -12,6 +12,18 @@ beforeEach(() => {
   mock.call.mockReset();
 });
 
+it('keeps observing an accepted job when progress reads are temporarily busy', async () => {
+  mock.call
+    .mockRejectedValueOnce({ code: 'BUSY', retryable: true })
+    .mockResolvedValueOnce({ busy: false, error: null });
+  const { waitSubscriptionJob } = await import('./serviceSubscriptions');
+  await waitSubscriptionJob(42);
+  expect(mock.call.mock.calls).toEqual([
+    ['subscriptions.job', { job: 42 }],
+    ['subscriptions.job', { job: 42 }],
+  ]);
+});
+
 it('coalesces pending context without holding saves or route assignments behind its job', async () => {
   let release!: () => void;
   const held = new Promise<void>((resolve) => {

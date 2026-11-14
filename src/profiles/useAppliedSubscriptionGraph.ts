@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parseGraph } from '../graph/model';
 import { errorText } from '../serviceClient';
 import type { RuntimeController } from '../useRuntime';
 import type useStash from './useStash';
 import { readSubscriptionDocument } from './serviceSubscriptions';
+import type { GraphState } from '../graph/types';
 
 /** Read-only protection of applied references; the service owns activation. */
 export default function useAppliedSubscriptionGraph(
@@ -14,17 +15,23 @@ export default function useAppliedSubscriptionGraph(
   sourceHash?: string | null,
 ) {
   const current = useRef({ store, runtime });
+  const [applied, setApplied] = useState<{
+    revision?: number | null;
+    sourceHash?: string | null;
+    graph?: GraphState;
+  }>();
   current.current = { store, runtime };
   useEffect(() => {
     if (!ready || !runtime.connected) return;
-    if (runtime.snapshot?.recovery?.desiredState === 'stopped') {
-      current.current.store.setRuntimeGraph(undefined);
-      return;
-    }
+    const stopped = runtime.snapshot?.recovery?.desiredState === 'stopped';
+    if (stopped) current.current.store.setRuntimeGraph(undefined);
     let active = true;
     void readSubscriptionDocument('applied')
       .then(({ text }) => {
-        if (active) current.current.store.setRuntimeGraph(text ? parseGraph(text) : undefined);
+        if (!active) return;
+        const graph = text ? parseGraph(text) : undefined;
+        setApplied({ revision: appliedRevision, sourceHash, graph });
+        if (!stopped) current.current.store.setRuntimeGraph(graph);
       })
       .catch((error: unknown) => {
         if (active)
@@ -42,4 +49,9 @@ export default function useAppliedSubscriptionGraph(
     appliedRevision,
     sourceHash,
   ]);
+  return runtime.connected &&
+    applied?.revision === runtime.snapshot?.config.revision &&
+    applied?.sourceHash === sourceHash
+    ? applied?.graph
+    : undefined;
 }

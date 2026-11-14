@@ -25,6 +25,7 @@
     "./schematic/useEdgeRouting": "./src/schematic/useEdgeRouting.ts",
     "./schematic/SchematicEdge": "./src/schematic/SchematicEdge.tsx",
     "./EditorTabs": "./src/EditorTabs.tsx",
+    "./StashOutboundPicker": "./src/StashOutboundPicker.tsx",
     "./browserTestSetup": "./src/browserTestSetup.ts",
     "./libavoidTypes": "./src/libavoidTypes.d.ts"
   },

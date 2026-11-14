@@ -1,11 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app_data;
+#[path = "../../../src-tauri/src/pool_accounts.rs"]
+mod pool_accounts;
 mod remote;
 mod transport;
 mod user_library;
+#[path = "../../../src-tauri/src/vault.rs"]
+#[allow(dead_code)]
+mod vault;
 mod winscp;
 use std::sync::Arc;
 use tauri::{Manager, State};
+
+#[tauri::command]
+async fn pool_accounts_cache(id: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || pool_accounts::write(&id, &text))
+        .await
+        .map_err(|_| "Could not save observed Aquifer accounts.")?
+}
 
 #[tauri::command]
 async fn ssh_sessions(
@@ -280,6 +292,7 @@ fn main() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             ssh_sessions,
+            pool_accounts_cache,
             ssh_discover,
             ssh_read_config,
             ssh_server_status,

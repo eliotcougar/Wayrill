@@ -16,6 +16,7 @@ const definitionKeys = [
 ] as const;
 
 export const DEFAULT_GROUP_ID = 'wayrill:default';
+export const isPoolStashGroup = (id: string) => /^pool-[a-f0-9]{32}-/.test(id);
 export const entryKind = (entry: StashEntry): ProfileKind | undefined =>
   entry.draft?.kind ?? entry.profile?.kind;
 export const entryIsPrepared = (entry: StashEntry) =>
@@ -80,11 +81,17 @@ export function entryLink(stash: Stash, entry: StashEntry): StashLink {
 export function putStashEntry(
   stash: Stash,
   entry: StashEntry,
-  link?: StashLink,
+  destination?: StashLink | string,
   expected?: StashEntry,
 ): Stash {
-  const groupId = link?.groupId ?? DEFAULT_GROUP_ID;
+  const link = typeof destination === 'string' ? undefined : destination;
+  const groupId =
+    typeof destination === 'string' ? destination : (link?.groupId ?? DEFAULT_GROUP_ID);
   const group = stash.groups.find((g) => g.id === groupId);
+  if (!link && isPoolStashGroup(groupId))
+    throw new Error('Choose a local Stash group for the new outbound.');
+  if (!link && !group && groupId !== DEFAULT_GROUP_ID)
+    throw new Error('This Stash group no longer exists. Choose another group.');
   if (link && (!group || !group.entries.some((e) => e.id === link.entryId)))
     throw new Error('This Stash entry no longer exists. Reopen it before saving.');
   const previous = link ? findStashEntry(stash, link) : undefined;

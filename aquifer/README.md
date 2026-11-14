@@ -1,4 +1,4 @@
-# Wayrill Aquifer 0.2.3
+# Wayrill Aquifer 0.2.6
 
 Aquifer manages Linux Xray servers over SSH using Wayrill graphs. It is part of the Wayrill source/bundle and can also be built and run separately as `wayrill-aquifer.exe`. It uses WebView2 and an installed WinSCP, without installing a local routing service, driver or VPN adapter. Install WinSCP separately, or extract its portable package with both `WinSCP.exe` and `WinSCP.com` in the same folder. Aquifer does not bundle or download WinSCP.
 
@@ -35,6 +35,8 @@ Run browser development with `npm run aquifer:dev`; it has its own local port. T
 ## Storage and boundaries
 
 Aquifer writes user preferences and DPAPI-protected User sets under `%LOCALAPPDATA%\app.wayrill.aquifer`. Until a new file is saved, it can read the corresponding legacy `app.wayrill.remote.poc` file. It does not overwrite the old store or copy plaintext credentials. WinSCP retains all SSH secrets. Temporary uploads use the new identity.
+
+Reading a remote configuration or successfully deploying one refreshes the DPAPI-protected account cache for Wayrill Pool. Pool uses this cache to build each subscriber’s Stash from the accounts the administrator selects.
 
 The `wayrill.remote` graph-document marker and `/var/lib/wayrill-remote` fixed job protocol remain stable so existing companion layouts and recovery records remain readable. They are protocol identifiers, not application branding. Graph format compatibility is otherwise not a public guarantee at this development stage.
 

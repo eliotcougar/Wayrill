@@ -1,5 +1,6 @@
 //! Service-owned library and a single background maintenance actor.
 //! Slow parsing, downloads and probes never hold the routing mutex.
+pub(crate) mod pool;
 mod timezone_choices;
 pub(crate) mod vault;
 mod worker;
@@ -119,6 +120,10 @@ struct Library {
     publications: BTreeMap<String, String>,
     retry_after: BTreeMap<String, u64>,
     last_group: String,
+    #[serde(default)]
+    pool: Option<pool::Connection>,
+    #[serde(default)]
+    pool_pending: Option<pool::Pending>,
 }
 impl Library {
     fn empty(owner: String) -> Self {
@@ -135,6 +140,8 @@ impl Library {
             publications: BTreeMap::new(),
             retry_after: BTreeMap::new(),
             last_group: String::new(),
+            pool: None,
+            pool_pending: None,
         }
     }
 }
@@ -160,6 +167,10 @@ struct Replacement {
 }
 #[derive(Clone)]
 enum Work {
+    Pool {
+        id: u64,
+        task: pool::Task,
+    },
     Replace {
         id: u64,
         selection: Replacement,
@@ -179,7 +190,10 @@ enum Work {
 impl Work {
     fn id(&self) -> u64 {
         match self {
-            Self::Upload { id, .. } | Self::Run { id, .. } | Self::Replace { id, .. } => *id,
+            Self::Pool { id, .. }
+            | Self::Upload { id, .. }
+            | Self::Run { id, .. }
+            | Self::Replace { id, .. } => *id,
         }
     }
     fn group(&self) -> Option<String> {
@@ -217,6 +231,10 @@ struct State {
     queue: VecDeque<Work>,
     active: Option<Active>,
     completed: VecDeque<Completed>,
+    pool_busy: bool,
+    pool_error: Option<ApiError>,
+    pool_last_check: Option<u64>,
+    pool_preview: Option<(u64, Value)>,
 }
 #[derive(Clone)]
 pub struct Manager {
@@ -302,6 +320,10 @@ impl Manager {
                 queue: VecDeque::new(),
                 active: None,
                 completed: VecDeque::new(),
+                pool_busy: false,
+                pool_error: None,
+                pool_last_check: None,
+                pool_preview: None,
             })),
             timezone_catalog: Arc::new(Mutex::new(None)),
             gate: crate::operation_gate::Gate::default(),
@@ -557,6 +579,86 @@ impl Manager {
                 interrupt_maintenance(&state, automatic_only);
                 Ok(json!({"job":id}))
             }
+            "pool.status" => Ok(pool::view(&state)),
+            "pool.previewResult" => {
+                let input: Job = params(input)?;
+                state
+                    .pool_preview
+                    .as_ref()
+                    .filter(|(id, _)| *id == input.job)
+                    .map(|(_, preview)| preview.clone())
+                    .ok_or_else(|| invalid("Review the Pool placeholders again."))
+            }
+            "pool.enroll" | "pool.refresh" | "pool.disconnect" | "pool.setInterval"
+            | "pool.preview" | "pool.bind" => {
+                let task = match method {
+                    "pool.enroll" => {
+                        let enrollment: pool::Enrollment = params(input)?;
+                        enrollment.validate()?;
+                        if state.library.pool.is_some() {
+                            return Err(invalid(
+                                "Disconnect from the current Pool before enrolling again.",
+                            ));
+                        }
+                        pool::Task::Enroll(Box::new(enrollment))
+                    }
+                    "pool.preview" => {
+                        let request: pool::PreviewRequest = params(input)?;
+                        request.validate()?;
+                        pool::Task::Preview(Box::new(request))
+                    }
+                    "pool.bind" => {
+                        if state.library.pool.is_none() {
+                            return Err(invalid("Connect to a Pool first."));
+                        }
+                        let request: pool::BindingChange = params(input)?;
+                        request.validate()?;
+                        pool::Task::Bind(Box::new(request))
+                    }
+                    "pool.setInterval" => {
+                        #[derive(Deserialize)]
+                        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                        struct Interval {
+                            refresh_minutes: u64,
+                        }
+                        let p: Interval = params(input)?;
+                        pool::validate_minutes(p.refresh_minutes)?;
+                        pool::Task::SetInterval(p.refresh_minutes)
+                    }
+                    "pool.refresh" => pool::Task::Refresh,
+                    _ => {
+                        #[derive(Deserialize)]
+                        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                        struct Disconnect {
+                            keep_stash: Option<bool>,
+                        }
+                        let p: Disconnect =
+                            params(if input.is_null() { json!({}) } else { input })?;
+                        pool::Task::Disconnect {
+                            keep_stash: p.keep_stash.unwrap_or(true),
+                        }
+                    }
+                };
+                if state.queue.len() >= 4
+                    || state.pool_busy
+                    || state.library.pool_pending.is_some()
+                    || state
+                        .queue
+                        .iter()
+                        .any(|work| matches!(work, Work::Pool { .. }))
+                {
+                    return Err(ApiError::new(
+                        "BUSY",
+                        "Wait for the current Pool or subscription operation.",
+                    ));
+                }
+                let id = u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
+                    .map_err(|_| invalid("Cannot create Pool job identity."))?
+                    .max(1);
+                state.queue.push_back(Work::Pool { id, task });
+                interrupt_maintenance(&state, true);
+                Ok(json!({"job":id}))
+            }
             "subscriptions.replace" => {
                 let selection: Replacement = params(input)?;
                 if [&selection.node_id, &selection.group_id, &selection.entry_id]
@@ -769,10 +871,15 @@ impl Manager {
     fn next_work(&self) -> Option<Dispatch> {
         let mut state = self.state.lock().unwrap();
         let reservation = match state.queue.front()? {
-            Work::Run { .. } | Work::Replace { .. } => Some(self.gate.background()?),
+            Work::Run { .. } | Work::Replace { .. } | Work::Pool { .. } => {
+                Some(self.gate.background()?)
+            }
             Work::Upload { .. } => None,
         };
         let work = state.queue.pop_front()?;
+        if matches!(work, Work::Pool { .. }) {
+            state.pool_busy = true;
+        }
         let (id, group) = (work.id(), work.group());
         let stop = reservation
             .as_ref()

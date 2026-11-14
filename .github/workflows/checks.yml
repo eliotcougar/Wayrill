@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [service, desktop, capture, aquifer]
+        component: [service, desktop, capture, aquifer, pool]
     defaults:
       run:
         shell: pwsh

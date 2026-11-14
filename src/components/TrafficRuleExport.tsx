@@ -13,10 +13,12 @@ export default function TrafficRuleExport({
   table,
   graph,
   node,
+  onExportPool,
 }: {
   table: RuleTable;
   graph: GraphState;
   node: RuleNode;
+  onExportPool?: () => Promise<void>;
 }) {
   const [format, setFormat] = useState('wayrill'),
     [embedOverrides, setEmbedOverrides] = useState(false),
@@ -139,6 +141,27 @@ export default function TrafficRuleExport({
         <Download size={16} />
         Export file
       </button>
+      {onExportPool && (
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => {
+            setProblem('');
+            void onExportPool().catch((reason: unknown) =>
+              setProblem(
+                typeof reason === 'string'
+                  ? reason
+                  : reason instanceof Error
+                    ? reason.message
+                    : 'Could not export to Pool.',
+              ),
+            );
+          }}
+        >
+          Export to Pool…
+        </button>
+      )}
     </section>
   );
 }

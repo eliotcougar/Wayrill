@@ -49,7 +49,11 @@ it('agrees with Xray TestRoute for generated graph paths and imported native pre
     const remote = importAquiferConfig(JSON.stringify(routingBaseConfig));
     remote.nodes = [
       ...remote.nodes.filter((node) => node.data.kind !== 'routing-filter'),
-      ...graph.nodes.filter((node) => node.data.kind === 'routing-filter'),
+      ...graph.nodes.flatMap((node) =>
+        node.data.kind === 'routing-filter'
+          ? [{ ...node, data: { ...node.data, kind: 'routing-filter' as const } }]
+          : [],
+      ),
     ];
     remote.edges = graph.edges;
     return [

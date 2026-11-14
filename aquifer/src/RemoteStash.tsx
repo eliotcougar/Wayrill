@@ -1,7 +1,11 @@
 import { EditorTabList, useEditorTabs } from '@wayrill/ui/EditorTabs';
+import StashOutboundPicker from '@wayrill/ui/StashOutboundPicker';
 import { useEffect, useRef, useState } from 'react';
 import { Archive, LocateFixed, Pencil, Plus, Search, X } from 'lucide-react';
-import type { RemoteView } from './remoteModel';
+import { routingDestinations, type RemoteView } from './remoteModel';
+import { createRemoteNode, nodeLibrary } from './remoteCreation';
+import { nodeSettings, replaceNodeSettings } from './nodeSettings';
+import RemoteSettings from './RemoteSettings';
 import {
   chainPath,
   configuredOutbounds,
@@ -12,9 +16,16 @@ import {
 import { get } from './nativeProperties';
 import { jsonText } from './graph/xrayJson';
 
+const outboundTypes = nodeLibrary
+  .filter(({ category, protocol }) => category === 'outbound' && protocol)
+  .map(({ id, title }) => ({ id, name: title }));
+const PAGE_SIZE = 100;
+
 export default function RemoteStash({
   view,
   visible,
+  canAdd,
+  onAdd,
   onEdit,
   onEditChain,
   onShow,
@@ -22,6 +33,8 @@ export default function RemoteStash({
 }: {
   view: RemoteView;
   visible: ReadonlySet<string>;
+  canAdd: () => boolean;
+  onAdd: (view: RemoteView) => void;
   onEdit: (id: string) => void;
   onEditChain: (id: string) => void;
   onShow: (id: string) => void;
@@ -29,6 +42,11 @@ export default function RemoteStash({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const body = useRef<HTMLDivElement>(null);
+  const [adding, setAdding] = useState(false);
+  const [creation, setCreation] = useState<
+    ReturnType<typeof createRemoteNode> & { base: RemoteView }
+  >();
+  const newOutbound = creation && nodeSettings(creation.view, creation.id);
   const [tab, setTab] = useState<StashTab>('outbounds'),
     [query, setQuery] = useState(''),
     [page, setPage] = useState(0);
@@ -65,7 +83,7 @@ export default function RemoteStash({
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
-  const pages = Math.max(1, Math.ceil(filtered.length / 100)),
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
     active = Math.min(page, pages - 1);
   useEffect(() => {
     if (body.current) body.current.scrollTop = 0;
@@ -108,6 +126,11 @@ export default function RemoteStash({
             }}
           />
         </label>
+        {tab === 'outbounds' && (
+          <button className="secondary-button" onClick={() => canAdd() && setAdding(true)}>
+            <Plus size={14} /> Add outbound
+          </button>
+        )}
         <span>
           {filtered.length} / {entries.length}
         </span>
@@ -136,7 +159,7 @@ export default function RemoteStash({
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(active * 100, (active + 1) * 100).map(({ id, data }) => (
+            {filtered.slice(active * PAGE_SIZE, (active + 1) * PAGE_SIZE).map(({ id, data }) => (
               <tr key={id}>
                 <td>{data.title}</td>
                 <td>{tab === 'proxyChains' ? chain(id) : data.subtitle}</td>
@@ -175,7 +198,7 @@ export default function RemoteStash({
         )}
       </div>
       <footer className="dialog-footer stash-pagination">
-        {filtered.length > 100 && (
+        {filtered.length > PAGE_SIZE && (
           <>
             <button
               className="secondary-button"
@@ -185,7 +208,7 @@ export default function RemoteStash({
               Previous
             </button>
             <span>
-              {active * 100 + 1}–{Math.min((active + 1) * 100, filtered.length)} of{' '}
+              {active * PAGE_SIZE + 1}–{Math.min((active + 1) * PAGE_SIZE, filtered.length)} of{' '}
               {filtered.length}
             </span>
             <button
@@ -201,6 +224,38 @@ export default function RemoteStash({
           Close
         </button>
       </footer>
+      {adding && (
+        <StashOutboundPicker
+          types={outboundTypes}
+          onContinue={(kind) => {
+            setCreation({ ...createRemoteNode(view, kind), base: view });
+            setAdding(false);
+          }}
+          onClose={() => setAdding(false)}
+        />
+      )}
+      {creation && newOutbound && (
+        <RemoteSettings
+          {...newOutbound}
+          title={
+            creation.view.nodes.find((node) => node.id === creation.id)?.data.title ?? 'Outbound'
+          }
+          destinations={routingDestinations(creation.view)}
+          saveLabel="Save to Stash"
+          onSave={(value) => {
+            if (view !== creation.base)
+              throw new Error(
+                'The configuration changed. Reopen the outbound editor and try again.',
+              );
+            const next = replaceNodeSettings(creation.view, creation.id, value);
+            onAdd(next);
+            setCreation(undefined);
+            setQuery('');
+            setPage(Math.floor((stashNodes(next, 'outbounds').length - 1) / PAGE_SIZE));
+          }}
+          onClose={() => setCreation(undefined)}
+        />
+      )}
     </dialog>
   );
 }

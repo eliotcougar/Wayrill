@@ -9,13 +9,18 @@ type RuntimeViewState = Pick<
 
 // The applied profile includes the capture sidecar. A cached snapshot is useful
 // history, but cannot establish what is running while the service is offline.
-export function runtimePresentation(runtime: RuntimeViewState, draft: RuntimeCompilation | null) {
+export function runtimePresentation(
+  runtime: RuntimeViewState,
+  draft: RuntimeCompilation | null,
+  personalRulesChanged = false,
+) {
   const { snapshot, desktop } = runtime;
   const current = desktop && runtime.connected && !!snapshot;
   const profileCurrent = current && runtime.savedRevision === snapshot.config.revision;
   const resourcesChanged = current && !!snapshot.resources?.restartRequired;
   const appliedMatch =
     profileCurrent &&
+    !personalRulesChanged &&
     snapshot.config.present &&
     matchesApplied(draft?.config ?? null, runtime.savedConfig) &&
     matchesCapture(draft?.capture, runtime.savedCapture) &&

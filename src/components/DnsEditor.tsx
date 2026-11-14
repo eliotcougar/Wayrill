@@ -222,13 +222,19 @@ export default function DnsEditor({
   resourceWarnings,
   onApply,
   onTest,
+  onExportPool,
+  layerMode = false,
+  fixedOutputs = false,
   onClose,
 }: {
   node: RuleNode;
   resourceWarnings?: Partial<ResourceWarningReport> | null;
   graph: GraphState;
-  onApply: (id: string, data: Partial<RuleNodeData>) => void;
+  onApply: (id: string, data: Partial<RuleNodeData>) => void | Promise<void>;
+  layerMode?: boolean;
+  fixedOutputs?: boolean;
   onTest?: (settings: Record<string, SettingValue>) => void;
+  onExportPool?: (filter: DnsFilter) => Promise<void>;
   onClose: () => void;
 }) {
   const { save, saveError } = useEditorSave(onClose);
@@ -428,9 +434,9 @@ export default function DnsEditor({
         : []),
       ...(!handler && !group
         ? [
-            { key: 'presets' as const, label: 'Presets' },
+            ...(!layerMode ? [{ key: 'presets' as const, label: 'Presets' }] : []),
             { key: 'import' as const, label: 'Import' },
-            { key: 'export' as const, label: 'Export' },
+            ...(!layerMode ? [{ key: 'export' as const, label: 'Export' }] : []),
           ]
         : []),
       { key: 'preview', label: 'Xray DNS preview' },
@@ -1123,7 +1129,7 @@ export default function DnsEditor({
                       className="icon-button"
                       aria-label="Add output"
                       title="Add output"
-                      disabled={filter.outputs.length >= 16}
+                      disabled={fixedOutputs || filter.outputs.length >= 16}
                       onClick={() =>
                         setFilter((f) => ({
                           ...f,
@@ -1141,6 +1147,12 @@ export default function DnsEditor({
                       <Plus size={16} />
                     </button>
                   </div>
+                  {fixedOutputs && (
+                    <p className="field-help">
+                      The base graph defines these output connections. Edit the base graph to add or
+                      remove outputs.
+                    </p>
+                  )}
                   <OutputList
                     outputs={filter.outputs}
                     label="DNS routing outputs"
@@ -1175,6 +1187,7 @@ export default function DnsEditor({
                               className="icon-button"
                               aria-label={`Delete output ${output.name}`}
                               title="Apply removes this output and its connection."
+                              disabled={fixedOutputs}
                               onClick={() =>
                                 setFilter((f) => ({
                                   ...f,
@@ -1207,6 +1220,7 @@ export default function DnsEditor({
                   filter={filter}
                   graph={graph}
                   node={node}
+                  fixedOutputs={fixedOutputs}
                   onImport={(next) => {
                     setFilter(next);
                     setSelected(next.rules[0]?.id ?? null);
@@ -1214,7 +1228,28 @@ export default function DnsEditor({
                   }}
                 />
               ) : tab === 'export' ? (
-                <DnsRuleExport filter={filter} name={node.data.label} />
+                <>
+                  <DnsRuleExport filter={filter} name={node.data.label} />
+                  {onExportPool && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setExportError('');
+                        void onExportPool(filter).catch((reason: unknown) =>
+                          setExportError(
+                            typeof reason === 'string'
+                              ? reason
+                              : reason instanceof Error
+                                ? reason.message
+                                : 'Could not export to Pool.',
+                          ),
+                        );
+                      }}
+                    >
+                      Export to Pool…
+                    </button>
+                  )}
+                </>
               ) : tab === 'presets' ? (
                 <RoutingPresetPicker
                   kind="dns"

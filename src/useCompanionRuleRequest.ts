@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { desktopServiceAvailable } from './serviceClient';
 import { listen } from '@tauri-apps/api/event';
 import type { CompanionRuleRequest } from './companionRules';
 
@@ -12,7 +13,7 @@ export default function useCompanionRuleRequest(ready: boolean) {
   enabled.current = ready;
   const wake = useRef(() => {});
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!desktopServiceAvailable()) return;
     let active = true,
       busy = false,
       again = false;

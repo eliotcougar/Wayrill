@@ -1,29 +1,49 @@
-!macro WayrillAquiferGuard Prefix
-Function ${Prefix}WayrillCheckAquiferClosed
-  aquifer_retry:
-  IfFileExists "$INSTDIR\Aquifer\wayrill-aquifer.exe" 0 aquifer_closed
+!macro WayrillToolGuard Prefix Tool Executable
+Function ${Prefix}WayrillCheck${Tool}Closed
+  tool_retry:
+  IfFileExists "$INSTDIR\${Executable}" 0 tool_closed
   ; Request write access without creating or changing the file. Windows denies
   ; this while its image is running. Only this installation's binary is checked.
-  System::Call 'kernel32::CreateFileW(w "$INSTDIR\Aquifer\wayrill-aquifer.exe", i 0x40000000, i 7, p 0, i 3, i 0, p 0) p.r0'
+  System::Call 'kernel32::CreateFileW(w "$INSTDIR\${Executable}", i 0x40000000, i 7, p 0, i 3, i 0, p 0) p.r0'
   ${If} $0 != -1
     System::Call 'kernel32::CloseHandle(p r0)'
-    Goto aquifer_closed
+    Goto tool_closed
   ${EndIf}
   System::Call 'kernel32::GetLastError() i.r1'
   ${If} $1 = 2
   ${OrIf} $1 = 3
-    Goto aquifer_closed
+    Goto tool_closed
   ${EndIf}
-  IfSilent aquifer_abort
-  MessageBox MB_ICONEXCLAMATION|MB_RETRYCANCEL "Close Wayrill Aquifer before continuing. Save or export any edited configuration first.$\r$\n$\r$\nIf Aquifer is already closed, check that its installed executable can be updated." IDRETRY aquifer_retry
-  aquifer_abort:
+  IfSilent tool_abort
+  MessageBox MB_ICONEXCLAMATION|MB_RETRYCANCEL "Close Wayrill ${Tool} before continuing.$\r$\n$\r$\nIf ${Tool} is already closed, check that its installed executable can be updated." IDRETRY tool_retry
+  tool_abort:
     SetErrorLevel 1
     Abort
-  aquifer_closed:
+  tool_closed:
 FunctionEnd
 !macroend
-!insertmacro WayrillAquiferGuard ""
-!insertmacro WayrillAquiferGuard "un."
+!insertmacro WayrillToolGuard "" "Aquifer" "Aquifer\wayrill-aquifer.exe"
+!insertmacro WayrillToolGuard "un." "Aquifer" "Aquifer\wayrill-aquifer.exe"
+!insertmacro WayrillToolGuard "" "Pool" "Pool\wayrill-pool.exe"
+!insertmacro WayrillToolGuard "un." "Pool" "Pool\wayrill-pool.exe"
+
+!macro WayrillToolShortcut Tool Executable
+  IfFileExists "$INSTDIR\${Executable}" 0 +2
+  CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\Wayrill ${Tool}.lnk" "$INSTDIR\${Executable}"
+!macroend
+
+!macro WayrillRemoveToolShortcuts Tool Executable
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\Wayrill ${Tool}.lnk" "$INSTDIR\${Executable}"
+  Pop $0
+  ${If} $0 = 1
+    Delete "$SMPROGRAMS\$AppStartMenuFolder\Wayrill ${Tool}.lnk"
+  ${EndIf}
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\Wayrill ${Tool}.lnk" "$INSTDIR\${Executable}"
+  Pop $0
+  ${If} $0 = 1
+    Delete "$SMPROGRAMS\Wayrill ${Tool}.lnk"
+  ${EndIf}
+!macroend
 
 !include TextFunc.nsh
 !define WAYRILL_HOOK_DIR "${__FILEDIR__}"
@@ -67,6 +87,7 @@ FunctionEnd
     Abort
   ${EndIf}
   Call WayrillCheckAquiferClosed
+  Call WayrillCheckPoolClosed
   Call WayrillPrepareResources
   Call WayrillUninstallPreviousVersion
   InitPluginsDir
@@ -99,14 +120,9 @@ FunctionEnd
   ClearErrors
   ${If} $NoShortcutMode <> 1
     !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
-      IfFileExists "$INSTDIR\Aquifer\wayrill-aquifer.exe" 0 aquifer_shortcut_done
-      !if "${STARTMENUFOLDER}" != ""
-        CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
-        CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
-      !else
-        CreateShortcut "$SMPROGRAMS\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
-      !endif
-      aquifer_shortcut_done:
+      CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
+      !insertmacro WayrillToolShortcut "Aquifer" "Aquifer\wayrill-aquifer.exe"
+      !insertmacro WayrillToolShortcut "Pool" "Pool\wayrill-pool.exe"
     !insertmacro MUI_STARTMENU_WRITE_END
   ${EndIf}
   !insertmacro MUI_HEADER_TEXT "Restarting Wayrill service" "Starting the networking service and restoring the previous routing state."
@@ -132,17 +148,10 @@ FunctionEnd
 !macroend
 !macro NSIS_HOOK_PREUNINSTALL
   Call un.WayrillCheckAquiferClosed
+  Call un.WayrillCheckPoolClosed
   !insertmacro MUI_STARTMENU_GETFOLDER Application $AppStartMenuFolder
-  !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
-  Pop $0
-  ${If} $0 = 1
-    Delete "$SMPROGRAMS\$AppStartMenuFolder\Wayrill Aquifer.lnk"
-  ${EndIf}
-  !insertmacro IsShortcutTarget "$SMPROGRAMS\Wayrill Aquifer.lnk" "$INSTDIR\Aquifer\wayrill-aquifer.exe"
-  Pop $0
-  ${If} $0 = 1
-    Delete "$SMPROGRAMS\Wayrill Aquifer.lnk"
-  ${EndIf}
+  !insertmacro WayrillRemoveToolShortcuts "Aquifer" "Aquifer\wayrill-aquifer.exe"
+  !insertmacro WayrillRemoveToolShortcuts "Pool" "Pool\wayrill-pool.exe"
   InitPluginsDir
   CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Service.ps1" "$PLUGINSDIR\Installer-Service.ps1"
   CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Lifecycle.ps1" "$PLUGINSDIR\Installer-Lifecycle.ps1"

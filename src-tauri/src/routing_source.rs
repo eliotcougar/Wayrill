@@ -1,9 +1,97 @@
-//! Manual file refresh runs as the signed-in desktop user, never as the service.
-use std::{fs::File, io::Read, path::Path};
+//! Manual rule imports run under the signed-in user's token in Wayrill and Pool.
+use serde_json::{json, Value};
+use std::{collections::BTreeMap, fs::File, io::Read, path::Path};
+use wayrill_ipc::windows::request;
+use wayrill_protocol::{http_proxy_input, MAX_CONFIG};
 
-const MAX_BYTES: u64 = wayrill_protocol::MAX_CONFIG as u64;
+#[path = "../../service/subscription_http.rs"]
+mod http;
 
-pub fn read(path: &str) -> Result<String, String> {
+#[tauri::command]
+pub async fn routing_source_file(
+    window: tauri::WebviewWindow,
+    path: Option<String>,
+) -> Result<Option<Value>, String> {
+    let owner = window.hwnd().map_err(|_| "Cannot find the app window.")?.0 as usize;
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = match path {
+            Some(path) => Some(path),
+            None => std::thread::spawn(move || crate::picker::choose(owner, "routing"))
+                .join()
+                .map_err(|_| "Routing file picker failed.")??,
+        };
+        path.map(|path| read(&path).map(|text| json!({"path": path, "text": text})))
+            .transpose()
+    })
+    .await
+    .map_err(|_| "Routing file task failed.")?
+}
+
+#[tauri::command]
+pub async fn routing_source_download(
+    url: String,
+    allow_http: bool,
+    via_wayrill: bool,
+) -> Result<String, String> {
+    let proxy = if via_wayrill {
+        Some(running_proxy_port().await?)
+    } else {
+        None
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = http::fetch(&url, allow_http, "", &BTreeMap::new(), proxy)?;
+        if text.len() > MAX_CONFIG {
+            return Err(size_error());
+        }
+        Ok(text)
+    })
+    .await
+    .map_err(|_| "Routing download task failed.")?
+}
+
+async fn running_proxy_port() -> Result<u16, String> {
+    let applied = request("config.get", json!({}))
+        .await
+        .map_err(|e| e.message)?;
+    let status = request("service.status", json!({}))
+        .await
+        .map_err(|e| e.message)?;
+    proxy_port(&applied, &status).ok_or_else(|| {
+        "Start Wayrill with an unauthenticated HTTP-compatible input to download through it.".into()
+    })
+}
+
+fn proxy_port(applied: &Value, status: &Value) -> Option<u16> {
+    if status["core"]["state"] != "running"
+        || status["config"]["revision"].as_u64()? != applied["revision"].as_u64()?
+    {
+        return None;
+    }
+    let relays = applied["capture"]["inputs"].as_array();
+    applied["config"]["inbounds"]
+        .as_array()?
+        .iter()
+        .filter(|input| http_proxy_input(input))
+        .find_map(|input| {
+            // Saved capture relays acquire private credentials when started.
+            if relays.is_some_and(|relays| relays.iter().any(|relay| relay["tag"] == input["tag"]))
+            {
+                return None;
+            }
+            input["port"]
+                .as_u64()
+                .and_then(|port| u16::try_from(port).ok())
+        })
+}
+
+fn size_error() -> String {
+    format!(
+        "Routing files must be at most {} MiB.",
+        MAX_CONFIG / 1024 / 1024
+    )
+}
+
+fn read(path: &str) -> Result<String, String> {
     let normalized = path.replace('/', "\\").to_ascii_lowercase();
     if !Path::new(path).is_absolute()
         || normalized.starts_with("\\\\.\\")
@@ -18,27 +106,28 @@ pub fn read(path: &str) -> Result<String, String> {
         return Err("Choose a regular routing file.".into());
     }
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1)
+    file.take(MAX_CONFIG as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Cannot read routing file: {e}"))?;
     decode(bytes)
 }
 
+#[allow(
+    clippy::chunks_exact_to_as_chunks,
+    reason = "Shared with the desktop crate's Rust 1.77 MSRV."
+)]
 fn decode(bytes: Vec<u8>) -> Result<String, String> {
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(format!(
-            "Routing files must be at most {} MiB.",
-            MAX_BYTES / 1024 / 1024
-        ));
+    if bytes.len() > MAX_CONFIG {
+        return Err(size_error());
     }
     let invalid = || "Routing file is not valid UTF-8 or UTF-16 text.".to_string();
     if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
-        if bytes.len() % 2 != 0 {
+        let pairs = bytes[2..].chunks_exact(2);
+        if !pairs.remainder().is_empty() {
             return Err(invalid());
         }
         let little = bytes[0] == 0xff;
-        let units: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
+        let units: Vec<u16> = pairs
             .map(|b| {
                 if little {
                     u16::from_le_bytes([b[0], b[1]])
@@ -80,7 +169,7 @@ mod tests {
         assert!(decode(vec![0xff, 0xfe, 0]).is_err());
         assert!(decode(vec![0xff, 0xfe, 0, 0xd8]).is_err());
         assert!(decode(vec![0xff]).is_err());
-        assert!(decode(vec![b' '; MAX_BYTES as usize + 1]).is_err());
+        assert!(decode(vec![b' '; MAX_CONFIG + 1]).is_err());
     }
     #[test]
     fn reads_unicode_paths_and_rejects_devices_or_missing_files() {
@@ -93,5 +182,27 @@ mod tests {
         assert!(read("rules.json").is_err());
         assert!(read("\\\\.\\pipe\\rules").is_err());
         assert!(read("C:\\rules.json:stream").is_err());
+    }
+
+    #[test]
+    fn downloads_use_only_a_public_proxy_from_the_running_revision() {
+        let mut applied = json!({
+            "revision": 5,
+            "config": {"inbounds": [
+                {"tag": "relay", "protocol": "socks", "listen": "127.0.0.1", "port": 1080},
+                {"tag": "proxy", "protocol": "http", "listen": "127.0.0.1", "port": 8080}
+            ]},
+            "capture": {"inputs": [{"tag": "relay"}]}
+        });
+        let mut status = json!({"config": {"revision": 4}, "core": {"state": "running"}});
+        assert_eq!(proxy_port(&applied, &status), None);
+        status["config"]["revision"] = json!(5);
+        assert_eq!(proxy_port(&applied, &status), Some(8080));
+        applied["config"]["inbounds"][1]["settings"] = json!({"auth": "password"});
+        assert_eq!(proxy_port(&applied, &status), None);
+        applied["capture"] = Value::Null;
+        assert_eq!(proxy_port(&applied, &status), Some(1080));
+        status["core"]["state"] = json!("stopped");
+        assert_eq!(proxy_port(&applied, &status), None);
     }
 }
