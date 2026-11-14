@@ -145,15 +145,17 @@ impl Policy {
             {
                 wrapper["targetStrategy"] = strategy.clone();
             } else if original["protocol"] == "freedom" {
-                // Direct already resolves its destination locally. Resolve it
-                // before the local-IP guard, not after binding the uplink.
+                // Reuse a requested Xray lookup before checking locality.
+                // AsIs uses the system resolver, so leave that lookup to Direct.
                 let strategy = [
                     &original["streamSettings"]["sockopt"]["domainStrategy"],
                     &original["settings"]["domainStrategy"],
                 ]
                 .into_iter()
                 .find(|v| v.as_str().is_some_and(|s| s != "AsIs"));
-                wrapper["targetStrategy"] = strategy.cloned().unwrap_or_else(|| json!("ForceIP"));
+                if let Some(strategy) = strategy {
+                    wrapper["targetStrategy"] = strategy.clone();
+                }
             }
             outputs.push(wrapper);
             internal.push(transport);
@@ -375,6 +377,24 @@ mod tests {
         assert!(config["outbounds"][0].get("tag").is_none());
         assert_eq!(config["outbounds"][1]["protocol"], "dns");
         assert_eq!(config["dns"]["servers"][0]["address"], "127.0.0.1");
+    }
+    #[test]
+    fn direct_loopback_policy_preserves_system_and_explicit_dns_strategies() {
+        let mut config = json!({"outbounds":[
+            {"tag":"system","protocol":"freedom","streamSettings":{"sockopt":{"interface":"Ethernet","domainStrategy":"AsIs"}}},
+            {"tag":"dns","protocol":"freedom","streamSettings":{"sockopt":{"domainStrategy":"ForceIPv4"}}}
+        ]});
+        let policy = Policy::apply(&mut config, "Loopback").unwrap();
+        assert!(config["outbounds"][0].get("targetStrategy").is_none());
+        assert_eq!(config["outbounds"][1]["targetStrategy"], "ForceIPv4");
+        assert!(policy
+            .rules()
+            .iter()
+            .any(|rule| rule["ip"] == json!(["127.0.0.0/8"])));
+        assert!(policy
+            .rules()
+            .iter()
+            .any(|rule| rule["domain"] == json!(["domain:localhost", "full:localhost."])));
     }
     #[test]
     fn supports_the_public_outbound_budget_without_admitting_helpers_to_groups() {

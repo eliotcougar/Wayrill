@@ -54,7 +54,9 @@ fn bind_selected(
         if local || options["interface"].as_str().unwrap_or("").is_empty() {
             options["interface"] = json!(if local { loopback } else { uplink });
         }
-        if options["domainStrategy"].as_str().unwrap_or("AsIs") == "AsIs" {
+        // Only capture needs an Xray DNS lookup to bypass the captured system path.
+        // Binding Direct in proxy mode must preserve the user's resolver strategy.
+        if !direct_only && options["domainStrategy"].as_str().unwrap_or("AsIs") == "AsIs" {
             options["domainStrategy"] = json!("ForceIP");
         }
     }
@@ -78,6 +80,15 @@ mod tests {
             config["outbounds"][0]["streamSettings"]["sockopt"]["interface"],
             "Ethernet"
         );
+        assert!(config["outbounds"][0]["streamSettings"]["sockopt"]["domainStrategy"].is_null());
+        for strategy in ["AsIs", "ForceIPv4"] {
+            let mut configured = json!({"outbounds":[{"protocol":"freedom","streamSettings":{"sockopt":{"domainStrategy":strategy}}}]});
+            bind_direct(&mut configured, "Ethernet", "Loopback").unwrap();
+            assert_eq!(
+                configured["outbounds"][0]["streamSettings"]["sockopt"]["domainStrategy"],
+                strategy
+            );
+        }
     }
     #[test]
     fn direct_only_without_automatic_direct_does_not_require_a_physical_route() {
