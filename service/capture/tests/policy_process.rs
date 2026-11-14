@@ -4,7 +4,7 @@ use wayrill_capture::{
     address::Address,
     packet::Flow,
     policy::{Endpoint, Identity, Input, InterfaceOptions, Plan, Selector, SharedPolicy},
-    process::{Kind, ProcessInfo, ProcessKey, ProcessTree},
+    process::{Kind, Presence, ProcessInfo, ProcessKey, ProcessTree},
     text,
 };
 
@@ -74,6 +74,38 @@ fn process(pid: u32, started: i64, parent: u32, name: &str) -> ProcessInfo {
         package: Some("".into()),
     }
 }
+trait TestSnapshot {
+    fn update(
+        &mut self,
+        observations: impl IntoIterator<Item = ProcessInfo>,
+        observed_at: i64,
+    ) -> wayrill_capture::Result<()>;
+}
+
+impl TestSnapshot for ProcessTree {
+    fn update(
+        &mut self,
+        observations: impl IntoIterator<Item = ProcessInfo>,
+        observed_at: i64,
+    ) -> wayrill_capture::Result<()> {
+        let observations: Vec<_> = observations.into_iter().collect();
+        let live: std::collections::HashSet<_> = observations
+            .iter()
+            .filter(|p| p.exited.is_none())
+            .map(|p| p.key)
+            .collect();
+        self.ingest(observations);
+        self.reconcile_presence(observed_at, |key| {
+            if live.contains(&key) {
+                Presence::Present
+            } else {
+                Presence::Unknown
+            }
+        });
+        self.refresh(observed_at)
+    }
+}
+
 #[test]
 fn loss_reconciliation_keeps_proven_ancestry_and_blocks_gap_generations() {
     let rules = policy(vec![input(
@@ -382,8 +414,10 @@ fn recycled_parent_does_not_inherit_and_live_ancestry_survives_launcher_exit() {
         tree.decide(child.key, 0, None).unwrap().kind,
         Kind::Selected
     );
-    let next_child = process(21, 180, 10, "client.exe");
-    tree.update([next_child.clone()], 400).unwrap();
+    // The next native poll confirms the current parent's lifetime through the new child.
+    let next_child = process(21, 310, 10, "client.exe");
+    tree.update([process(10, 170, 0, "other.exe"), next_child.clone()], 400)
+        .unwrap();
     assert_eq!(
         tree.decide(next_child.key, 0, None).unwrap().kind,
         Kind::Unselected
@@ -457,7 +491,13 @@ fn native_absence_retires_lost_exits_but_preserves_known_ancestry() {
     let orphan = process(102, 1300, 0, "orphan.exe");
     tree.update([parent.clone(), child.clone(), orphan.clone()], 1500)
         .unwrap();
-    tree.reconcile_presence(2000, |key| key == child.key);
+    tree.reconcile_presence(2000, |key| {
+        if key == child.key {
+            Presence::Present
+        } else {
+            Presence::Absent
+        }
+    });
     // Unknown exit timing is not invented, and a known child's lineage survives.
     assert!(tree
         .processes()
@@ -487,8 +527,14 @@ fn absence_does_not_retire_post_snapshot_births_or_a_present_identity() {
     let present = process(101, 1000, 0, "present.exe");
     tree.update([future.clone(), present.clone()], 4000)
         .unwrap();
-    tree.reconcile_presence(2000, |_| false);
-    tree.reconcile_presence(2500, |key| key == present.key);
+    tree.reconcile_presence(2000, |_| Presence::Absent);
+    tree.reconcile_presence(2500, |key| {
+        if key == present.key {
+            Presence::Present
+        } else {
+            Presence::Absent
+        }
+    });
     tree.update([], 2000 + 110_000_000).unwrap();
     assert!(tree.contains(future.key));
     assert!(tree.contains(present.key));
@@ -506,7 +552,13 @@ fn repeated_missing_exit_batches_remain_bounded_without_resetting_live_history()
         )
         .unwrap();
         assert_eq!(tree.processes().count(), 1001);
-        tree.reconcile_presence(now + 1000, |key| key == live.key);
+        tree.reconcile_presence(now + 1000, |key| {
+            if key == live.key {
+                Presence::Present
+            } else {
+                Presence::Absent
+            }
+        });
         tree.update([], now + 110_000_000).unwrap();
         assert_eq!(tree.processes().count(), 1);
     }
@@ -524,7 +576,7 @@ fn current_snapshot_reconciles_lost_start_with_proven_parent() {
     let mut tree = ProcessTree::new(Some(rules), []);
     let parent = process(100, 1000, 0, "parent.exe");
     let other = process(200, 1000, 0, "other.exe");
-    tree.update([parent, other], 1500).unwrap();
+    tree.update([parent.clone(), other.clone()], 1500).unwrap();
     // ETW lost these new processes' start events. A complete native snapshot
     // still supplies exact creation generations, parents and package identity.
     let mut child = process(101, 2200, 100, "browser.exe");
@@ -533,8 +585,17 @@ fn current_snapshot_reconciles_lost_start_with_proven_parent() {
     for info in [&mut child, &mut helper, &mut unrelated] {
         info.started_at = 0;
     }
-    tree.update([child.clone(), helper.clone(), unrelated.clone()], 2500)
-        .unwrap();
+    tree.update(
+        [
+            parent,
+            other,
+            child.clone(),
+            helper.clone(),
+            unrelated.clone(),
+        ],
+        2500,
+    )
+    .unwrap();
     let mut decisions = ProcessDecisions::new(&tree, 2000, None);
     assert_eq!(decisions.current(101, None).unwrap().kind, Kind::Selected);
     assert_eq!(decisions.current(102, None).unwrap().kind, Kind::Selected);
@@ -564,7 +625,7 @@ fn late_child_cannot_adopt_an_absent_generation_with_unknown_exit() {
     tree.update([parent], 1500).unwrap();
     // Its exit was lost. A different generation reused PID 100, launched a
     // child and ended between polls, without leaving its own start event.
-    tree.reconcile_presence(2000, |_| false);
+    tree.reconcile_presence(2000, |_| Presence::Absent);
     let child = process(101, 1700, 100, "child.exe");
     tree.update([child.clone()], 2100).unwrap();
     assert_eq!(
@@ -582,6 +643,7 @@ fn refreshed_parent_identity_cannot_keep_a_contradictory_cached_edge() {
     )]);
     let mut tree = ProcessTree::new(Some(rules), []);
     let mut child = process(101, 1700, 100, "child.exe");
+    child.started_at = 0;
     tree.update(
         [
             process(100, 1000, 0, "parent.exe"),
@@ -599,6 +661,72 @@ fn refreshed_parent_identity_cannot_keep_a_contradictory_cached_edge() {
     tree.update([child.clone()], 2100).unwrap();
     assert_eq!(
         tree.decide(child.key, 900, None).unwrap().kind,
+        Kind::Unselected
+    );
+}
+
+#[test]
+fn late_parent_event_cannot_leave_a_browser_on_a_recycled_launchers_route() {
+    let rules = policy(vec![input(
+        "codex",
+        "",
+        vec![selector("process", "codex.exe", "name", true)],
+    )]);
+    let mut tree = ProcessTree::new(Some(rules), []);
+    let old_launcher = process(100, 1000, 0, "codex.exe");
+    tree.update([old_launcher], 1100).unwrap();
+
+    let mut browser = process(101, 1400, 100, "opera.exe");
+    browser.parent_sequence = 72;
+    browser.sequence = 73;
+    let mut network = process(102, 1500, 101, "opera.exe");
+    network.parent_sequence = 73;
+    tree.ingest([browser.clone(), network.clone()]);
+    tree.refresh(1600).unwrap();
+    assert_eq!(
+        tree.decide(network.key, 900, None).unwrap().kind,
+        Kind::Unresolved
+    );
+
+    let mut explorer = process(100, 1300, 0, "explorer.exe");
+    explorer.sequence = 72;
+    tree.ingest([explorer]);
+    tree.refresh(1700).unwrap();
+    assert_eq!(
+        tree.decide(network.key, 900, None).unwrap().kind,
+        Kind::Unselected
+    );
+}
+
+#[test]
+fn native_poll_does_not_replace_a_browser_parent_from_its_start_event() {
+    let rules = policy(vec![input(
+        "codex",
+        "",
+        vec![selector("process", "codex.exe", "name", true)],
+    )]);
+    let mut tree = ProcessTree::new(Some(rules), []);
+    let launcher = process(100, 1000, 0, "codex.exe");
+    let mut explorer = process(200, 1100, 0, "explorer.exe");
+    explorer.sequence = 72;
+    let mut browser = process(101, 1400, 200, "opera.exe");
+    browser.parent_sequence = 72;
+    tree.update([launcher, explorer, browser.clone()], 1500)
+        .unwrap();
+    assert_eq!(
+        tree.decide(browser.key, 900, None).unwrap().kind,
+        Kind::Unselected
+    );
+
+    let snapshot = ProcessInfo {
+        parent_pid: 100,
+        parent_sequence: 0,
+        started_at: 0,
+        ..browser.clone()
+    };
+    tree.update([snapshot], 1600).unwrap();
+    assert_eq!(
+        tree.decide(browser.key, 900, None).unwrap().kind,
         Kind::Unselected
     );
 }
@@ -651,7 +779,13 @@ fn native_absence_blocks_current_ownership_without_erasing_child_history() {
     let parent = process(100, 1000, 0, "parent.exe");
     let child = process(101, 1200, 100, "child.exe");
     tree.update([parent.clone(), child.clone()], 1500).unwrap();
-    tree.reconcile_presence(2000, |key| key == child.key);
+    tree.reconcile_presence(2000, |key| {
+        if key == child.key {
+            Presence::Present
+        } else {
+            Presence::Absent
+        }
+    });
     tree.refresh(2100).unwrap();
     let mut decisions = ProcessDecisions::new(&tree, 900, None);
     assert_eq!(decisions.current(100, None).unwrap().kind, Kind::Unresolved);
@@ -669,7 +803,13 @@ fn presence_is_applied_to_new_etw_nodes_before_building_parent_edges() {
     let parent = process(100, 1000, 0, "parent.exe");
     let mut child = process(101, 1200, 100, "child.exe");
     tree.ingest([parent.clone(), child.clone()]);
-    tree.reconcile_presence(2000, |key| key == child.key);
+    tree.reconcile_presence(2000, |key| {
+        if key == child.key {
+            Presence::Present
+        } else {
+            Presence::Absent
+        }
+    });
     tree.refresh(2100).unwrap();
     assert_eq!(
         tree.decide(child.key, 900, None).unwrap().kind,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::{filetime, now_filetime, owned_handle, read_wide, wide, win32};
 use crate::{
-    process::{ProcessInfo, ProcessKey, ProcessTree},
+    process::{Presence, ProcessInfo, ProcessKey, ProcessTree},
     text, Error, Result,
 };
 use std::{
@@ -169,6 +169,25 @@ pub fn normalize_image(image: &str) -> Option<String> {
     None
 }
 impl ProcessSnapshot {
+    pub fn live_key(&self, pid: u32) -> Option<ProcessKey> {
+        let opened;
+        let handle = match self.processes.get(&pid) {
+            Some(tracked) => &tracked.handle,
+            None => {
+                // SAFETY: fixed query-only/SYNCHRONIZE rights on a process ID.
+                opened = owned_handle(unsafe {
+                    OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | 0x100000, 0, pid)
+                })
+                .ok()?;
+                &opened
+            }
+        };
+        let started = times(handle).ok()?.0;
+        // SAFETY: both handle sources have SYNCHRONIZE and stay live for this call.
+        (unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } == 258)
+            .then_some(ProcessKey { pid, started })
+    }
+
     fn collect_exits(
         &mut self,
         result: &mut Vec<ProcessInfo>,
@@ -210,14 +229,15 @@ impl ProcessSnapshot {
     }
     pub fn reconcile(&self, tree: &mut ProcessTree) {
         tree.reconcile_presence(self.observed_at, |key| {
-            // A visible PID whose image/times cannot be queried remains
-            // uncertain, not dead. A queried newer generation proves the old
-            // one ended. The tree separately excludes post-snapshot births.
-            self.present.contains(&key.pid)
-                && self
-                    .processes
-                    .get(&key.pid)
-                    .is_none_or(|process| process.info.key.started <= key.started)
+            if !self.present.contains(&key.pid) {
+                return Presence::Absent;
+            }
+            match self.processes.get(&key.pid) {
+                // The retained handle was still live after the snapshot.
+                Some(process) if process.info.key == key => Presence::Present,
+                Some(process) if process.info.key.started > key.started => Presence::Absent,
+                _ => Presence::Unknown,
+            }
         });
     }
     pub fn read(&mut self, packages: bool) -> Result<Vec<ProcessInfo>> {

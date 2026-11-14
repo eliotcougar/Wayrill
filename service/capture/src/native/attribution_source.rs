@@ -17,7 +17,7 @@ use crate::{
     sockets::SocketHistory,
     Error, Result,
 };
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Notify;
 
 pub struct AttributionSource {
@@ -124,9 +124,28 @@ impl AttributionSource {
         // Quiet socket refreshes need no ancestry rebuild. Native polling still
         // maintains expiry at least once a second, even without ETW events.
         if read_processes || !updates.is_empty() {
+            let started = if read_processes {
+                HashSet::new()
+            } else {
+                // Prove fresh parent lifetimes without waiting for the next full
+                // inventory, which can exceed WinDivert's packet retry window.
+                updates
+                    .iter()
+                    .filter(|p| p.exited.is_none())
+                    .flat_map(|p| [p.key.pid, p.parent_pid])
+                    .filter(|pid| *pid > 4)
+                    .collect::<HashSet<_>>()
+            };
             self.tree.ingest(updates);
             if read_processes {
                 self.processes.reconcile(&mut self.tree);
+            } else {
+                let observed_at = super::now_filetime();
+                for pid in started {
+                    if let Some(key) = self.processes.live_key(pid) {
+                        self.tree.confirm_alive(key, observed_at);
+                    }
+                }
             }
             self.tree.refresh(super::now_filetime())?;
         }

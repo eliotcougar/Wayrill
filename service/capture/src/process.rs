@@ -96,13 +96,25 @@ impl PartialEq for Decision {
     }
 }
 impl Eq for Decision {}
+pub enum Presence {
+    Present,
+    Absent,
+    Unknown,
+}
+
 struct Node {
     info: ProcessInfo,
     parent: Option<ProcessKey>,
+    confirmed_alive_at: Option<i64>,
     // Native absence bounds retention without fabricating an ETW exit time.
     absent_since: Option<i64>,
 }
 impl Node {
+    fn observe_alive(&mut self, observed_at: i64) {
+        self.confirmed_alive_at = self.confirmed_alive_at.max(Some(observed_at));
+        self.absent_since = None;
+    }
+
     fn parent_at(&self, started: i64) -> bool {
         self.info.exited.is_none_or(|exit| exit >= started)
             && self.absent_since.is_none_or(|absent| absent >= started)
@@ -150,35 +162,40 @@ impl ProcessTree {
     pub fn reconcile_presence(
         &mut self,
         observed_at: i64,
-        mut present: impl FnMut(ProcessKey) -> bool,
+        mut presence: impl FnMut(ProcessKey) -> Presence,
     ) {
         for node in self.nodes.values_mut() {
-            if node.info.key.started >= observed_at {
+            if node.info.key.started >= observed_at || node.info.exited.is_some() {
                 continue;
             }
-            if present(node.info.key) {
-                node.absent_since = None;
-            } else if node.info.exited.is_none() {
-                node.absent_since.get_or_insert(observed_at);
+            match presence(node.info.key) {
+                Presence::Present => node.observe_alive(observed_at),
+                Presence::Absent => {
+                    node.absent_since.get_or_insert(observed_at);
+                }
+                Presence::Unknown => {}
             }
         }
     }
-    pub fn update(
-        &mut self,
-        snapshot: impl IntoIterator<Item = ProcessInfo>,
-        now_filetime: i64,
-    ) -> Result<()> {
-        self.ingest(snapshot);
-        self.refresh(now_filetime)
+    pub fn confirm_alive(&mut self, key: ProcessKey, observed_at: i64) {
+        if let Some(node) = self.nodes.get_mut(&key).filter(|n| n.info.exited.is_none()) {
+            node.observe_alive(observed_at);
+        }
     }
+
     /// Merge observations before native presence is reconciled. Parent links
     /// must be rebuilt only after that complete inventory has established absence.
     pub fn ingest(&mut self, snapshot: impl IntoIterator<Item = ProcessInfo>) {
         for mut info in snapshot {
             if let Some(node) = self.nodes.get_mut(&info.key) {
                 let previous = &node.info;
-                if info.name.is_empty() {
+                // Keep the parent recorded by the kernel start event when a
+                // later inventory sample or exit reports the same generation.
+                if info.started_at == 0 && (previous.started_at != 0 || info.name.is_empty()) {
                     info.parent_pid = previous.parent_pid;
+                    info.parent_sequence = previous.parent_sequence;
+                }
+                if info.name.is_empty() {
                     info.name.clone_from(&previous.name);
                 }
                 if info.path.is_none() {
@@ -190,9 +207,6 @@ impl ProcessTree {
                 info.exited = previous.exited.or(info.exited);
                 if info.sequence == 0 {
                     info.sequence = previous.sequence;
-                }
-                if info.parent_sequence == 0 {
-                    info.parent_sequence = previous.parent_sequence;
                 }
                 if info.started_at == 0 {
                     info.started_at = previous.started_at;
@@ -208,6 +222,7 @@ impl ProcessTree {
                     Node {
                         info,
                         parent: None,
+                        confirmed_alive_at: None,
                         absent_since: None,
                     },
                 );
@@ -222,40 +237,28 @@ impl ProcessTree {
         let keys: Vec<_> = self.nodes.keys().copied().collect();
         for key in keys {
             let node = &self.nodes[&key];
-            let valid_parent = node.parent.filter(|parent| {
-                self.nodes.get(parent).is_some_and(|p| {
-                    parent.pid == node.info.parent_pid
-                        && *parent != key
-                        && parent.started <= key.started
-                        && p.parent_at(key.started)
-                        && (node.info.parent_sequence == 0
-                            || p.info.sequence == 0
-                            || p.info.sequence == node.info.parent_sequence)
-                })
-            });
-            let parent = valid_parent.or_else(|| {
-                by_pid
-                    .get(&node.info.parent_pid)
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                    .filter(|p| {
-                        *p != key
-                            && p.started <= key.started
-                            && self.nodes[p].parent_at(key.started)
-                            // An unknown exit is not proof of availability at a
-                            // newly discovered child's birth. Preserve established
-                            // edges, but never guess a new edge across PID reuse.
-                            && (self.nodes[p].absent_since.is_none()
-                                || self.nodes[p].info.exited.is_some()
-                                || node.info.parent_sequence != 0
-                                    && self.nodes[p].info.sequence == node.info.parent_sequence)
-                            && (node.info.parent_sequence == 0
-                                || self.nodes[p].info.sequence == 0
-                                || self.nodes[p].info.sequence == node.info.parent_sequence)
-                    })
-                    .max_by_key(|p| p.started)
-            });
+            let expected = node.info.parent_sequence;
+            let exact = |p: &Node| expected != 0 && p.info.sequence == expected;
+            let parent = by_pid
+                .get(&node.info.parent_pid)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|p| *p != key && p.started <= key.started)
+                // An exact ETW generation outranks a PID-only candidate. If
+                // the newest candidate contradicts the child's evidence, an
+                // older use of the same PID cannot fill the gap.
+                .max_by_key(|p| (exact(&self.nodes[p]), p.started))
+                .filter(|p| {
+                    let parent = &self.nodes[p];
+                    parent.parent_at(key.started)
+                        && (exact(parent)
+                            || (expected == 0 || parent.info.sequence == 0)
+                                && (parent.info.exited.is_some()
+                                    || parent
+                                        .confirmed_alive_at
+                                        .is_some_and(|at| at >= key.started)))
+                });
             self.nodes.get_mut(&key).unwrap().parent = parent;
         }
         let mut exits: Vec<_> = self
