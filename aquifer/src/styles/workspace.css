@@ -365,6 +365,24 @@
   text-align: right;
   max-width: 75%;
 }
+.nginx-routes,
+.nginx-routes > article {
+  display: grid;
+  gap: var(--space-3);
+}
+.nginx-routes > article {
+  overflow-wrap: anywhere;
+}
+.nginx-routes .detail-facts {
+  gap: var(--space-2);
+  margin: 0;
+}
+.nginx-routes .secondary-button {
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
 .rule-order {
   color: var(--text-muted);
   font-size: 11px;

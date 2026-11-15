@@ -1388,7 +1388,7 @@ export default function App({
             )}
             <div className="inspector-body">
               {!showConfig && !node && <p className="muted">Select a node to inspect.</p>}
-              {!showConfig && node && view && (
+              {!showConfig && node && node.id !== nginxNodeId && view && (
                 <div className="remote-node-actions">
                   {nodeSettings(view, node.id) &&
                     !inlineSettings(node.id, nodeSettings(view, node.id)?.value) && (

@@ -26,7 +26,6 @@ export function withNginx(
     id: nginxNodeId,
     type: 'remote',
     position: { x: left - 330, y: first?.position.y ?? 0 },
-    draggable: false,
     data: {
       kind: 'nginx',
       title: 'Nginx',
@@ -83,12 +82,12 @@ export function NginxDetails({
       {!routes.length && (
         <p className="muted">No supported Nginx routes lead to an inbound in this configuration.</p>
       )}
-      <div className="rule-list">
+      <div className="nginx-routes">
         {routes.map((route) => {
           const id = 'native-in-' + route.inbound;
           const target = view.nodes.find((item) => item.id === id);
           return (
-            <article key={JSON.stringify(route)}>
+            <article className="editor-panel" key={JSON.stringify(route)}>
               <strong>{nginxRouteLabel(route)}</strong>
               <dl className="detail-facts">
                 {route.http && (
@@ -108,7 +107,7 @@ export function NginxDetails({
                   <dd>{route.backend}</dd>
                 </div>
               </dl>
-              <button className="secondary-button" onClick={() => onFocus(id)}>
+              <button type="button" className="secondary-button" onClick={() => onFocus(id)}>
                 {target?.data.title ?? 'Show inbound'}
               </button>
             </article>

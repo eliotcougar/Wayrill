@@ -6,6 +6,7 @@ import type { NodeChange, Viewport } from '@xyflow/react';
 import RemoteCanvas from './RemoteCanvas';
 import { remoteView, type ViewNode } from './remoteModel';
 import { demoConfig } from './demo';
+import { nginxNodeId, withNginx } from './NginxNode';
 
 interface FlowProps {
   nodes: ViewNode[];
@@ -56,11 +57,11 @@ const layout = {
   shown: [],
   viewport: { x: 13, y: 27, zoom: 0.65 },
 };
-const mount = async (onLayout = vi.fn()) => {
+const mount = async (onLayout = vi.fn(), graph = view) => {
   await act(async () =>
     root.render(
       <RemoteCanvas
-        view={view}
+        view={graph}
         layout={layout}
         onLayout={onLayout}
         selected=""
@@ -88,7 +89,11 @@ it('plots the saved positions and viewport without fitting over them', async () 
 });
 
 it('persists completed drags and keyboard moves, avoiding writes during a drag', async () => {
-  const onLayout = await mount();
+  const graph = withNginx(view, { state: 'ready', config: [] }, 'example.test');
+  const onLayout = await mount(vi.fn(), graph);
+  const nginx = rendered.current!.nodes.find((node) => node.id === nginxNodeId);
+  expect(nginx).toBeDefined();
+  expect(nginx?.draggable).not.toBe(false);
   await act(async () =>
     rendered.current!.onNodesChange([
       { id: 'native-in-0', type: 'position', position: { x: 100, y: 200 }, dragging: true },
@@ -103,11 +108,11 @@ it('persists completed drags and keyboard moves, avoiding writes during a drag',
   expect(onLayout).toHaveBeenLastCalledWith({ positions: { 'native-in-0': { x: 120, y: 230 } } });
   await act(async () =>
     rendered.current!.onNodesChange([
-      { id: 'native-out-0', type: 'position', position: { x: 900, y: 400 } },
+      { id: nginxNodeId, type: 'position', position: { x: -420, y: 160 } },
     ]),
   );
   expect(onLayout).toHaveBeenLastCalledWith({
-    positions: { ...layout.positions, 'native-out-0': { x: 900, y: 400 } },
+    positions: { ...layout.positions, [nginxNodeId]: { x: -420, y: 160 } },
   });
 });
 
