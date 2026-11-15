@@ -192,6 +192,11 @@ They are not new native Xray process matchers.
 Added by the builder to `proxy/tun/handler.go`, implemented by
 `service/tun-core/wayrill_windows.go`. See [TUN](../guide/capture.md).
 
+The private TUN build also carries optional application-match evidence from the
+bridge to the dispatcher's rule decision. The service shows executable names
+and PIDs for the predicates of the winning route in the traffic log. The
+evidence does not enter routing predicates or change the relay account.
+
 ### X10 — Retained adapter settings
 
 `WAYRILL_TUN_REUSE_SETTINGS=1` is supplied only after the service proves owned
@@ -332,6 +337,7 @@ Broad upstream test audits remain separate from the contributor build gate.
 | Additional upstream file edited by the builder | IDs |
 | --- | --- |
 | `proxy/tun/handler.go` | X09: pre-dispatch identity hook |
+| `common/session/session.go`, `app/dispatcher/default.go` | X09: private TUN application-match evidence in dispatcher decisions |
 | `proxy/tun/stack.go` | X11: ownership, echo interception and shutdown |
 | `proxy/tun/tun_windows.go` | X10: native settings reuse |
 

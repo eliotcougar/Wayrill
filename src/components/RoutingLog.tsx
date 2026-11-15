@@ -6,6 +6,9 @@ import { maskLogDestination } from '../routingLogPrivacy';
 import RoutingLogFilter, { allLogItems, logItemVisible } from './RoutingLogFilter';
 import useRoutingLogVisibility from './useRoutingLogVisibility';
 
+type ProcessLabel = { name: string; pid: number };
+type ApplicationMatch = { owner: ProcessLabel; ancestors: ProcessLabel[] };
+
 export type RoutingLogRow = {
   id: string;
   timestampMs: number;
@@ -19,6 +22,7 @@ export type RoutingLogRow = {
   connectionId?: string | null;
   transport?: 'tcp' | 'udp';
   source?: string;
+  applicationMatch?: ApplicationMatch;
 };
 export type RoutingLogSnapshot = {
   instanceId: string;
@@ -31,6 +35,12 @@ export type RoutingLogSnapshot = {
 const rowHeight = 32;
 const overscan = 6;
 const emptyRows: RoutingLogRow[] = [];
+
+function applicationLabel(match: ApplicationMatch, withPid: boolean): string {
+  const process = ({ name, pid }: ProcessLabel) => (withPid ? `${name} (PID ${pid})` : name);
+  const owner = process(match.owner);
+  return match.ancestors.length ? `${owner} via ${match.ancestors.map(process).join(', ')}` : owner;
+}
 
 type RoutingLogProps = {
   filterId: string;
@@ -67,6 +77,7 @@ function FilterRoutingLog({
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferring, setTransferring] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
   const [position, setPosition] = useState({ top: 0, height: 320 });
   useEffect(() => {
     if (!desktopServiceAvailable()) return;
@@ -145,7 +156,9 @@ function FilterRoutingLog({
                 new Date(row.timestampMs).toISOString(),
                 row.destination,
                 row.output === row.outbound ? row.output : `${row.output} → ${row.outbound}`,
-                row.rule,
+                row.applicationMatch
+                  ? `${row.rule} · ${applicationLabel(row.applicationMatch, true)}`
+                  : row.rule,
               ].join('\t'),
             ),
           ].join('\n'),
@@ -156,20 +169,19 @@ function FilterRoutingLog({
       setTransferring(false);
     }
   };
-  // Following is deliberately disabled only while paused. New rows cannot
-  // move a held selection, even as polling fills the service's circular buffer.
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
     const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
-    element.scrollTop = paused ? Math.min(element.scrollTop, bottom) : bottom;
+    element.scrollTop = !paused && following.current ? bottom : Math.min(element.scrollTop, bottom);
     setPosition({ top: element.scrollTop, height: element.clientHeight || 320 });
   }, [rows, paused]);
   useEffect(() => {
     const element = viewport.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => {
-      if (!paused) element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      if (!paused && following.current)
+        element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
       setPosition({ top: element.scrollTop, height: element.clientHeight || 320 });
     });
     observer.observe(element);
@@ -219,6 +231,7 @@ function FilterRoutingLog({
           disabled={!live && !paused}
           onClick={() => {
             if (paused) {
+              following.current = true;
               setPaused(false);
               setHeld(null);
             } else {
@@ -288,6 +301,8 @@ function FilterRoutingLog({
           aria-label="Routing log rows"
           onScroll={(event) => {
             const element = event.currentTarget;
+            following.current =
+              element.scrollHeight - element.clientHeight - element.scrollTop <= 4;
             setPosition({ top: element.scrollTop, height: element.clientHeight || 320 });
           }}
         >
@@ -333,8 +348,25 @@ function FilterRoutingLog({
                     <span role="cell" title={output}>
                       {output}
                     </span>
-                    <span role="cell" title={`${row.rule} · Revision ${row.revision}`}>
-                      {row.rule}
+                    <span
+                      role="cell"
+                      className="routing-log-rule"
+                      title={[
+                        row.rule,
+                        row.applicationMatch
+                          ? `Application match for this route · ${applicationLabel(row.applicationMatch, true)}`
+                          : '',
+                        `Revision ${row.revision}`,
+                      ]
+                        .filter(Boolean)
+                        .join('\n')}
+                    >
+                      <span>{row.rule}</span>
+                      {row.applicationMatch && (
+                        <span className="routing-log-rule-application">
+                          {applicationLabel(row.applicationMatch, false)}
+                        </span>
+                      )}
                     </span>
                   </div>
                 );

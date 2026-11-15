@@ -28,12 +28,13 @@ func wayrillReuseAdapterSettings() bool {
 }
 
 type wayrillQuery struct {
-	Auth            string `json:"auth"`
-	Network         string `json:"network"`
-	Source          string `json:"source"`
-	SourcePort      uint16 `json:"sourcePort"`
-	Destination     string `json:"destination"`
-	DestinationPort uint16 `json:"destinationPort"`
+	Auth                    string `json:"auth"`
+	Network                 string `json:"network"`
+	Source                  string `json:"source"`
+	SourcePort              uint16 `json:"sourcePort"`
+	Destination             string `json:"destination"`
+	DestinationPort         uint16 `json:"destinationPort"`
+	IncludeApplicationProof bool   `json:"includeApplicationProof,omitempty"`
 }
 
 // Failure closes this flow before dispatch; it must not masquerade as an empty
@@ -87,7 +88,15 @@ func wayrillProcessIdentity(ctx context.Context, source, destination net.Destina
 	if source.Address == nil || destination.Address == nil || !source.Address.Family().IsIP() || !destination.Address.Family().IsIP() {
 		return "", fmt.Errorf("TUN attribution requires IP endpoints")
 	}
-	request := wayrillQuery{fields[2], network, source.Address.IP().String(), uint16(source.Port), destination.Address.IP().String(), uint16(destination.Port)}
+	request := wayrillQuery{
+		Auth:                    fields[2],
+		Network:                 network,
+		Source:                  source.Address.IP().String(),
+		SourcePort:              uint16(source.Port),
+		Destination:             destination.Address.IP().String(),
+		DestinationPort:         uint16(destination.Port),
+		IncludeApplicationProof: inbound != nil,
+	}
 	dialer := stdnet.Dialer{Timeout: 1800 * time.Millisecond}
 	conn, err := dialer.DialContext(ctx, "tcp", strings.Join(fields[:2], ":"))
 	if err != nil {
@@ -106,14 +115,15 @@ func wayrillProcessIdentity(ctx context.Context, source, destination net.Destina
 	if _, err = conn.Write(append(payload, '\n')); err != nil {
 		return "", err
 	}
-	reader := bufio.NewReaderSize(conn, 1024)
+	reader := bufio.NewReaderSize(conn, 4096)
 	mask, err := reader.ReadSlice('\n')
 	if err != nil {
 		return "", fmt.Errorf("TUN flow attribution unresolved: %w", err)
 	}
 	var response struct {
-		Mask   string `json:"mask"`
-		Origin *struct {
+		Mask             string          `json:"mask"`
+		ApplicationProof json.RawMessage `json:"applicationProof,omitempty"`
+		Origin           *struct {
 			Source     string `json:"source"`
 			SourcePort uint16 `json:"sourcePort"`
 		} `json:"origin,omitempty"`
@@ -145,6 +155,9 @@ func wayrillProcessIdentity(ctx context.Context, source, destination net.Destina
 			}
 		}
 		return "wr-nat", nil
+	}
+	if inbound != nil && len(response.ApplicationProof) != 0 && !bytes.ContainsAny(response.ApplicationProof, "\r\n") {
+		inbound.WayrillApplicationProof = string(response.ApplicationProof)
 	}
 	return "wr-" + value + "-" + fields[2][:48], nil
 }

@@ -8,6 +8,7 @@ use std::{
     collections::{HashMap, HashSet},
     os::windows::io::{AsRawHandle, OwnedHandle},
 };
+use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, PROCESSINFOCLASS};
 use windows_sys::Win32::{
     Foundation::{GetLastError, ERROR_NO_MORE_FILES, FILETIME},
     Storage::{
@@ -26,6 +27,10 @@ use windows_sys::Win32::{
         },
     },
 };
+
+// ProcessSequenceNumber returns the same boot-scoped sequence as the ETW event.
+// Older Windows builds may not implement this information class.
+const PROCESS_SEQUENCE_NUMBER: PROCESSINFOCLASS = 92;
 
 struct Tracked {
     info: ProcessInfo,
@@ -59,6 +64,27 @@ fn times(handle: &OwnedHandle) -> Result<(i64, i64)> {
         return Err(win32());
     }
     Ok((filetime(created), filetime(exited)))
+}
+fn sequence_number(handle: &OwnedHandle) -> u64 {
+    let mut sequence = 0u64;
+    let mut written = 0;
+    let size = std::mem::size_of_val(&sequence) as u32;
+    // SAFETY: the live query handle and fixed-size ULONG64 output are valid for
+    // the call. Unsupported classes and failed queries leave the sequence unknown.
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle.as_raw_handle(),
+            PROCESS_SEQUENCE_NUMBER,
+            (&mut sequence as *mut u64).cast(),
+            size,
+            &mut written,
+        )
+    };
+    if status == 0 && written == size {
+        sequence
+    } else {
+        0
+    }
 }
 fn image_path(handle: &OwnedHandle, buffer: &mut Vec<u16>) -> Option<String> {
     // Reuse one bounded native-query allocation across the process inventory.
@@ -287,7 +313,7 @@ impl ProcessSnapshot {
                                 name,
                                 path,
                                 exited: None,
-                                sequence: 0,
+                                sequence: sequence_number(&handle),
                                 parent_sequence: 0,
                                 started_at: 0,
                                 exited_at: None,

@@ -60,6 +60,21 @@ async function click(name: string) {
       .click(),
   );
 }
+it('shows the socket owner and matching ancestor in the Rule column', async () => {
+  const data = snapshot(2);
+  data.rows[0].applicationMatch = {
+    owner: { name: 'opera.exe', pid: 763 },
+    ancestors: [{ name: 'ChatGPT.exe', pid: 150 }],
+  };
+  data.rows[1].applicationMatch = { owner: { name: 'opera.exe', pid: 763 }, ancestors: [] };
+  vi.mocked(serviceCall).mockResolvedValue(data);
+  await render();
+  const cells = host.querySelectorAll('.routing-log-rule');
+  expect(cells[0].textContent).toContain('opera.exe via ChatGPT.exe');
+  expect(cells[0].getAttribute('title')).toContain('opera.exe (PID 763) via ChatGPT.exe (PID 150)');
+  expect(cells[1].textContent).toContain('opera.exe');
+  expect(cells[1].textContent).not.toContain('via');
+});
 it('collects while paused, freezes inspection and resumes newest buffer together', async () => {
   vi.mocked(serviceCall).mockResolvedValue(snapshot(2));
   await render();
@@ -87,16 +102,29 @@ it('follows the bottom, holds scroll while paused, and virtualizes a full rolled
         (host.querySelector('.routing-log-spacer') as HTMLElement).style.height.replace('px', ''),
       ),
   });
+  const scrollTo = async (top: number) => {
+    await act(async () => {
+      viewport.scrollTop = top;
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+  };
+  vi.mocked(serviceCall).mockResolvedValue(snapshot(40));
+  await poll();
+  expect(viewport.scrollTop).toBe(41 * 32 - 96);
+  await scrollTo(64);
+  vi.mocked(serviceCall).mockResolvedValue(snapshot(60));
+  await poll();
+  expect(viewport.scrollTop).toBe(64);
+  expect(host.textContent).toContain('60 / 1000 latest decisions');
+  await scrollTo(viewport.scrollHeight - viewport.clientHeight);
+
   vi.mocked(serviceCall).mockResolvedValue(snapshot(1200));
   await poll();
   expect(viewport.scrollTop).toBe(1001 * 32 - 96);
   expect(host.textContent).toContain('host1200.example');
   expect(host.querySelectorAll('[role="row"]').length).toBeLessThan(25);
   await click('Pause updates');
-  await act(async () => {
-    viewport.scrollTop = 0;
-    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
-  });
+  await scrollTo(0);
   expect(host.textContent).toContain('host201.example');
   vi.mocked(serviceCall).mockResolvedValue(snapshot(1500, 'service2', 4));
   await poll();

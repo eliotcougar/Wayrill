@@ -699,6 +699,33 @@ fn late_parent_event_cannot_leave_a_browser_on_a_recycled_launchers_route() {
 }
 
 #[test]
+fn a_cold_inventory_cannot_link_opera_to_a_later_use_of_its_parent_pid() {
+    let rules = policy(vec![input(
+        "codex",
+        "",
+        vec![selector("process", "codex.exe", "name", true)],
+    )]);
+    let mut codex = process(100, 1000, 0, "codex.exe");
+    let mut opera = process(101, 1400, 100, "opera.exe");
+    let mut network = process(102, 1600, 101, "opera.exe");
+    for info in [&mut codex, &mut opera, &mut network] {
+        info.started_at = 0;
+    }
+    opera.sequence = 72;
+    network.sequence = 74;
+
+    // The service restarted with Opera open. Windows reused its exited
+    // launcher's PID after an adjustment to the system clock.
+    for (sequence, expected) in [(73, Kind::Unselected), (71, Kind::Selected)] {
+        codex.sequence = sequence;
+        let mut tree = ProcessTree::new(Some(rules.clone()), []);
+        tree.update([codex.clone(), opera.clone(), network.clone()], 1800)
+            .unwrap();
+        assert_eq!(tree.decide(network.key, 1750, None).unwrap().kind, expected);
+    }
+}
+
+#[test]
 fn native_poll_does_not_replace_a_browser_parent_from_its_start_event() {
     let rules = policy(vec![input(
         "codex",

@@ -76,6 +76,7 @@ struct Route {
     target: String,
     weight: usize,
     shared: bool,
+    application_predicates: Vec<usize>,
 }
 pub struct Session {
     generation: u64,
@@ -109,6 +110,40 @@ pub fn enable(config: &mut Value) {
     // The live decision ring needs the real destination. Privacy masking is a
     // presentation/export concern; it cannot be undone after Xray formats a line.
     config["log"].as_object_mut().unwrap().remove("maskAddress");
+}
+/// Read the required bits of the compiler's authenticated application user
+/// pattern. This also works for a saved graph restored by an installer upgrade.
+fn application_predicates(rule: &Value) -> Option<Vec<usize>> {
+    let users = rule["user"].as_array().filter(|users| users.len() == 1)?;
+    let pattern = users[0]
+        .as_str()?
+        .strip_prefix("regexp:^wr-[")?
+        .strip_suffix("]-[0-9a-f]{48}$")?;
+    let mut required = Vec::new();
+    for (nibble, class) in pattern.rsplit("][").enumerate() {
+        if nibble >= 192 {
+            return None;
+        }
+        if class == "0-9a-f" {
+            continue;
+        }
+        let bits = class
+            .chars()
+            .try_fold(15, |bits, digit| Some(bits & digit.to_digit(16)?))?;
+        let expected = "0123456789abcdef"
+            .chars()
+            .enumerate()
+            .filter_map(|(n, c)| ((n as u32 & bits) == bits).then_some(c));
+        if bits == 0 || !class.chars().eq(expected) {
+            return None;
+        }
+        required.extend(
+            (0..4)
+                .filter(|b| bits & (1 << b) != 0)
+                .map(|b| nibble * 4 + b),
+        );
+    }
+    Some(required)
 }
 /// Tag a clone before capture/TUN projection. Xray retains the tag on the matching worker rule.
 pub fn instrument(
@@ -198,10 +233,70 @@ pub fn instrument(
                 target,
                 weight: serde_json::to_vec(trail).map_or(0, |b| b.len()),
                 shared: false,
+                application_predicates: application_predicates(rule).unwrap_or_default(),
             },
         );
     }
     Some(session)
+}
+#[derive(Clone, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessLabel {
+    name: String,
+    pid: u32,
+}
+impl ProcessLabel {
+    fn valid(&self) -> bool {
+        self.pid != 0 && printable(&self.name, 128) && !self.name.contains(['/', '\\'])
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplicationWitness {
+    process: ProcessLabel,
+    predicates: Vec<usize>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplicationProof {
+    owner: ProcessLabel,
+    matches: Vec<ApplicationWitness>,
+}
+#[derive(Serialize)]
+struct ApplicationMatch {
+    owner: ProcessLabel,
+    ancestors: Vec<ProcessLabel>,
+}
+fn application_match(required: &[usize], proof: Option<&str>) -> Option<ApplicationMatch> {
+    if required.is_empty() {
+        return None;
+    }
+    let proof: ApplicationProof = serde_json::from_str(proof?.trim()).ok()?;
+    if !proof.owner.valid() {
+        return None;
+    }
+    let mut witnesses = BTreeMap::new();
+    for entry in &proof.matches {
+        for &predicate in &entry.predicates {
+            if witnesses.insert(predicate, &entry.process).is_some() {
+                return None;
+            }
+        }
+    }
+    let mut ancestors = Vec::new();
+    for predicate in required {
+        let witness = *witnesses.get(predicate)?;
+        if !witness.valid() {
+            return None;
+        }
+        if *witness != proof.owner && !ancestors.contains(witness) {
+            ancestors.push(witness.clone());
+        }
+    }
+    Some(ApplicationMatch {
+        owner: proof.owner,
+        ancestors,
+    })
 }
 struct Row {
     rule_index: usize,
@@ -218,6 +313,7 @@ struct Row {
     transport: &'static str,
     source: &'static str,
     shared: bool,
+    application_match: Option<ApplicationMatch>,
     event: Option<Arc<(u32, String)>>,
     weight: usize,
 }
@@ -347,7 +443,22 @@ impl Log {
                     .cloned()
                     .unwrap_or_else(|| route.target.clone())
             });
-        let weight = decision.destination.len() + outbound.len() + route.weight + text.len() + 256;
+        let application_match = if source == "TUN" && !route.shared {
+            application_match(&route.application_predicates, decision.application_proof)
+        } else {
+            None
+        };
+        let application_bytes = if application_match.is_some() {
+            decision.application_proof.map_or(0, str::len)
+        } else {
+            0
+        };
+        let weight = decision.destination.len()
+            + outbound.len()
+            + route.weight
+            + text.len()
+            + application_bytes
+            + 256;
         let row = Row {
             rule_index: route.index,
             observed_at: Instant::now(),
@@ -366,6 +477,7 @@ impl Log {
             transport: decision.transport,
             source,
             shared: route.shared || source == "ICS TUN",
+            application_match,
             event,
             weight,
         };
@@ -438,7 +550,11 @@ impl Log {
         let configured = session.is_some_and(|s| s.filters.contains(filter));
         let mut rows: Vec<_> = state.rows.iter().rev().filter_map(|row| {
             let hop = row.trail.iter().find(|h| h.filter_id == filter)?;
-            Some(json!({"id":row.id.to_string(),"timestampMs":row.timestamp,"revision":row.revision,"destination":row.destination,"outbound":row.outbound,"output":hop.output,"outputId":hop.output_id,"rule":hop.rule,"ruleId":hop.rule_id,"connectionId":row.connection_id,"transport":row.transport,"source":row.source}))
+            let mut item = json!({"id":row.id.to_string(),"timestampMs":row.timestamp,"revision":row.revision,"destination":row.destination,"outbound":row.outbound,"output":hop.output,"outputId":hop.output_id,"rule":hop.rule,"ruleId":hop.rule_id,"connectionId":row.connection_id,"transport":row.transport,"source":row.source});
+            if let Some(application) = &row.application_match {
+                item["applicationMatch"] = json!(application);
+            }
+            Some(item)
         }).take(PAGE).collect();
         rows.reverse();
         json!({"instanceId":instance,"generation":session.map(|s|s.generation),"revision":session.map(|s|s.revision),"state":if state.collecting && configured {"collecting"} else if configured {"stopped"} else {"unconfigured"},"capacity":PAGE,"rows":rows})
@@ -536,6 +652,7 @@ pub(crate) struct Decision<'a> {
     destination: &'a str,
     transport: &'static str,
     session_id: Option<u32>,
+    application_proof: Option<&'a str>,
 }
 pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
     let (prefix, message) = text
@@ -551,7 +668,14 @@ pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
     }
     let (tag, tail) = message.split_once("] so taking detour [")?;
     let (outbound, tail) = tail.split_once("] for [")?;
-    let target = tail.strip_suffix(']')?;
+    let (target, application_proof) = match tail.rsplit_once("]\twayrill-app=") {
+        Some((target, proof))
+            if proof.len() <= 4096 && proof.starts_with('{') && proof.ends_with('}') =>
+        {
+            (target, Some(proof))
+        }
+        _ => (tail.strip_suffix(']')?, None),
+    };
     let (transport, destination) = if let Some(destination) = target.strip_prefix("tcp:") {
         ("tcp", destination)
     } else {
@@ -578,12 +702,47 @@ pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
         destination,
         transport,
         session_id,
+        application_proof,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn winning_route_shows_only_the_application_witnesses_it_required() {
+        let log = Log::default();
+        let mut applied = config();
+        // Two predicates are required by the route (bits 0 and 2). Another
+        // application selector also matched the socket but did not route it.
+        applied["routing"]["rules"][0]["user"] = json!(["regexp:^wr-[57df]-[0-9a-f]{48}$"]);
+        log.begin(instrument(&mut applied, &names(), 1, 7));
+        let owner = json!({"name":"opera.exe","pid":3456});
+        let codex = json!({"name":"ChatGPT.exe","pid":890});
+        let proof = json!({"owner":owner,"matches":[
+            {"process":owner,"predicates":[0]},
+            {"process":{"name":"other.exe","pid":55},"predicates":[1]},
+            {"process":codex,"predicates":[2]}
+        ]});
+        let with_proof = format!(
+            "{}\twayrill-app={proof}",
+            line(1, "tcp:example.org:443", "direct").trim_end()
+        );
+        assert!(log.ingest_from(1, 20, "TUN", &with_proof));
+        let snapshot = log.snapshot("parent", "test");
+        assert_eq!(snapshot["rows"][0]["destination"], "example.org:443");
+        assert_eq!(
+            snapshot["rows"][0]["applicationMatch"],
+            json!({"owner":owner,"ancestors":[codex]})
+        );
+        assert!(!log
+            .companion(&BTreeSet::from(["example.org".into()]), "test", 0)
+            .to_string()
+            .contains("opera.exe"));
+        log.begin(instrument(&mut config(), &names(), 1, 7));
+        assert!(log.ingest_from(1, 21, "TUN", &with_proof));
+        assert!(log.snapshot("parent", "test")["rows"][1]["applicationMatch"].is_null());
+    }
     #[test]
     fn graph_activity_is_bounded_ephemeral_and_scoped_to_the_active_rules() {
         let log = Log::default();

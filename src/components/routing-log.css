@@ -86,6 +86,17 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
+.routing-log-rule > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.routing-log-rule:has(.routing-log-rule-application) {
+  line-height: 14px;
+}
+.routing-log-rule-application {
+  color: var(--text-muted);
+}
 .routing-log-header {
   position: sticky;
   top: 0;

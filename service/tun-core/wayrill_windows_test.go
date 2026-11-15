@@ -40,20 +40,27 @@ func TestWayrillAttributionIsBoundedAndNeverUsesFallbackOnFailure(t *testing.T) 
 				var query wayrillQuery
 				json.Unmarshal(payload, &query)
 				done <- query
-				json.NewEncoder(conn).Encode(map[string]string{"mask": response})
+				json.NewEncoder(conn).Encode(map[string]any{
+					"mask":             response,
+					"applicationProof": json.RawMessage(`{"owner":{"name":"opera.exe","pid":300},"matches":[]}`),
+				})
 			}()
 			source := net.TCPDestination(net.ParseAddress("192.0.2.3"), net.Port(54321))
 			target := net.UDPDestination(net.ParseAddress("203.0.113.10"), net.Port(53))
-			email, err := wayrillProcessEmail(context.Background(), source, target)
+			inbound := new(session.Inbound)
+			email, err := wayrillProcessIdentity(context.Background(), source, target, inbound)
 			if response == "3" || response == "0" {
 				if err != nil || email != "wr-"+response+"-"+auth[:48] {
 					t.Fatalf("%q %v", email, err)
+				}
+				if !strings.Contains(inbound.WayrillApplicationProof, "opera.exe") {
+					t.Fatal("dispatcher context lost application evidence")
 				}
 			} else if err == nil || email != "" {
 				t.Fatalf("malformed attribution became fallback: %q", email)
 			}
 			query := <-done
-			if query.Auth != auth || query.Source != "192.0.2.3" || query.SourcePort != 54321 || query.Destination != "203.0.113.10" || query.DestinationPort != 53 || query.Network != "udp" {
+			if query.Auth != auth || query.Source != "192.0.2.3" || query.SourcePort != 54321 || query.Destination != "203.0.113.10" || query.DestinationPort != 53 || query.Network != "udp" || !query.IncludeApplicationProof {
 				t.Fatalf("flow metadata lost: %+v", query)
 			}
 		})

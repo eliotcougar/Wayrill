@@ -123,6 +123,24 @@ try {
         Compress-Archive -LiteralPath $taskMainSource -DestinationPath (Join-Path $MainOutputDirectory 'source.zip') -Force
         Copy-Item -LiteralPath $taskFakePatch -Destination $MainOutputDirectory -Force
     }
+    $taskSessionFile = Join-Path $taskSource 'common/session/session.go'
+    $taskDispatcherFile = Join-Path $taskSource 'app/dispatcher/default.go'
+    $taskDecisionLine = 'errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]")'
+    $taskDecisionWithProof = @'
+var proof string
+				if inbound := session.InboundFromContext(ctx); inbound != nil && inbound.WayrillApplicationProof != "" {
+					proof = "\twayrill-app=" + inbound.WayrillApplicationProof
+				}
+				errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", proof)
+'@
+    foreach ($taskEdit in @(
+        @{Path=$taskSessionFile; Anchor='type Inbound struct {'; Next="type Inbound struct {`n`tWayrillApplicationProof string"},
+        @{Path=$taskDispatcherFile; Anchor=$taskDecisionLine; Next=$taskDecisionWithProof}
+    )) {
+        $taskText = [IO.File]::ReadAllText($taskEdit.Path)
+        if ([regex]::Matches($taskText, [regex]::Escape($taskEdit.Anchor)).Count -ne 1) { throw 'Pinned TUN routing log hook has moved.' }
+        [IO.File]::WriteAllText($taskEdit.Path, $taskText.Replace($taskEdit.Anchor, $taskEdit.Next.TrimEnd()))
+    }
     $taskHandler=Join-Path $taskSource 'proxy\tun\handler.go'
     $taskText=[IO.File]::ReadAllText($taskHandler)
     $taskAnchor="`tctx = session.ContextWithInbound(ctx, &inbound)"

@@ -140,13 +140,16 @@ impl Row {
         })
     }
     fn matches(&self, lineage: &[Identity], service: Option<&str>) -> bool {
+        self.match_index(lineage, service).is_some()
+    }
+    fn match_index(&self, lineage: &[Identity], service: Option<&str>) -> Option<usize> {
         if self.kind == "service" {
-            return service.is_some_and(|s| text::equal(s, &self.value));
+            return service.filter(|s| text::equal(s, &self.value)).map(|_| 0);
         }
         lineage
             .iter()
             .take(if self.children { lineage.len() } else { 1 })
-            .any(|p| {
+            .position(|p| {
                 if self.kind == "package" {
                     return p
                         .package
@@ -264,6 +267,7 @@ pub struct SharedPolicy {
     pub has_packages: bool,
     pub packages_include_children: bool,
     pub service_names: Vec<String>,
+    application_log: bool,
 }
 fn rows(selectors: &[Selector]) -> Result<Vec<Row>> {
     selectors
@@ -385,7 +389,12 @@ impl SharedPolicy {
             has_packages,
             packages_include_children,
             service_names,
+            application_log: false,
         })
+    }
+    pub fn with_application_log(mut self) -> Self {
+        self.application_log = true;
+        self
     }
     pub fn needs_path(&self, name: &str, ancestor: bool) -> bool {
         self.branches
@@ -398,15 +407,39 @@ impl SharedPolicy {
         lineage: &[Identity],
         service: Option<&str>,
     ) -> Result<Option<Arc<Target>>> {
+        self.select_with_witnesses(lineage, service, &mut Vec::new())
+    }
+    pub(crate) fn select_with_witnesses(
+        &self,
+        lineage: &[Identity],
+        service: Option<&str>,
+        witnesses: &mut Vec<(usize, usize)>,
+    ) -> Result<Option<Arc<Target>>> {
         let mut selected = Vec::new();
         for (index, b) in self.branches.iter().enumerate() {
             if !b.selectors.is_empty() && !b.selectors.iter().any(|r| r.matches(lineage, service)) {
                 continue;
             }
             let profile = profile_mask(
-                b.predicates
-                    .iter()
-                    .map(|p| p.iter().any(|r| r.matches(lineage, service))),
+                b.predicates.iter().enumerate().map(|(predicate, rows)| {
+                    if !self.application_log {
+                        return rows.iter().any(|row| row.matches(lineage, service));
+                    }
+                    // Prefer the owner over an ancestor when both satisfy an OR group.
+                    let mut witness = None;
+                    for row in rows {
+                        if let Some(index) = row.match_index(lineage, service) {
+                            witness = Some(witness.map_or(index, |old: usize| old.min(index)));
+                            if index == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(index) = witness {
+                        witnesses.push((predicate, index));
+                    }
+                    witness.is_some()
+                }),
                 b.predicates.len().div_ceil(4).max(1),
             );
             if !b.masks.contains(&profile) {

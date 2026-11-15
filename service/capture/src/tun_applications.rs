@@ -8,7 +8,7 @@ use crate::{
     native::{self, attribution_source::AttributionSource, clock},
     packet::Flow,
     policy::{Endpoint, Input, InterfaceOptions, Plan, Selector, SharedPolicy},
-    process::{Decision, Kind, ProcessKey},
+    process::{ApplicationProof, Decision, Kind, ProcessKey},
     Error, Result,
 };
 use serde::{Deserialize, Serialize};
@@ -90,7 +90,7 @@ impl TunInput {
             interfaces: InterfaceOptions::default(),
             bypass_local_traffic: false,
         })?;
-        Ok((Arc::new(rules), zero))
+        Ok((Arc::new(rules.with_application_log()), zero))
     }
 }
 #[derive(Serialize)]
@@ -162,6 +162,8 @@ struct Identity {
     mask: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<Origin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    application_proof: Option<Arc<ApplicationProof>>,
 }
 // Verify every ordinary process generation, including unmatched ones: a PID
 // reused after the ownership sample must not inherit an old default identity.
@@ -182,6 +184,7 @@ fn identity_for(
         Kind::Unselected => Some(Identity {
             mask: zero.to_owned(),
             origin: None,
+            application_proof: None,
         }),
         Kind::Selected if decision.process.is_some() => decision.rule.map(|rule| Identity {
             mask: format!(
@@ -190,6 +193,7 @@ fn identity_for(
                 width = zero.len()
             ),
             origin: None,
+            application_proof: decision.application_proof,
         }),
         _ => None,
     }
@@ -250,6 +254,7 @@ impl State {
                         .map(|mask| Identity {
                             mask: mask.clone(),
                             origin: None,
+                            application_proof: None,
                         })
                         .ok_or_else(|| Error::invalid("Ambiguous TUN flow ownership."))
                 }
@@ -273,6 +278,7 @@ impl State {
                     return Ok(Identity {
                         mask: self.zero.clone(),
                         origin: Some(origin),
+                        application_proof: None,
                     });
                 }
             }
@@ -516,6 +522,8 @@ struct Query {
     source_port: u16,
     destination: String,
     destination_port: u16,
+    #[serde(default)]
+    include_application_proof: bool,
 }
 fn auth(value: &str, secret: &[u8; 32]) -> bool {
     if value.len() != 64 {
@@ -605,7 +613,7 @@ async fn serve(mut stream: TcpStream, state: Arc<State>, mut stopping: watch::Re
                 .ok_or_else(|| Error::invalid("Invalid TUN destination address."))?,
             remote_port: query.destination_port,
         };
-        let result = state.find(flow).await.map_err(|error| {
+        let mut result = state.find(flow).await.map_err(|error| {
             // Only authenticated, valid ownership requests reach this point.
             // Bound repeated reports; never log the secret or destinations.
             if let Some(count) = state.rejections.record(clock::milliseconds()) {
@@ -613,7 +621,16 @@ async fn serve(mut stream: TcpStream, state: Arc<State>, mut stopping: watch::Re
             }
             error
         })?;
+        if !query.include_application_proof {
+            result.application_proof = None;
+        }
         let mut response = serde_json::to_vec(&result)?;
+        // Keep diagnostics within both the private reply and Xray log readers.
+        // Oversized evidence must never prevent dispatch.
+        if response.len() >= 4096 {
+            result.application_proof = None;
+            response = serde_json::to_vec(&result)?;
+        }
         response.push(b'\n');
         stream.write_all(&response).await?;
         Ok::<_, Error>(())

@@ -3,8 +3,9 @@ use crate::{
     policy::{Identity, SharedPolicy, Target},
     text, Error, Result,
 };
+use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -44,6 +45,55 @@ pub enum Kind {
     Unresolved,
     Ambiguous,
 }
+#[derive(Debug, Serialize)]
+struct ProcessLabel {
+    name: String,
+    pid: u32,
+}
+impl From<&ProcessInfo> for ProcessLabel {
+    fn from(info: &ProcessInfo) -> Self {
+        let name = text::filename(&info.name);
+        Self {
+            name: name
+                .char_indices()
+                .take_while(|(offset, c)| offset + c.len_utf8() <= 128)
+                .filter_map(|(_, c)| (!c.is_control()).then_some(c))
+                .collect(),
+            pid: info.key.pid,
+        }
+    }
+}
+#[derive(Debug, Serialize)]
+struct Witness {
+    process: ProcessLabel,
+    predicates: Vec<usize>,
+}
+#[derive(Debug, Serialize)]
+pub struct ApplicationProof {
+    owner: ProcessLabel,
+    matches: Vec<Witness>,
+}
+impl ApplicationProof {
+    fn new(lineage: &[&ProcessInfo], witnesses: Vec<(usize, usize)>) -> Option<Arc<Self>> {
+        if witnesses.is_empty() {
+            return None;
+        }
+        let mut matches = BTreeMap::<usize, Vec<usize>>::new();
+        for (predicate, index) in witnesses {
+            matches.entry(index).or_default().push(predicate);
+        }
+        Some(Arc::new(Self {
+            owner: lineage[0].into(),
+            matches: matches
+                .into_iter()
+                .map(|(index, predicates)| Witness {
+                    process: lineage[index].into(),
+                    predicates,
+                })
+                .collect(),
+        }))
+    }
+}
 #[derive(Debug, Clone)]
 pub struct Decision {
     pub kind: Kind,
@@ -52,6 +102,7 @@ pub struct Decision {
     pub endpoint: u64,
     pub service_pending: bool,
     pub accepted: bool,
+    pub application_proof: Option<Arc<ApplicationProof>>,
 }
 impl Decision {
     pub fn new(kind: Kind) -> Self {
@@ -62,6 +113,7 @@ impl Decision {
             endpoint: 0,
             service_pending: false,
             accepted: false,
+            application_proof: None,
         }
     }
     pub fn for_flow(&self, flow: crate::packet::Flow) -> Self {
@@ -244,7 +296,16 @@ impl ProcessTree {
                 .into_iter()
                 .flatten()
                 .copied()
-                .filter(|p| *p != key && p.started <= key.started)
+                .filter(|p| {
+                    let candidate = self.nodes[p].info.sequence;
+                    *p != key
+                        && if candidate != 0 && node.info.sequence != 0 {
+                            // Process sequence order is independent of system-clock changes.
+                            candidate < node.info.sequence
+                        } else {
+                            p.started <= key.started
+                        }
+                })
                 // An exact ETW generation outranks a PID-only candidate. If
                 // the newest candidate contradicts the child's evidence, an
                 // older use of the same PID cannot fill the gap.
@@ -347,7 +408,7 @@ impl ProcessTree {
                         r.packages_include_children
                     }
                 });
-            lineage.push(info.identity());
+            lineage.push(info);
             match node.parent.and_then(|key| self.nodes.get(&key)) {
                 Some(parent) => node = parent,
                 None => break,
@@ -356,10 +417,17 @@ impl ProcessTree {
         if incomplete {
             return Ok(Decision::new(Kind::Unresolved));
         }
+        let mut witnesses = Vec::new();
         let rule = self
             .rules
             .as_ref()
-            .map(|r| r.select(&lineage, service))
+            .map(|r| {
+                let identities = lineage
+                    .iter()
+                    .map(|info| info.identity())
+                    .collect::<Vec<_>>();
+                r.select_with_witnesses(&identities, service, &mut witnesses)
+            })
             .transpose()?
             .flatten();
         let mut decision = Decision::new(if rule.is_some() {
@@ -369,6 +437,7 @@ impl ProcessTree {
         });
         decision.process = Some(key);
         decision.rule = rule;
+        decision.application_proof = ApplicationProof::new(&lineage, witnesses);
         Ok(decision)
     }
 }

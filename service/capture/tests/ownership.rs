@@ -57,6 +57,7 @@ fn selected() -> Decision {
         endpoint: 55,
         service_pending: false,
         accepted: false,
+        application_proof: None,
     }
 }
 fn event(event: u8, timestamp: i64, endpoint: u64, pid: u32, flow: Flow) -> SocketEvent {
