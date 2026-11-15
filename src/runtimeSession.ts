@@ -81,6 +81,12 @@ function commandNotice(method: string, snapshot: ServiceSnapshot | null): string
   return '';
 }
 
+const syncRetryDelays = [250, 500, 1000, 2000, 4000];
+
+function isServiceBusy(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'BUSY';
+}
+
 // Command replies and subscription events arrive independently. An event snapshot
 // must never be replaced by an older status request that was already in flight.
 export class RuntimeSession {
@@ -184,6 +190,20 @@ export class RuntimeSession {
     }
   };
 
+  private async readView(transportEpoch: number): Promise<ServiceView | undefined> {
+    let retries = 0;
+    while (transportEpoch === this.transportEpoch) {
+      try {
+        return await this.request<ServiceView>('service.sync');
+      } catch (error) {
+        const delay = syncRetryDelays[retries++];
+        if (!isServiceBusy(error) || delay === undefined) throw error;
+        if (transportEpoch !== this.transportEpoch) return;
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
   refresh = (): Promise<void> => {
     this.refreshRequested = true;
     if (this.fetching) return this.fetching;
@@ -193,16 +213,20 @@ export class RuntimeSession {
         this.refreshRequested = false;
         requestEpoch = this.epoch;
         const transportEpoch = this.transportEpoch;
-        let view: ServiceView;
+        let view: ServiceView | undefined;
         try {
-          view = await this.request<ServiceView>('service.sync');
+          view = await this.readView(transportEpoch);
         } catch (error) {
           // A reconnect/manual refresh queued behind this request still needs
-          // its turn, even when the old pipe fails instead of returning a view.
-          if (this.refreshRequested) continue;
+          // its turn, but repeated snapshots must not reset the busy retry budget.
+          if (
+            this.refreshRequested &&
+            (!isServiceBusy(error) || transportEpoch !== this.transportEpoch)
+          )
+            continue;
           throw error;
         }
-        if (transportEpoch !== this.transportEpoch) {
+        if (!view || transportEpoch !== this.transportEpoch) {
           if (this.state.connected || this.refreshRequested) {
             this.refreshRequested = true;
             continue;
@@ -251,7 +275,7 @@ export class RuntimeSession {
       }
     })().catch((error) => {
       this.update({
-        connected: requestEpoch !== this.epoch && this.state.connected,
+        connected: this.state.connected && (isServiceBusy(error) || requestEpoch !== this.epoch),
         error: errorText(error),
       });
       throw error;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RuntimeSession, type ServiceRequest, type ServiceView } from './runtimeSession';
-import type { ServiceSnapshot } from './serviceClient';
+import type { ServiceError, ServiceSnapshot } from './serviceClient';
 
 const snapshot = (revision = 1, state = 'stopped', instanceId = 'service-a'): ServiceSnapshot => ({
   serviceVersion: 'test',
@@ -289,6 +289,51 @@ describe('runtime synchronization', () => {
     expect(env.session.getSnapshot().busy).toBe(false);
     expect(env.request.mock.calls.filter(([m]) => m === 'core.stop')).toHaveLength(1);
   });
+  it.each([true, false])(
+    'retries only the busy status read after a restart (recovers: %s)',
+    async (recovers) => {
+      const env = service();
+      await env.session.refresh();
+      env.set(snapshot(1, 'running'));
+      const original = env.request.getMockImplementation()!;
+      const busy: ServiceError = { code: 'BUSY', message: 'The service is busy.', retryable: true };
+      let reads = 0;
+      env.request.mockClear().mockImplementation(async (method: string) => {
+        if (method === 'service.sync' && (++reads <= 2 || !recovers)) throw busy;
+        return original(method);
+      });
+
+      vi.useFakeTimers();
+      try {
+        const restart = env.session.run('core.restart');
+        const result = recovers
+          ? expect(restart).resolves.toEqual({})
+          : expect(restart).rejects.toEqual(busy);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(env.session.getSnapshot()).toMatchObject({ connected: true, busy: true, error: '' });
+        const queued = env.session.refresh();
+        expect(queued).toBe(env.session.refresh());
+        void queued.catch(() => {});
+        await vi.runAllTimersAsync();
+        await result;
+
+        expect(env.request.mock.calls.filter(([method]) => method === 'core.restart')).toHaveLength(
+          1,
+        );
+        expect(env.session.getSnapshot()).toMatchObject({ connected: true, busy: false });
+        if (recovers) {
+          expect(env.session.getSnapshot().notice).toContain('Restart completed.');
+          expect(env.session.getSnapshot().snapshot?.core.state).toBe('running');
+          expect(env.session.getSnapshot().error).toBe('');
+        } else {
+          expect(reads).toBe(6);
+          expect(env.session.getSnapshot().error).toContain('The command completed');
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it('reports the observed state after activation instead of promising a running core', async () => {
     const env = service();
     env.set(snapshot(2, 'failed'));
