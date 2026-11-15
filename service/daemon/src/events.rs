@@ -8,6 +8,7 @@ use tokio::sync::broadcast;
 use wayrill_protocol::{Message, API_VERSION};
 pub struct Events {
     pub instance_id: String,
+    pub started_at_ms: u64,
     pub routing: crate::routing_log::Log,
     state: Mutex<(u64, VecDeque<Message>)>,
     activity: Mutex<(Value, Value, std::time::Instant)>,
@@ -16,15 +17,12 @@ pub struct Events {
 impl Events {
     pub fn new() -> Arc<Self> {
         let (tx, _) = broadcast::channel(256);
+        let started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
         Arc::new(Self {
-            instance_id: format!(
-                "{}-{}",
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos()
-            ),
+            instance_id: format!("{}-{}", std::process::id(), started_at.as_nanos()),
+            started_at_ms: started_at.as_millis() as u64,
             routing: crate::routing_log::Log::default(),
             state: Mutex::new((0, VecDeque::new())),
             activity: Mutex::new((Value::Null, Value::Null, std::time::Instant::now())),

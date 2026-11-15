@@ -1066,11 +1066,13 @@ impl Kernel {
             "companion.routes" => {
                 let p: wayrill_protocol::companion::Lookup = params(input)?;
                 let hosts = p.normalized()?;
-                Ok(self.events.routing.companion(
+                let mut result = self.events.routing.companion(
                     &hosts,
                     &self.events.instance_id,
                     crate::traffic::timestamp_ms(),
-                ))
+                );
+                result["serviceStartedAtMs"] = json!(self.events.started_at_ms);
+                Ok(result)
             }
             "companion.timezoneStart" | "timezone.probeStart" => {
                 let request: wayrill_protocol::companion::TimezoneRequest = params(input)?;

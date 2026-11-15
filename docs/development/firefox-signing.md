@@ -59,10 +59,16 @@ Do not add an update URL until that endpoint actually exists and is maintained.
 The small signed redistributable is committed at `extensions/signed/firefox.xpi`,
 with its signing provenance and SHA-256 in `extensions/signed/firefox.json`.
 Builds use this copy without depending on AMO download access or credentials.
-Replace both files after signing an update. Packaging
-checks its hash, identity and every non-signature file against the generated
-Firefox source, then bundles it as `Service/companion-firefox.xpi`. Changes to
-shared runtime files require a newly signed XPI before building an installer.
+Replace both files after signing an update. Verify the signed contents against
+the exact generated source submitted to Mozilla before committing the new pin:
+
+```powershell
+pwsh -NoProfile -File tools/Copy-FirefoxCompanion.ps1 -SourceDirectory .tools/companion-extensions/firefox -Destination .tools/firefox-artifacts/companion-firefox.xpi
+```
+
+Installer builds check the pinned hash, add-on identity, version and signature
+entry and bundle that release as `Service/companion-firefox.xpi`. Firefox gets
+shared source changes when a new signed XPI is available.
 
 ## Check the installed experience
 

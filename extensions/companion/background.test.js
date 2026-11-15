@@ -51,12 +51,13 @@ for (const namespace of ['chrome', 'browser'])
     };
     const snapshot = (tabId) =>
       new Promise((resolve) => listeners.message({ type: 'snapshot', tabId }, sender, resolve));
+    const now = Date.now();
     const request = (tabId, id, host) => ({
       tabId,
       requestId: id,
       url: `https://${host}/private?token=secret`,
       type: 'main_frame',
-      timeStamp: 1000,
+      timeStamp: now,
     });
     const seed = new Capture();
     seed.before(request(1, 'closed', 'closed.test'));
@@ -85,7 +86,7 @@ for (const namespace of ['chrome', 'browser'])
       frameId: 0,
       documentId: 'next',
       url: 'https://next.test/',
-      timeStamp: 1001,
+      timeStamp: now + 1,
     });
     listeners.error(request(2, 'nav', 'kept.test')); // Completion from the retired page.
     assert.equal((await snapshot(2)).page.domains[0].errors, 0);

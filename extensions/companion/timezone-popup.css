@@ -1,5 +1,5 @@
 .timezone-settings {
-  margin: 12px 0;
+  margin: 4px 0 8px;
   padding: 12px;
   border: 1px solid #343e51;
   border-radius: 6px;
@@ -12,9 +12,6 @@
   display: grid;
   gap: 6px;
   margin: 10px 0;
-}
-.timezone-settings [hidden] {
-  display: none;
 }
 .timezone-settings input,
 .timezone-settings select {

@@ -5,6 +5,10 @@ its toolbar button to inspect domains requested by the **current tab**, includin
 subframes and WebSocket handshakes. Expand a domain for request types, counts,
 cache/error counts, and last known Wayrill routes, including Block.
 
+Companion 0.7.1 drops domains after an hour without another request, or when
+their last request predates the Wayrill service's current run. Hover over the
+connection icon to check the bridge and routing status.
+
 ## Set up from the Windows app
 
 Open **Tools > Browser Companion** in Wayrill. The installer includes the
@@ -163,7 +167,7 @@ the draft will match every request from that domain.
 
 ## Timezone override (Chromium)
 
-Expand **Timezone override** in the Companion. Choose **Main outbound**,
+Open **Time Zone** next to **Setup** in the Companion. Choose **Main outbound**,
 **Custom outbound** to select a Stash server, chain or policy group, or **Manual**
 to select a timezone from the dropdown. Then choose
 **Apply and reload web tabs**. The default is Off. One timezone applies to all

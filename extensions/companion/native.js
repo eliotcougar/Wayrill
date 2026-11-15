@@ -1,5 +1,5 @@
 /** @typedef {{outbound:string, action?:'block'|'route', instanceId?:string, generation?:number, revision?:number, port:number, transport:string, timestampMs:number, source:string, path:{filterId?:string,ruleId?:string|null,rule:string,output:string}[], pathTruncated:boolean}} Match */
-/** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[], extensionVersion?:string}} Routes */
+/** @typedef {{state:string, instanceId:string, generation:number|null, revision:number|null, timestampMs:number, serviceStartedAtMs?:number, capacity:number, hosts:{host:string,matches:Match[],truncated:boolean}[], extensionVersion?:string}} Routes */
 
 import { extensionApi } from './api.js';
 

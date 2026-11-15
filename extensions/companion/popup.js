@@ -17,6 +17,7 @@ const domains = element('domains');
 let page = null;
 /** @type {import('./native.js').Routes|null} */
 let routes = null;
+let serviceStartedAtMs = 0;
 let busy = false;
 let closed = false;
 let connected = false;
@@ -27,12 +28,28 @@ let timer;
 /** @type {{tabId:number, promise:Promise<Snapshot|null>}|undefined} */
 let snapshotRequest;
 
+/** @param {'connected'|'disconnected'|'idle'} state @param {string} label */
+function showConnection(state, label) {
+  connected = state === 'connected';
+  const indicator = element('connection');
+  indicator.dataset.state = state;
+  indicator.title = label;
+  const status = element('status');
+  if (status.textContent !== label) status.textContent = label;
+}
+
+function recentDomains() {
+  return (page?.domains ?? []).filter((domain) => domain.lastSeen >= serviceStartedAtMs);
+}
+
 /** A worker that failed to start can leave its message channel pending. Keep
  * one request per current tab rather than enqueue another on every refresh.
  * @param {number} tabId @returns {Promise<Snapshot|null>} */
 async function readSnapshot(tabId) {
   if (snapshotRequest?.tabId !== tabId) {
-    const promise = api.runtime.sendMessage({ type: 'snapshot', tabId }).catch(() => null);
+    const promise = api.runtime
+      .sendMessage({ type: 'snapshot', tabId, serviceStartedAtMs })
+      .catch(() => null);
     snapshotRequest = { tabId, promise };
     void promise.finally(() => {
       if (snapshotRequest?.promise === promise) snapshotRequest = undefined;
@@ -120,13 +137,6 @@ function domainRow(domain) {
     detail.append(
       node('p', `Observed ${new Date(match.timestampMs).toLocaleString()} · ${match.source}`),
     );
-    if (match.revision != null)
-      detail.append(
-        node(
-          'p',
-          `Revision ${match.revision}${match.generation != null ? ` · generation ${match.generation}` : ''}`,
-        ),
-      );
     if (
       !connected ||
       routes?.state !== 'collecting' ||
@@ -165,9 +175,7 @@ function render() {
     [...domains.querySelectorAll('details')].map((row) => [row.dataset.host, row]),
   );
   const focused = document.activeElement;
-  const rows = [...(page?.domains ?? [])].sort(
-    (a, b) => b.count - a.count || a.host.localeCompare(b.host),
-  );
+  const rows = recentDomains().sort((a, b) => b.count - a.count || a.host.localeCompare(b.host));
   let cursor = domains.firstElementChild;
   for (const domain of rows) {
     const next = domainRow(domain);
@@ -199,7 +207,7 @@ function render() {
     focused.focus({ preventScroll: true });
   element('empty').hidden = rows.length > 0;
   element('empty').textContent =
-    'No requests captured for this page yet. Reload the page to capture its domains.';
+    'No recent requests for this page. Reload it to capture its domains.';
 }
 
 async function refresh() {
@@ -214,8 +222,7 @@ async function refresh() {
       render();
       element('empty').textContent =
         'Open a regular webpage to inspect its domains. Browser pages and private tabs are unavailable.';
-      element('status').textContent = 'No webpage selected';
-      element('status-dot').classList.remove('live');
+      showConnection('idle', 'No webpage selected');
       element('connection-error').hidden = true;
       element('capture-warning').hidden = true;
       client.close();
@@ -243,42 +250,40 @@ async function refresh() {
     element('capture-warning').hidden = !warnings.length;
     element('capture-warning').textContent = warnings.join(' ');
     try {
-      const next = await client.routes((page?.domains ?? []).map((row) => row.host));
+      const next = await client.routes(recentDomains().map((row) => row.host));
       if (await tryReloadBundle(next.extensionVersion)) return;
+      serviceStartedAtMs = next.serviceStartedAtMs ?? 0;
+      const sameService = routes?.instanceId === next.instanceId;
       for (const host of next.hosts)
         for (const match of host.matches) match.instanceId = next.instanceId;
-      // An empty lookup is not a new routing decision. Keep evidence already
-      // shown for this page through log rollover and transient disconnections.
+      // Keep known routes through log rollover within a service instance.
+      // Older services omit the start time, so their history still ages out with capture.
       for (const host of next.hosts) {
-        if (host.matches.length) continue;
+        if (host.matches.length || (!sameService && serviceStartedAtMs > 0)) continue;
         const known = routes?.hosts.find((item) => item.host === host.host);
         if (known) Object.assign(host, known);
       }
       routes = next;
-      connected = true;
       element('connection-error').hidden = true;
-      element('status-dot').classList.toggle('live', routes.state === 'collecting');
-      element('status').textContent =
+      showConnection(
+        'connected',
         routes.state === 'collecting'
-          ? `Wayrill connected · revision ${routes.revision}`
+          ? 'Wayrill connected'
           : routes.state === 'stopped'
-            ? 'Wayrill routing is stopped'
-            : 'Wayrill route observations unavailable';
+            ? 'Wayrill connected. Routing is stopped.'
+            : 'Wayrill connected. Route observations are unavailable.',
+      );
     } catch (error) {
       if (closed) return;
       if (error instanceof BridgeError && (await tryReloadBundle(error.extensionVersion))) return;
-      connected = false;
-      element('status-dot').classList.remove('live');
-      element('status').textContent = 'Wayrill disconnected';
+      showConnection('disconnected', 'Wayrill disconnected');
       element('connection-error').hidden = false;
       element('connection-error').textContent =
         error instanceof Error ? error.message : 'Cannot connect to Wayrill.';
     }
     render();
   } catch {
-    connected = false;
-    element('status-dot').classList.remove('live');
-    element('status').textContent = 'Capture unavailable';
+    showConnection('disconnected', 'Capture unavailable');
     element('connection-error').hidden = false;
     element('connection-error').textContent = 'Reload the extension and page to restart capture.';
     render();
@@ -328,11 +333,20 @@ domains.addEventListener('click', (event) => {
       }
     });
 });
-element('setup-button').addEventListener('click', () => {
-  const setup = element('setup');
-  setup.hidden = !setup.hidden;
-  element('setup-button').setAttribute('aria-expanded', String(!setup.hidden));
-});
+const panels = [...document.querySelectorAll('header button[aria-controls]')].map((button) => ({
+  button,
+  panel: element(button.getAttribute('aria-controls') ?? ''),
+}));
+for (const { button, panel } of panels) {
+  button.addEventListener('click', () => {
+    const open = panel.hidden;
+    for (const item of panels) {
+      const expanded = open && item.button === button;
+      item.panel.hidden = !expanded;
+      item.button.setAttribute('aria-expanded', String(expanded));
+    }
+  });
+}
 element('extension-id').textContent = api.runtime.id;
 window.addEventListener('pagehide', () => {
   closed = true;

@@ -30,8 +30,7 @@ export async function buildExtension(browser, output) {
     manifest.browser_specific_settings = JSON.parse(
       await readFile(resolve(source, 'firefox.json'), 'utf8'),
     );
-    // Firefox remains its independently signed release. Shared source still
-    // passes the exact signed-source check; Chromium-only files stay separate.
+    // Firefox versions are assigned independently for Mozilla signing.
     manifest.version = JSON.parse(
       await readFile(resolve(project, 'extensions/signed/firefox.json'), 'utf8'),
     ).version;
@@ -58,13 +57,17 @@ export async function buildExtension(browser, output) {
     for (const [marker, addition] of [
       [
         '</head>',
-        '<link rel="stylesheet" href="timezone-popup.css" />\n<script type="module" src="timezone-popup.js"></script>\n',
+        '<link rel="stylesheet" href="timezone-popup.css" />\n<script type="module" src="timezone-popup.js"></script>\n</head>',
       ],
-      ['<div id="domains"', fragment + '\n'],
+      [
+        '<!-- timezone-button -->',
+        '<button id="timezone-button" class="quiet" aria-expanded="false" aria-controls="timezone-settings">Time Zone</button>',
+      ],
+      ['<!-- timezone-panel -->', fragment],
     ]) {
       if (html.split(marker).length !== 2)
         throw new Error('Companion popup insertion point changed: ' + marker);
-      html = html.replace(marker, addition + marker);
+      html = html.replace(marker, addition);
     }
     await writeFile(resolve(output, 'popup.html'), html);
   }

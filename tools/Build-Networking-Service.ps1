@@ -84,9 +84,7 @@ Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc\
 New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'companion-extension') -Force | Out-Null
 & node (Join-Path $PSScriptRoot 'Build-CompanionExtension.mjs') --browser chromium --output (Join-Path $OutputDirectory 'companion-extension')
 if ($LASTEXITCODE) { throw 'Chromium extension packaging failed.' }
-& node (Join-Path $PSScriptRoot 'Build-CompanionExtension.mjs') --browser firefox --output (Join-Path $OutputDirectory 'companion-firefox')
-if ($LASTEXITCODE) { throw 'Firefox extension packaging failed.' }
-& (Join-Path $PSScriptRoot 'Copy-FirefoxCompanion.ps1') -SourceDirectory (Join-Path $OutputDirectory 'companion-firefox') -Destination (Join-Path $OutputDirectory 'companion-firefox.xpi')
+& (Join-Path $PSScriptRoot 'Copy-FirefoxCompanion.ps1') -Destination (Join-Path $OutputDirectory 'companion-firefox.xpi')
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.executableSha256) { throw 'Patched Xray executable SHA-256 mismatch.' }
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\wintun.dll')).Hash -ne $taskDependencies.xray.wintunDllSha256) { throw 'Wintun DLL SHA-256 mismatch.' }
 $taskRoutingAssets=Join-Path $taskService 'routing-assets'

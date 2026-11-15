@@ -136,7 +136,10 @@ projects the memory-only routing log into bounded last known destination observa
 with display names, observed Block actions and rule trails. Matches retain their
 own generation/revision and timestamp across activation and Stop, without an age
 expiry; a newly observed epoch replaces the older route set for that host. Log
-history/cache capacity and service restart still bound retention. Results are destination correlations across apps, not per-tab attribution
+history/cache capacity and service restart still bound retention. The reply's
+`serviceStartedAtMs` is a stable Unix timestamp for the lifetime of `instanceId`.
+Companion uses it to hide tab activity older than the service's route history.
+Results are destination correlations across apps, not per-tab attribution
 or route predictions. The separate `wayrill-companion` native messaging host exposes
 this read operation to the unpacked [browser Companion](../guide/browser-companion.md).
 Its separate `editDomain` method validates one hostname and at most eight filter

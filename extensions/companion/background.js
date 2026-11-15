@@ -94,6 +94,7 @@ api.runtime.onMessage.addListener((message, sender, respond) => {
     !Number.isInteger(message.tabId)
   )
     return false;
-  void lane.then(() => respond({ page: capture.snapshot(message.tabId), storageError }));
+  const since = Number.isSafeInteger(message.serviceStartedAtMs) ? message.serviceStartedAtMs : 0;
+  void lane.then(() => respond({ page: capture.snapshot(message.tabId, since), storageError }));
   return true;
 });

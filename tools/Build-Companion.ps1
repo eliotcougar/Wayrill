@@ -25,7 +25,7 @@ New-Item -ItemType Directory -Path $taskExtension -Force | Out-Null
 if ($LASTEXITCODE) { throw 'Chromium extension packaging failed.' }
 & node (Join-Path $PSScriptRoot 'Build-CompanionExtension.mjs') --browser firefox --output (Join-Path $taskOutput 'firefox-extension')
 if ($LASTEXITCODE) { throw 'Firefox extension packaging failed.' }
-& (Join-Path $PSScriptRoot 'Copy-FirefoxCompanion.ps1') -SourceDirectory (Join-Path $taskOutput 'firefox-extension') -Destination (Join-Path $taskOutput 'companion-firefox.xpi')
+& (Join-Path $PSScriptRoot 'Copy-FirefoxCompanion.ps1') -Destination (Join-Path $taskOutput 'companion-firefox.xpi')
 Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release/wayrill-companion.exe') -Destination $taskOutput -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Register-Companion.ps1') -Destination $taskOutput -Force
 Copy-Item -LiteralPath (Join-Path $taskProject 'service/scripts/Companion-Setup.ps1') -Destination $taskOutput -Force
@@ -36,13 +36,13 @@ $taskReadme = @'
 Requires Windows and a matching Wayrill build that supports `companion.routes`.
 This package does not install or upgrade the Wayrill networking service.
 
-The installed app includes these files. Prefer Settings > Browser Companion to
+The installed app includes these files. Prefer Tools > Browser Companion to
 enable/repair or disconnect the shared native bridge and open the extension manager.
 
 Standalone setup:
 Firefox: install `companion-firefox.xpi` through about:addons. The `firefox-extension`
-folder is readable source for temporary development loading via about:debugging,
-not a permanently installable signed add-on. Native bridge registration below is
+folder may contain newer development source for temporary loading via about:debugging.
+Native bridge registration below is
 shared by Firefox and Chromium. Data stays local; Firefox's browsingActivity
 declaration covers destination hostnames sent to the local Wayrill app.
 
@@ -65,9 +65,8 @@ The popup applies to the current tab. Expand a domain for request types/counts
 and last known Wayrill routes, including Block. Observations are matched by exact
 destination across this PC's apps/tabs, excluding Internet-sharing clients;
 they do not prove an individual request's route.
-They retain their observation time/revision across route changes and Stop. They
-remain available in bounded per-domain service memory until eviction or restart;
-an open popup also keeps its last route through empty lookups or bridge failures.
+They remain available in bounded per-domain service memory until eviction or restart.
+The current source shows domains seen in the last hour and since the service started.
 Unknown does not mean Direct. Cache/coalescing or IP-only logs can prevent matches.
 IPIfNonMatch implicit defaults and native script routers have no inferred route
 observations; explicit IPIfNonMatch rule matches remain observable.
@@ -90,4 +89,4 @@ $taskReadme = $taskReadme.Replace('# Wayrill Companion preview',('# Wayrill Comp
 [IO.File]::WriteAllText((Join-Path $taskOutput 'README.md'), $taskReadme, [Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath (Join-Path $taskProject 'LICENSE') -Destination $taskOutput -Force
 Write-Host "Companion package: $taskOutput"
-Write-Host 'Use Settings > Browser Companion in Wayrill, or load this folder unpacked and run the packaged Register-Companion.ps1. No copied ID is needed.'
+Write-Host 'Use Tools > Browser Companion in Wayrill, or load this folder unpacked and run the packaged Register-Companion.ps1. No copied ID is needed.'

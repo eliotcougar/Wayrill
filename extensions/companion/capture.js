@@ -1,11 +1,21 @@
 export const MAX_HOSTS = 128;
 const MAX_TABS = 48;
 const MAX_PENDING = 256;
+const DOMAIN_IDLE_MS = 60 * 60 * 1000;
 
 /** @typedef {{host:string, count:number, errors:number, cached:number, types:string[], firstSeen:number, lastSeen:number}} Domain */
 /** @typedef {{tabId:number, host:string, navigationId:string, documentId?:string, startedAt:number, updatedAt:number, domains:Domain[], pending:{id:string,host:string}[], dropped:number}} Page */
 /** @typedef {{tabId:number, requestId:string, url:string, type:string, timeStamp:number, incognito?:boolean, fromCache?:boolean}} Request */
 /** @typedef {{tabId:number, frameId:number, documentId:string, url:string, timeStamp:number}} Navigation */
+
+/** @param {Page} page @param {number} cutoff */
+function expireDomains(page, cutoff) {
+  if (!page.domains.some((domain) => domain.lastSeen < cutoff)) return;
+  page.domains = page.domains.filter((domain) => domain.lastSeen >= cutoff);
+  const hosts = new Set(page.domains.map((domain) => domain.host));
+  page.pending = page.pending.filter((request) => hosts.has(request.host));
+  page.dropped = 0;
+}
 
 /** Store only the hostname, never a URL, path, query, headers, or page content.
  * @param {string} url */
@@ -83,6 +93,7 @@ export class Capture {
     }
     if (request.type === 'main_frame') page.host = host;
     page.updatedAt = request.timeStamp;
+    expireDomains(page, request.timeStamp - DOMAIN_IDLE_MS);
     let domain = page.domains.find((row) => row.host === host);
     if (!domain) {
       if (page.domains.length >= MAX_HOSTS) {
@@ -121,10 +132,11 @@ export class Capture {
     page.pending = page.pending.filter((row) => row.id !== request.requestId);
     return page;
   }
-  /** @param {number} tabId */
-  snapshot(tabId) {
+  /** @param {number} tabId @param {number} [serviceStartedAtMs] @param {number} [now] */
+  snapshot(tabId, serviceStartedAtMs = 0, now = Date.now()) {
     const page = this.pages.get(tabId);
     if (!page) return null;
+    expireDomains(page, Math.max(now - DOMAIN_IDLE_MS, serviceStartedAtMs));
     const { pending: _pending, ...snapshot } = page;
     void _pending;
     return snapshot;

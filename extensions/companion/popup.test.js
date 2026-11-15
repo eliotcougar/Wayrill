@@ -16,6 +16,9 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   let blocked = false;
   let transports = ['udp', 'tcp', 'udp'];
   let instanceId = 'instance-a';
+  let serviceStartedAtMs;
+  let lastHosts;
+  let snapshotCutoff;
   let captureUnavailable = false;
   let extensionVersion;
   let reloads = 0;
@@ -34,7 +37,8 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
       reload() {
         reloads++;
       },
-      async sendMessage() {
+      async sendMessage(message) {
+        snapshotCutoff = message.serviceStartedAtMs;
         if (captureUnavailable === 'pending') return new Promise(() => {});
         if (captureUnavailable) throw new Error('Receiving end does not exist.');
         return {
@@ -46,10 +50,21 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
                 count: 2,
                 types: ['main_frame', 'script'],
                 firstSeen: 1,
-                lastSeen: 2,
+                lastSeen: 3,
                 cached: 0,
                 errors: 0,
               },
+              ...(serviceStartedAtMs
+                ? [
+                    {
+                      host: 'old-video.test',
+                      count: 1,
+                      types: ['media'],
+                      firstSeen: 1,
+                      lastSeen: 1,
+                    },
+                  ]
+                : []),
             ],
           },
           storageError: '',
@@ -73,6 +88,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
               );
               return;
             }
+            lastHosts = message.params.hosts;
             queueMicrotask(() =>
               receive(
                 failed
@@ -93,6 +109,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
                         instanceId,
                         generation: 1,
                         revision: 4,
+                        serviceStartedAtMs,
                         hosts: [
                           {
                             host: 'page.test',
@@ -145,6 +162,9 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   try {
     await import('./popup.js');
     await settle();
+    assert.equal(document.getElementById('connection').dataset.state, 'connected');
+    assert.equal(text('status'), 'Wayrill connected');
+    assert.doesNotMatch(text('domains'), /Revision |generation /);
     assert.equal(
       document.querySelector('.route-line').textContent,
       'Unmatched traffic → Work → Foreign sites → US → <img src=x onerror=alert(1)>',
@@ -188,7 +208,17 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
     await poll();
     assert.match(text('domains'), /Blocked \(Renamed deny output\)/);
     assert.equal(text('connection-error'), 'Service unavailable');
+    assert.equal(document.getElementById('connection').dataset.state, 'disconnected');
     failed = false;
+    instanceId = 'instance-c';
+    serviceStartedAtMs = 3;
+    await poll();
+    assert.match(text('domains'), /page\.test/);
+    assert.match(text('domains'), /No route observed yet/);
+    assert.doesNotMatch(text('domains'), /old-video\.test|Renamed deny output/);
+    await poll();
+    assert.deepEqual(lastHosts, ['page.test']);
+    assert.equal(snapshotCutoff, 3);
     host = 'next.test';
     await poll();
     assert.match(text('domains'), /next\.test/);

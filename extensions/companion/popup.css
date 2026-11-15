@@ -16,7 +16,7 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 22px;
+  padding: 14px 22px;
   border-bottom: 1px solid #2a3140;
 }
 .brand {
@@ -39,7 +39,7 @@ header {
   font-size: 12px;
 }
 main {
-  padding: 20px 22px 16px;
+  padding: 8px 22px 12px;
 }
 button {
   font: inherit;
@@ -60,22 +60,43 @@ button {
   outline: 2px solid #91b0ff;
   outline-offset: 3px;
 }
-.connection {
+.header-actions {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  min-height: 28px;
+  gap: 8px;
 }
-.dot {
-  flex: 0 0 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #d9ac65;
+.connection-status {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: #97a4bc;
 }
-.dot.live {
-  background: #74dab8;
-  box-shadow: 0 0 8px #74dab833;
+.connection-status svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.connection-status[data-state='connected'] {
+  color: #74dab8;
+}
+.connection-status[data-state='disconnected'] {
+  color: #f1a0aa;
+}
+.connection-status[data-state='connected'] .connection-cross,
+.connection-status:not([data-state='connected']) .connection-check {
+  display: none;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 #domains {
   max-height: 340px;
@@ -203,12 +224,6 @@ code {
   padding: 26px 14px;
   line-height: 1.7;
 }
-footer {
-  font-size: 10px;
-  color: #7e8da7;
-  line-height: 1.6;
-  margin-top: 16px;
-}
 [hidden] {
   display: none !important;
 }
@@ -221,9 +236,17 @@ footer {
   .domain {
     border-color: #dce2eb;
   }
-  footer,
   .empty {
     color: #596b86;
+  }
+  .connection-status {
+    color: #596b86;
+  }
+  .connection-status[data-state='connected'] {
+    color: #19735c;
+  }
+  .connection-status[data-state='disconnected'] {
+    color: #ad3345;
   }
   .brand span {
     color: #526582;
