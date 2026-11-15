@@ -1439,6 +1439,9 @@ pub fn prepare_with_applications(
     }
     Ok(plan)
 }
+const POLICY_RELAY_TAG_PREFIX: &str = "wtr-p-";
+const POLICY_RELAY_PASSWORD_PREFIX: &str = "wayrill-relay/";
+
 fn prepare_source(
     config: &Value,
     input: &Value,
@@ -1492,14 +1495,32 @@ fn prepare_source(
     let destinations: BTreeMap<_, _> = destinations
         .into_iter()
         .enumerate()
-        .map(|(i, d)| (d, format!("wtr-{}", crate::tags::number(i as u64))))
+        .map(|(i, destination)| {
+            let prefix = if destination.0 == "balancerTag" {
+                POLICY_RELAY_TAG_PREFIX
+            } else {
+                "wtr-"
+            };
+            (
+                destination,
+                format!("{prefix}{}", crate::tags::number(i as u64)),
+            )
+        })
         .collect();
+    let policy_password = format!("{POLICY_RELAY_PASSWORD_PREFIX}{password}");
+    let relay_password = |user: &str| {
+        if user.starts_with(POLICY_RELAY_TAG_PREFIX) {
+            &policy_password
+        } else {
+            &password
+        }
+    };
     let mut main = config.clone();
     main["inbounds"]
         .as_array_mut()
         .unwrap()
         .retain(|v| v["tag"] != input["tag"]);
-    main["inbounds"].as_array_mut().unwrap().push(json!({"tag":tun_tag,"protocol":"socks","listen":"127.0.0.1","port":port,"streamSettings":{"sockopt":crate::sockets::udp_buffer_options(config)},"settings":{"auth":"password","udp":true,"ip":"127.0.0.1","accounts":destinations.values().map(|u|json!({"user":u,"pass":password})).collect::<Vec<_>>()}}));
+    main["inbounds"].as_array_mut().unwrap().push(json!({"tag":tun_tag,"protocol":"socks","listen":"127.0.0.1","port":port,"streamSettings":{"sockopt":crate::sockets::udp_buffer_options(config)},"settings":{"auth":"password","udp":true,"ip":"127.0.0.1","accounts":destinations.values().map(|u|json!({"user":u,"pass":relay_password(u)})).collect::<Vec<_>>()}}));
     if let Some(level) = input["settings"].get("userLevel") {
         main["inbounds"].as_array_mut().unwrap().last_mut().unwrap()["settings"]["userLevel"] =
             level.clone();
@@ -1511,7 +1532,7 @@ fn prepare_source(
         let mut rule = json!({"type":"field","inboundTag":[tun_tag],"user":[user]});
         rule[key] = json!(target);
         relay_rules.push(rule);
-        relays.push(json!({"tag":user,"protocol":"socks","sendThrough":"127.0.0.1","settings":{"address":"127.0.0.1","port":port,"user":user,"pass":password},"streamSettings":{"sockopt":{"interface":loopback,"customSockopt":crate::sockets::udp_buffer_options(config)["customSockopt"]}}}));
+        relays.push(json!({"tag":user,"protocol":"socks","sendThrough":"127.0.0.1","settings":{"address":"127.0.0.1","port":port,"user":user,"pass":relay_password(user)},"streamSettings":{"sockopt":{"interface":loopback,"customSockopt":crate::sockets::udp_buffer_options(config)["customSockopt"]}}}));
     }
     for r in &mut worker_rules {
         for key in ["outboundTag", "balancerTag"] {

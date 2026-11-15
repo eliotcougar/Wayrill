@@ -13,10 +13,10 @@ a change is compiled into Wayrill.
 | Item | Current source of truth |
 | --- | --- |
 | Upstream base | Xray **v26.10.29**, commit `0afec66085a85191e9dd2a4a6646c7c9a94688d1` |
-| Main executable | `xray.exe`; upstream base plus the shared patch and socket initializer |
+| Main executable | `xray.exe`; upstream base plus the shared patches and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
-| Patch | [service/xray-patches/shared-fakedns.patch](../../service/xray-patches/shared-fakedns.patch) |
+| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [XHTTP handshake timeout](../../service/xray-patches/xhttp-handshake-timeout.patch) |
 | Initializers and additions | [core-init](../../service/core-init), [core-control](../../service/core-control), [tun-core](../../service/tun-core) |
 | Application of every change | [tools/Build-XrayCores.ps1](../../tools/Build-XrayCores.ps1) |
 | Main/source/patch/SDK/Wintun pins | [service/dependencies.json](../../service/dependencies.json) |
@@ -27,7 +27,7 @@ Go extension hook still requires linked executable code; it cannot be injected
 into the official release binary. Exact current hashes belong in the manifests
 above rather than a second manually maintained hash table here.
 
-The patch's name is historical: it includes real-DNS cancellation, allocator
+The shared FakeDNS patch includes real-DNS cancellation, allocator
 correctness and telemetry as well as shared FakeDNS. The patch currently covers
 **35 paths**, including tests and generated bindings. The builder also copies
 **11 Go files** and edits **three additional upstream TUN files**. The complete
@@ -62,6 +62,35 @@ binary patch. The bounded log supplies observations rather than per-tab attribut
 | X10 | Reopen TUN without reapplying owned Windows settings | Worker | Private service-authorized reuse flag and native setup bypass |
 | X11 | Real, upstream-bound ICMP echo through TUN | Worker | Private Windows implementation and packet-stack hooks |
 | X12 | Routing-control and FakeDNS authority commands | Worker | App-owned commands; routing updates use existing upstream gRPC |
+| X13 | Per-flow policy-group selection telemetry | Shared | Private loopback SOCKS relay integration |
+| X14 | XHTTP TLS handshake deadline | Shared | Private fix for the stall reported in [#6590](https://github.com/XTLS/Xray-core/issues/6590) |
+
+### X14 — XHTTP TLS handshake deadline
+
+XHTTP starts a ten-second handshake deadline once the TCP connection is open.
+The deadline covers Go TLS, uTLS and REALITY. A peer that accepts TCP but never
+answers the TLS ClientHello can otherwise leave multiple HTTP/2 requests waiting
+on the same pending dial. The deadline closes the stalled socket and lets the
+pool dial again. HTTP requests retain their existing lifetime, so established
+streams stay usable beyond the handshake deadline. HTTP/3 uses QUIC's own
+handshake timeout.
+
+The patch changes `transport/internet/splithttp/dialer.go` and exercises the
+three TLS paths against a silent loopback peer in `handshake_timeout_test.go`.
+
+### X13 — Per-flow policy-group selection
+
+The TUN worker logs the matched rule with an opaque flow ID. For policy-group
+routes, it passes that ID over the existing authenticated loopback SOCKS5 relay.
+The main core logs the actual selected outbound with the same ID. Wayrill joins
+the observations in memory, including when the ICS worker's log arrives late.
+The connector keeps the configured account identity and requires its existing
+secret. Ordinary SOCKS accounts retain their usual authentication and never
+carry a flow ID.
+
+The patch adds the context and SOCKS helpers in `common/session` and
+`proxy/socks`, with call sites in the SOCKS client, server, authentication
+handler and `app/dispatcher/default.go`.
 
 ### X01 — UDP listener buffers
 

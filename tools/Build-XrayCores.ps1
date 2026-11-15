@@ -78,17 +78,22 @@ try {
     Expand-Archive $taskSourceZip -DestinationPath $taskSourceParent -Force
     # Both upstream UDP repairs are included in this base; apply only app integrations.
     $taskGit=(Get-Command git -ErrorAction Stop).Source
-    $taskFakePatch=Join-Path $taskProject $taskPin.build.fakeDnsPatch
-    if((Get-FileHash -LiteralPath $taskFakePatch).Hash -ne $taskPin.build.fakeDnsPatchSha256){throw 'Shared FakeDNS source integrity failure.'}
+    $taskPatches=[ordered]@{
+        $taskPin.build.fakeDnsPatch=$taskPin.build.fakeDnsPatchSha256
+        $taskPin.build.relayTelemetryPatch=$taskPin.build.relayTelemetryPatchSha256
+        $taskPin.build.xhttpHandshakePatch=$taskPin.build.xhttpHandshakePatchSha256
+    }
     # This extracted source is not part of the enclosing Wayrill Git worktree.
     # Otherwise git apply can silently skip every path when invoked below .tools/.
     $taskOldGitCeiling=$env:GIT_CEILING_DIRECTORIES
     try {
         $env:GIT_CEILING_DIRECTORIES=$taskSourceParent
-        & $taskGit -C $taskSource apply --check --whitespace=error-all $taskFakePatch
-        if($LASTEXITCODE -ne 0){throw 'Shared FakeDNS extension no longer applies to the pinned source.'}
-        & $taskGit -C $taskSource apply --whitespace=error-all $taskFakePatch
-        if($LASTEXITCODE -ne 0){throw 'Cannot apply the shared FakeDNS extension.'}
+        foreach($taskPatch in $taskPatches.Keys) {
+            $taskPatchPath=Join-Path $taskProject $taskPatch
+            if((Get-FileHash -LiteralPath $taskPatchPath).Hash -ne $taskPatches[$taskPatch]){throw "Xray patch integrity failure: $taskPatch"}
+            & $taskGit -C $taskSource apply --whitespace=error-all $taskPatchPath
+            if($LASTEXITCODE -ne 0){throw "Cannot apply Xray patch: $taskPatch"}
+        }
     } finally {
         $env:GIT_CEILING_DIRECTORIES=$taskOldGitCeiling
     }
@@ -104,8 +109,10 @@ try {
     $taskMainSource=Reset-CoreSource (Join-Path $taskCacheRoot 'main-source') $taskCommit
     Copy-Item -LiteralPath $taskSource -Destination $taskMainSource -Recurse
     $taskInitializerTests=@($taskInitializers | Where-Object Name -like '*_test.go' | ForEach-Object {Join-Path $taskMainSource ('main/wayrill_init_'+$_.Name)})
-    $taskMainTests=@(foreach($taskMatch in [regex]::Matches([IO.File]::ReadAllText($taskFakePatch), '(?m)^\+\+\+ b/([^\r\n]+_test\.go)\r?$')) {
-        Join-Path $taskMainSource $taskMatch.Groups[1].Value
+    $taskMainTests=@(foreach($taskPatch in $taskPatches.Keys) {
+        foreach($taskMatch in [regex]::Matches([IO.File]::ReadAllText((Join-Path $taskProject $taskPatch)), '(?m)^\+\+\+ b/([^\r\n]+_test\.go)\r?$')) {
+            Join-Path $taskMainSource $taskMatch.Groups[1].Value
+        }
     })+$taskInitializerTests
     $env:GOCACHE=Join-Path $taskCacheRoot 'go-cache';$env:GOMODCACHE=Join-Path $taskCacheRoot 'go-modules';$env:CGO_ENABLED='0';$env:GOMAXPROCS='8'
     if((& $taskGo version) -notmatch ('^go version go'+[regex]::Escape($taskPin.build.goVersion)+' windows/amd64$')){throw 'Pinned Xray Go toolchain mismatch.'}
@@ -121,17 +128,19 @@ try {
     # Package the exact main source before private attribution/adapter changes.
     if(-not $BuildOnly) {
         Compress-Archive -LiteralPath $taskMainSource -DestinationPath (Join-Path $MainOutputDirectory 'source.zip') -Force
-        Copy-Item -LiteralPath $taskFakePatch -Destination $MainOutputDirectory -Force
+        foreach($taskPatch in $taskPatches.Keys) {
+            Copy-Item -LiteralPath (Join-Path $taskProject $taskPatch) -Destination $MainOutputDirectory -Force
+        }
     }
     $taskSessionFile = Join-Path $taskSource 'common/session/session.go'
     $taskDispatcherFile = Join-Path $taskSource 'app/dispatcher/default.go'
-    $taskDecisionLine = 'errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]")'
+    $taskDecisionLine = 'errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", relay)'
     $taskDecisionWithProof = @'
 var proof string
 				if inbound := session.InboundFromContext(ctx); inbound != nil && inbound.WayrillApplicationProof != "" {
 					proof = "\twayrill-app=" + inbound.WayrillApplicationProof
 				}
-				errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", proof)
+				errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", relay, proof)
 '@
     foreach ($taskEdit in @(
         @{Path=$taskSessionFile; Anchor='type Inbound struct {'; Next="type Inbound struct {`n`tWayrillApplicationProof string"},

@@ -63,6 +63,31 @@ function service() {
 }
 
 describe('runtime synchronization', () => {
+  it('keeps installer receipts in Events without replacing the runtime snapshot', async () => {
+    const env = service();
+    await env.session.refresh();
+    const before = env.session.getSnapshot().snapshot;
+    const receipt = {
+      type: 'event' as const,
+      apiVersion: 1,
+      instanceId: 'service-a',
+      sequence: 1,
+      timestampMs: 1,
+      kind: 'upgrade.completed',
+      payload: {
+        transactionId: 'upgrade-a',
+        ok: false,
+        error: { code: 'ICS_KEEPER', message: 'Previous routing could not resume.' },
+        core: 'failed',
+        revision: 1,
+        serviceVersion: '0.37.15',
+      },
+    };
+    env.session.message(receipt);
+    expect(env.session.getSnapshot().snapshot).toBe(before);
+    expect(env.session.getSnapshot().events).toContain(receipt);
+  });
+
   it('updates live snapshots without evicting diagnostic events or duplicating replay', async () => {
     const env = service();
     await env.session.refresh();

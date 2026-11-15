@@ -17,6 +17,7 @@ export type RoutingLogRow = {
   output: string;
   outputId: string;
   outbound: string;
+  balancer?: string;
   rule: string;
   ruleId: string | null;
   connectionId?: string | null;
@@ -35,6 +36,11 @@ export type RoutingLogSnapshot = {
 const rowHeight = 32;
 const overscan = 6;
 const emptyRows: RoutingLogRow[] = [];
+
+function outputLabel({ output, balancer, outbound }: RoutingLogRow): string {
+  const path = balancer ? [output, balancer, outbound] : [output, outbound];
+  return path.filter((label, index) => label !== path[index - 1]).join(' → ');
+}
 
 function applicationLabel(match: ApplicationMatch, withPid: boolean): string {
   const process = ({ name, pid }: ProcessLabel) => (withPid ? `${name} (PID ${pid})` : name);
@@ -155,7 +161,7 @@ function FilterRoutingLog({
               [
                 new Date(row.timestampMs).toISOString(),
                 row.destination,
-                row.output === row.outbound ? row.output : `${row.output} → ${row.outbound}`,
+                outputLabel(row),
                 row.applicationMatch
                   ? `${row.rule} · ${applicationLabel(row.applicationMatch, true)}`
                   : row.rule,
@@ -316,8 +322,7 @@ function FilterRoutingLog({
             </div>
             <div className="routing-log-spacer" style={{ height: rows.length * rowHeight }}>
               {rows.slice(first, end).map((row, offset) => {
-                const output =
-                  row.output === row.outbound ? row.output : `${row.output} → ${row.outbound}`;
+                const output = outputLabel(row);
                 const time = new Date(row.timestampMs);
                 return (
                   <div

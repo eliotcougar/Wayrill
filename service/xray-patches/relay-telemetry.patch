@@ -1,0 +1,227 @@
+diff --git a/app/dispatcher/default.go b/app/dispatcher/default.go
+index cae9735..38f3ce8 100644
+--- a/app/dispatcher/default.go
++++ b/app/dispatcher/default.go
+@@ -459,8 +459,18 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+ 				isPickRoute = 2
+ 				if route.GetRuleTag() == "" {
+ 					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
++					if id := session.WayrillRelayIDFromContext(ctx); id != "" {
++						errors.LogInfo(ctx, "Wayrill relay selected: [", id, "] [", outTag, "]")
++						ctx = session.ContextWithWayrillRelayID(ctx, "")
++					}
+ 				} else {
+-					errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]")
++					var relay string
++					if strings.HasPrefix(outTag, session.WayrillRelayTagPrefix) {
++						id := session.NewWayrillRelayID()
++						ctx = session.ContextWithWayrillRelayID(ctx, id)
++						relay = "\twayrill-relay=" + id
++					}
++					errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", relay)
+ 				}
+ 				handler = h
+ 			} else {
+diff --git a/common/session/wayrill_relay.go b/common/session/wayrill_relay.go
+new file mode 100644
+index 0000000..f7d6083
+--- /dev/null
++++ b/common/session/wayrill_relay.go
+@@ -0,0 +1,30 @@
++package session
++
++import (
++	"context"
++	"crypto/rand"
++	"strconv"
++	"sync"
++	"sync/atomic"
++)
++
++// Only the app's private policy-group relays opt in to flow telemetry.
++const WayrillRelayTagPrefix = "wtr-p-"
++
++type wayrillRelayKey struct{}
++
++var newWayrillRelayID = sync.OnceValue(rand.Text)
++var wayrillRelaySequence atomic.Uint64
++
++func NewWayrillRelayID() string {
++	return newWayrillRelayID() + "-" + strconv.FormatUint(wayrillRelaySequence.Add(1), 36)
++}
++
++func ContextWithWayrillRelayID(ctx context.Context, id string) context.Context {
++	return context.WithValue(ctx, wayrillRelayKey{}, id)
++}
++
++func WayrillRelayIDFromContext(ctx context.Context) string {
++	id, _ := ctx.Value(wayrillRelayKey{}).(string)
++	return id
++}
+diff --git a/proxy/socks/client.go b/proxy/socks/client.go
+index aa14f8f..7866d44 100644
+--- a/proxy/socks/client.go
++++ b/proxy/socks/client.go
+@@ -96,7 +96,7 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
+ 
+ 	user := server.User
+ 	if user != nil {
+-		request.User = user
++		request.User = wayrillRelayUser(ctx, dest.Address, user)
+ 		p = c.policyManager.ForLevel(user.Level)
+ 	}
+ 
+diff --git a/proxy/socks/protocol.go b/proxy/socks/protocol.go
+index d71c0fb..89237af 100644
+--- a/proxy/socks/protocol.go
++++ b/proxy/socks/protocol.go
+@@ -43,10 +43,11 @@ var addrParser = protocol.NewAddressParser(
+ )
+ 
+ type ServerSession struct {
+-	config       *ServerConfig
+-	address      net.Address
+-	port         net.Port
+-	localAddress net.Address
++	config         *ServerConfig
++	address        net.Address
++	port           net.Port
++	localAddress   net.Address
++	wayrillRelayID string
+ }
+ 
+ func (s *ServerSession) handshake4(cmd byte, reader io.Reader, writer io.Writer) (*protocol.RequestHeader, error) {
+@@ -126,7 +127,7 @@ func (s *ServerSession) auth5(nMethod byte, reader io.Reader, writer io.Writer)
+ 			return "", errors.New("failed to read username and password for authentication").Base(err)
+ 		}
+ 
+-		if !s.config.HasAccount(username, password) {
++		if !s.config.HasAccount(username, password) && !s.authenticateWayrillRelay(username, password) {
+ 			writeSocks5AuthenticationResponse(writer, 0x01, 0xFF)
+ 			return "", errors.New("invalid username or password")
+ 		}
+diff --git a/proxy/socks/server.go b/proxy/socks/server.go
+index d68e5c4..7ce3fb8 100644
+--- a/proxy/socks/server.go
++++ b/proxy/socks/server.go
+@@ -135,6 +135,9 @@ func (s *Server) processTCP(ctx context.Context, conn stat.Connection, dispatche
+ 	if request.User != nil {
+ 		inbound.User.Email = request.User.Email
+ 	}
++	if svrSession.wayrillRelayID != "" {
++		ctx = session.ContextWithWayrillRelayID(ctx, svrSession.wayrillRelayID)
++	}
+ 
+ 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+ 		errors.LogInfoInner(ctx, err, "failed to clear deadline")
+diff --git a/proxy/socks/wayrill_relay.go b/proxy/socks/wayrill_relay.go
+new file mode 100644
+index 0000000..f1c1b8c
+--- /dev/null
++++ b/proxy/socks/wayrill_relay.go
+@@ -0,0 +1,51 @@
++package socks
++
++import (
++	"context"
++	"strings"
++
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/protocol"
++	"github.com/xtls/xray-core/common/session"
++)
++
++const wayrillRelayPasswordPrefix = "wayrill-relay/"
++
++func wayrillRelayUser(ctx context.Context, address net.Address, user *protocol.MemoryUser) *protocol.MemoryUser {
++	id := session.WayrillRelayIDFromContext(ctx)
++	account, ok := user.Account.(*Account)
++	if id == "" || !ok || !address.Family().IsIP() || !address.IP().IsLoopback() ||
++		!strings.HasPrefix(account.Username, session.WayrillRelayTagPrefix) ||
++		!strings.HasPrefix(account.Password, wayrillRelayPasswordPrefix) {
++		return user
++	}
++	// Keep the shared outbound credentials immutable.
++	copy := *user
++	copy.Account = &Account{Username: account.Username, Password: account.Password + "/" + id}
++	return &copy
++}
++
++func (s *ServerSession) authenticateWayrillRelay(username, password string) bool {
++	if !strings.HasPrefix(username, session.WayrillRelayTagPrefix) ||
++		!s.localAddress.Family().IsIP() || !s.localAddress.IP().IsLoopback() {
++		return false
++	}
++	secret, ok := strings.CutPrefix(password, wayrillRelayPasswordPrefix)
++	if !ok {
++		return false
++	}
++	secret, id, ok := strings.Cut(secret, "/")
++	if !ok || len(id) == 0 || len(id) > 64 {
++		return false
++	}
++	for _, c := range id {
++		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c == '-') {
++			return false
++		}
++	}
++	if !s.config.HasAccount(username, wayrillRelayPasswordPrefix+secret) {
++		return false
++	}
++	s.wayrillRelayID = id
++	return true
++}
+diff --git a/proxy/socks/wayrill_relay_test.go b/proxy/socks/wayrill_relay_test.go
+new file mode 100644
+index 0000000..1e6e74c
+--- /dev/null
++++ b/proxy/socks/wayrill_relay_test.go
+@@ -0,0 +1,48 @@
++package socks
++
++import (
++	"context"
++	"testing"
++
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/protocol"
++	"github.com/xtls/xray-core/common/session"
++)
++
++func TestWayrillRelayAuthentication(t *testing.T) {
++	const username, secret, id = "wtr-p-a", "wayrill-relay/example-secret", "flow-1"
++	user := &protocol.MemoryUser{Account: &Account{Username: username, Password: secret}}
++	ctx := session.ContextWithWayrillRelayID(context.Background(), id)
++	local := net.ParseAddress("127.0.0.1")
++	remote := net.ParseAddress("192.0.2.1")
++	config := &ServerConfig{Accounts: map[string]string{username: secret, "regular": secret}}
++
++	if got := wayrillRelayUser(ctx, remote, user); got != user {
++		t.Fatal("annotated non-loopback credentials")
++	}
++	annotated := wayrillRelayUser(ctx, local, user).Account.(*Account).Password
++	if annotated != secret+"/"+id || user.Account.(*Account).Password != secret {
++		t.Fatal("failed to annotate a private copy of the credentials")
++	}
++	for _, tc := range []struct {
++		name, username, password string
++		address                  net.Address
++		allowed                  bool
++	}{
++		{"private relay", username, annotated, local, true},
++		{"wrong secret", username, "wayrill-relay/wrong/" + id, local, false},
++		{"invalid id", username, secret + "/invalid/id", local, false},
++		{"non-private account", "regular", annotated, local, false},
++		{"non-loopback listener", username, annotated, remote, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			s := &ServerSession{config: config, localAddress: tc.address}
++			if got := s.authenticateWayrillRelay(tc.username, tc.password); got != tc.allowed {
++				t.Fatalf("authentication = %t, want %t", got, tc.allowed)
++			}
++			if (s.wayrillRelayID == id) != tc.allowed {
++				t.Fatal("incorrect authenticated flow ID")
++			}
++		})
++	}
++}

@@ -87,15 +87,23 @@ foreach ($taskArguments in @(
 & $taskExe --configure-service
 if ($LASTEXITCODE -ne 0) { throw 'SCM pre-shutdown configuration failed.' }
 $taskResumeFailure=$null
+$taskReceipt=Join-Path $taskData 'upgrade-result.json'
+# A retry can reuse the pending transaction. Only the service instance started
+# below should be able to complete this installer attempt.
+if ($UpgradeTransaction -and (Test-Path -LiteralPath $taskReceipt)) {
+    Remove-Item -LiteralPath $taskReceipt
+}
 Start-WayrillInstalledService
 if ($UpgradeTransaction) {
-    $taskReceipt=Join-Path $taskData 'upgrade-result.json'
     $taskDeadline=[DateTime]::UtcNow.AddSeconds(360)
     $taskResult=$null
     do {
         if (Test-Path -LiteralPath $taskReceipt) {
             $taskCandidate=Get-Content -LiteralPath $taskReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($taskCandidate.transactionId -eq $UpgradeTransaction) { $taskResult=$taskCandidate; break }
+            if ($taskCandidate.transactionId -eq $UpgradeTransaction -and $taskCandidate.serviceVersion -eq $taskManifest.serviceVersion) {
+                $taskResult=$taskCandidate
+                break
+            }
         }
         if ((Get-Service WayrillService).Status -eq 'Stopped') { throw (Get-WayrillStartupError) }
         # This query does not wait behind the routing lifecycle lock. A fresh

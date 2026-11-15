@@ -4,7 +4,7 @@
     "prerelease": false,
     "url": "https://github.com/XTLS/Xray-core/releases/download/v26.10.29/Xray-windows-64.zip",
     "archiveSha256": "FCE33E81CCCF50E7AAB572B175519A50B5E0F9D2F5C8D1ED73012EA5C9AD4D58",
-    "executableSha256": "052DBF1897922EA783CF4FF39411C6F53EB7EF998FA0BB9FCE85CBD8685A5E6A",
+    "executableSha256": "698B3026A5CECD112FF09524A71832D4BDFFC857D6DAEB77EAFDCEA431F6D07C",
     "license": "MPL-2.0",
     "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.10.29",
     "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
@@ -16,6 +16,10 @@
       "goVersion": "1.27.3",
       "fakeDnsPatch": "service/xray-patches/shared-fakedns.patch",
       "fakeDnsPatchSha256": "66900CF5EE37429372CBF7292472CCC581BA33337A26FB1A14DF5258F8DDA66E",
+      "relayTelemetryPatch": "service/xray-patches/relay-telemetry.patch",
+      "relayTelemetryPatchSha256": "865C6AD73FFF01F5C8B54D88E3FD5F0E88B8A490F4668973A376E1A2E12BEDA1",
+      "xhttpHandshakePatch": "service/xray-patches/xhttp-handshake-timeout.patch",
+      "xhttpHandshakePatchSha256": "2A9B642CB9A8B22145F45EACBA17F5D2A9A5740C6E9F77E23870B8BDE09482AC",
       "initializerFiles": {
         "udp_windows.go": "A8D638AFF1145152469653B1279723E85072847216D0DFECE9FBABE64C48C087",
         "udp_windows_test.go": "535B3D8AA6D34D6D4EC75CDA432B14372C019C3D6F55F7C35140AF207099BBC8"

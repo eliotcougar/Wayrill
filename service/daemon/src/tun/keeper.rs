@@ -983,6 +983,25 @@ fn validate_fake_dns(endpoint: Option<&str>) -> Result<()> {
     }
     Ok(())
 }
+fn valid_relay_credentials(outbound: &Value) -> bool {
+    let Some(password) = outbound["settings"]["pass"].as_str() else {
+        return false;
+    };
+    let tag = outbound["tag"].as_str().unwrap_or_default();
+    let secret = if tag.starts_with(super::POLICY_RELAY_TAG_PREFIX) {
+        if outbound["settings"]["user"] != tag {
+            return false;
+        }
+        let Some(secret) = password.strip_prefix(super::POLICY_RELAY_PASSWORD_PREFIX) else {
+            return false;
+        };
+        secret
+    } else {
+        password
+    };
+    secret.len() == 64 && secret.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn validate_worker(config: &Value) -> Result<()> {
     wayrill_protocol::validate_udp_listener_environment(config)?;
     super::validate(config)?;
@@ -1025,7 +1044,7 @@ fn validate_worker(config: &Value) -> Result<()> {
                     || o["settings"]["port"]
                         .as_u64()
                         .is_none_or(|p| !(1..=65535).contains(&p))
-                    || o["settings"]["pass"].as_str().is_none_or(|p| p.len() != 64)
+                    || !valid_relay_credentials(o)
             }
         })
     {
@@ -1607,6 +1626,52 @@ mod tests {
         assert!(validate_worker(&config).is_ok());
         config["inbounds"][0]["settings"]["autoSystemRoutingTable"] = json!(["0.0.0.0/0"]);
         assert!(validate_worker(&config).is_err());
+    }
+    #[test]
+    fn generated_policy_group_relays_pass_keeper_validation() {
+        let config = json!({
+            "inbounds":[{"tag":"shared","protocol":"tun","settings":{"gateway":["10.90.0.1/24"],"autoSystemRoutingTable":[]}}],
+            "outbounds":[{"tag":"direct","protocol":"freedom"}],
+            "routing":{
+                "balancers":[{"tag":"group","selector":["direct"]}],
+                "rules":[{"type":"field","inboundTag":["shared"],"network":"tcp,udp","balancerTag":"group"}]
+            }
+        });
+        let input = &config["inbounds"][0];
+        let uplink = super::super::uplink_except(&input["settings"], None).unwrap();
+        let plan =
+            super::super::prepare_source(&config, input, None, uplink, true, true, true).unwrap();
+        validate_worker(&plan.worker).unwrap();
+
+        let mut worker = plan.worker;
+        let index = worker["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|outbound| {
+                outbound["tag"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(super::super::POLICY_RELAY_TAG_PREFIX)
+            })
+            .expect("policy relay was projected");
+        let relay = worker["outbounds"][index].clone();
+        for (field, value) in [
+            ("user", json!("wrong-account")),
+            ("pass", json!("0".repeat(64))),
+            (
+                "pass",
+                json!(format!(
+                    "{}{}",
+                    super::super::POLICY_RELAY_PASSWORD_PREFIX,
+                    "z".repeat(64)
+                )),
+            ),
+        ] {
+            worker["outbounds"][index] = relay.clone();
+            worker["outbounds"][index]["settings"][field] = value;
+            assert_eq!(validate_worker(&worker).unwrap_err().code, "ICS_KEEPER");
+        }
     }
     #[test]
     fn lost_reply_drains_over_eof_without_replay_or_premature_retirement() {

@@ -2,6 +2,7 @@ import type { SubscriptionStatus } from './profiles/serviceSubscriptions';
 import { runtimeOperation, type RuntimeOperation, type NativeActivity } from './runtimeProgress';
 import { mutationOutcomeUnknown } from './serviceClient';
 import { resourceDependencies } from './graph/resources';
+import { jsonRecord } from './graph/xrayJson';
 import type { CapturePlan } from './graph/capture';
 import type { DisplayNames } from './graph/displayNames';
 import {
@@ -85,6 +86,18 @@ const syncRetryDelays = [250, 500, 1000, 2000, 4000];
 
 function isServiceBusy(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'BUSY';
+}
+
+function isRuntimeSnapshot(value: unknown, instanceId: string): value is ServiceSnapshot {
+  // An upgrade receipt also has a core field. It belongs in Events, not runtime state.
+  return (
+    jsonRecord(value) &&
+    value.instanceId === instanceId &&
+    jsonRecord(value.config) &&
+    typeof value.config.revision === 'number' &&
+    jsonRecord(value.core) &&
+    typeof value.core.state === 'string'
+  );
 }
 
 // Command replies and subscription events arrive independently. An event snapshot
@@ -181,8 +194,8 @@ export class RuntimeSession {
       this.update({ nativeActivity: message.payload as NativeActivity });
       return;
     }
-    if (message.payload && typeof message.payload === 'object' && 'core' in message.payload) {
-      const snapshot = message.payload as ServiceSnapshot;
+    if (isRuntimeSnapshot(message.payload, message.instanceId)) {
+      const snapshot = message.payload;
       this.epoch++;
       this.update({ snapshot, nativeActivity: undefined });
       if (snapshot.config.revision !== this.state.savedRevision)

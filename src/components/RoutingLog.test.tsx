@@ -89,6 +89,26 @@ it('collects while paused, freezes inspection and resumes newest buffer together
   expect(host.textContent).toContain('host8.example');
   expect(host.querySelectorAll('[role="row"]')).toHaveLength(9);
 });
+it('updates a policy-group row when its selected member arrives and copies the complete route', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  const data = snapshot(1);
+  data.rows[0] = { ...data.rows[0], output: 'To US', balancer: 'Auto US', outbound: 'Auto US' };
+  vi.mocked(serviceCall).mockResolvedValue(data);
+  await render();
+  const row = host.querySelector('.routing-log-entry');
+  expect(row?.textContent).toContain('To US → Auto US');
+  expect(row?.textContent).not.toContain('Auto US → Auto US');
+  vi.mocked(serviceCall).mockResolvedValue({
+    ...data,
+    rows: [{ ...data.rows[0], outbound: 'US server' }],
+  });
+  await poll();
+  expect(host.querySelector('.routing-log-entry')).toBe(row);
+  expect(row?.textContent).toContain('To US → Auto US → US server');
+  await click('Copy displayed log');
+  expect(writeText.mock.calls[0][0]).toContain('To US → Auto US → US server');
+});
 it('follows the bottom, holds scroll while paused, and virtualizes a full rolled buffer', async () => {
   vi.mocked(serviceCall).mockResolvedValue(snapshot(2));
   await render();

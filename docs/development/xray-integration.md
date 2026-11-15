@@ -52,8 +52,10 @@ and changed hook anchors rather than layering over a previous source tree.
 
 Read-only FakeDNS occupancy is included in the existing metrics response for local pools and authenticated GetPools response for shared pools. It reports only pool prefixes, used slots and capacity; it does not expose domains or change allocation, eviction or lifecycle. The optional `FakeDNSStatsProvider` capability is independent of the mapping RPCs. Allocator publication and snapshots share the holder lock. Custom pools with leading zero address bytes retain their full IPv4/IPv6 width during allocation and wraparound. These are private, source-pinned integrations rather than upstream APIs.
 
-Shared changes are the app-owned UDP listener initializer and shared FakeDNS
-bridge. Shared mapping RPCs use reusable authenticated local gRPC connections;
+The app-owned UDP listener initializer and FakeDNS bridge run in both cores.
+Both also bound new XHTTP TLS handshakes to ten seconds so stalled TCP sockets
+cannot hold an HTTP/2 connection pool indefinitely. Shared mapping RPCs use
+reusable authenticated local gRPC connections;
 their protobuf schema comes from the general FakeDNS proposal, while endpoint
 injection, authentication and process health remain Wayrill-owned. The initializer reads receive/send sizes supplied by the graph through
 Xray’s existing environment map; it contains no buffer-size default. Global

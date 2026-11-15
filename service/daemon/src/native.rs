@@ -432,6 +432,28 @@ fn helper_output(arguments: &str) -> bool {
     )
 }
 
+// Xray reports these failures at Info alongside its ordinary traffic logs.
+fn outbound_failure(text: &str) -> bool {
+    let Some((_, mut message)) = text.split_once("[Info] ") else {
+        return false;
+    };
+    if let Some((_, body)) = message
+        .strip_prefix('[')
+        .and_then(|rest| rest.split_once("] "))
+        .filter(|(id, _)| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        message = body;
+    }
+    let component = "app/proxyman/outbound: ";
+    let Some(message) = message.strip_prefix(component) else {
+        return false;
+    };
+    let message = message.strip_prefix(component).unwrap_or(message);
+    message.starts_with("failed to process outbound traffic > ")
+        || message.starts_with("failed to process mux outbound traffic > ")
+        || message.starts_with("failed to resolve ip for target ")
+}
+
 #[derive(Default)]
 struct CoreOutput {
     reply: Mutex<Option<String>>,
@@ -465,7 +487,10 @@ impl CoreOutput {
         {
             crate::diagnostics::process(self.source, self.origin);
         }
+        let level = wayrill_diagnostics::xray_level(&text);
+        let failed_outbound = level == Some("info") && outbound_failure(&text);
         if !self.helper
+            && !failed_outbound
             && events.is_some_and(|e| {
                 e.routing
                     .ingest_from(generation, self.origin, self.source, &text)
@@ -473,7 +498,7 @@ impl CoreOutput {
         {
             return;
         }
-        if !self.helper && self.relay_routing && crate::routing_log::is_info(&text) {
+        if !self.helper && self.relay_routing && level == Some("info") && !failed_outbound {
             if crate::routing_log::decision(&text).is_some() {
                 let mut routing = self.routing.lock().unwrap();
                 if routing.len() == 1000 {
@@ -491,15 +516,12 @@ impl CoreOutput {
         if self.helper {
             return;
         }
-        if !crate::routing_log::is_info(&text)
-            && !text.contains(" accepted ")
-            && !text.contains(" rejected ")
+        if failed_outbound
+            || (level != Some("info")
+                && !text.contains(" accepted ")
+                && !text.contains(" rejected "))
         {
-            crate::diagnostics::log(
-                self.source,
-                wayrill_diagnostics::xray_level(&text).unwrap_or("info"),
-                text.trim(),
-            );
+            crate::diagnostics::log(self.source, level.unwrap_or("info"), text.trim());
         }
         drop(out);
         if let Some(e) = events {
@@ -956,6 +978,37 @@ mod output_tests {
             .iter()
             .any(|s| s.contains("started")));
         assert!(output.started.load(Ordering::Acquire));
+    }
+    #[test]
+    fn recognizes_xray_outbound_failures_without_matching_ordinary_traffic() {
+        let failed = "2026/11/15 23:38:39.017711 [Info] [722217465] app/proxyman/outbound: app/proxyman/outbound: failed to process outbound traffic > proxy/vless/outbound: failed to find an available destination";
+        assert!(outbound_failure("[Info] [132] app/proxyman/outbound: app/proxyman/outbound: failed to process mux outbound traffic > common/mux: connection refused"));
+        assert!(outbound_failure("[Info] app/proxyman/outbound: failed to resolve ip for target example.invalid > app/dns: empty response"));
+        assert!(!outbound_failure("[Info] [132] app/dispatcher: Hit route rule: [wrr-demo] so taking detour [demo] for [tcp:example.invalid:443]"));
+        assert!(!outbound_failure(
+            "[Info] app/proxyman/outbound: target: example.invalid resolved to: 192.0.2.1"
+        ));
+        assert!(!outbound_failure("[Info] proxy/socks: unexpected text [Info] app/proxyman/outbound: failed to process outbound traffic > example"));
+
+        let events = Events::new();
+        events.routing.begin(crate::routing_log::instrument(
+            &mut json!({"outbounds":[{"tag":"proxy"}]}),
+            &Default::default(),
+            1,
+            1,
+        ));
+        let output = CoreOutput::default();
+        output.observe(
+            "[Info] proxy/vless/outbound: ordinary traffic".into(),
+            Some(&events),
+            1,
+        );
+        output.observe(failed.into(), Some(&events), 1);
+        let (_, _, replay, _) = events.subscribe(0, None);
+        assert!(
+            matches!(replay.as_slice(), [wayrill_protocol::Message::Event { kind, payload, .. }]
+            if kind == "core.log" && payload["message"] == failed)
+        );
     }
     #[test]
     fn keeper_output_retains_only_bounded_routing_decisions() {

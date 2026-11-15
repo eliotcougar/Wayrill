@@ -3,8 +3,8 @@ use crate::display_names::DisplayNames;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
-    sync::{Arc, Mutex},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    sync::{Arc, Mutex, OnceLock, Weak},
     time::{Duration, Instant},
 };
 use wayrill_protocol::{ApiError, Result};
@@ -74,6 +74,7 @@ struct Route {
     index: usize,
     trail: Arc<Vec<Hop>>,
     target: String,
+    balanced: bool,
     weight: usize,
     shared: bool,
     application_predicates: Vec<usize>,
@@ -87,6 +88,10 @@ pub struct Session {
     blocked: BTreeSet<String>,
 }
 impl Session {
+    fn outbound_name<'a>(&'a self, tag: &'a str) -> &'a str {
+        self.names.get(tag).map_or(tag, String::as_str)
+    }
+
     pub fn include_shared_aliases(&mut self, aliases: &[(String, String)]) {
         for (alias, original) in aliases {
             if let Some(mut route) = self.routes.get(original).cloned() {
@@ -231,6 +236,7 @@ pub fn instrument(
                 index,
                 trail: Arc::new(trail.clone()),
                 target,
+                balanced: rule["balancerTag"].is_string(),
                 weight: serde_json::to_vec(trail).map_or(0, |b| b.len()),
                 shared: false,
                 application_predicates: application_predicates(rule).unwrap_or_default(),
@@ -308,6 +314,8 @@ struct Row {
     destination: String,
     outbound: String,
     blocked: bool,
+    balancer: Option<String>,
+    selection: OnceLock<Selection>,
     trail: Arc<Vec<Hop>>,
     connection_id: Option<String>,
     transport: &'static str,
@@ -316,6 +324,60 @@ struct Row {
     application_match: Option<ApplicationMatch>,
     event: Option<Arc<(u32, String)>>,
     weight: usize,
+}
+impl Row {
+    fn outbound(&self) -> &str {
+        self.selection.get().map_or(&self.outbound, |s| &s.outbound)
+    }
+
+    fn blocked(&self) -> bool {
+        self.selection.get().map_or(self.blocked, |s| s.blocked)
+    }
+}
+
+struct Selection {
+    outbound: String,
+    blocked: bool,
+}
+enum RelayObservation {
+    Rule(Weak<Row>),
+    Selection(Selection),
+}
+#[derive(Default)]
+struct RelayObservations {
+    by_id: HashMap<Arc<str>, Option<RelayObservation>>,
+    order: VecDeque<Arc<str>>,
+}
+impl RelayObservations {
+    fn record(&mut self, id: &str, next: RelayObservation) {
+        if let Some(previous) = self.by_id.get_mut(id) {
+            let pair = match (previous.as_ref(), &next) {
+                (Some(RelayObservation::Rule(_)), RelayObservation::Selection(_))
+                | (Some(RelayObservation::Selection(_)), RelayObservation::Rule(_)) => {
+                    previous.take()
+                }
+                _ => None,
+            };
+            match (pair, next) {
+                (Some(RelayObservation::Rule(row)), RelayObservation::Selection(selection))
+                | (Some(RelayObservation::Selection(selection)), RelayObservation::Rule(row)) => {
+                    if let Some(row) = row.upgrade() {
+                        let _ = row.selection.set(selection);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+        if self.order.len() == CAPACITY {
+            if let Some(old) = self.order.pop_front() {
+                self.by_id.remove(&old);
+            }
+        }
+        let id: Arc<str> = id.into();
+        self.order.push_back(id.clone());
+        self.by_id.insert(id, Some(next));
+    }
 }
 #[derive(Default)]
 struct State {
@@ -333,6 +395,7 @@ struct State {
     known_order: BTreeMap<u64, String>,
     known_bytes: usize,
     seen: HashSet<Arc<(u32, String)>>,
+    relays: RelayObservations,
 }
 #[derive(Default)]
 pub struct Log {
@@ -348,6 +411,7 @@ impl Log {
             }
         }
         state.previous_sessions.clear();
+        state.relays = RelayObservations::default();
         state.collecting = session.is_some();
         state.session = session;
     }
@@ -386,7 +450,7 @@ impl Log {
         }
     }
     /// Consume monitored Info messages before the generic core-log event/tail.
-    /// Only dispatcher decisions are retained; account/relay diagnostic messages are discarded.
+    /// Keep dispatcher decisions and their authenticated relay selections.
     #[cfg(test)]
     fn ingest(&self, generation: u64, text: &str) -> bool {
         self.ingest_from(generation, 0, "Xray", text)
@@ -404,6 +468,27 @@ impl Log {
         let mut state = self.state.lock().unwrap();
         if !state.collecting {
             return state.monitored.contains(&generation);
+        }
+        if source == "Xray" {
+            if let Some((id, tag)) = relay_selection(text) {
+                if let Some(session) = state
+                    .session
+                    .as_ref()
+                    .filter(|s| s.generation == generation)
+                {
+                    let outbound = session.outbound_name(tag);
+                    if printable(outbound, 160) {
+                        let selection = Selection {
+                            outbound: outbound.to_owned(),
+                            blocked: session.blocked.contains(tag),
+                        };
+                        state
+                            .relays
+                            .record(id, RelayObservation::Selection(selection));
+                    }
+                }
+                return true;
+            }
         }
         let Some(decision) = decision(text) else {
             return state.monitored.contains(&generation);
@@ -430,19 +515,18 @@ impl Log {
         {
             return true;
         }
-        // Worker relay names are intentionally hidden. The applied graph output is
-        // authoritative; the main core additionally supplies the selected member.
-        let outbound = session
-            .names
-            .get(decision.outbound)
-            .cloned()
-            .unwrap_or_else(|| {
-                session
-                    .names
-                    .get(&route.target)
-                    .cloned()
-                    .unwrap_or_else(|| route.target.clone())
-            });
+        let relay = route.balanced
+            && matches!(source, "TUN" | "ICS TUN")
+            && decision.outbound.starts_with("wtr-p-");
+        let outbound = if relay || decision.outbound.starts_with("wtr-") && source != "Xray" {
+            session.outbound_name(&route.target)
+        } else {
+            session.outbound_name(decision.outbound)
+        }
+        .to_owned();
+        let balancer = route
+            .balanced
+            .then(|| session.outbound_name(&route.target).to_owned());
         let application_match = if source == "TUN" && !route.shared {
             application_match(&route.application_predicates, decision.application_proof)
         } else {
@@ -455,6 +539,9 @@ impl Log {
         };
         let weight = decision.destination.len()
             + outbound.len()
+            + balancer.as_ref().map_or(0, String::len)
+            // Reserve room for a member name arriving after this row.
+            + usize::from(relay) * (160 * 4)
             + route.weight
             + text.len()
             + application_bytes
@@ -470,6 +557,8 @@ impl Log {
             outbound,
             blocked: session.blocked.contains(decision.outbound)
                 || session.blocked.contains(&route.target),
+            balancer,
+            selection: OnceLock::new(),
             trail: route.trail.clone(),
             connection_id: decision
                 .session_id
@@ -487,6 +576,11 @@ impl Log {
         state.sequence = row.id;
         state.bytes += weight;
         let row = Arc::new(row);
+        if let Some(id) = decision.relay_id.filter(|_| relay) {
+            state
+                .relays
+                .record(id, RelayObservation::Rule(Arc::downgrade(&row)));
+        }
         if let Some(host) = row.destination.rsplit_once(':').and_then(|(host, port)| {
             if row.shared {
                 return None;
@@ -550,7 +644,10 @@ impl Log {
         let configured = session.is_some_and(|s| s.filters.contains(filter));
         let mut rows: Vec<_> = state.rows.iter().rev().filter_map(|row| {
             let hop = row.trail.iter().find(|h| h.filter_id == filter)?;
-            let mut item = json!({"id":row.id.to_string(),"timestampMs":row.timestamp,"revision":row.revision,"destination":row.destination,"outbound":row.outbound,"output":hop.output,"outputId":hop.output_id,"rule":hop.rule,"ruleId":hop.rule_id,"connectionId":row.connection_id,"transport":row.transport,"source":row.source});
+            let mut item = json!({"id":row.id.to_string(),"timestampMs":row.timestamp,"revision":row.revision,"destination":row.destination,"outbound":row.outbound(),"output":hop.output,"outputId":hop.output_id,"rule":hop.rule,"ruleId":hop.rule_id,"connectionId":row.connection_id,"transport":row.transport,"source":row.source});
+            if let Some(balancer) = &row.balancer {
+                item["balancer"] = json!(balancer);
+            }
             if let Some(application) = &row.application_match {
                 item["applicationMatch"] = json!(application);
             }
@@ -610,9 +707,9 @@ impl Log {
                 .take(8)
                 .map(|hop| json!({"filterId":hop.filter_id,"ruleId":hop.rule_id,"rule":hop.rule,"output":hop.output}))
                 .collect());
-            let action = if row.blocked { "block" } else { "route" };
+            let action = if row.blocked() { "block" } else { "route" };
             if matches.iter().any(|m| {
-                m["outbound"] == row.outbound
+                m["outbound"] == row.outbound()
                     && m["port"] == port
                     && m["transport"] == row.transport
                     && m["path"] == path
@@ -624,7 +721,7 @@ impl Log {
                 truncated.insert(host);
                 continue;
             }
-            let value = json!({"outbound":row.outbound,"port":port,"transport":row.transport,
+            let value = json!({"outbound":row.outbound(),"port":port,"transport":row.transport,
                     "timestampMs":row.timestamp,"generation":row.generation,"revision":row.revision,
                     "action":action,
                     "source":row.source,"path":path,"pathTruncated":row.trail.len()>8});
@@ -653,29 +750,42 @@ pub(crate) struct Decision<'a> {
     transport: &'static str,
     session_id: Option<u32>,
     application_proof: Option<&'a str>,
+    relay_id: Option<&'a str>,
+}
+// Only the timestamp, severity and session may precede a dispatcher observation.
+fn dispatcher_message<'a>(text: &'a str, marker: &str) -> Option<(&'a str, &'a str)> {
+    let (prefix, message) = text.trim_end().split_once(marker)?;
+    (prefix.contains("[Info]")
+        && prefix
+            .chars()
+            .all(|c| c.is_ascii_digit() || "/:. []Info".contains(c)))
+    .then_some((prefix, message))
+}
+fn valid_relay_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+fn relay_selection(text: &str) -> Option<(&str, &str)> {
+    let (_, message) = dispatcher_message(text, " app/dispatcher: Wayrill relay selected: [")?;
+    let (id, tag) = message.strip_suffix(']')?.split_once("] [")?;
+    (valid_relay_id(id) && printable(tag, 160)).then_some((id, tag))
 }
 pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
-    let (prefix, message) = text
-        .trim_end()
-        .split_once(" app/dispatcher: Hit route rule: [")?;
-    // The logger prefix contains timestamp/severity/session only, never another log message.
-    if !prefix.contains("[Info]")
-        || !prefix
-            .chars()
-            .all(|c| c.is_ascii_digit() || "/:. []Info".contains(c))
-    {
-        return None;
-    }
+    let (prefix, message) = dispatcher_message(text, " app/dispatcher: Hit route rule: [")?;
     let (tag, tail) = message.split_once("] so taking detour [")?;
     let (outbound, tail) = tail.split_once("] for [")?;
-    let (target, application_proof) = match tail.rsplit_once("]\twayrill-app=") {
+    let (target, application_proof) = match tail.rsplit_once("\twayrill-app=") {
         Some((target, proof))
             if proof.len() <= 4096 && proof.starts_with('{') && proof.ends_with('}') =>
         {
             (target, Some(proof))
         }
-        _ => (tail.strip_suffix(']')?, None),
+        _ => (tail, None),
     };
+    let (target, relay_id) = match target.rsplit_once("\twayrill-relay=") {
+        Some((target, id)) if valid_relay_id(id) => (target, Some(id)),
+        _ => (target, None),
+    };
+    let target = target.strip_suffix(']')?;
     let (transport, destination) = if let Some(destination) = target.strip_prefix("tcp:") {
         ("tcp", destination)
     } else {
@@ -703,6 +813,7 @@ pub(crate) fn decision(text: &str) -> Option<Decision<'_>> {
         transport,
         session_id,
         application_proof,
+        relay_id,
     })
 }
 
@@ -1213,7 +1324,7 @@ mod tests {
         let log = Log::default();
         let mut config = config();
         log.begin(instrument(&mut config, &names(), 1, 7));
-        assert!(log.ingest(1, &line(1, "tcp:[2001:db8::1]:443", "wtr-3")));
+        assert!(log.ingest_from(1, 100, "TUN", &line(1, "tcp:[2001:db8::1]:443", "wtr-3")));
         for filter in ["parent", "child"] {
             let snapshot = log.snapshot(filter, "test");
             assert_eq!(snapshot["rows"][0]["destination"], "[2001:db8::1]:443");
@@ -1226,6 +1337,45 @@ mod tests {
             "Unmatched traffic"
         );
         assert_eq!(log.snapshot("missing", "test")["state"], "unconfigured");
+    }
+    #[test]
+    fn policy_selection_follows_the_flow_across_cores_in_either_order() {
+        let log = Log::default();
+        let mut names = names();
+        names.outbound.insert("group".into(), "Auto US".into());
+        names.outbound.insert("member".into(), "US server".into());
+        let mut config = config();
+        config["outbounds"][1]["protocol"] = json!("blackhole");
+        config["routing"]["rules"][0] =
+            json!({"domain":["domain:example.org"],"balancerTag":"group"});
+        log.begin(instrument(&mut config, &names, 1, 7));
+
+        let worker = |id| {
+            let rule = line(1, "tcp:example.org:443", "wtr-p-a");
+            format!("{}\twayrill-relay={id}", rule.trim_end())
+        };
+        let selection = |id, tag| {
+            format!("2026/10/13 12:01:02.123 [Info] [345] app/dispatcher: Wayrill relay selected: [{id}] [{tag}]")
+        };
+        log.ingest_from(1, 101, "TUN", &worker("first"));
+        log.ingest_from(1, 201, "Xray", &selection("second", "block"));
+        log.ingest_from(1, 102, "ICS TUN", &worker("second"));
+        log.ingest_from(2, 202, "Xray", &selection("first", "block"));
+        assert_eq!(
+            log.snapshot("parent", "test")["rows"][0]["outbound"],
+            "Auto US"
+        );
+        log.ingest_from(1, 201, "Xray", &selection("first", "member"));
+        log.ingest_from(1, 201, "Xray", &selection("first", "block"));
+        log.ingest(1, &line(1, "tcp:example.org:443", "member"));
+
+        let snapshot = log.snapshot("parent", "test");
+        let rows = snapshot["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|row| row["balancer"] == "Auto US"));
+        assert_eq!(rows[0]["outbound"], "US server");
+        assert_eq!(rows[1]["outbound"], "Block");
+        assert_eq!(rows[2]["outbound"], "US server");
     }
     #[test]
     fn instrumentation_does_not_change_author_profile_and_fallback_is_last() {

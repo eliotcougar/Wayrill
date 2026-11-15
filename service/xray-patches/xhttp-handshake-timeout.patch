@@ -1,0 +1,140 @@
+diff --git a/transport/internet/splithttp/dialer.go b/transport/internet/splithttp/dialer.go
+index b52f5a7..2eaba4a 100644
+--- a/transport/internet/splithttp/dialer.go
++++ b/transport/internet/splithttp/dialer.go
+@@ -34,6 +34,8 @@ import (
+ 	"golang.org/x/net/http2"
+ )
+ 
++const tlsHandshakeTimeout = 10 * time.Second
++
+ type dialerConf struct {
+ 	net.Destination
+ 	*internet.MemoryStreamConfig
+@@ -127,22 +129,29 @@ func createHTTPClient(dest net.Destination, streamSettings *internet.MemoryStrea
+ 			return nil, err
+ 		}
+ 
+-		if realityConfig != nil {
+-			return reality.UClient(conn, realityConfig, ctxInner, dest)
++		if realityConfig == nil && gotlsConfig == nil {
++			return conn, nil
+ 		}
+ 
+-		if gotlsConfig != nil {
+-			if fingerprint := tls.GetFingerprint(tlsConfig.Fingerprint); fingerprint != nil {
+-				conn = tls.UClient(conn, gotlsConfig, fingerprint)
+-				if err := conn.(*tls.UConn).HandshakeContext(ctxInner); err != nil {
+-					return nil, err
+-				}
+-			} else {
+-				conn = tls.Client(conn, gotlsConfig)
+-			}
++		// The HTTP requests intentionally outlive their caller. Bound only the
++		// handshake, since HTTP/2 requests can wait on the same pending dial.
++		handshakeCtx, cancel := context.WithTimeout(ctxInner, tlsHandshakeTimeout)
++		defer cancel()
++		if realityConfig != nil {
++			return reality.UClient(conn, realityConfig, handshakeCtx, dest)
+ 		}
+ 
+-		return conn, nil
++		var secureConn tls.Interface
++		if fingerprint := tls.GetFingerprint(tlsConfig.Fingerprint); fingerprint != nil {
++			secureConn = tls.UClient(conn, gotlsConfig, fingerprint).(*tls.UConn)
++		} else {
++			secureConn = tls.Client(conn, gotlsConfig).(*tls.Conn)
++		}
++		if err := secureConn.HandshakeContext(handshakeCtx); err != nil {
++			conn.Close()
++			return nil, err
++		}
++		return secureConn, nil
+ 	}
+ 
+ 	var keepAlivePeriod time.Duration
+diff --git a/transport/internet/splithttp/handshake_timeout_test.go b/transport/internet/splithttp/handshake_timeout_test.go
+new file mode 100644
+index 0000000..84f2020
+--- /dev/null
++++ b/transport/internet/splithttp/handshake_timeout_test.go
+@@ -0,0 +1,79 @@
++package splithttp
++
++import (
++	"context"
++	"crypto/ecdh"
++	"crypto/rand"
++	"errors"
++	"io"
++	"net/http"
++	"testing"
++	"time"
++
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/serial"
++	"github.com/xtls/xray-core/transport/internet"
++	"github.com/xtls/xray-core/transport/internet/reality"
++	"github.com/xtls/xray-core/transport/internet/tls"
++	"google.golang.org/protobuf/proto"
++)
++
++func TestXHTTPStalledHandshake(t *testing.T) {
++	key, err := ecdh.X25519().GenerateKey(rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for name, security := range map[string]proto.Message{
++		"TLS":     &tls.Config{Fingerprint: "unsafe", NextProtocol: []string{"h2"}},
++		"uTLS":    &tls.Config{Fingerprint: "chrome", NextProtocol: []string{"h2"}},
++		"REALITY": &reality.Config{Fingerprint: "chrome", ServerName: "localhost", PublicKey: key.PublicKey().Bytes()},
++	} {
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.LocalHostIP.IP()})
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Cleanup(func() { listener.Close() })
++			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
++			defer cancel()
++			deadline, _ := ctx.Deadline()
++			peerClosed := make(chan error, 1)
++			go func() {
++				conn, err := listener.AcceptTCP()
++				if err != nil {
++					peerClosed <- err
++					return
++				}
++				defer conn.Close()
++				if err := conn.SetReadDeadline(deadline); err != nil {
++					peerClosed <- err
++					return
++				}
++				// Read the ClientHello and keep TCP open without answering it.
++				_, err = io.Copy(io.Discard, conn)
++				peerClosed <- err
++			}()
++
++			dest := net.TCPDestination(net.LocalHostIP, net.Port(listener.Addr().(*net.TCPAddr).Port))
++			client := createHTTPClient(dest, &internet.MemoryStreamConfig{
++				ProtocolSettings: &Config{},
++				SecurityType:     serial.GetMessageType(security),
++				SecuritySettings: security,
++			}).(*DefaultDialerClient).client
++			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://localhost/", nil)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if resp, err := client.Do(req); err == nil {
++				resp.Body.Close()
++				t.Fatal("HTTP request succeeded against the silent peer")
++			} else if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
++				t.Fatalf("handshake should time out before the request context, got %v (request: %v)", err, ctx.Err())
++			}
++			if err := <-peerClosed; err != nil {
++				t.Fatalf("peer did not receive EOF after handshake timeout: %v", err)
++			}
++		})
++	}
++}
