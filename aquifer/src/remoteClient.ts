@@ -1,4 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import type { NginxObservation } from './nginxRoutes';
 
 export interface SavedSession {
   id: string;
@@ -47,6 +48,7 @@ export interface WayrillCompanion {
 }
 export interface ConfigSnapshot {
   companion?: WayrillCompanion;
+  nginx?: NginxObservation;
   path: string;
   text: string;
   sha256: string;

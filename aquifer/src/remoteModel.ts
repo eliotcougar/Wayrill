@@ -12,6 +12,7 @@ import type { ViewConnectionKind } from './viewConnections';
 import { nodeTypeLabel } from './uiTerms';
 import type { RouteDestination } from './routingEditor';
 import { specForProtocol } from './graph/protocols';
+import type { NginxRoute } from './nginxRoutes';
 
 export interface ViewPort {
   id: string;
@@ -19,7 +20,7 @@ export interface ViewPort {
   kind: ViewConnectionKind;
 }
 export type ViewData = {
-  kind: NodeKind | 'user-set';
+  kind: NodeKind | 'user-set' | 'nginx';
   title: string;
   subtitle: string;
   category: string;
@@ -34,6 +35,7 @@ export type ViewData = {
   raw: unknown;
   rules?: Record<string, unknown>[];
   references?: string[];
+  nginxRoutes?: NginxRoute[];
 };
 export type ViewNode = Node<ViewData, 'remote'>;
 export interface RemoteView {

@@ -186,6 +186,7 @@ pub struct WayrillCompanion {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSnapshot {
     companion: WayrillCompanion,
+    nginx: crate::nginx::Observation,
     pub path: String,
     pub text: String,
     pub sha256: String,
@@ -846,13 +847,23 @@ pub fn read_config(operation: Permit, session: &str, path: &str) -> Result<Confi
         path: companion_path(path), sha256: None, text: None,
         error: Some("Could not inspect the Wayrill file. Check Python 3 and file access, then reconnect before saving.".into()),
     });
+    let nginx = read_nginx(&operation, session).unwrap_or(crate::nginx::Observation::Unavailable);
     Ok(ConfigSnapshot {
         companion,
+        nginx,
         path: path.into(),
         text,
         sha256,
         bytes: len,
     })
+}
+
+fn read_nginx(operation: &Operation, session: &str) -> Result<crate::nginx::Observation> {
+    let command = python_command(crate::nginx::PROBE)?;
+    let output = run(operation, session, &command, false)?;
+    Ok(frame(&output, b"WAYRILL_NGINX_BEGIN", b"WAYRILL_NGINX_END")
+        .map(crate::nginx::observation)
+        .unwrap_or(crate::nginx::Observation::Unavailable))
 }
 
 fn companion_path(path: &str) -> String {

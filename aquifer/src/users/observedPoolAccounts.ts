@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ConfigSnapshot, SavedSession } from '../remoteClient';
 import { jsonRecord, parseXrayJson } from '../graph/xrayJson';
+import { fixXrayCapitalization } from '../graph/xrayConfigNames';
 import {
   accountIdentity,
   accountProblem,
@@ -11,6 +12,7 @@ import {
   type UserSet,
 } from './model';
 import { generatePoolConnections } from './poolConnections';
+import { localOnlyInbound, nginxRoutes, nginxCredentialRoute } from '../nginxRoutes';
 
 async function digest(value: unknown) {
   const bytes = await crypto.subtle.digest(
@@ -22,9 +24,10 @@ async function digest(value: unknown) {
 
 export async function observedPoolAccounts(session: SavedSession, config: ConfigSnapshot) {
   const id = await digest([session.host.toLowerCase(), session.port, session.user, config.path]);
-  const source = parseXrayJson(config.text);
+  const source = parseXrayJson(fixXrayCapitalization(config.text).text);
   if (!jsonRecord(source)) throw new Error('Expected an Xray configuration object.');
   const inbounds = inboundObjects(source);
+  const routes = nginxRoutes(config.nginx, source, session.host);
   const accounts = [];
   const skipped = [];
   for (const [index, inbound] of inbounds.entries()) {
@@ -49,6 +52,16 @@ export async function observedPoolAccounts(session: SavedSession, config: Config
       });
     }
     if (!users.length) continue;
+    const route = nginxCredentialRoute(routes, index);
+    if (!route && localOnlyInbound(inbound)) {
+      if (config.nginx?.state === 'unavailable') {
+        throw new Error(
+          'Nginx could not be inspected. Read the server again to refresh its local inbound accounts.',
+        );
+      }
+      skipped.push(label);
+      continue;
+    }
     try {
       const result = await generatePoolConnections(
         { id, name: label, protocol, users },
@@ -56,9 +69,15 @@ export async function observedPoolAccounts(session: SavedSession, config: Config
         session.host,
         typeof inbound.port === 'number' ? inbound.port : Number(scalarText(inbound.port)),
         '',
+        route,
       );
       for (const user of result.users) {
-        accounts.push({ ...user, inbound: label, revision: await digest(user.outbound) });
+        accounts.push({
+          ...user,
+          inbound: label,
+          viaNginx: !!route,
+          revision: await digest(user.outbound),
+        });
       }
     } catch {
       skipped.push(label);

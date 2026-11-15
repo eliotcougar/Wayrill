@@ -90,3 +90,52 @@ it('preserves legacy route roles as editable Pool placeholders', () => {
     expect(graph.edges.every((edge) => edge.target === direct)).toBe(true);
   }
 });
+
+it('keeps the Nginx virtual hostname when the manager overrides the dial address', () => {
+  const base = createProxyStarter();
+  const bundle = capturePoolBundle('Base', base, newPoolStash(), [], poolInputs(base)[0].id);
+  const account = {
+    id: 'alice',
+    name: 'Alice',
+    inbound: 'edge',
+    revision: 'revision',
+    viaNginx: true,
+    outbound: {
+      protocol: 'vless',
+      settings: {
+        address: 'site.example.test',
+        port: 443,
+        id: 'alice-fixture-id',
+        encryption: 'none',
+      },
+      streamSettings: {
+        network: 'xhttp',
+        security: 'tls',
+        xhttpSettings: { path: '/edge/', host: 'site.example.test' },
+        tlsSettings: { serverName: 'site.example.test' },
+      },
+    },
+  };
+  const delivered = withObservedAccounts(
+    bundle,
+    'member',
+    [
+      {
+        id: 'server',
+        name: 'Server',
+        host: 'site.example.test',
+        path: '/xray.json',
+        accounts: [account],
+        skipped: [],
+      },
+    ],
+    [{ server: 'server', account: 'alice', host: '192.0.2.8', port: 8443 }],
+  );
+  const [entry] = parseStash(delivered.stash).groups.flatMap((group) => group.entries);
+  expect(entry?.profile?.settings).toMatchObject({
+    address: '192.0.2.8',
+    port: 8443,
+    serverName: 'site.example.test',
+    host: 'site.example.test',
+  });
+});

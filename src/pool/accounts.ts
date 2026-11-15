@@ -7,7 +7,7 @@ import type { PoolBundle } from './model';
 import { generatedTag } from '../graph/tags';
 
 export type AccountRef = { server: string; account: string; host?: string; port?: number };
-type ObservedAccount = PoolUser & { inbound: string; revision: string };
+type ObservedAccount = PoolUser & { inbound: string; revision: string; viaNginx?: boolean };
 export type ObservedServer = {
   id: string;
   name: string;
@@ -44,6 +44,7 @@ function parseServer(text: string): ObservedServer {
         typeof account.name === 'string' &&
         typeof account.inbound === 'string' &&
         typeof account.revision === 'string' &&
+        (account.viaNginx === undefined || typeof account.viaNginx === 'boolean') &&
         jsonRecord(account.outbound),
     )
   )
@@ -101,7 +102,7 @@ function clientOutbound(account: ObservedAccount, ref: AccountRef) {
   return {
     ...outbound,
     settings: { ...settings, address: host, port: ref.port ?? settings.port },
-    ...(tls && tls.serverName === settings.address
+    ...(!account.viaNginx && tls && tls.serverName === settings.address
       ? { streamSettings: { ...stream, tlsSettings: { ...tls, serverName: host } } }
       : {}),
   };

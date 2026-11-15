@@ -199,6 +199,64 @@ it('opens the xray.service config before an auxiliary daemon', async () => {
   expect(client.read).toHaveBeenCalledWith('FlauntVPN', main.path);
 });
 
+it('shows the observed public relay and opens its inbound without editing the graph', async () => {
+  vi.mocked(client.read).mockResolvedValueOnce({
+    ...snapshot,
+    text: JSON.stringify({
+      inbounds: [
+        {
+          tag: 'web-relay',
+          listen: '127.0.0.1',
+          port: 8444,
+          protocol: 'vless',
+          settings: { decryption: 'none', clients: [] },
+          streamSettings: {
+            network: 'xhttp',
+            security: 'none',
+            xhttpSettings: { path: '/ingress/' },
+          },
+        },
+      ],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    }),
+    nginx: {
+      state: 'ready',
+      config: [
+        {
+          name: 'http',
+          args: [],
+          children: [
+            {
+              name: 'server',
+              args: [],
+              children: [
+                { name: 'listen', args: ['443', 'ssl'] },
+                { name: 'server_name', args: ['access.example.net'] },
+                {
+                  name: 'location',
+                  args: ['^~', '/ingress/'],
+                  children: [{ name: 'proxy_pass', args: ['http://127.0.0.1:8444'] }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  await act(async () => button('Read server').click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[data-node-title="Nginx"]')!.click(),
+  );
+  const properties = host.querySelector<HTMLElement>('aside[aria-label="Properties"]')!;
+  expect(properties.textContent).toContain('https://access.example.net:443/ingress/');
+  expect(properties.textContent).toContain('127.0.0.1:8444');
+  expect(properties.querySelector('[role="tab"]')).toBeNull();
+  await act(async () => properties.querySelector<HTMLButtonElement>('article button')!.click());
+  expect(canvasActions.focus).toHaveBeenCalledWith('native-in-0');
+  expect(host.querySelector('footer')?.textContent).toContain('Configuration snapshot');
+});
+
 it('edits and exports an outbound from the stash without changing the policy group', async () => {
   await act(async () => button('Read server').click());
   await act(async () => button('Stash').click());

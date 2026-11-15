@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app_data;
+mod nginx;
 #[path = "../../../src-tauri/src/pool_accounts.rs"]
 mod pool_accounts;
 mod remote;

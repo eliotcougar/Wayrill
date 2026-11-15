@@ -1,5 +1,7 @@
 import { xrayOutbound } from '../profiles/import';
 import { serverPublicKey } from '../serverKeys';
+import type { NginxRoute } from '../nginxRoutes';
+import { xrayTransport } from '../xrayIngress';
 import {
   inboundUserProtocol,
   record,
@@ -15,7 +17,7 @@ const transportOptions: Record<string, readonly string[]> = {
   httpupgrade: ['path', 'host', 'headers'],
   grpc: ['serviceName', 'authority', 'multiMode'],
   xhttp: ['path', 'host', 'mode'],
-  kcp: ['seed', 'header'],
+  kcp: ['mtu', 'tti', 'seed', 'header'],
   hysteria: ['version'],
   masque: ['host', 'path'],
 };
@@ -48,23 +50,44 @@ export async function generatePoolConnections(
   host: string,
   port: number,
   serverName: string,
+  relay?: NginxRoute,
 ) {
   if (inboundUserProtocol(inbound) !== set.protocol)
     throw new Error('Choose an inbound that uses this user set.');
   const problem = setProblem(set);
   if (problem) throw new Error(problem);
-  const address = endpoint(host, port);
-  const source = record(inbound.streamSettings);
+  const address = endpoint(relay?.address ?? host, relay?.port ?? port);
+  port = relay?.port ?? port;
+  serverName = relay?.serverName ?? serverName;
+  const {
+    stream: source,
+    network,
+    options: transport,
+    security: inboundSecurity,
+  } = xrayTransport(inbound);
   const inboundSettings = settingsOf(inbound);
-  const network = (scalarText(source.network) || 'raw').toLowerCase().replace(/^tcp$/, 'raw');
-  const security = (scalarText(source.security) || 'none').toLowerCase();
+  const security = relay?.security ?? inboundSecurity;
   if (!Object.hasOwn(transportOptions, network) || !['none', 'tls', 'reality'].includes(security))
     throw new Error('This inbound transport or security mode requires manual client settings.');
   const transportKey = `${network}Settings`;
-  const transport = record(
-    source[transportKey] ?? (network === 'raw' ? source.tcpSettings : undefined),
-  );
   const transportFields = fields(transport, transportOptions[network]);
+  if (relay?.http) {
+    if (network === 'grpc') {
+      transportFields.authority = relay.serverName;
+      transportFields.serviceName = relay.http.grpc?.service;
+      transportFields.multiMode = relay.http.grpc?.multiMode;
+    } else {
+      transportFields.host = relay.serverName;
+      transportFields.path = relay.http.path;
+      if (transportFields.headers) {
+        transportFields.headers = Object.fromEntries(
+          Object.entries(record(transportFields.headers)).filter(
+            ([key]) => key.toLowerCase() !== 'host',
+          ),
+        );
+      }
+    }
+  }
   if (network === 'raw') {
     const header = record(transport.header);
     if (header.type === 'http')
@@ -79,7 +102,7 @@ export async function generatePoolConnections(
   if (security === 'tls') {
     const tls = record(source.tlsSettings);
     streamSettings.tlsSettings = {
-      ...fields(tls, ['alpn']),
+      ...(relay?.alpn ? { alpn: relay.alpn } : relay?.terminatesTls ? {} : fields(tls, ['alpn'])),
       serverName: serverName.trim() || scalarText(tls.serverName) || address,
     };
   } else if (security === 'reality') {
@@ -129,6 +152,8 @@ export async function generatePoolConnections(
         Object.assign(settings, fields(account, ['user', 'pass']));
         break;
       case 'vless':
+        if (relay?.terminatesTls && scalarText(account.flow))
+          throw new Error('VLESS flow control needs the client TLS session to reach Xray.');
         Object.assign(settings, fields(account, ['id', 'flow']), { encryption: 'none' });
         break;
       case 'vmess':

@@ -84,6 +84,7 @@ import { exportJson, userStore, type UserStore } from './users/storage';
 import UserLibraryDialog from './users/UserLibraryDialog';
 import { InboundUserAssignments, UserSetDetails } from './users/UserAssignments';
 import { cacheObservedPoolAccounts } from './users/observedPoolAccounts';
+import { nginxNodeId, NginxDetails, withNginx } from './NginxNode';
 
 const DEFAULT_CONFIG_PATH = '/usr/local/etc/xray/config.json';
 
@@ -157,6 +158,7 @@ export default function App({
   const requests = useRef({ sequence: 0, cancelled: false }).current,
     fileInput = useRef<HTMLInputElement>(null);
   const activeSession = sessions.find((item) => item.id === session);
+  const sourceHost = sessions.find((item) => item.id === sourceSession)?.host;
   // Discovery/status belong to the selected endpoint, including automatic
   // selection changes after refreshing or reconfiguring WinSCP sessions.
   useEffect(() => {
@@ -195,8 +197,10 @@ export default function App({
   }, [view, users]);
   const displayedView = useMemo(() => {
     const base = view && users && compilation ? withUserNodes(view, users, compilation) : view;
-    return base ? withoutApiPlumbing(base) : null;
-  }, [view, users, compilation]);
+    if (!base) return null;
+    const visible = withoutApiPlumbing(base);
+    return snapshot?.nginx && sourceHost ? withNginx(visible, snapshot.nginx, sourceHost) : visible;
+  }, [view, users, compilation, snapshot?.nginx, sourceHost]);
   const documentText = useMemo(
     () => (view && users ? saveRemoteDocument(view, users, { ...layout, shown: shownNodes }) : ''),
     [view, users, layout, shownNodes],
@@ -297,6 +301,7 @@ export default function App({
     setShowConfig(false);
     setReveal(false);
     setNoticesOpen(false);
+    setPoolCacheError('');
     setFilesOpen(false);
     setGeneration((current) => current + 1);
     try {
@@ -340,9 +345,15 @@ export default function App({
   };
   const cacheObserved = (server: SavedSession | undefined, result: ConfigSnapshot) => {
     if (!server || !desktopAvailable || client !== nativeClient) return;
+    const token = requests.sequence;
     void cacheObservedPoolAccounts(server, result).then(
-      () => setPoolCacheError(''),
-      (reason: unknown) => setPoolCacheError('Pool account cache: ' + errorMessage(reason)),
+      () => {
+        if (token === requests.sequence) setPoolCacheError('');
+      },
+      (reason: unknown) => {
+        if (token === requests.sequence)
+          setPoolCacheError('Pool account cache: ' + errorMessage(reason));
+      },
     );
   };
   const read = async (name: string, filename: string, token: number) => {
@@ -445,6 +456,7 @@ export default function App({
     requests.cancelled = false;
     setDiscovery(null);
     setDiscoveryNote('');
+    setPoolCacheError('');
     setStatus(null);
     setStatusOpen(false);
     setStatusError('');
@@ -582,6 +594,9 @@ export default function App({
       : JSON.stringify(reveal ? raw : redact(raw), null, 2);
   const notices = [
     ...(discoveryNote ? [discoveryNote] : []),
+    ...(snapshot?.nginx?.state === 'unavailable'
+      ? ['Could not inspect Nginx. Check whether the saved SSH user can run nginx -T.']
+      : []),
     ...(poolCacheError ? [poolCacheError] : []),
     ...(discovery?.warnings ?? []),
     ...(view?.notices ?? []),
@@ -809,7 +824,7 @@ export default function App({
         {
           label: 'Edit selected node…',
           shortcut: 'Enter',
-          disabled: blocked || !node,
+          disabled: blocked || !node || selected === nginxNodeId,
           action: () => openNode(selected),
         },
         {
@@ -1351,7 +1366,7 @@ export default function App({
                 <X size={18} />
               </button>
             </header>
-            {!showConfig && node && (
+            {!showConfig && node && node.id !== nginxNodeId && (
               <div className="editor-tab-list inspector-tabs" role="tablist">
                 <button
                   role="tab"
@@ -1402,7 +1417,17 @@ export default function App({
                 </>
               ) : (
                 <>
-                  {node && view && inlineSettings(node.id, nodeSettings(view, node.id)?.value) ? (
+                  {node?.data.nginxRoutes && displayedView ? (
+                    <NginxDetails
+                      routes={node.data.nginxRoutes}
+                      view={displayedView}
+                      onFocus={(id) => {
+                        if (selectNode(id)) canvas.current?.focus(id);
+                      }}
+                    />
+                  ) : node &&
+                    view &&
+                    inlineSettings(node.id, nodeSettings(view, node.id)?.value) ? (
                     <InlineNodeSettings
                       key={
                         node.id +
@@ -1544,10 +1569,15 @@ export default function App({
             setNodeContext(null);
           }}
           items={[
-            { label: 'Edit…', disabled: blocked, action: () => openNode(nodeContext.id) },
+            {
+              label: 'Edit…',
+              disabled: blocked || nodeContext.id === nginxNodeId,
+              action: () => openNode(nodeContext.id),
+            },
             { label: 'Properties', action: () => selectNode(nodeContext.id) },
             {
               label: 'JSON',
+              disabled: nodeContext.id === nginxNodeId,
               action: () => {
                 if (discardInline() && selectNode(nodeContext.id)) setPropertiesTab('json');
               },
@@ -1577,6 +1607,7 @@ export default function App({
             const text = deploymentConfigText;
             const applied = {
               path: snapshot.path,
+              nginx: snapshot.nginx,
               text,
               sha256,
               bytes: new TextEncoder().encode(text).length,
