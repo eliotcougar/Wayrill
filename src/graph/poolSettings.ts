@@ -16,8 +16,11 @@ export const isPoolSettingKey = (key: string): key is PoolSettingKey =>
 export function parsePoolSettings(value: unknown): PoolSettings | undefined {
   if (value === undefined) return undefined;
   if (!jsonRecord(value)) throw new Error('Invalid Pool settings.');
-  for (const key of Object.keys(value)) {
-    if (!isPoolSettingKey(key)) throw new Error('This setting cannot be managed by a Pool.');
+  const received = Object.keys(value);
+  if (!received.every(isPoolSettingKey))
+    throw new Error('This setting cannot be managed by a Pool.');
+  for (const key of poolSettingKeys) {
+    if (!received.includes(key)) continue;
     const field = globalFields.find((item) => item.key === key)!;
     const setting = value[key];
     const problem =
@@ -26,7 +29,7 @@ export function parsePoolSettings(value: unknown): PoolSettings | undefined {
         : 'Invalid value.';
     if (problem) throw new Error(`Pool settings: ${field.label} — ${problem}`);
   }
-  return Object.keys(value).length ? value : undefined;
+  return received.length ? value : undefined;
 }
 
 export function formatPoolSetting(key: PoolSettingKey, value: string | number) {
