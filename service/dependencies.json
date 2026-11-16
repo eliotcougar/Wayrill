@@ -19,7 +19,7 @@
       "resolverActivityPatch": "service/xray-patches/resolver-activity.patch",
       "resolverActivityPatchSha256": "49585000C238C0F4C99768DEE2911B61CBD9F730AE5C399379290540591E0642",
       "tunUdpRoutesPatch": "service/xray-patches/tun-udp-routes.patch",
-      "tunUdpRoutesPatchSha256": "235608C783441A2A30C0EB6B69D8037669277371FC9F77289A02A8660D314BAA",
+      "tunUdpRoutesPatchSha256": "A85BD748F4D866125E36BC24F0DCBE1A9690CF7DBF2F7D03546F2CE3B7B06065",
       "initializerFiles": {
         "udp_windows.go": "A8D638AFF1145152469653B1279723E85072847216D0DFECE9FBABE64C48C087",
         "udp_windows_test.go": "535B3D8AA6D34D6D4EC75CDA432B14372C019C3D6F55F7C35140AF207099BBC8"

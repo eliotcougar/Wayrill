@@ -11,15 +11,25 @@ import (
 
 	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/app/dns/fakedns"
+	"github.com/xtls/xray-core/app/proxyman"
+	_ "github.com/xtls/xray-core/app/proxyman/outbound"
 	"github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/geodata"
 	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/proxy/freedom"
+	"github.com/xtls/xray-core/proxy/vless"
+	"github.com/xtls/xray-core/proxy/vless/encoding"
+	vlessoutbound "github.com/xtls/xray-core/proxy/vless/outbound"
 	"github.com/xtls/xray-core/transport"
+	_ "github.com/xtls/xray-core/transport/internet/tcp"
 )
 
 type udpTestOutbounds struct {
@@ -51,6 +61,10 @@ type udpTestOutbound struct {
 
 func (h *udpTestOutbound) Tag() string { return h.tag }
 
+func (h *udpTestOutbound) WayrillCanShareUDP() bool {
+	return h.tag == "direct" || h.tag == "nat" || h.tag == "dns"
+}
+
 func (h *udpTestOutbound) Dispatch(ctx context.Context, link *transport.Link) {
 	id := h.next.Add(1)
 	defer func() { h.closed <- id }()
@@ -68,6 +82,250 @@ func (h *udpTestOutbound) Dispatch(ctx context.Context, link *transport.Link) {
 			return
 		}
 	}
+}
+
+func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
+	t.Setenv("WAYRILL_TUN_METADATA", "")
+
+	for _, redirect := range []bool{false, true} {
+		name := "direct"
+		if redirect {
+			name = "redirect"
+		}
+		t.Run(name, func(t *testing.T) {
+			first := listenWayrillUDPEcho(t)
+			second := listenWayrillUDPEcho(t)
+			config := &freedom.Config{}
+			if redirect {
+				config.DestinationOverride = &freedom.DestinationOverride{
+					Server: &protocol.ServerEndpoint{Port: uint32(first.LocalAddr().(*stdnet.UDPAddr).Port)},
+				}
+			}
+			handler := newUDPTestHandler(t, context.Background(), &core.OutboundHandlerConfig{
+				Tag: "egress", ProxySettings: serial.ToTypedMessage(config),
+			})
+			replies := make(chan udpFlowKey, 1)
+			flowHandler := newUdpConnectionHandler(handler.HandleConnection, func(payload []byte, src, dst net.Destination) error {
+				if string(payload) == "reply" {
+					replies <- udpFlowKey{src, dst}
+				}
+				return nil
+			})
+			flows := newWayrillUDPFlows()
+			flowHandler.wayrill = flows
+			defer flows.close()
+			src := net.UDPDestination(net.ParseAddress("10.90.0.1"), 53001)
+			primary := net.DestinationFromAddr(first.LocalAddr())
+			alias := net.DestinationFromAddr(second.LocalAddr())
+			exchange := func(source, target net.Destination, peer *stdnet.UDPConn) *stdnet.UDPAddr {
+				t.Helper()
+				flowHandler.HandlePacket(source, target, buf.FromBytes([]byte("query")))
+				if err := peer.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				packet := make([]byte, 32)
+				n, remote, err := peer.ReadFromUDP(packet)
+				if err != nil || string(packet[:n]) != "query" {
+					t.Fatalf("packet to %v: received %q, %v", target, packet[:n], err)
+				}
+				if _, err := peer.WriteToUDP([]byte("reply"), remote); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case reply := <-replies:
+					if reply != (udpFlowKey{target, source}) {
+						t.Fatalf("reply for %v had endpoints %+v", target, reply)
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatalf("no reply from %v", target)
+				}
+				return remote
+			}
+
+			initial := exchange(src, primary, first)
+			if redirect {
+				if redirected := exchange(src, alias, first); redirected.Port == initial.Port {
+					t.Fatalf("redirected targets shared source port %v", redirected)
+				}
+				return
+			}
+			if remote := exchange(src, alias, second); remote.Port != initial.Port {
+				t.Fatalf("second destination used %v, want shared socket %v", remote, initial)
+			}
+
+			// Saturate the alias cache without opening thousands of real sockets.
+			flows.mu.Lock()
+			active := flows.flows[udpFlowKey{src, primary}]
+			key := udpFlowKey{src, alias}
+			otherAddr := net.ParseAddress("192.0.2.1")
+			for i := range wayrillUDPAliasLimit {
+				flows.addAliasLocked(udpFlowKey{src, net.UDPDestination(otherAddr, net.Port(i+1))}, active)
+			}
+			evicted := flows.aliases[key] == nil
+			flows.mu.Unlock()
+			if !evicted {
+				t.Fatal("alias cache exceeded its capacity")
+			}
+
+			other := src
+			other.Port++
+			if remote := exchange(other, primary, first); remote.Port == initial.Port {
+				t.Fatal("an unrelated source shared the original socket")
+			}
+			if remote := exchange(src, alias, second); remote.Port != initial.Port {
+				t.Fatal("eviction replaced the shared socket")
+			}
+
+			// Simulate the deadline passing for the revalidated alias.
+			flows.mu.Lock()
+			oldEntry := flows.aliases[key]
+			expired := oldEntry.Value.(wayrillUDPAlias)
+			expired.expires = time.Now()
+			oldEntry.Value = expired
+			flows.mu.Unlock()
+			if remote := exchange(src, alias, second); remote.Port != initial.Port {
+				t.Fatal("expiration replaced the shared socket")
+			}
+			flows.mu.RLock()
+			revalidated := flows.aliases[key] != oldEntry
+			flows.mu.RUnlock()
+			if !revalidated {
+				t.Fatal("expired alias skipped dispatch")
+			}
+		})
+	}
+}
+
+type udpTestErrors chan error
+
+func (e udpTestErrors) SubmitError(err error) {
+	select {
+	case e <- err:
+	default:
+	}
+}
+
+func TestWayrillUDPVLESSKeepsDestinationAndXUDPPolicy(t *testing.T) {
+	t.Setenv("WAYRILL_TUN_METADATA", "")
+	user := &protocol.User{Account: serial.ToTypedMessage(&vless.Account{
+		Id: "73e115d0-914f-4a3c-87d3-811c55d48f1d", Encryption: "none",
+	})}
+	memoryUser, err := user.ToMemoryUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := new(vless.MemoryValidator)
+	if err := validator.Add(memoryUser); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mode := range []string{"plain", "reject", "skip"} {
+		t.Run(mode, func(t *testing.T) {
+			peer, err := stdnet.ListenTCP("tcp4", &stdnet.TCPAddr{IP: stdnet.IPv4(127, 0, 0, 1)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer peer.Close()
+			config := &core.OutboundHandlerConfig{
+				Tag: "proxy",
+				ProxySettings: serial.ToTypedMessage(&vlessoutbound.Config{Vnext: &protocol.ServerEndpoint{
+					Address: net.NewIPOrDomain(net.LocalHostIP),
+					Port:    uint32(peer.Addr().(*stdnet.TCPAddr).Port),
+					User:    user,
+				}}),
+			}
+			if mode != "plain" {
+				config.SenderSettings = serial.ToTypedMessage(&proxyman.SenderConfig{
+					MultiplexSettings: &proxyman.MultiplexingConfig{
+						Enabled: true, Concurrency: -1, XudpConcurrency: 2, XudpProxyUDP443: mode,
+					},
+				})
+			}
+			failures := make(udpTestErrors, 1)
+			handler := newUDPTestHandler(t, session.TrackedConnectionError(context.Background(), failures), config)
+			flowHandler := newUdpConnectionHandler(handler.HandleConnection, func([]byte, net.Destination, net.Destination) error { return nil })
+			flowHandler.wayrill = newWayrillUDPFlows()
+			defer flowHandler.wayrill.close()
+			src := net.UDPDestination(net.ParseAddress("10.90.0.1"), 53001)
+			send := func(target net.Destination) {
+				flowHandler.HandlePacket(src, target, buf.FromBytes([]byte("query")))
+			}
+			readHeader := func(target net.Destination, command protocol.RequestCommand) {
+				t.Helper()
+				deadline := time.Now().Add(3 * time.Second)
+				if err := peer.SetDeadline(deadline); err != nil {
+					t.Fatal(err)
+				}
+				conn, err := peer.AcceptTCP()
+				if err != nil {
+					select {
+					case failure := <-failures:
+						t.Fatalf("no VLESS request for %v: %v", target, failure)
+					default:
+						t.Fatalf("no VLESS request for %v: %v", target, err)
+					}
+				}
+				t.Cleanup(func() { conn.Close() })
+				if err := conn.SetReadDeadline(deadline); err != nil {
+					t.Fatal(err)
+				}
+				_, request, _, _, err := encoding.DecodeRequestHeader(false, nil, conn, validator)
+				if err != nil || request.Command != command || (command == protocol.RequestCommandUDP && request.Destination() != target) {
+					t.Fatalf("VLESS request for %v: %+v, %v", target, request, err)
+				}
+			}
+			first := net.UDPDestination(net.ParseAddress("192.0.2.1"), 53)
+			send(first)
+			if mode == "plain" {
+				readHeader(first, protocol.RequestCommandUDP)
+			} else {
+				readHeader(first, protocol.RequestCommandMux)
+			}
+			second := net.UDPDestination(net.ParseAddress("192.0.2.2"), 443)
+			send(second)
+			if mode != "reject" {
+				readHeader(second, protocol.RequestCommandUDP)
+				return
+			}
+			select {
+			case err := <-failures:
+				if !strings.Contains(err.Error(), "XUDP rejected UDP/443") {
+					t.Fatal(err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("UDP/443 skipped the outbound reject policy")
+			}
+		})
+	}
+}
+
+func newUDPTestHandler(t *testing.T, ctx context.Context, config *core.OutboundHandlerConfig) *Handler {
+	t.Helper()
+	instance, err := core.New(&core.Config{
+		App: []*serial.TypedMessage{
+			serial.ToTypedMessage(&proxyman.OutboundConfig{}),
+			serial.ToTypedMessage(&dispatcher.Config{}),
+		},
+		Outbound: []*core.OutboundHandlerConfig{config},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { instance.Close() })
+	return &Handler{
+		ctx: context.WithValue(ctx, core.XrayKey(1), instance), config: &Config{},
+		dispatcher: instance.GetFeature(routing.DispatcherType()).(routing.Dispatcher), tag: "tun",
+	}
+}
+
+func listenWayrillUDPEcho(t *testing.T) *stdnet.UDPConn {
+	t.Helper()
+	conn, err := stdnet.ListenUDP("udp4", &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
 func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {

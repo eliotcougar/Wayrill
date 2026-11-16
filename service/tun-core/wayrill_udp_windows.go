@@ -1,9 +1,9 @@
 package tun
 
 import (
+	"container/list"
 	"context"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,18 +26,27 @@ type udpConeKey struct {
 	owner        session.WayrillUDPOwner
 	rule         string
 	outbound     string
+	family       net.AddressFamily
 }
 
 type wayrillUDPFlow struct {
 	key     udpFlowKey
 	cone    udpConeKey
-	aliases []udpFlowKey
+	aliases map[*list.Element]struct{}
 	cancel  context.CancelFunc
 	pending bool
 }
 
+type wayrillUDPAlias struct {
+	key     udpFlowKey
+	conn    *udpConn
+	expires time.Time
+}
+
 const (
 	wayrillUDPFlowLimit    = 16384
+	wayrillUDPAliasLimit   = 16384
+	wayrillUDPAliasTTL     = time.Minute
 	wayrillUDPPendingLimit = 4096
 	wayrillUDPPendingQueue = 128
 )
@@ -45,6 +54,8 @@ const (
 type wayrillUDPFlows struct {
 	mu          sync.RWMutex
 	flows       map[udpFlowKey]*udpConn
+	aliases     map[udpFlowKey]*list.Element
+	aliasOrder  list.List
 	cones       map[udpConeKey]*udpConn
 	epoch       uint64
 	pending     int
@@ -55,16 +66,31 @@ type wayrillUDPFlows struct {
 func newWayrillUDPFlows() *wayrillUDPFlows {
 	return &wayrillUDPFlows{
 		flows:       make(map[udpFlowKey]*udpConn),
+		aliases:     make(map[udpFlowKey]*list.Element),
 		cones:       make(map[udpConeKey]*udpConn),
 		epoch:       session.WayrillUDPEpoch(),
 		attribution: newWayrillUDPBatcher(),
 	}
 }
 
+// A cache hit never extends the verified route's lifetime or mutates the FIFO.
+func (u *wayrillUDPFlows) lookupLocked(key udpFlowKey) *udpConn {
+	if c := u.flows[key]; c != nil {
+		return c
+	}
+	if entry := u.aliases[key]; entry != nil {
+		alias := entry.Value.(wayrillUDPAlias)
+		if time.Now().Before(alias.expires) {
+			return alias.conn
+		}
+	}
+	return nil
+}
+
 func (u *wayrillUDPFlows) packet(h *udpConnectionHandler, src, dst net.Destination, b *buf.Buffer) {
 	key := udpFlowKey{src, dst}
 	u.mu.RLock()
-	if c := u.flows[key]; c != nil && u.epoch == session.WayrillUDPEpoch() {
+	if c := u.lookupLocked(key); c != nil && u.epoch == session.WayrillUDPEpoch() {
 		if !c.queue.push(b) {
 			b.Release()
 		}
@@ -80,13 +106,16 @@ func (u *wayrillUDPFlows) packet(h *udpConnectionHandler, src, dst net.Destinati
 			u.clearLocked()
 			u.epoch = epoch
 		}
-		if c := u.flows[key]; c != nil {
+		if c := u.lookupLocked(key); c != nil {
 			if !c.queue.push(b) {
 				b.Release()
 			}
 			return
 		}
 		if len(u.flows) < wayrillUDPFlowLimit && u.pending < wayrillUDPPendingLimit {
+			if entry := u.aliases[key]; entry != nil {
+				u.removeAliasLocked(entry)
+			}
 			c := &udpConn{handler: h, src: src, dst: dst, queue: newPacketQueue(wayrillUDPPendingQueue),
 				wayrill: &wayrillUDPFlow{key: key, pending: true}}
 			c.queue.push(b)
@@ -110,10 +139,9 @@ func (u *wayrillUDPFlows) track(c *udpConn, cancel context.CancelFunc) bool {
 }
 
 // settle runs after Xray's real dispatch decision, with its sniffing and
-// Wayrill's attribution already applied. A shared link may carry raw datagrams
-// only: rewritten targets need their own reply mapping, and policy relays can
-// select a different concrete member in the main core for each new destination.
-func (u *wayrillUDPFlows) settle(c *udpConn, ctx context.Context, rule string) bool {
+// Wayrill's attribution already applied. Only an outbound that preserves
+// per-packet endpoints can share, and rewritten targets need their own reply mapping.
+func (u *wayrillUDPFlows) settle(c *udpConn, ctx context.Context, rule string, shareable bool) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	f := c.wayrill
@@ -128,23 +156,47 @@ func (u *wayrillUDPFlows) settle(c *udpConn, ctx context.Context, rule string) b
 	in := session.InboundFromContext(ctx)
 	out := session.OutboundsFromContext(ctx)
 	ob := out[len(out)-1]
-	if ob.Target != ob.OriginalTarget || strings.HasPrefix(ob.Tag, session.WayrillRelayTagPrefix) {
+	if !shareable || ob.Target != ob.OriginalTarget || !ob.Target.Address.Family().IsIP() {
 		return true
 	}
 	if in.WayrillUDPOwner.PID == 0 && in.User.Email != "wr-nat" && in.User.Email != "wr-ics6" && in.User.Email != "" {
 		// An unresolved/ambiguous local owner must never join a known session.
 		return true
 	}
-	key := udpConeKey{c.src, in.Source, in.Tag, in.User.Email, in.WayrillUDPOwner, rule, ob.Tag}
+	key := udpConeKey{c.src, in.Source, in.Tag, in.User.Email, in.WayrillUDPOwner, rule, ob.Tag, ob.Target.Address.Family()}
 	if active := u.cones[key]; active != nil {
 		c.queue.moveWayrillPackets(active.queue)
-		u.flows[f.key] = active
-		active.wayrill.aliases = append(active.wayrill.aliases, f.key)
+		delete(u.flows, f.key)
+		u.addAliasLocked(f.key, active)
 		return false
 	}
 	f.cone = key
 	u.cones[key] = c
 	return true
+}
+
+func (u *wayrillUDPFlows) addAliasLocked(key udpFlowKey, conn *udpConn) {
+	now := time.Now()
+	for u.aliasOrder.Len() > 0 {
+		oldest := u.aliasOrder.Front()
+		if len(u.aliases) < wayrillUDPAliasLimit && now.Before(oldest.Value.(wayrillUDPAlias).expires) {
+			break
+		}
+		u.removeAliasLocked(oldest)
+	}
+	entry := u.aliasOrder.PushBack(wayrillUDPAlias{key, conn, now.Add(wayrillUDPAliasTTL)})
+	u.aliases[key] = entry
+	if conn.wayrill.aliases == nil {
+		conn.wayrill.aliases = make(map[*list.Element]struct{})
+	}
+	conn.wayrill.aliases[entry] = struct{}{}
+}
+
+func (u *wayrillUDPFlows) removeAliasLocked(entry *list.Element) {
+	alias := entry.Value.(wayrillUDPAlias)
+	delete(u.aliases, alias.key)
+	delete(alias.conn.wayrill.aliases, entry)
+	u.aliasOrder.Remove(entry)
 }
 
 func (u *wayrillUDPFlows) finish(c *udpConn) {
@@ -159,8 +211,8 @@ func (u *wayrillUDPFlows) removeLocked(c *udpConn) {
 		return
 	}
 	delete(u.flows, f.key)
-	for _, alias := range f.aliases {
-		delete(u.flows, alias)
+	for entry := range f.aliases {
+		u.removeAliasLocked(entry)
 	}
 	if u.cones[f.cone] == c {
 		delete(u.cones, f.cone)

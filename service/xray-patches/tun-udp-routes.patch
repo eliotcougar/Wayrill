@@ -47,13 +47,14 @@ index 879d922..6d3dc97 100644
  				if route.GetRuleTag() == "" {
  					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
  					if id := session.WayrillRelayIDFromContext(ctx); id != "" {
-@@ -518,5 +532,11 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+@@ -518,5 +532,12 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
  		log.Record(accessMessage)
  	}
  
 +	if udp := session.WayrillUDPDispatchFromContext(ctx); udp != nil {
 +		ctx = session.WithWayrillUDPDispatch(ctx, nil)
-+		if !udp.Settle(ctx, wayrillRule) {
++		sharing, ok := handler.(interface{ WayrillCanShareUDP() bool })
++		if !udp.Settle(ctx, wayrillRule, ok && sharing.WayrillCanShareUDP()) {
 +			return
 +		}
 +	}
@@ -123,7 +124,7 @@ index 0000000..f1e0e5f
 +
 +type WayrillUDPDispatch struct {
 +	Peek   func([]byte, int, time.Duration) (int, error)
-+	Settle func(context.Context, string) bool
++	Settle func(context.Context, string, bool) bool
 +}
 +
 +type wayrillUDPDispatchKey struct{}
@@ -158,8 +159,8 @@ index d318d23..d7da313 100644
 +		ctx = context.WithValue(ctx, wayrillUDPBatchKey{}, flows.attribution)
 +		ctx = session.WithWayrillUDPDispatch(ctx, &session.WayrillUDPDispatch{
 +			Peek: udp.queue.peekWayrillPackets,
-+			Settle: func(ctx context.Context, rule string) bool {
-+				return flows.settle(udp, ctx, rule)
++			Settle: func(ctx context.Context, rule string, shareable bool) bool {
++				return flows.settle(udp, ctx, rule, shareable)
 +			},
 +		})
 +	}
@@ -230,3 +231,34 @@ index 6a71f4b..4f540b9 100644
  
  	queue *packetQueue
  	src   net.Destination
+diff --git a/app/proxyman/outbound/handler.go b/app/proxyman/outbound/handler.go
+index fe43c42..e936821 100644
+--- a/app/proxyman/outbound/handler.go
++++ b/app/proxyman/outbound/handler.go
+@@ -22,6 +22,7 @@ import (
+ 	"github.com/xtls/xray-core/features/policy"
+ 	"github.com/xtls/xray-core/features/stats"
+ 	"github.com/xtls/xray-core/proxy"
++	"github.com/xtls/xray-core/proxy/freedom"
+ 	"github.com/xtls/xray-core/transport"
+ 	"github.com/xtls/xray-core/transport/internet"
+ 	"github.com/xtls/xray-core/transport/internet/stat"
+@@ -175,6 +176,18 @@ func (h *Handler) Tag() string {
+ }
+ 
++// WayrillCanShareUDP reports whether the handler can preserve the destination
++// and reply source of each datagram across a single IP-addressed association.
++func (h *Handler) WayrillCanShareUDP() bool {
++	config, ok := h.proxyConfig.(*freedom.Config)
++	if !ok || h.mux != nil || config.DestinationOverride != nil || config.ProxyProtocol != 0 ||
++		len(config.Noises) != 0 || len(config.FinalRules) != 0 {
++		return false
++	}
++	stream := h.streamSettings
++	return stream == nil || (stream.FinalMask == nil && stream.SocketSettings.GetDialerProxy() == "")
++}
++
+ // Dispatch implements proxy.Outbound.Dispatch.
+ func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
+ 	outbounds := session.OutboundsFromContext(ctx)
+ 	ob := outbounds[len(outbounds)-1]

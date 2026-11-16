@@ -85,19 +85,23 @@ per core and clears them when the applied revision or core generation changes.
 The TUN stack resolves native ownership and runs the normal Xray dispatcher
 for each new UDP destination. Rule matching uses the same process, ancestor,
 service, package, NAT and sniffing context as other TUN flows. After dispatch
-selection, compatible destinations can share a FullCone association for a
-fixed outbound. Sharing requires the same wire socket, attributed origin,
-process generation and mask, matched rule, and outbound. Rewritten
-destinations and policy relays use separate associations so FakeDNS reply
-mapping and selection of the concrete policy member remain correct.
+selection, compatible destinations can share a FullCone association through
+plain Direct (`freedom`). Sharing requires the same wire socket, attributed
+origin, process generation and mask, matched rule, outbound, and IP family.
+Redirects, mux/XUDP, proxy chains, policy relays, and rewritten targets use
+separate associations so each destination keeps its own outbound behavior
+and reply mapping.
 
 The worker asks for attribution in bounded UDP batches. The companion shares
 verified local socket ownership and process ancestry within each fresh native
 snapshot. A new batch requires a new observation. Forwarded flows still need
 an exact NAT tuple, and each destination still runs through Xray's dispatcher.
 
-An active source/destination pair uses its existing decision until the
-association ends or a live rule change invalidates it.
+The first destination uses its decision until the association ends or a live
+rule change invalidates it. Additional destinations use a separate FIFO cache
+of up to 16,384 aliases, each valid for one minute. An expired or evicted alias
+goes through attribution and routing again. It can rejoin the same open socket
+if its new decision is compatible. Aliases do not consume slots for new flows.
 Closing the stack cancels ownership lookups and closes its packet queues.
 WinDivert already routes each UDP datagram before choosing a relay.
 
@@ -406,7 +410,7 @@ Broad upstream test audits remain separate from the contributor build gate.
 | `common/session/session.go`, `app/dispatcher/default.go` | X09: private TUN application-match evidence in dispatcher decisions |
 | `proxy/tun/stack.go` | X11: ownership, echo interception and shutdown |
 | `proxy/tun/tun_windows.go` | X10: native settings reuse |
-| `app/dispatcher/default.go`, `app/router/router.go`, `common/session/session.go`, `common/session/wayrill_udp.go`, `proxy/tun/handler.go`, `proxy/tun/stack.go`, `proxy/tun/udp_fullcone.go` | X15: [private worker patch](../../service/xray-patches/tun-udp-routes.patch) |
+| `app/dispatcher/default.go`, `app/proxyman/outbound/handler.go`, `app/router/router.go`, `common/session/session.go`, `common/session/wayrill_udp.go`, `proxy/tun/handler.go`, `proxy/tun/stack.go`, `proxy/tun/udp_fullcone.go` | X15: [private worker patch](../../service/xray-patches/tun-udp-routes.patch) |
 
 The builder also sets the main executable's `core.build` version marker to the
 pinned `Wayrill-socket-defaults` label. That label is not a complete list of its
