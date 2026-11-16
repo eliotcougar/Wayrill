@@ -1,13 +1,10 @@
-import { compileDnsGraph as compileFlatDns, type DnsFragment } from './dns';
+import { compileDnsGraph as compileFlatDns, type DnsCompileOptions, type DnsFragment } from './dns';
 import { expandCompositeOutbounds } from './composites';
 import { nativeConfig } from './xrayNodes';
 import { resourceCompilationGraph } from './resources';
 import { resolveGraph } from './defaults';
 import type { GraphState } from './types';
-export function compileDnsGraph(
-  source: GraphState,
-  options: { includePolicies?: boolean; resourcesResolved?: boolean } = {},
-): DnsFragment {
+export function compileDnsGraph(source: GraphState, options: DnsCompileOptions = {}): DnsFragment {
   const expanded = expandCompositeOutbounds(
     resolveGraph(options.resourcesResolved ? source : resourceCompilationGraph(source)),
   );

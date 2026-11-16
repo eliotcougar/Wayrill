@@ -121,15 +121,16 @@ the applied config and uses this map to report Observatory results for plain
 outbounds and chains. It is presentation metadata, not a routing instruction;
 opaque compact aliases do not need to be decoded on each polling cycle.
 
-`routing.activity` is an optional read-only graph decoration feed. It returns
-counts by compiled rule index over the previous two seconds, scoped to the
-current routing generation and revision. It reuses the bounded routing log and
-monotonic arrival times; it neither drains the log nor includes destinations.
-The editor polls once a second only while the glow is enabled and visible,
-rejects stale replies, and fades after telemetry loss. Compiler provenance maps
-each matched rule to its selected wires; sharing an outbound is not evidence of
-activity on another branch. Primary inbound Data ports reuse byte-rate telemetry.
-No Xray modification or routing configuration change is needed for collection.
+`routing.activity` is an optional read-only graph decoration feed scoped to the
+current routing generation and revision. `rules` contains two-second counts
+from the bounded routing log. `resolvers` contains attempt counts from the latest
+core metrics interval, including cached answers and FakeDNS. The service adds
+resolver IDs when it starts the core, including when it resumes a saved profile
+after an upgrade. IDs follow the compiled server slots and identify generated
+branches independently of their transport tags. Neither
+count includes destinations. The editor polls once a second while the glow is
+enabled and visible, rejects stale replies, and fades after telemetry loss.
+Primary inbound Data ports reuse byte-rate telemetry.
 
 `companion.routes` accepts at most 128 exact ASCII/IDNA hosts or IP literals. It
 projects the memory-only routing log into bounded last known destination observations,

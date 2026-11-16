@@ -165,14 +165,14 @@ Routing continues unchanged until you **Apply** the graph. Existing observations
 may describe an older applied graph; they do not guarantee that a chosen rule in
 the draft will match every request from that domain.
 
-## Timezone override (Chromium)
+## Timezone override
 
 Open **Time Zone** next to **Setup** in the Companion. Choose **Main outbound**,
 **Custom outbound** to select a Stash server, chain or policy group, or **Manual**
-to select a timezone from the dropdown. Then choose
+to select a timezone from the dropdown. In Firefox, choose **Save timezone**,
+quit Firefox completely, and reopen it when prompted. In Chromium, choose
 **Apply and reload web tabs**. The default is Off. One timezone applies to all
-regular web tabs in that browser session, including newly opened tabs. Chromium
-can share worker/renderer processes, so separate per-tab zones are not offered.
+regular web tabs in that browser session, including newly opened tabs.
 
 Main probes the applied graph's Main outbound through Wayrill and asks
 `ipwho.is` for its exit-IP timezone. Custom uses the selected saved Stash definition,
@@ -186,9 +186,10 @@ not use debugger access and shows no debugging banner. The service saves the
 preference separately from routing. Closing the desktop window, restarting routing,
 or opening DevTools leaves the override active. The service restores the saved
 zone when the browser starts, even without Companion and without repeating an outbound lookup. **Off** restores
-the system timezone for that browser. Apply reloads open web tabs; background
-restoration does not. If the service is temporarily unavailable, restoration retries
-automatically.
+the system timezone for that browser. On Firefox, switching Off also requires a
+full browser restart if the override is currently active. On Chromium, Apply
+reloads open web tabs and background restoration retries automatically if the
+service is temporarily unavailable.
 
 The service runs a normal-user adapter that loads a small Rust override into the browser's main
 process. Chromium propagates timezone changes to its renderers, workers and
@@ -196,8 +197,8 @@ iframes through its own notification mechanism. Protected subprocesses are left
 alone. Both x86 and x64 browsers are supported on x64 Windows. Windows groups some IANA
 zones under one native timezone; the popup shows the browser's actual zone name.
 Pages may execute before startup restoration finishes, and an application may
-retain previously created date formatters. Windows' timezone, language and
-geolocation settings are unchanged. Firefox's signed add-on does not include it.
+retain previously created date formatters. The override is scoped to the browser's
+timezone.
 
 You can also configure browsers without the extension in **Tools > Timezone
 spoofing**. That window detects installed browsers and lets you add an executable,
@@ -213,7 +214,6 @@ For an installed-package policy, launch the app once so Wayrill can discover its
 executable, then restart it after preparation finishes. A new executable path
 after an app update may also need this discovery/restart step.
 Firefox also uses a startup override and requires a complete restart after changes.
-The signed Firefox extension remains unchanged; configure this in Wayrill itself.
 Custom Stash selection works without an applied graph. With no graph DNS context,
 local name lookups use Windows' configured resolver; a failed DNS path can still
 prevent the exit lookup from completing.
@@ -260,7 +260,7 @@ authenticated service pipe, and `editDomain` requests that open the installed
 desktop with a domain and optional filter IDs. The browser cannot select an
 executable, edit the graph itself or activate routing. The bridge opens no HTTP
 listener and exposes no arbitrary-command interface.
-Chromium also accepts a `timezone` lookup of the applied Main outbound or a
+The bridge also accepts a `timezone` lookup of the applied Main outbound or a
 versioned Stash reference, returning only its zone, exit IP, display name and
 applied revision. Its Stash picker reads display names, types and stable IDs;
 it receives no connection credentials or editable core configuration.

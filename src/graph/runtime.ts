@@ -45,6 +45,7 @@ import { jsonRecord } from './xrayJson';
 export interface RuntimeCompilation {
   /** Editor-only provenance, retained across analysis-worker structured cloning. */
   activityInputs?: Record<string, RoutingInput>;
+  resolverActivity?: Record<string, RoutingInput[]>;
   resources?: ResourceFilePlan[];
   displayNames?: DisplayNames;
   capture?: CapturePlan;
@@ -169,7 +170,11 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
   )
     throw new Error('Connect DNS resolver nodes to a native DNS handler before compiling.');
   const dns = handlers.length
-    ? compileDnsGraph(graph, { includePolicies: false, resourcesResolved: true })
+    ? compileDnsGraph(graph, {
+        includePolicies: false,
+        resourcesResolved: true,
+        includeResolverActivity: true,
+      })
     : undefined;
   const outbounds = new Map<string, Record<string, unknown>>();
   outbounds.set('wr-u', {
@@ -337,6 +342,7 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
     );
   return {
     displayNames: displayNames(graph, config, policies.displayNames),
+    resolverActivity: dns?.resolverActivity,
     config,
     capture,
     summary: {

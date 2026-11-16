@@ -54,6 +54,15 @@ export interface ConfigSnapshot {
   sha256: string;
   bytes: number;
 }
+interface DaemonService {
+  name: string;
+  activeState: string;
+  subState: string;
+  mainPid: number | null;
+  startedAt: string | null;
+  unitFileState: string | null;
+  needsDaemonReload: boolean;
+}
 export interface ServerStatus {
   version: number;
   hostname: string;
@@ -67,17 +76,10 @@ export interface ServerStatus {
     binary?: string | null;
     versionError?: string | null;
     processes: { pid: number; executable: string; replacedExecutable: boolean }[];
-    services: {
-      name: string;
-      activeState: string;
-      subState: string;
-      mainPid: number | null;
-      startedAt: string | null;
-      unitFileState: string | null;
-      needsDaemonReload: boolean;
-    }[];
+    services: DaemonService[];
     error: string | null;
   };
+  nginxServices?: DaemonService[];
   apt: {
     available: boolean;
     packages: {
@@ -98,6 +100,7 @@ export type ServerAction =
   | 'distUpgrade'
   | 'upgradePackage'
   | 'restartXray'
+  | 'restartNginx'
   | 'reboot'
   | 'applyConfig';
 export interface ConfigValidationRequest {

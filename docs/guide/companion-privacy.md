@@ -15,12 +15,12 @@ local routing observations: rule, output, outbound, port, protocol and observati
 time. Choosing **Add to rule** sends the selected domain and relevant filter IDs
 to the local app so you can edit a rule. The extension cannot activate routing.
 
-This communication stays on your computer. The extension has no analytics,
-advertising, remote scripts, developer-operated collection endpoint, or external
-uploads. It does not change your browser's proxy settings or intercept page content.
+Routing lookups and rule editing stay on your computer. The extension has no
+analytics, advertising, remote scripts or developer-operated collection endpoint.
+It does not change your browser's proxy settings or intercept page content.
 The separately installed Wayrill app handles traffic according to your graph.
 
-Chromium's optional **Timezone override** applies one selected
+The optional **Time Zone** control applies one selected
 timezone across regular web tabs. The manual mode makes no external lookup.
 **Main outbound** and **Custom outbound** ask the local Wayrill service to query
 `ipwho.is` through the applied Main or the selected Stash outbound. That provider sees the outbound's exit IP, without
@@ -32,8 +32,7 @@ native bridge identifies its browser from Windows process ancestry. The service
 applies its policy to that browser's main process as the normal user. The same
 service can manage applications selected in Wayrill, independently of Companion.
 No debugger permission is used.
-The feature does not read page content or change Windows'
-timezone, and it is absent from the signed Firefox package.
+The timezone applies to the browser process and its tabs.
 
 Firefox classifies hostnames sent to a native application as **Browsing activity**
 transmission, even when the recipient runs on the same computer. Companion

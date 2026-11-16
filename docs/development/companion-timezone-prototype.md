@@ -1,8 +1,8 @@
 # Native application timezone override
 
-The Chromium Companion is a controller for a service-owned browser preference.
-It requests no debugger permission and sends no DevTools commands. Firefox's
-independently signed package is unchanged and does not expose these controls.
+Companion is a controller for a service-owned browser preference. Chromium
+applies changes live. Firefox shares the controls and applies the saved
+preference at browser startup. The extension requests no debugger permission.
 
 ## Responsibilities
 

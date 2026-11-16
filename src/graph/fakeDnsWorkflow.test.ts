@@ -46,7 +46,12 @@ it('a dedicated connection generates synthetic answers, real fallback, and name 
   const result = compileRuntimeGraph(graph);
   const dns = result.config.dns as any;
   expect(dns.servers).toEqual([
-    { address: 'fakedns', domains: ['regexp:.*'], skipFallback: true, finalQuery: false },
+    expect.objectContaining({
+      address: 'fakedns',
+      domains: ['regexp:.*'],
+      skipFallback: true,
+      finalQuery: false,
+    }),
     expect.objectContaining({ address: '1.1.1.1', skipFallback: false }),
   ]);
   for (const input of result.config.inbounds as any[]) {

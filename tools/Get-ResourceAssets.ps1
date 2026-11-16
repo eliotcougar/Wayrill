@@ -14,6 +14,8 @@ if ($IncludeRegional) {
 }
 $curl = & (Join-Path $PSScriptRoot 'Get-Curl.ps1') -Path $CurlPath
 $curlOptions = @('--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '15', '--retry', '2')
+$apiToken = $env:WAYRILL_GEODATA_API_TOKEN
+if ($apiToken -and $apiToken -cnotmatch '^[A-Za-z0-9_]+$') { throw 'Invalid GitHub geodata API credential.' }
 $cache = Join-Path $root '.tools/downloads/resources'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 
@@ -21,7 +23,14 @@ New-Item -ItemType Directory -Path $cache -Force | Out-Null
 foreach ($group in $plan | Group-Object repository) {
     if ($group.Name -notmatch '^https://github\.com/([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)$') { throw 'Invalid resource repository.' }
     $api = "https://api.github.com/repos/$($Matches[1])/releases/latest"
-    $json = & $curl @curlOptions --max-time 60 $api
+    $json = if ($apiToken) {
+        # Authenticate only the fixed GitHub API host. Keep the token off the
+        # command line and out of asset requests and redirects.
+        'header = "Authorization: Bearer ' + $apiToken + '"' |
+            & $curl @curlOptions --no-location --config - --max-time 60 $api
+    } else {
+        & $curl @curlOptions --max-time 60 $api
+    }
     if ($LASTEXITCODE) { throw "Could not resolve the latest geodata release for $($group.Name)." }
     $release = ($json -join "`n") | ConvertFrom-Json
     if ($release.tag_name -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') { throw "Invalid geodata release tag for $($group.Name)." }

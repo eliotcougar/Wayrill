@@ -136,6 +136,8 @@ struct State {
     adapter_id: Option<String>,
     interface_index: Option<u32>,
     sharing: sharing::Status,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dns_metrics: Option<crate::traffic::MetricsEndpoint>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -447,6 +449,9 @@ impl Client {
     pub(super) fn core_pid(&self) -> Option<u32> {
         self.state.as_ref()?.pid
     }
+    pub(super) fn dns_metrics(&self) -> Option<crate::traffic::MetricsEndpoint> {
+        self.state.as_ref()?.dns_metrics.clone()
+    }
     pub(super) fn interface_index(&self) -> Option<u32> {
         self.state.as_ref()?.interface_index
     }
@@ -545,7 +550,7 @@ impl Runtime {
         worker["inbounds"][0]["settings"]["autoOutboundsInterface"] = json!(uplink);
         let original_settings = worker["inbounds"][0]["settings"].clone();
         let reused = adapter.prepare_configuration(&original_settings, false)?;
-        let control = crate::live::Control::new(&worker)?;
+        let control = crate::live::Control::for_worker(&worker)?;
         let core = native::spawn_tun_with_token(
             &worker_exe,
             scoped_token()?,
@@ -663,7 +668,7 @@ impl Runtime {
         }
         let worker_exe = super::worker_executable(&self.root)?;
         let token = scoped_token()?;
-        let control = crate::live::Control::new(&worker)?;
+        let control = crate::live::Control::for_worker(&worker)?;
         // Keep the owned adapter, journal, native roles and advertiser alive.
         // A failed replacement leaves ownership available for coordinator rollback.
         if let Some(core) = self.core.take() {
@@ -789,10 +794,17 @@ impl Runtime {
             adapter_id: self.adapter.as_ref().map(|a| a.guid.clone()),
             interface_index: self.adapter.as_ref().map(|a| a.index),
             sharing: self.sharing.observation(),
+            dns_metrics: self
+                .core
+                .as_ref()
+                .and(self.control.as_ref())
+                .and_then(|c| c.metrics.clone()),
         }
     }
     fn status(&self) -> Value {
-        let mut state = serde_json::to_value(self.state()).unwrap();
+        let mut state = self.state();
+        state.dns_metrics = None;
+        let mut state = serde_json::to_value(state).unwrap();
         state["routing"] = json!(self
             .core
             .as_ref()

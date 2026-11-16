@@ -29,8 +29,9 @@ def command(args, timeout=8):
         return None, 'The status command could not be started.'
 
 
-def xray_status():
+def daemon_processes():
     processes, units = [], {'xray.service'}
+    nginx_running = False
     for name in sorted(glob.glob('/proc/[0-9]*/exe')):
         root = os.path.dirname(name)
         try:
@@ -38,7 +39,10 @@ def xray_status():
             deleted = exe.endswith(' (deleted)')
             if deleted:
                 exe = exe[:-10]
-            if 'xray' not in os.path.basename(exe).lower():
+            basename = os.path.basename(exe).lower()
+            if basename == 'nginx':
+                nginx_running = True
+            if 'xray' not in basename or len(processes) >= 128:
                 continue
             processes.append({'pid': int(os.path.basename(root)), 'executable': exe,
                               'replacedExecutable': deleted})
@@ -52,24 +56,15 @@ def xray_status():
                 pass
         except (OSError, ValueError):
             continue
-        if len(processes) >= 128:
-            break
-    binary = shutil.which('xray') or next((p['executable'] for p in processes if os.path.isfile(p['executable'])), None)
-    version, version_error = None, None
-    if binary:
-        output, version_error = command([binary, 'version'], timeout=4)
-        match = re.search(r'^Xray\s+(\S+)', output or '', re.M)
-        if match:
-            version = match[1]
-        elif not version_error:
-            version_error = 'The installed Xray version could not be recognized.'
-    installed = {'installedVersion': version, 'binary': binary, 'versionError': version_error}
+    return processes, units, nginx_running
+
+
+def service_status(units, timeout=8):
     if not shutil.which('systemctl'):
-        return dict(installed, processes=processes, services=[],
-                    error='systemd service status is unavailable on this server.')
+        return [], 'systemd service status is unavailable on this server.'
     output, error = command(['systemctl', 'show', '--no-pager',
                              '--property=Id,LoadState,ActiveState,SubState,MainPID,ActiveEnterTimestamp,UnitFileState,NeedDaemonReload',
-                             '--'] + sorted(units)[:128])
+                             '--'] + sorted(units)[:128], timeout=timeout)
     services = []
     if output is not None:
         for block in output.strip().split('\n\n'):
@@ -83,7 +78,34 @@ def xray_status():
                              'startedAt': props.get('ActiveEnterTimestamp') or None,
                              'unitFileState': props.get('UnitFileState') or None,
                              'needsDaemonReload': props.get('NeedDaemonReload') == 'yes'})
-    return dict(installed, processes=processes, services=services, error=error)
+    return services, error
+
+
+def xray_status(processes, units):
+    binary = shutil.which('xray') or next((p['executable'] for p in processes if os.path.isfile(p['executable'])), None)
+    version, version_error = None, None
+    if binary:
+        output, version_error = command([binary, 'version'], timeout=4)
+        match = re.search(r'^Xray\s+(\S+)', output or '', re.M)
+        if match:
+            version = match[1]
+        elif not version_error:
+            version_error = 'The installed Xray version could not be recognized.'
+    services, error = service_status(units)
+    return {'installedVersion': version, 'binary': binary, 'versionError': version_error,
+            'processes': processes, 'services': services, 'error': error}
+
+
+def nginx_services(running):
+    services, _ = service_status(['nginx.service'], timeout=4)
+    if services:
+        return services
+    if not running and not (shutil.which('nginx') or os.path.isfile('/usr/sbin/nginx')):
+        return []
+    # A manually started daemon can be visible even without a loaded service unit.
+    return [{'name': 'nginx', 'activeState': 'active' if running else 'unknown',
+             'subState': 'running' if running else '', 'mainPid': None,
+             'startedAt': None, 'unitFileState': None, 'needsDaemonReload': False}]
 
 
 def reboot_status():
@@ -162,9 +184,11 @@ def collect():
         boot = read_text('/proc/sys/kernel/random/boot_id').strip()
     except OSError:
         boot = None
+    xray_processes, xray_units, nginx_running = daemon_processes()
     return {'version': 1, 'hostname': os.uname().nodename, 'checkedAt': int(time.time()), 'bootId': boot,
             'user': user, 'uid': os.geteuid(), 'reboot': reboot_status(),
-            'xray': xray_status(), 'apt': apt_status()}
+            'xray': xray_status(xray_processes, xray_units), 'nginxServices': nginx_services(nginx_running),
+            'apt': apt_status()}
 
 
 if __name__ == '__main__':

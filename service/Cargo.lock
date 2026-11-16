@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-companion"
-version = "0.37.19"
+version = "0.38.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-diagnostics"
-version = "0.37.19"
+version = "0.38.0"
 dependencies = [
  "regex",
  "serde_json",
@@ -1555,7 +1555,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-ipc"
-version = "0.37.19"
+version = "0.38.0"
 dependencies = [
  "serde_json",
  "tokio",
@@ -1565,7 +1565,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-protocol"
-version = "0.37.19"
+version = "0.38.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1574,7 +1574,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-service"
-version = "0.37.19"
+version = "0.38.0"
 dependencies = [
  "aes-gcm",
  "base64 0.23.1",
@@ -1603,7 +1603,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-timezone"
-version = "0.37.19"
+version = "0.38.0"
 dependencies = [
  "serde",
  "serde_json",

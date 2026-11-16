@@ -526,14 +526,14 @@ async fn run_service(
                         Ok(k.traffic_request())
                     }).await.map_err(|_| ApiError::new("SERVICE_FAULT", "Lifecycle monitor failed."))??;
                     // Statistics faults remain independent of traffic routing.
-                    let sample = if let Some((generation, counter_epoch, bridge)) = request {
-                        tokio::task::spawn_blocking(move || (generation, counter_epoch, bridge.read())).await.ok()
+                    let sample = if let Some(request) = request {
+                        tokio::task::spawn_blocking(move || request.read()).await.ok()
                     } else { None };
                     let k = monitor_kernel.clone();
                     tokio::task::spawn_blocking(move || -> Result<()> {
                         let mut k = lock_state(&k)?;
                         if !STOPPING.load(Ordering::SeqCst) {
-                            if let Some((generation, counter_epoch, sample)) = sample { k.accept_traffic(generation, counter_epoch, sample); }
+                            if let Some(sample) = sample { k.accept_traffic(sample); }
                             k.events.publish("service.snapshot", k.snapshot());
                         }
                         Ok(())

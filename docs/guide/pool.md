@@ -4,6 +4,9 @@ Wayrill Pool is a desktop application for administering routing on behalf of
 other people. Open **Wayrill Pool** from the Windows Start menu or from
 **Tools → Wayrill Pool** in Wayrill.
 
+**Preview only. Wayrill Pool is not final and is not ready for production use.**
+Use test users and configurations while evaluating it.
+
 ## Create a Pool
 
 1. Choose **Create Pool**, name it, and choose a local publishing folder. If an

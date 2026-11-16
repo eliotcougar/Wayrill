@@ -36,6 +36,7 @@ function restore(session: string): ActionRequest | null {
         'distUpgrade',
         'upgradePackage',
         'restartXray',
+        'restartNginx',
         'reboot',
         'applyConfig',
       ].includes(String(value.action))

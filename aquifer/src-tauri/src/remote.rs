@@ -204,6 +204,8 @@ pub struct ServerStatus {
     boot_id: Option<String>,
     reboot: RebootStatus,
     xray: XrayStatus,
+    #[serde(default)]
+    nginx_services: Vec<DaemonService>,
     apt: AptStatus,
 }
 #[derive(Debug, Serialize, Deserialize)]
@@ -219,7 +221,7 @@ struct XrayStatus {
     binary: Option<String>,
     version_error: Option<String>,
     processes: Vec<XrayProcess>,
-    services: Vec<XrayService>,
+    services: Vec<DaemonService>,
     error: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
@@ -231,7 +233,7 @@ struct XrayProcess {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct XrayService {
+struct DaemonService {
     name: String,
     active_state: String,
     sub_state: String,
@@ -267,6 +269,7 @@ pub enum ServerAction {
     DistUpgrade,
     UpgradePackage,
     RestartXray,
+    RestartNginx,
     Reboot,
     ApplyConfig,
 }
@@ -783,6 +786,7 @@ fn parse_status(output: &[u8]) -> Result<ServerStatus> {
     if status.version != 1
         || status.xray.processes.len() > 128
         || status.xray.services.len() > 128
+        || status.nginx_services.len() > 128
         || status.reboot.packages.len() > 512
         || status.apt.packages.len() > 4096
         || (status.apt.error.is_none()
@@ -1003,17 +1007,14 @@ mod tests {
     }
     #[test]
     fn server_job_response_is_typed_and_bounded() {
-        let job = serde_json::json!({"version":1,"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","action":"refreshApt",
-            "state":"running","stage":"Downloading","percent":25,"message":"","logs":[],"createdAt":1,"updatedAt":2,"bootId":"before"});
+        let job = serde_json::json!({"version":1,"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","action":"restartNginx",
+            "state":"running","stage":"Restarting nginx","percent":null,"message":"nginx.service","logs":[],"createdAt":1,"updatedAt":2,"bootId":"before"});
         let framed = |v: &serde_json::Value| {
             format!("noise\nWAYRILL_REMOTE_ACTION_V1_BEGIN\n{v}\nWAYRILL_REMOTE_ACTION_V1_END")
         };
-        assert_eq!(
-            parse_job(framed(&serde_json::json!({"job":job})).as_bytes())
-                .unwrap()
-                .state,
-            JobState::Running
-        );
+        let parsed = parse_job(framed(&serde_json::json!({"job":job})).as_bytes()).unwrap();
+        assert_eq!(parsed.state, JobState::Running);
+        assert_eq!(parsed.action, ServerAction::RestartNginx);
         let mut bad = job.clone();
         bad["percent"] = serde_json::json!(101);
         assert!(parse_job(framed(&serde_json::json!({"job":bad})).as_bytes()).is_err());
@@ -1054,12 +1055,16 @@ mod tests {
     #[test]
     fn server_status_accepts_independent_partial_results_and_console_noise() {
         let mut bytes = vec![0xff];
-        bytes.extend(status_frame(&status_fixture()));
+        let mut fixture = status_fixture();
+        fixture["nginxServices"] = serde_json::json!([{"name":"nginx.service","activeState":"active",
+            "subState":"running","mainPid":81,"startedAt":null,"unitFileState":"enabled","needsDaemonReload":false}]);
+        bytes.extend(status_frame(&fixture));
         let status = parse_status(&bytes).unwrap();
         assert!(status.reboot.required.is_none());
         assert_eq!(status.apt.upgraded, Some(0));
         assert_eq!(status.apt.held_back, Some(2));
         assert_eq!(status.uid, 1000);
+        assert_eq!(status.nginx_services[0].main_pid, Some(81));
     }
     #[test]
     fn server_status_rejects_inconsistent_and_malformed_results() {

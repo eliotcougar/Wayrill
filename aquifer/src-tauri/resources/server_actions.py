@@ -51,7 +51,7 @@ def validate(request):
     if request['mode'] == 'poll':
         return
     action = request.get('action')
-    if action not in ('refreshApt', 'upgradeAll', 'distUpgrade', 'upgradePackage', 'restartXray', 'reboot', 'applyConfig'):
+    if action not in ('refreshApt', 'upgradeAll', 'distUpgrade', 'upgradePackage', 'restartXray', 'restartNginx', 'reboot', 'applyConfig'):
         raise ActionError('ACTION', 'Unknown server action.')
     if action == 'distUpgrade' and not re.fullmatch(r'[a-f0-9]{32}', request.get('planId') or ''):
         raise ActionError('APT_PLAN', 'Full upgrade requires a reviewed package plan.')
@@ -62,8 +62,10 @@ def validate(request):
             raise ActionError('ACTION', 'Invalid package name.')
         if not re.fullmatch(r'[0-9][A-Za-z0-9.+:~_-]{0,255}', request.get('candidateVersion', '')):
             raise ActionError('ACTION', 'Invalid package version.')
-    if action == 'restartXray' and not re.fullmatch(r'[A-Za-z0-9_@.-]{1,180}\.service', request.get('service', '')):
-        raise ActionError('ACTION', 'Invalid Xray service name.')
+    if action in ('restartXray', 'restartNginx'):
+        service = request.get('service')
+        if not isinstance(service, str) or not re.fullmatch(r'[A-Za-z0-9_@.-]{1,180}\.service', service):
+            raise ActionError('ACTION', 'Invalid systemd service name.')
 
 
 def boot_id():
@@ -367,6 +369,14 @@ def run_apt(request, state, write):
         raise ActionError('APT', 'APT exited with code {}. See the job output; package changes may have partially completed.'.format(code))
 
 
+def restart_unit(service, daemon, error_code, state, write):
+    state.update(stage='Restarting ' + daemon, percent=None, message=service)
+    write()
+    result = capture(['systemctl', 'restart', '--', service], timeout=90)
+    if result.returncode or capture(['systemctl', 'is-active', '--quiet', '--', service]).returncode:
+        raise ActionError(error_code, daemon + ' did not return to the active state. Inspect its journal on the server.')
+
+
 def restart_xray(request, state, write):
     service = request['service']
     props = capture(['systemctl', 'show', '--property=ExecStart,MainPID,LoadState', '--', service])
@@ -380,11 +390,16 @@ def restart_xray(request, state, write):
             pass
     if props.returncode or ('xray' not in os.path.basename(executable).lower() and not re.search(r'/xray(?:\s|;|\})', output)):
         raise ActionError('XRAY_SERVICE', 'The selected service is not a detected Xray daemon. Refresh server status.')
-    state.update(stage='Restarting Xray', percent=None, message=service)
-    write()
-    result = capture(['systemctl', 'restart', '--', service], timeout=90)
-    if result.returncode or capture(['systemctl', 'is-active', '--quiet', '--', service]).returncode:
-        raise ActionError('XRAY_SERVICE', 'Xray did not return to the active state. Inspect its journal on the server.')
+    restart_unit(service, 'Xray', 'XRAY_SERVICE', state, write)
+
+
+def restart_nginx(request, state, write):
+    service = request['service']
+    result = capture(['systemctl', 'show', '--property=Id,LoadState', '--', 'nginx.service'])
+    props = dict(line.split('=', 1) for line in result.stdout.decode('utf-8', 'replace').splitlines() if '=' in line)
+    if result.returncode or props.get('LoadState') != 'loaded' or props.get('Id') != service:
+        raise ActionError('NGINX_SERVICE', 'The selected nginx unit is unavailable or has changed. Refresh server status.')
+    restart_unit(service, 'nginx', 'NGINX_SERVICE', state, write)
 
 
 def worker(identifier):
@@ -400,6 +415,8 @@ def worker(identifier):
             run_apt(request, state, write)
         elif request['action'] == 'restartXray':
             restart_xray(request, state, write)
+        elif request['action'] == 'restartNginx':
+            restart_nginx(request, state, write)
         elif request['action'] == 'applyConfig':
             apply_config(request, state, write)
         else:

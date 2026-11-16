@@ -48,6 +48,8 @@ jobs:
           path: ${{ env.BUILD_CACHE_PATHS }}
           key: installer-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', '.node-version', '**/Cargo.lock', 'service/dependencies.json') }}
       - name: Build and test from source
+        env:
+          WAYRILL_GEODATA_API_TOKEN: ${{ github.token }}
         run: ./tools/Build-Windows.ps1
       - name: Save installer and build logs
         if: always()

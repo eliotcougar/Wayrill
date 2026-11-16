@@ -65,17 +65,23 @@ export function timezoneId(value) {
 export class TimezoneController {
   constructor(
     api = extensionApi(),
-    request = (/** @type {string} */ method, /** @type {object} */ params) =>
-      timezoneRequest(api, method, params),
-    observed = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    sleep = (/** @type {number} */ milliseconds) =>
-      new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    {
+      live = true,
+      request = (/** @type {string} */ method, /** @type {object} */ params) =>
+        timezoneRequest(api, method, params),
+      observed = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+      sleep = (/** @type {number} */ milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    } = {},
   ) {
     this.api = api;
+    this.live = live;
     this.request = request;
     this.observed = observed;
     this.sleep = sleep;
     this.lane = Promise.resolve();
+    // Firefox reads Wayrill's startup override on the next process launch.
+    if (!live) return;
     let restoring = false;
     const restore = () => {
       if (restoring) return;
@@ -95,6 +101,7 @@ export class TimezoneController {
   /** Keep managed browsers in sync with changes made in Wayrill or another profile.
    * @param {boolean} needed */
   async schedule(needed) {
+    if (!this.live) return;
     if (needed) await this.api.alarms.create('timezone.restore', { periodInMinutes: 1 });
     else await this.api.alarms.clear('timezone.restore');
   }
@@ -141,6 +148,7 @@ export class TimezoneController {
       const reference = (expectedTime ??= formatter(expected));
       if (samples.every((date) => actualTime.format(date) === reference.format(date)))
         return { ...state, nativeZone: actual };
+      if (!this.live) return { ...state, restartRequired: true };
       if (attempt === 12) break;
       await this.request('timezoneNotify', {});
       await this.sleep(500);
@@ -242,6 +250,7 @@ export class TimezoneController {
               error instanceof Error ? error.message : 'Native timezone could not be confirmed.',
           };
         }
+        if (!this.live) return confirmed;
         const tabs = await this.api.tabs.query({});
         await Promise.allSettled(
           tabs

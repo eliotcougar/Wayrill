@@ -2140,6 +2140,14 @@ impl Manager {
     pub fn status(&self) -> Value {
         json!({"state":if self.core.is_some() || self.keeper.is_some(){"running"}else{"stopped"},"pid":self.core.as_ref().map(|c|c.pid),"name":self.adapter.as_ref().map(|a|&a.name),"interfaceIndex":self.adapter.as_ref().map(|a|a.index),"uplink":self.uplink,"sharing":self.keeper.as_ref().map(|k|k.sharing_status()).unwrap_or_else(||self.sharing.status()),"adapterRecoveryError":self.adapter_recovery_error,"keeperPid":self.keeper.as_ref().map(|k|k.pid()),"sharedPid":self.keeper.as_ref().and_then(|k|k.core_pid()),"sharedName":self.keeper.as_ref().and_then(|k|k.adapter_name())})
     }
+    pub(crate) fn dns_metrics(&self) -> [Option<crate::traffic::MetricsEndpoint>; 2] {
+        [
+            self.host_control
+                .as_ref()
+                .and_then(|control| control.metrics.clone()),
+            self.keeper.as_ref().and_then(keeper::Client::dns_metrics),
+        ]
+    }
     pub fn start(
         &mut self,
         exe: &Path,
@@ -2212,7 +2220,7 @@ impl Manager {
         let (applications, endpoint) =
             update::application_provider(service, plan.applications.take(), options.as_ref())?;
         let worker_exe = worker_executable(service)?;
-        let control = crate::live::Control::new(&plan.worker)?;
+        let control = crate::live::Control::for_worker(&plan.worker)?;
         let core = native::spawn_tun_with_token(
             &worker_exe,
             token,

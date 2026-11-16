@@ -45,3 +45,26 @@ it('detects credential and rule-order edits and distinguishes a missing applied 
   );
   expect(matchesApplied(a, null)).toBe(false);
 });
+it('ignores saved resolver telemetry in generated graphs and still detects DNS changes', () => {
+  const first = { address: '192.0.2.1', domains: ['domain:private.example'] };
+  const last = { address: '192.0.2.1' };
+  const draft = { dns: { tag: 'wdg-global', servers: [first, last] } };
+  const previous = {
+    dns: {
+      ...draft.dns,
+      servers: [
+        { ...first, id: 'wra-AAAAAAAAAAAAAAAAAAAAAA' },
+        { ...last, id: 'wra-BBBBBBBBBBBBBBBBBBBBBB' },
+      ],
+    },
+  };
+  expect(matchesApplied(draft, previous, true)).toBe(true);
+  expect(matchesApplied(draft, previous)).toBe(false);
+  expect(
+    matchesApplied(
+      draft,
+      { dns: { ...previous.dns, servers: [...previous.dns.servers].reverse() } },
+      true,
+    ),
+  ).toBe(false);
+});

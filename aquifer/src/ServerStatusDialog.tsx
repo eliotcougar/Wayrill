@@ -19,6 +19,7 @@ const actionNames = {
   distUpgrade: 'Full upgrade',
   upgradePackage: 'Package update',
   restartXray: 'Xray restart',
+  restartNginx: 'nginx restart',
   reboot: 'Server reboot',
   applyConfig: 'Configuration apply',
 };
@@ -121,6 +122,10 @@ export default function ServerStatusDialog({
   const pages = Math.max(1, Math.ceil(packages.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
   const xray = status?.xray;
+  const services = [
+    ...(xray?.services ?? []).map((service) => ({ service, source: 'xray' })),
+    ...(status?.nginxServices ?? []).map((service) => ({ service, source: 'nginx' })),
+  ];
   const running = !!xray?.processes.length || xray?.services.some((s) => s.subState === 'running');
   const daemonState = running
     ? 'Running'
@@ -348,57 +353,6 @@ export default function ServerStatusDialog({
               </p>
               {xray?.versionError && <p className="status-warning">{xray.versionError}</p>}
               {xray?.error && <p className="status-warning">{xray.error}</p>}
-              {!!xray?.services.length && (
-                <table className="data-table status-table">
-                  <thead>
-                    <tr>
-                      <th>Service</th>
-                      <th>State</th>
-                      <th>PID</th>
-                      <th>Active since</th>
-                      <th>
-                        <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {xray.services.map((service) => (
-                      <tr key={service.name}>
-                        <td>
-                          <strong>{service.name}</strong>
-                          {service.unitFileState && <small>{service.unitFileState}</small>}
-                          {service.needsDaemonReload && (
-                            <small className="status-warning">Unit definition changed</small>
-                          )}
-                        </td>
-                        <td>
-                          {service.activeState} · {service.subState}
-                        </td>
-                        <td>{service.mainPid ?? '—'}</td>
-                        <td>{service.startedAt ?? '—'}</td>
-                        <td>
-                          <button
-                            className="secondary-button"
-                            disabled={locked || !!confirmation}
-                            aria-label={`Restart ${service.name}`}
-                            onClick={() =>
-                              setConfirmation({
-                                title: `Restart ${service.name}?`,
-                                detail:
-                                  'Existing Xray connections may close. The configuration file is left unchanged.',
-                                request: { action: 'restartXray', service: service.name },
-                              })
-                            }
-                          >
-                            <RotateCw size={14} />
-                            Restart
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
               {!!xray?.processes.length && (
                 <ul className="status-processes">
                   {xray.processes.map((process) => (
@@ -418,6 +372,68 @@ export default function ServerStatusDialog({
                 <p className="muted">No Xray process visible to this account.</p>
               )}
             </section>
+            {!!services.length && (
+              <section>
+                <h3 id="server-status-services">Services</h3>
+                <table className="data-table status-table" aria-labelledby="server-status-services">
+                  <thead>
+                    <tr>
+                      <th>Service</th>
+                      <th>State</th>
+                      <th>PID</th>
+                      <th>Active since</th>
+                      <th>
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {services.map(({ service, source }) => (
+                      <tr key={`${source}:${service.name}`}>
+                        <td>
+                          <strong>{service.name}</strong>
+                          {service.unitFileState && <small>{service.unitFileState}</small>}
+                          {service.needsDaemonReload && (
+                            <small className="status-warning">Unit definition changed</small>
+                          )}
+                        </td>
+                        <td>
+                          {service.activeState}
+                          {service.subState && ` · ${service.subState}`}
+                        </td>
+                        <td>{service.mainPid ?? '—'}</td>
+                        <td>{service.startedAt ?? '—'}</td>
+                        <td>
+                          {service.name.endsWith('.service') && (
+                            <button
+                              className="secondary-button"
+                              disabled={locked || !!confirmation}
+                              aria-label={`Restart ${service.name}`}
+                              onClick={() =>
+                                setConfirmation({
+                                  title: `Restart ${service.name}?`,
+                                  detail:
+                                    source === 'nginx'
+                                      ? 'Existing connections through nginx may close.'
+                                      : 'Existing Xray connections may close. The configuration file is left unchanged.',
+                                  request: {
+                                    action: source === 'nginx' ? 'restartNginx' : 'restartXray',
+                                    service: service.name,
+                                  },
+                                })
+                              }
+                            >
+                              <RotateCw size={14} />
+                              Restart
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
             <section>
               <h3>
                 APT updates{' '}

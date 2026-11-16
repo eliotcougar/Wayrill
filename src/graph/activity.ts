@@ -15,9 +15,12 @@ export type ActivitySnapshot = {
   state: 'collecting' | 'stopped';
   /** Routing matches in the last two seconds, grouped by compiled rule index. */
   rules: { index: number; matches: number }[];
+  resolvers?: { id: string; attempts: number }[];
 };
+type ActivityPath = { edges: string[]; ports: string[] };
 export type ActivityPlan = {
-  rules: Map<number, { edges: string[]; ports: string[] }>;
+  rules: Map<number, ActivityPath>;
+  resolvers: Map<string, ActivityPath>;
   inlets: Map<string, string>;
 };
 export type GraphActivity = {
@@ -45,7 +48,7 @@ export function graphActivityPlan(
     const source = nodes.get(edge.source);
     if (!source || !nodes.has(edge.target)) continue;
     const kind = sourceConnectionKind(source.data, edge.sourceHandle ?? '');
-    if (kind !== 'traffic' && kind !== 'dns-traffic') continue;
+    if (kind !== 'traffic' && kind !== 'dns-traffic' && kind !== 'resolver') continue;
     let ports = outputs.get(edge.source);
     if (!ports) {
       ports = new Map();
@@ -65,7 +68,7 @@ export function graphActivityPlan(
   }
   const routing = jsonRecord(compilation.config.routing) ? compilation.config.routing : {};
   const rules = jsonArray(routing.rules) ? routing.rules : [];
-  const plan: ActivityPlan = { rules: new Map(), inlets: new Map() };
+  const plan: ActivityPlan = { rules: new Map(), resolvers: new Map(), inlets: new Map() };
   for (const node of nodes.values()) {
     if (!isGraphInbound(node.data.kind)) continue;
     const ports = getOutputPorts(node.data.kind, node.data);
@@ -73,25 +76,33 @@ export function graphActivityPlan(
     if (ports.includes(port))
       plan.inlets.set(String(node.data.settings.tag), activityPortKey(node.id, 'source', port));
   }
-  // The service can append an observed implicit fallback at rules.length.
-  for (let index = 0; index <= rules.length; index++) {
+  const path = (hops: readonly { nodeId: string; port: string }[]): ActivityPath => {
     const edges = new Set<string>();
     const ports = new Set<string>();
-    const add = (node: string, port: string) => {
-      for (const wire of outputs.get(node)?.get(port) ?? []) {
+    for (const { nodeId, port } of hops) {
+      for (const wire of outputs.get(nodeId)?.get(port) ?? []) {
         edges.add(wire.id);
         ports.add(wire.source);
         ports.add(wire.target);
       }
-    };
+    }
+    return { edges: [...edges], ports: [...ports] };
+  };
+  // The service can append an observed implicit fallback at rules.length.
+  for (let index = 0; index <= rules.length; index++) {
     const input = compilation.activityInputs?.[index];
-    if (input) add(input.nodeId, input.port);
     const trail =
       index === rules.length
         ? compilation.displayNames?.routingDefault
         : compilation.displayNames?.routing?.[index];
-    for (const hop of trail ?? []) add(hop.filterId, hop.outputId);
-    if (edges.size) plan.rules.set(index, { edges: [...edges], ports: [...ports] });
+    const hops = (trail ?? []).map((hop) => ({ nodeId: hop.filterId, port: hop.outputId }));
+    if (input) hops.unshift(input);
+    const route = path(hops);
+    if (route.edges.length) plan.rules.set(index, route);
+  }
+  for (const [id, hops] of Object.entries(compilation.resolverActivity ?? {})) {
+    const route = path(hops);
+    if (route.edges.length) plan.resolvers.set(id, route);
   }
   return plan;
 }
@@ -106,18 +117,19 @@ export function graphActivity(
   plan: ActivityPlan,
   rules: ActivitySnapshot['rules'],
   endpoints: readonly TrafficEndpoint[] = [],
+  resolvers: ActivitySnapshot['resolvers'] = [],
 ): GraphActivity {
   const edges = new Map<string, number>(),
     ports = new Map<string, number>();
   const increment = (map: Map<string, number>, key: string, count: number) =>
     map.set(key, (map.get(key) ?? 0) + count);
-  for (const { index, matches } of rules) {
-    if (!Number.isFinite(matches) || matches <= 0) continue;
-    const route = plan.rules.get(index);
-    if (!route) continue;
+  const add = (route: ActivityPath | undefined, matches: number) => {
+    if (!route || !Number.isFinite(matches) || matches <= 0) return;
     for (const id of route.edges) increment(edges, id, matches);
     for (const key of route.ports) increment(ports, key, matches);
-  }
+  };
+  for (const { index, matches } of rules) add(plan.rules.get(index), matches);
+  for (const { id, attempts } of resolvers) add(plan.resolvers.get(id), attempts);
   const levels = new Map([...ports].map(([key, count]) => [key, activityIntensity(count)]));
   // Only the main source port uses throughput; never smear its bytes across branches.
   for (const key of plan.inlets.values()) levels.delete(key);

@@ -18,7 +18,12 @@ describe('FakeDNS pools and resolver graph', () => {
       compiled = compileRuntimeGraph(graph);
     expect(compiled.config).not.toHaveProperty('fakedns');
     expect((compiled.config.dns as { servers: unknown[] }).servers).toEqual([
-      { address: 'fakedns', domains: ['regexp:.*'], skipFallback: true, finalQuery: false },
+      expect.objectContaining({
+        address: 'fakedns',
+        domains: ['regexp:.*'],
+        skipFallback: true,
+        finalQuery: false,
+      }),
       expect.objectContaining({ address: '1.1.1.1', skipFallback: false }),
     ]);
     expect(getOutputPorts('fakedns')).toEqual([]);

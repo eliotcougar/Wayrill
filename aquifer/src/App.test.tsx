@@ -461,6 +461,10 @@ it('paginates full-upgrade removals without hiding the remaining changes', async
   expect(section.querySelectorAll('tbody tr')).toHaveLength(100);
 });
 it('reads server health without downloading a configuration', async () => {
+  vi.mocked(client.serverStatus).mockResolvedValueOnce({
+    ...serverStatus,
+    nginxServices: [{ ...serverStatus.xray.services[0], name: 'nginx.service', mainPid: 81 }],
+  });
   await act(async () => button('Server status').click());
   expect(client.serverStatus).toHaveBeenCalledWith('FlauntVPN');
   expect(client.read).not.toHaveBeenCalled();
@@ -468,12 +472,22 @@ it('reads server health without downloading a configuration', async () => {
   expect(dialog.open).toBe(true);
   expect(dialog.textContent).toContain('Required');
   expect(dialog.textContent).toContain('Running');
-  expect(dialog.textContent).toContain('xray.service');
+  const rows = [...dialog.querySelectorAll('[aria-labelledby="server-status-services"] tbody tr')];
+  expect(rows.map((row) => row.querySelector('strong')?.textContent)).toEqual([
+    'xray.service',
+    'nginx.service',
+  ]);
+  expect(rows[0].querySelector('[aria-label="Restart xray.service"]')).not.toBeNull();
+  expect(rows[1].textContent).toContain('active · running');
+  expect(rows[1].textContent).toContain('81');
+  expect(rows[1].querySelector('[aria-label="Restart nginx.service"]')).not.toBeNull();
   expect(dialog.textContent).toContain('1 upgrade');
   expect(dialog.textContent).toContain('2 packages kept back');
   expect(dialog.textContent).toContain('Available updates from cached package lists');
   expect(dialog.textContent).toContain('26.10.17');
   expect(dialog.textContent).toContain('SSH user: root');
+  await act(async () => button('Refresh').click());
+  expect(dialog.textContent).not.toContain('nginx.service');
 });
 it('disconnects before clearing a remote configuration', async () => {
   await act(async () => button('Read server').click());
@@ -537,19 +551,32 @@ it('requires confirmation for package installation and pins the row version', as
   expect(button('Reboot server').disabled).toBe(true);
   expect(host.querySelector('progress')).not.toBeNull();
 });
-it('does not submit a cancelled reboot or restart', async () => {
+it('does not submit a cancelled reboot', async () => {
   await act(async () => button('Server status').click());
   await act(async () => button('Reboot server').click());
   await act(async () => button('Cancel').click());
   expect(client.startAction).not.toHaveBeenCalled();
-  await act(async () => button('Restart').click());
-  expect(host.querySelector('[role="alertdialog"]')?.textContent).toContain(
-    'Restart xray.service?',
-  );
+});
+it.each([
+  ['xray.service', 'restartXray'],
+  ['nginx.service', 'restartNginx'],
+] as const)('confirms restart of %s before submitting it', async (service, action) => {
+  vi.mocked(client.serverStatus).mockResolvedValueOnce({
+    ...serverStatus,
+    nginxServices: [{ ...serverStatus.xray.services[0], name: 'nginx.service', mainPid: 81 }],
+  });
+  await act(async () => button('Server status').click());
+  const restart = () =>
+    host.querySelector<HTMLButtonElement>(`[aria-label="Restart ${service}"]`)!.click();
+  await act(async () => restart());
+  expect(host.querySelector('[role="alertdialog"]')?.textContent).toContain(`Restart ${service}?`);
+  await act(async () => button('Cancel').click());
+  expect(client.startAction).not.toHaveBeenCalled();
+  await act(async () => restart());
   await act(async () => button('Confirm').click());
-  expect(client.startAction).toHaveBeenCalledWith(
+  expect(client.startAction).toHaveBeenCalledExactlyOnceWith(
     'FlauntVPN',
-    expect.objectContaining({ action: 'restartXray', service: 'xray.service' }),
+    expect.objectContaining({ action, service }),
   );
 });
 it('retains a running job when its progress window closes', async () => {

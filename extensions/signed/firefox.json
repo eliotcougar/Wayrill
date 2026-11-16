@@ -1,8 +1,8 @@
 {
-  "version": "0.4.0",
+  "version": "0.7.1",
   "id": "wayrill-companion@eliotcougar.github.io",
-  "sha256": "1feefc143b070ac0ad48ebe2809589b480ce268d505be9e38c53cb235b9ca13a",
+  "sha256": "5a5bc5d1d51dbe77eb3caf0c179169b6d6939f09e7df378d767ca1ce9cb1c0e2",
   "signedBy": "Mozilla Add-ons",
   "distribution": "unlisted",
-  "download": "https://addons.mozilla.org/firefox/downloads/file/5194430/5cdc8e225bf54a9eb9e3-0.4.0.xpi"
+  "download": "https://addons.mozilla.org/firefox/downloads/file/5262852/5cdc8e225bf54a9eb9e3-0.7.1.xpi"
 }

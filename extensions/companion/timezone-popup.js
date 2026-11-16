@@ -129,7 +129,7 @@ outbound.addEventListener('change', () => {
   selection = item ? { groupId: item.groupId, entryId: item.entryId, version } : undefined;
   controls();
 });
-/** @param {{supported:boolean,mode:string,zone:string,revision:number,nativeZone?:string,selection?:import('./timezone.js').Selection,error?:string,name?:string}} result */
+/** @param {{supported:boolean,mode:string,zone:string,revision:number,nativeZone?:string,selection?:import('./timezone.js').Selection,error?:string,name?:string,restartRequired?:boolean}} result */
 function show(result) {
   revision = result.revision;
   supported = result.supported;
@@ -146,9 +146,11 @@ function show(result) {
   status.textContent = !result.supported
     ? 'Native timezone override is unavailable in this browser.'
     : (result.error ??
-      (result.mode === 'off'
-        ? 'Off'
-        : `${result.nativeZone ?? result.zone}${result.name ? ' · ' + result.name : ''}`));
+      (result.restartRequired
+        ? 'Saved. Restart Firefox to apply.'
+        : result.mode === 'off'
+          ? 'Off'
+          : `${result.nativeZone ?? result.zone}${result.name ? ' · ' + result.name : ''}`));
 }
 controls();
 void timezoneMessage(api, { type: 'timezone.get' })

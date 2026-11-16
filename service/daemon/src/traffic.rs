@@ -19,6 +19,103 @@ use windows_sys::Win32::Security::Cryptography::{
 pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
 const MIN_RATE_INTERVAL: Duration = Duration::from_secs(1);
 const HISTORY_LIMIT: usize = 300;
+const RESOLVER_WINDOW: Duration = Duration::from_secs(4);
+
+type ResolverCounts = BTreeMap<String, u64>;
+type ResolverSamples = [Option<ResolverCounts>; 3];
+
+pub(crate) fn instrument_resolvers(config: &mut Value) {
+    let Some(dns) = config.get_mut("dns").and_then(Value::as_object_mut) else {
+        return;
+    };
+    // This tag identifies a Wayrill-generated DNS graph. Authored script
+    // resolvers can use their own server IDs as part of DNS selection.
+    if dns.get("tag").and_then(Value::as_str) != Some("wdg-global")
+        || dns.keys().any(|key| key.eq_ignore_ascii_case("script"))
+    {
+        return;
+    }
+    if let Some(servers) = dns.get_mut("servers").and_then(Value::as_array_mut) {
+        // Resource projection can disable entries in place. Keeping their positions
+        // lets the editor address the same branch across restarts and reloads.
+        for (index, server) in servers.iter_mut().enumerate() {
+            if let Some(server) = server.as_object_mut() {
+                server.retain(|key, _| !key.eq_ignore_ascii_case("id"));
+                let slot = crate::tags::encode(&(index as u128).to_be_bytes());
+                server.insert("id".into(), json!(format!("wra-{slot}")));
+            }
+        }
+    }
+}
+
+pub(crate) fn is_resolver_id(id: &str) -> bool {
+    id.len() == 26
+        && id.strip_prefix("wra-").is_some_and(|suffix| {
+            suffix
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        })
+}
+
+fn resolver_counts(value: &Value) -> Option<ResolverCounts> {
+    let servers = value["resolver"].as_object()?;
+    (servers.len() <= 1024).then(|| {
+        servers
+            .iter()
+            .filter_map(|(id, row)| {
+                let count = row["attempts"].as_u64()?;
+                is_resolver_id(id).then(|| (id.clone(), count))
+            })
+            .collect()
+    })
+}
+
+#[derive(Default)]
+struct ResolverActivity {
+    previous: ResolverSamples,
+    recent: ResolverCounts,
+    observed_at: Option<Instant>,
+}
+
+impl ResolverActivity {
+    fn record(&mut self, samples: ResolverSamples, now: Instant) {
+        self.recent.clear();
+        let consecutive = self
+            .observed_at
+            .is_some_and(|last| now.saturating_duration_since(last) < RESOLVER_WINDOW);
+        for (previous, current) in self.previous.iter_mut().zip(samples) {
+            if consecutive {
+                if let (Some(previous), Some(current)) = (previous.as_ref(), current.as_ref()) {
+                    for (id, count) in current {
+                        let delta =
+                            count.saturating_sub(previous.get(id).copied().unwrap_or(*count));
+                        if delta > 0 {
+                            let attempts = self.recent.entry(id.clone()).or_default();
+                            *attempts = attempts.saturating_add(delta);
+                        }
+                    }
+                }
+            }
+            // An unavailable source must establish a fresh baseline on recovery.
+            *previous = current;
+        }
+        self.observed_at = Some(now);
+    }
+
+    fn snapshot(&self, now: Instant) -> Value {
+        if self
+            .observed_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= RESOLVER_WINDOW)
+        {
+            return json!([]);
+        }
+        json!(self
+            .recent
+            .iter()
+            .map(|(id, attempts)| json!({"id":id,"attempts":attempts}))
+            .collect::<Vec<_>>())
+    }
+}
 
 /// Stamp acquisition before handing counters back to the lifecycle coordinator.
 /// Waiting for its lock is not part of the measured traffic interval.
@@ -32,12 +129,22 @@ const READ_BUDGET: Duration = Duration::from_millis(800);
 
 #[derive(Clone)]
 pub struct Bridge {
-    address: SocketAddr,
-    password: String,
+    endpoint: MetricsEndpoint,
     pub config: Arc<Value>,
     pub control_rule: Value,
     outbound_sources: Arc<crate::loopback::CounterSources>,
 }
+
+pub(crate) const METRICS_HOST: &str = "wayrill-metrics.internal";
+
+/// An authenticated metrics route on a core's existing private SOCKS listener.
+/// Serialized only over the inherited keeper pipe, never in desktop status.
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct MetricsEndpoint {
+    address: SocketAddr,
+    password: String,
+}
+
 impl Bridge {
     pub fn new(config: &Value) -> Result<Self> {
         let listener = crate::sockets::reserve_loopback(config)?;
@@ -106,8 +213,7 @@ impl Bridge {
             .unwrap()
             .insert(0, control_rule.clone());
         Ok(Self {
-            address,
-            password,
+            endpoint: MetricsEndpoint::new(address, password),
             config: Arc::new(run),
             control_rule,
             outbound_sources: Arc::default(),
@@ -118,7 +224,11 @@ impl Bridge {
         self
     }
     pub fn read(&self) -> Result<Sample> {
-        self.read_inner()
+        self.read_until(Instant::now() + READ_BUDGET)
+    }
+    fn read_until(&self, deadline: Instant) -> Result<Sample> {
+        self.endpoint
+            .read(deadline)
             .and_then(|mut sample| {
                 project_outbound_counters(&mut sample.counters, &self.outbound_sources)?;
                 Ok(sample)
@@ -130,9 +240,19 @@ impl Bridge {
             )
             })
     }
-    fn read_inner(&self) -> std::io::Result<Sample> {
-        let deadline = Instant::now() + READ_BUDGET;
-        let mut stream = TcpStream::connect_timeout(&self.address, READ_BUDGET)?;
+}
+
+impl MetricsEndpoint {
+    pub(crate) fn new(address: SocketAddr, password: String) -> Self {
+        Self { address, password }
+    }
+
+    fn read(&self, deadline: Instant) -> std::io::Result<Sample> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        let mut stream = TcpStream::connect_timeout(&self.address, remaining)?;
         fn budget(stream: &TcpStream, deadline: Instant) -> std::io::Result<()> {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -189,7 +309,7 @@ impl Bridge {
         if pair != [1, 0] {
             return Err(invalid());
         }
-        let host = b"wayrill-metrics.internal";
+        let host = METRICS_HOST.as_bytes();
         let mut request = vec![5, 1, 0, 3, host.len() as u8];
         request.extend_from_slice(host);
         request.extend_from_slice(&80u16.to_be_bytes());
@@ -265,6 +385,48 @@ impl Bridge {
             }
         }
         sample_response(&response)
+    }
+}
+
+pub(crate) struct MetricsRequest {
+    pub generation: u64,
+    pub revision: u64,
+    pub counter_epoch: u64,
+    pub main: Bridge,
+    pub workers: [Option<MetricsEndpoint>; 2],
+}
+
+pub(crate) struct MetricsReading {
+    pub generation: u64,
+    pub revision: u64,
+    pub counter_epoch: u64,
+    pub traffic: Result<Sample>,
+    pub observed_at: Instant,
+    pub resolvers: ResolverSamples,
+}
+
+impl MetricsRequest {
+    pub fn read(self) -> MetricsReading {
+        // All endpoints share the existing budget. A stopped worker cannot
+        // hold up lifecycle monitoring for another full metrics timeout.
+        let deadline = Instant::now() + READ_BUDGET;
+        let traffic = self.main.read_until(deadline);
+        let main = traffic
+            .as_ref()
+            .ok()
+            .and_then(|sample| resolver_counts(&sample.counters));
+        let [host, ics] = self.workers.map(|endpoint| {
+            let sample = endpoint?.read(deadline).ok()?;
+            resolver_counts(&sample.counters)
+        });
+        MetricsReading {
+            generation: self.generation,
+            revision: self.revision,
+            counter_epoch: self.counter_epoch,
+            traffic,
+            observed_at: Instant::now(),
+            resolvers: [main, host, ics],
+        }
     }
 }
 
@@ -390,14 +552,18 @@ fn parse_http_metrics(bytes: &[u8]) -> Result<Value> {
             "Missing traffic counters.",
         ));
     }
-    Ok(Value::Object(serde_json::Map::from_iter([
+    let mut metrics = serde_json::Map::from_iter([
         ("inbound".into(), value["stats"]["inbound"].take()),
         ("outbound".into(), value["stats"]["outbound"].take()),
         (
             "observatory".into(),
             crate::observation::sanitize(&value["observatory"]),
         ),
-    ])))
+    ]);
+    if value["stats"]["resolver"].is_object() {
+        metrics.insert("resolver".into(), value["stats"]["resolver"].take());
+    }
+    Ok(Value::Object(metrics))
 }
 
 #[derive(Default, Clone, Copy)]
@@ -589,6 +755,7 @@ pub struct Traffic {
     accumulated: Counts,
     session: Counts,
     counters: [BTreeMap<String, Endpoint>; 2],
+    resolver_activity: ResolverActivity,
     last: Option<Instant>,
     started: Instant,
     history: VecDeque<Point>,
@@ -631,11 +798,12 @@ impl Traffic {
         if let Ok(saved) = recovered {
             accumulated = saved;
         }
-        Ok(Self{owner:owner.into(),path,accumulated,session:Counts::default(),counters:Default::default(),last:None,started:Instant::now(),history:VecDeque::new(),sample_id:0,generation:0,revision:0,counter_epoch:0,rebaseline:false,state:"stopped",error:None,last_persist:Instant::now(),dirty:false,
+        Ok(Self{owner:owner.into(),path,accumulated,session:Counts::default(),counters:Default::default(),resolver_activity:Default::default(),last:None,started:Instant::now(),history:VecDeque::new(),sample_id:0,generation:0,revision:0,counter_epoch:0,rebaseline:false,state:"stopped",error:None,last_persist:Instant::now(),dirty:false,
             storage_blocked,persistence_error:storage_blocked.then_some("Saved traffic totals could not be loaded. The existing file is preserved; new totals are session-only until the file is repaired.")})
     }
     pub fn begin(&mut self, generation: u64, revision: u64, config: &Value) {
         self.generation = generation;
+        self.resolver_activity = ResolverActivity::default();
         self.rebaseline = false;
         self.revision = revision;
         self.session = Counts::default();
@@ -668,7 +836,23 @@ impl Traffic {
         }
     }
     pub fn revision(&mut self, revision: u64) {
+        if self.revision != revision {
+            self.resolver_activity = ResolverActivity::default();
+        }
         self.revision = revision;
+    }
+    pub(crate) fn record_resolvers(
+        &mut self,
+        revision: u64,
+        samples: ResolverSamples,
+        observed_at: Instant,
+    ) {
+        if self.revision == revision {
+            self.resolver_activity.record(samples, observed_at);
+        }
+    }
+    pub(crate) fn resolver_activity(&self) -> Value {
+        self.resolver_activity.snapshot(Instant::now())
     }
     pub fn include_outbound(&mut self, tag: &str) {
         self.counters[EndpointScope::Outbound as usize]
@@ -805,6 +989,7 @@ impl Traffic {
     }
     pub fn stopped(&mut self) {
         self.state = "stopped";
+        self.resolver_activity = ResolverActivity::default();
         self.error = None;
         self.last = None;
         let _ = self.persist();
@@ -1273,8 +1458,8 @@ mod tests {
     fn reads_a_complete_authenticated_response_without_waiting_for_socket_eof() {
         for large in [false, true] {
             let bridge = Bridge::new(&config()).unwrap();
-            let listener = TcpListener::bind(bridge.address).unwrap();
-            let password = bridge.password.clone();
+            let listener = TcpListener::bind(bridge.endpoint.address).unwrap();
+            let password = bridge.endpoint.password.clone();
             let server = std::thread::spawn(move || {
                 let (mut stream, _) = listener.accept().unwrap();
                 stream
@@ -1650,6 +1835,66 @@ mod tests {
         assert_eq!(
             b.config["routing"]["rules"][0]["outboundTag"],
             "existing-metrics"
+        );
+    }
+    #[test]
+    fn resolver_instrumentation_handles_retained_profiles_in_server_order() {
+        let retained = json!({"dns":{"tag":"wdg-global","servers":[
+            {"address":"192.0.2.53","domains":["full:example.org"]},
+            {"address":"192.0.2.53","id":"wra-zzzzzzzzzzzzzzzzzzzzzz"},
+            {"address":"fakedns"}
+        ]}});
+        let mut runtime = retained.clone();
+        instrument_resolvers(&mut runtime);
+        assert_eq!(
+            runtime["dns"]["servers"],
+            json!([
+                {"address":"192.0.2.53","domains":["full:example.org"],"id":"wra-AAAAAAAAAAAAAAAAAAAAAA"},
+                {"address":"192.0.2.53","id":"wra-AAAAAAAAAAAAAAAAAAAAAQ"},
+                {"address":"fakedns","id":"wra-AAAAAAAAAAAAAAAAAAAAAg"}
+            ])
+        );
+        assert!(retained["dns"]["servers"][0].get("id").is_none());
+        let mut scripted = retained;
+        scripted["dns"]["script"] = json!("return servers[1]:Query()");
+        let saved = scripted.clone();
+        instrument_resolvers(&mut scripted);
+        assert_eq!(scripted, saved);
+    }
+
+    #[test]
+    fn resolver_activity_keeps_independent_baselines_and_expires() {
+        let at = Instant::now();
+        let preference = "wra-AAAAAAAAAAAAAAAAAAAAAA";
+        let fallback = "wra-BBBBBBBBBBBBBBBBBBBBBB";
+        let source = |id: &str, count| Some(BTreeMap::from([(id.into(), count)]));
+        let mut activity = ResolverActivity::default();
+        activity.record([None, source(preference, 50), source(fallback, 25)], at);
+        assert_eq!(activity.snapshot(at), json!([]));
+        activity.record(
+            [None, source(preference, 52), source(fallback, 25)],
+            at + SAMPLE_INTERVAL,
+        );
+        assert_eq!(
+            activity.snapshot(at + SAMPLE_INTERVAL),
+            json!([{"id":preference,"attempts":2}])
+        );
+        activity.record([None, None, source(fallback, 26)], at + SAMPLE_INTERVAL * 2);
+        assert_eq!(
+            activity.snapshot(at + SAMPLE_INTERVAL * 2),
+            json!([{"id":fallback,"attempts":1}])
+        );
+        assert_eq!(
+            activity.snapshot(at + SAMPLE_INTERVAL * 2 + RESOLVER_WINDOW),
+            json!([])
+        );
+        activity.record(
+            [None, source(preference, 100), source(fallback, 27)],
+            at + SAMPLE_INTERVAL * 3,
+        );
+        assert_eq!(
+            activity.snapshot(at + SAMPLE_INTERVAL * 3),
+            json!([{"id":fallback,"attempts":1}])
         );
     }
 }

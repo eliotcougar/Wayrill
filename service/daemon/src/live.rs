@@ -15,11 +15,27 @@ pub struct Control {
     pub config: Arc<Value>,
     address: String,
     password: String,
-    rule: Value,
+    rules: Vec<Value>,
+    pub(crate) metrics: Option<crate::traffic::MetricsEndpoint>,
     observation: Arc<OnceLock<crate::observation::GroupPlan>>,
 }
 impl Control {
     pub fn new(config: &Value) -> Result<Self> {
+        Self::with_metrics(config, false)
+    }
+    pub(crate) fn for_worker(config: &Value) -> Result<Self> {
+        let observe_dns = config["dns"]["servers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|server| {
+                server["id"]
+                    .as_str()
+                    .is_some_and(crate::traffic::is_resolver_id)
+            });
+        Self::with_metrics(config, observe_dns)
+    }
+    fn with_metrics(config: &Value, observe_dns: bool) -> Result<Self> {
         let socket = crate::sockets::reserve_loopback(config)?;
         let address = socket
             .local_addr()
@@ -36,16 +52,26 @@ impl Control {
         if !run["routing"]["rules"].is_array() {
             run["routing"]["rules"] = json!([]);
         }
-        let rule = json!({"type":"field","inboundTag":[inbound],"outboundTag":tag});
+        let mut rules = Vec::with_capacity(2);
+        let metrics = observe_dns.then(|| {
+            let metrics_tag = format!("{tag}-m");
+            run["stats"] = json!({});
+            run["metrics"] = json!({"tag":metrics_tag});
+            rules.push(json!({"type":"field","inboundTag":[inbound],
+                "domain":[format!("full:{}", crate::traffic::METRICS_HOST)],"outboundTag":metrics_tag}));
+            crate::traffic::MetricsEndpoint::new(address, password.clone())
+        });
+        rules.push(json!({"type":"field","inboundTag":[inbound],"outboundTag":tag}));
         run["routing"]["rules"]
             .as_array_mut()
             .unwrap()
-            .insert(0, rule.clone());
+            .splice(..0, rules.iter().cloned());
         Ok(Self {
             config: Arc::new(run),
             address: address.to_string(),
             password,
-            rule,
+            rules,
+            metrics,
             observation: Arc::default(),
         })
     }
@@ -60,7 +86,7 @@ impl Control {
         routing["rules"]
             .as_array_mut()
             .unwrap()
-            .insert(0, self.rule.clone());
+            .splice(..0, self.rules.iter().cloned());
         routing
     }
     pub fn call(
@@ -407,7 +433,7 @@ mod tests {
         let c =
             Control::new(&json!({"inbounds":[],"outbounds":[],"routing":{"rules":[]}})).unwrap();
         let r = c.routing(&json!({"rules":[{"network":"tcp,udp","outboundTag":"block"}]}));
-        assert_eq!(r["rules"][0], c.rule);
+        assert_eq!(r["rules"][0], c.rules[0]);
         assert_eq!(r["rules"][1]["outboundTag"], "block");
         assert!(c.config["api"].get("listen").is_none());
         assert_eq!(c.config["api"]["services"], json!(["RoutingService"]));

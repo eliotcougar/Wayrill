@@ -93,12 +93,36 @@ class StatusTests(unittest.TestCase):
              patch('os.readlink', return_value='/usr/bin/xray (deleted)'), \
              patch('shutil.which', return_value='/usr/bin/systemctl'), \
              patch.dict(self.probe.xray_status.__globals__, {'command': command, 'read_text': lambda path: '0::/user.slice/user@1000.service/custom-xray.service\n'}):
-            status = self.probe.xray_status()
+            processes, units, _ = self.probe.daemon_processes()
+            status = self.probe.xray_status(processes, units)
         self.assertEqual(status['services'][0]['name'], 'custom-xray.service')
         self.assertEqual(status['services'][0]['mainPid'], 42)
         self.assertTrue(status['processes'][0]['replacedExecutable'])
         self.assertNotIn('user@1000.service', calls[-1])
         self.assertEqual(status['installedVersion'], '26.10.17')
+
+    def test_nginx_reports_a_stopped_unit_without_a_visible_process(self):
+        for state in ('loaded', 'not-found'):
+            output = ('Id=nginx.service\nLoadState={}\nActiveState=inactive\n'
+                      'SubState=dead\nMainPID=0\n').format(state).encode()
+            completed = types.SimpleNamespace(returncode=0, stdout=output, stderr=b'')
+            with self.subTest(state=state), patch('shutil.which', side_effect=lambda name: '/usr/bin/systemctl' if name == 'systemctl' else None), \
+                 patch('os.path.isfile', return_value=False), patch('subprocess.run', return_value=completed):
+                rows = self.probe.nginx_services(False)
+            if state == 'loaded':
+                self.assertEqual(rows[0]['name'], 'nginx.service')
+                self.assertEqual(rows[0]['activeState'], 'inactive')
+                self.assertIsNone(rows[0]['mainPid'])
+            else:
+                self.assertEqual(rows, [])
+
+    def test_running_nginx_without_systemd_has_a_process_row(self):
+        with patch('glob.glob', return_value=['/proc/42/exe']), \
+             patch('os.readlink', return_value='/usr/sbin/nginx (deleted)'), \
+             patch('shutil.which', return_value=None):
+            _, _, running = self.probe.daemon_processes()
+            rows = self.probe.nginx_services(running)
+        self.assertEqual([(row['name'], row['subState']) for row in rows], [('nginx', 'running')])
 
     def test_command_timeout_is_bounded(self):
         with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('apt-get', 18)):

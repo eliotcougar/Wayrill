@@ -1,0 +1,180 @@
+diff --git a/app/dns/nameserver.go b/app/dns/nameserver.go
+index a1cca96..7eac8af 100644
+--- a/app/dns/nameserver.go
++++ b/app/dns/nameserver.go
+@@ -15,6 +15,7 @@ import (
+ 	"github.com/xtls/xray-core/core"
+ 	"github.com/xtls/xray-core/features/dns"
+ 	"github.com/xtls/xray-core/features/routing"
++	"github.com/xtls/xray-core/features/stats"
+ )
+ 
+ // Server is the interface for Name Server.
+@@ -31,6 +32,7 @@ type Server interface {
+ // Client is the interface for DNS client.
+ type Client struct {
+ 	id            string
++	attempts      stats.Counter
+ 	server        Server
+ 	skipFallback  bool
+ 	expectedIPs   geodata.IPMatcher
+@@ -102,6 +104,12 @@ func NewClient(
+ 	updateRules func(bool),
+ ) (*Client, error) {
+ 	client := &Client{id: ns.Id}
++	if len(ns.Id) == 26 && strings.HasPrefix(ns.Id, "wra-") &&
++		strings.Trim(ns.Id[4:], "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") == "" {
++		if manager, ok := core.MustFromContext(ctx).GetFeature(stats.ManagerType()).(stats.Manager); ok {
++			client.attempts, _ = manager.GetOrRegisterCounter("resolver>>>" + ns.Id + ">>>queries>>>attempts")
++		}
++	}
+ 	err := core.RequireFeatures(ctx, func(dispatcher routing.Dispatcher) error {
+ 		// Create a new server for each client for now
+ 		server, err := NewServer(ctx, ns.Address.AsDestination(), dispatcher, disableCache, serveStale, serveExpiredTTL, clientIP)
+@@ -189,6 +197,9 @@ func (c *Client) QueryIP(ctx context.Context, domain string, option dns.IPOption
+ 
+ 	ctx, cancel := context.WithTimeout(ctx, c.timeoutMs)
+ 	ctx = session.ContextWithInbound(ctx, &session.Inbound{Tag: c.tag})
++	if c.attempts != nil && ctx.Err() == nil {
++		c.attempts.Add(1)
++	}
+ 	ips, ttl, err := c.server.QueryIP(ctx, domain, option)
+ 	cancel()
+ 
+diff --git a/app/dns/resolver_activity_test.go b/app/dns/resolver_activity_test.go
+new file mode 100644
+index 0000000..6866f47
+--- /dev/null
++++ b/app/dns/resolver_activity_test.go
+@@ -0,0 +1,131 @@
++package dns_test
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"strconv"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	wire "github.com/miekg/dns"
++	xnet "github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/core"
++	feature "github.com/xtls/xray-core/features/dns"
++	_ "github.com/xtls/xray-core/main/distro/all"
++)
++
++func TestWayrillResolverActivity(t *testing.T) {
++	var upstream atomic.Int64
++	packet, err := net.ListenPacket("udp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	started := make(chan struct{})
++	server := &wire.Server{
++		PacketConn:        packet,
++		NotifyStartedFunc: func() { close(started) },
++		Handler: wire.HandlerFunc(func(w wire.ResponseWriter, msg *wire.Msg) {
++			upstream.Add(1)
++			answer := new(wire.Msg).SetReply(msg)
++			answer.Answer = []wire.RR{&wire.A{Hdr: wire.RR_Header{
++				Name: msg.Question[0].Name, Rrtype: wire.TypeA, Class: wire.ClassINET, Ttl: 120,
++			}, A: net.IPv4(192, 0, 2, 1)}}
++			_ = w.WriteMsg(answer)
++		}),
++	}
++	errs := make(chan error, 1)
++	go func() { errs <- server.ActivateAndServe() }()
++	select {
++	case <-started:
++	case err := <-errs:
++		t.Fatal(err)
++	case <-time.After(5 * time.Second):
++		t.Fatal("DNS fixture did not start")
++	}
++	t.Cleanup(func() { _ = server.Shutdown() })
++	port := strconv.Itoa(packet.LocalAddr().(*net.UDPAddr).Port)
++
++	const preference = "wra-AAAAAAAAAAAAAAAAAAAAAA"
++	const fallback = "wra-BBBBBBBBBBBBBBBBBBBBBB"
++	const synthetic = "wra-CCCCCCCCCCCCCCCCCCCCCC"
++	const unused = "wra-DDDDDDDDDDDDDDDDDDDDDD"
++	const rejected = "wra-EEEEEEEEEEEEEEEEEEEEEE"
++	cfg := fmt.Sprintf(`{
++		"stats":{},"metrics":{"tag":"metrics"},
++		"fakeDns":{"ipPool":"198.18.0.0/24","poolSize":8},
++		"dns":{"queryStrategy":"UseIPv4","servers":[
++			{"address":"127.0.0.1","port":%s,"id":%q,"domains":["full:prefer.example"],"expectedIPs":["192.0.2.1"],"skipFallback":true},
++			{"address":"127.0.0.1","port":%s,"id":%q,"domains":["full:retry.example"],"expectedIPs":["203.0.113.1"],"skipFallback":true},
++			{"address":"fakedns","id":%q,"domains":["full:fake.example"],"skipFallback":true},
++			{"address":"127.0.0.1","port":%s,"id":%q},
++			{"address":"127.0.0.1","port":%s,"id":%q,"skipFallback":true,"domains":["full:unused.example"]}
++		]},
++		"outbounds":[{"protocol":"freedom","tag":"direct"}],
++		"routing":{"rules":[{"type":"field","domain":["full:metrics.example"],"outboundTag":"metrics"}]}
++	}`, port, preference, port, rejected, synthetic, port, fallback, port, unused)
++	instance, err := core.StartInstance("json", []byte(cfg))
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = instance.Close() })
++	client := instance.GetFeature(feature.ClientType()).(feature.Client)
++	lookup := func(domain string, fake bool, expected string) {
++		t.Helper()
++		ips, _, err := client.LookupIP(domain, feature.IPOption{IPv4Enable: true, FakeEnable: fake})
++		if err != nil || len(ips) != 1 || !expectedIP(expected, ips[0]) {
++			t.Fatalf("%s: %v %v, expected %s", domain, ips, err, expected)
++		}
++	}
++	lookup("prefer.example", false, "192.0.2.1")
++	lookup("prefer.example", false, "192.0.2.1")
++	if count := upstream.Load(); count != 1 {
++		t.Fatalf("cache hit made another upstream query: %d", count)
++	}
++	lookup("retry.example", false, "192.0.2.1")
++	lookup("fake.example", true, "198.18.0.0/24")
++	lookup("fake.example", false, "192.0.2.1")
++	if count := upstream.Load(); count != 4 {
++		t.Fatalf("expected cache miss, rejected preference, and two fallbacks, got %d", count)
++	}
++
++	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++		return core.Dial(ctx, instance, xnet.TCPDestination(xnet.DomainAddress("metrics.example"), 80))
++	}}
++	defer transport.CloseIdleConnections()
++	httpClient := &http.Client{Transport: transport, Timeout: 3 * time.Second}
++	response, err := httpClient.Get("http://metrics.example/debug/vars")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer response.Body.Close()
++	var metrics struct {
++		Stats struct {
++			Resolver map[string]struct{ Attempts int64 }
++		}
++	}
++	if response.StatusCode != http.StatusOK {
++		t.Fatalf("metrics HTTP status %d", response.StatusCode)
++	}
++	if err := json.NewDecoder(response.Body).Decode(&metrics); err != nil {
++		t.Fatal(err)
++	}
++	for id, want := range map[string]int64{
++		preference: 2, rejected: 1, fallback: 2, synthetic: 1, unused: 0,
++	} {
++		counter, found := metrics.Stats.Resolver[id]
++		if !found || counter.Attempts != want {
++			t.Errorf("%s: got %v (present %v), want %d", id, counter, found, want)
++		}
++	}
++}
++
++func expectedIP(expected string, ip xnet.IP) bool {
++	if _, subnet, err := net.ParseCIDR(expected); err == nil {
++		return subnet.Contains(ip)
++	}
++	return ip.Equal(net.ParseIP(expected))
++}

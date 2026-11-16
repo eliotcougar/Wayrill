@@ -11,6 +11,10 @@ export function compactTagId(hex: string): string {
 export function generatedTag(prefix: string, ...identity: (string | number)[]): string {
   return `${prefix}-${compactTagId(stableProfileKey(JSON.stringify(identity)))}`;
 }
+export const GENERATED_DNS_TAG = 'wdg-global';
+// The service installs these IDs on the running copy of this ordered server list.
+export const resolverActivityId = (index: number) =>
+  `wra-${compactTagId(index.toString(16).padStart(32, '0'))}`;
 export const observedTag = (tag: string) => `wob-${compactTagId(stableProfileKey(tag))}`;
 export const generatedTagPrefixes = [
   'wr-',

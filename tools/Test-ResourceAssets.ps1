@@ -8,6 +8,7 @@ $files = @(
     @{ path = 'geoip.dat'; asset = 'geoip-lite.dat'; sourceRepository = $repo },
     @{ path = 'geosite.dat'; asset = 'geosite.dat'; sourceRepository = $repo }
 )
+$previousApiToken = [Environment]::GetEnvironmentVariable('WAYRILL_GEODATA_API_TOKEN', 'Process')
 
 function Set-LatestRelease([string]$Tag) {
     $source = Join-Path $fixture $Tag
@@ -38,9 +39,15 @@ try {
 $root = Split-Path $PSScriptRoot -Parent
 $url = $args[-1]
 if ($url -eq 'https://api.github.com/repos/fixture/rules/releases/latest') {
+    if ($env:WAYRILL_GEODATA_API_TOKEN -and
+        ('--config' -notin $args -or '--no-location' -notin $args -or
+        [string]($input | Select-Object -First 1) -cne 'header = "Authorization: Bearer fixture_token"')) {
+        throw 'GitHub API credential was not passed via stdin with redirects disabled.'
+    }
     Get-Content -LiteralPath (Join-Path $root 'latest.json') -Raw
     exit 0
 }
+if ('--config' -in $args) { throw 'Asset request received GitHub API credentials.' }
 if ($url -notmatch '^https://github\.com/fixture/rules/releases/download/(release-[12])/(geoip-lite|geosite)\.dat$') {
     throw "Unexpected fixture request $url."
 }
@@ -49,11 +56,13 @@ exit 0
 '@ | Set-Content -LiteralPath (Join-Path $tools 'curl.ps1')
 
     $download = Join-Path $tools 'Get-ResourceAssets.ps1'
+    [Environment]::SetEnvironmentVariable('WAYRILL_GEODATA_API_TOKEN', $null, 'Process')
     Set-LatestRelease 'release-1'
     & $download
     Assert-InstalledRelease 'release-1'
 
     Set-LatestRelease 'release-2'
+    $env:WAYRILL_GEODATA_API_TOKEN = 'fixture_token'
     $corruptAsset = Join-Path $fixture 'release-2/geosite.dat'
     [IO.File]::WriteAllText($corruptAsset, 'releAse-2 geosite.dat')
     $failed = $false
@@ -72,6 +81,7 @@ exit 0
     & $download
     Assert-InstalledRelease 'release-2'
 } finally {
+    [Environment]::SetEnvironmentVariable('WAYRILL_GEODATA_API_TOKEN', $previousApiToken, 'Process')
     $absolute = [IO.Path]::GetFullPath($fixture)
     if ((Split-Path $absolute -Parent) -ne [IO.Path]::GetFullPath($FixtureParent).TrimEnd('\') -or
         (Split-Path $absolute -Leaf) -notmatch '^wayrill-resource-test-[a-f0-9]{32}$') { throw 'Unsafe resource fixture cleanup path.' }

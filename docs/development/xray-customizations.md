@@ -16,7 +16,7 @@ a change is compiled into Wayrill.
 | Main executable | `xray.exe`; upstream base plus the shared patches and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
-| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch) |
+| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch), [resolver activity](../../service/xray-patches/resolver-activity.patch) |
 | Initializers and additions | [core-init](../../service/core-init), [core-control](../../service/core-control), [tun-core](../../service/tun-core) |
 | Application of every change | [tools/Build-XrayCores.ps1](../../tools/Build-XrayCores.ps1) |
 | Main/source/patch/SDK/Wintun pins | [service/dependencies.json](../../service/dependencies.json) |
@@ -64,6 +64,21 @@ binary patch. The bounded log supplies observations rather than per-tab attribut
 | X13 | Per-flow policy-group selection telemetry | Shared | Private loopback SOCKS relay integration |
 | X14 | uTLS handshake deadline | Shared | Backport of [#7427](https://github.com/XTLS/Xray-core/pull/7427) |
 | X15 | Per-destination UDP routing with route-scoped FullCone | Worker | Adapts [#7346](https://github.com/XTLS/Xray-core/pull/7346) to the attributed Wayrill dispatcher |
+| X16 | DNS resolver attempt counters | Shared | Uses the existing stats manager and metrics handler. The query counter is a private hook. |
+
+### X16 — DNS resolver attempts
+
+The [resolver activity patch](../../service/xray-patches/resolver-activity.patch)
+changes `app/dns/nameserver.go`. The service assigns each generated resolver
+entry an opaque ID on the runtime copy, using the order of the compiled DNS
+servers. The ID identifies its graph branch independently of the transport
+routing tag. User-defined native DNS scripts retain their resolver IDs.
+Xray increments the counter as it enters that resolver, before cache lookup
+or FakeDNS synthesis. Configured resolvers that Xray skips contribute no glow.
+The service reads the counters through the existing authenticated metrics path
+and through the host TUN and ICS workers' private control listeners. The
+internal DNS bridge carries no resolver ID. Sampling keeps independent baselines
+per core and clears them when the applied revision or core generation changes.
 
 ### X15 — Per-destination UDP routing
 

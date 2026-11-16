@@ -1,13 +1,12 @@
 # Firefox Companion signing
 
-The Chromium and Firefox packages share the request-observation JavaScript, HTML
-and CSS. Chromium adds a separate background entry point and popup fragment for
-its native timezone override. Those files and its restoration-alarm
-permission are excluded from Firefox. Neither package requests debugger access.
-`tools/Build-CompanionExtension.mjs` generates Firefox's module event page,
-stable Gecko ID, minimum Firefox version, data-transmission declaration and
-independent release version from `extensions/signed/firefox.json`. No bundler,
-minifier, transpiler or third-party JavaScript library is used in the extension.
+The Chromium and Firefox packages share the routing popup, timezone controls
+and release version. Chromium uses a service worker and restoration alarms for
+live timezone changes. Firefox uses a module event page and applies the saved
+timezone when Firefox starts. Both use Wayrill's native bridge.
+`tools/Build-CompanionExtension.mjs` takes Firefox's Gecko ID, minimum version
+and data-transmission declaration from `extensions/companion/firefox.json`.
+No bundler, minifier, transpiler or third-party JavaScript library is used.
 
 ## Build and validate
 
@@ -26,14 +25,15 @@ Only the contents of the generated Firefox extension directory belong in the
 Mozilla upload ZIP, with `manifest.json` at its root. Do not upload the standalone
 Windows bridge package, app installer, test profiles or private QA files as the
 extension. The JavaScript is already readable. Provide a source-code archive
-containing `extensions/companion/`, `tools/Build-CompanionExtension.mjs`, `LICENSE`
-`extensions/signed/firefox.json` and the Node command above, so Mozilla can
+containing `extensions/companion/`, `tools/Build-CompanionExtension.mjs`,
+`LICENSE` and the Node command above, so Mozilla can
 reproduce the generated manifest.
 
 The stable signing ID is `wayrill-companion@eliotcougar.github.io`. Keep this ID
 when submitting updates: Firefox and the Windows native-host allowlist use it to
-identify the same add-on. Increment the Firefox release metadata version for
-every submitted update. Do not place AMO credentials or API secrets in source.
+identify the same add-on. Before each submission, check that the shared
+`extensions/companion/manifest.json` version is newer than the signed release.
+Do not place AMO credentials or API secrets in source.
 
 ## Submit
 
@@ -48,7 +48,9 @@ place. Keep the declaration accurate and include the
 [privacy text](../guide/companion-privacy.md) and native-app requirement in the
 submission. The native bridge source is in `service/companion/`; it accepts
 bounded route lookups and requests to open the local rule editor, not arbitrary
-commands or privileged service calls.
+commands or arbitrary service calls. The Time Zone panel also controls the
+current browser's saved timezone via that bridge. **Main outbound** and
+**Custom outbound** use the optional exit-IP lookup described in the privacy text.
 
 Download the Mozilla-signed XPI after signing and distribute that file. The
 unsigned ZIP cannot be installed permanently in normal Firefox. Self-distributed
@@ -79,6 +81,8 @@ load the generated manifest temporarily through `about:debugging` before signing
 
 Verify real request capture, subframes, navigation, and native route lookups.
 Check **Add to rule** both with Wayrill open and with only its service running.
+Save a manual zone in **Time Zone**, quit Firefox completely, then reopen and
+verify the zone. Repeat with **Off** to check restoration.
 Closing the popup and Firefox must leave the desktop app alive. Firefox owns a
 native-host job that kills its children on disconnect; the bridge uses Firefox's
 documented Windows breakaway behavior only for a Firefox caller. Chromium keeps

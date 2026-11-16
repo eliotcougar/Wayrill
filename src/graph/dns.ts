@@ -1,6 +1,6 @@
 import { enabledInboundGraph } from './inboundState';
-import { generatedTag } from './tags';
-import { setRoutingInput } from './routingTrace';
+import { generatedTag, GENERATED_DNS_TAG, resolverActivityId } from './tags';
+import { setRoutingInput, type RoutingInput } from './routingTrace';
 import { capturesSystemDns } from './dnsCapture';
 import { jsonArray, jsonRecord, parseJson } from './xrayJson';
 import { validateRuleSource, type RuleSource } from './ruleSourceModel';
@@ -612,16 +612,19 @@ export function dnsProblems(data: RuleNodeData, context?: DnsDiagnosticContext):
 
 export interface DnsFragment {
   dns: Record<string, unknown> & { servers: Record<string, unknown>[] };
+  resolverActivity?: Record<string, RoutingInput[]>;
   outbounds: Record<string, unknown>[];
   routing: { rules: Record<string, unknown>[]; balancers?: Record<string, unknown>[] };
   observatory?: unknown;
   burstObservatory?: unknown;
   fakedns?: unknown;
 }
-export function compileDnsGraph(
-  graph: GraphState,
-  options: { includePolicies?: boolean; resourcesResolved?: boolean } = {},
-): DnsFragment {
+export interface DnsCompileOptions {
+  includePolicies?: boolean;
+  resourcesResolved?: boolean;
+  includeResolverActivity?: boolean;
+}
+export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = {}): DnsFragment {
   graph = enabledInboundGraph(graph);
   graph = resolveGraph(options.resourcesResolved ? graph : resourceCompilationGraph(graph));
   const managedFakeDns = automaticFakeDns(graph);
@@ -692,16 +695,29 @@ export function compileDnsGraph(
     }
     return tag;
   };
+  const selector = connected(handler.id, 'resolver');
   const servers: Record<string, unknown>[] = [];
-  const addGroup = (id: string, rule?: DnsRoute) => {
+  const resolverActivity: DnsFragment['resolverActivity'] = options.includeResolverActivity
+    ? {}
+    : undefined;
+  const trackResolver = (output?: string) => {
+    if (!resolverActivity) return;
+    const hops = [{ nodeId: handler.id, port: 'resolver' }];
+    if (output !== undefined) hops.push({ nodeId: selector.id, port: output });
+    resolverActivity[resolverActivityId(servers.length)] = hops;
+  };
+  const addGroup = (id: string, output?: string, rule?: DnsRoute) => {
     const group = graph.nodes.find((n) => n.id === id);
     if (group?.data.kind === 'fakedns') {
       const problems = fakeDnsNodeProblems(group.data);
       if (problems.length) throw new Error(problems[0].message);
       const entries = fakeDnsServers(group.data);
-      for (const [index, entry] of entries.entries())
+      for (const [index, entry] of entries.entries()) {
+        const native =
+          typeof entry === 'string' ? { address: entry } : (entry as Record<string, unknown>);
+        trackResolver(output);
         servers.push({
-          ...(typeof entry === 'string' ? { address: entry } : (entry as Record<string, unknown>)),
+          ...native,
           ...(rule
             ? {
                 domains: listEntries(rule.domains),
@@ -715,6 +731,7 @@ export function compileDnsGraph(
             : {}),
           ...(managedFakeDns ? { finalQuery: false } : {}),
         });
+      }
       return;
     }
     if (!group || group.data.kind !== 'dns-servers')
@@ -745,6 +762,7 @@ export function compileDnsGraph(
             { nodeId: id, port: 'queries' },
           ),
         );
+      trackResolver(output);
       servers.push({
         address: entry.address,
         ...(literal(entry.address) ? { port: entry.port } : {}),
@@ -769,7 +787,6 @@ export function compileDnsGraph(
       });
     }
   };
-  const selector = connected(handler.id, 'resolver');
   let resolverOptions: Record<string, unknown> = {};
   if (selector.data.kind === 'dns-routing-filter') {
     check(selector.data);
@@ -785,13 +802,14 @@ export function compileDnsGraph(
     const fallback = () => {
       if (synthetic || f.fallbackMode !== 'disabled')
         for (const output of f.outputs.filter((o) => o.fallback))
-          addGroup(connected(selector.id, output.id).id);
+          addGroup(connected(selector.id, output.id).id, output.id);
     };
     if (!synthetic && f.fallbackFirst) fallback();
     for (const rule of f.rules.filter((r) => r.enabled))
-      addGroup(connected(selector.id, rule.output).id, rule);
+      addGroup(connected(selector.id, rule.output).id, rule.output, rule);
     if (synthetic) {
       // This port selects the pool, not its advanced native resolver entries.
+      trackResolver(FAKE_DNS_PORT);
       servers.push({
         address: 'fakedns',
         domains: ['regexp:.*'],
@@ -857,11 +875,12 @@ export function compileDnsGraph(
   }
   const pools = compileFakeDnsPools(graph);
   return {
+    ...(resolverActivity ? { resolverActivity } : {}),
     ...(pools === undefined ? {} : { fakedns: pools }),
     ...(policies?.observation ?? {}),
     dns: {
       servers,
-      tag: 'wdg-global',
+      tag: GENERATED_DNS_TAG,
       queryStrategy: s.queryStrategy,
       disableCache: s.disableCache,
       hosts: parseJson(String(s.hosts)),

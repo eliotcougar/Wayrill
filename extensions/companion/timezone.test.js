@@ -47,7 +47,7 @@ test('timezone channel completes independently of snapshot listeners and closes 
   assert.equal(closed, 2);
 });
 
-function fixture() {
+function fixture(live = true) {
   const events = {},
     calls = [],
     reloads = [],
@@ -135,12 +135,12 @@ function fixture() {
       observed = state.mode === 'off' ? state.systemZone : state.zone;
     return method === 'timezoneNotify' ? {} : structuredClone(state);
   };
-  const controller = new TimezoneController(
-    api,
+  const controller = new TimezoneController(api, {
+    live,
     request,
-    () => observed,
-    async () => {},
-  );
+    observed: () => observed,
+    sleep: async () => {},
+  });
   return {
     controller,
     events,
@@ -183,6 +183,36 @@ test('a refresh on the last allowed notification confirms the policy and reloads
   assert.equal(result.nativeZone, 'Asia/Tokyo');
   assert.equal(result.error, undefined);
   assert.deepEqual(f.reloads, [1]);
+});
+test('Firefox saves Main, Custom, Manual and Off for restart without live notifications or reloads', async () => {
+  const selection = { groupId: 'provider', entryId: 'chain', version: 7 };
+  for (const [mode, zone, outbound] of [
+    ['main', '', undefined],
+    ['custom', '', selection],
+    ['manual', 'Asia/Tokyo', undefined],
+  ]) {
+    const f = fixture(false);
+    await f.controller.read();
+    f.delay(100);
+    const pending = await f.controller.apply(mode, zone, outbound, f.state().revision);
+    assert.equal(pending.restartRequired, true);
+    assert.equal(f.state().mode, mode);
+    assert.equal(f.state().zone, 'Asia/Tokyo');
+    assert.deepEqual(f.state().selection, outbound);
+    f.delay(0);
+    const active = await f.controller.read();
+    assert.equal(active.nativeZone, 'Asia/Tokyo');
+    assert.equal(active.restartRequired, undefined);
+    f.delay(100);
+    const off = await f.controller.apply('off', '', undefined, f.state().revision);
+    assert.equal(off.mode, 'off');
+    assert.equal(off.restartRequired, true);
+    f.delay(0);
+    assert.equal((await f.controller.read()).nativeZone, 'Europe/Moscow');
+    assert.equal(f.calls.filter(([method]) => method === 'timezoneNotify').length, 0);
+    assert.equal(f.alarms.size, 0);
+    assert.deepEqual(f.reloads, []);
+  }
 });
 test('the old debugger preference migrates once, without overriding a service-owned policy', async () => {
   const f = fixture();

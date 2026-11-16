@@ -79,5 +79,7 @@ jobs:
           key: native-${{ runner.os }}-${{ matrix.component }}-${{ hashFiles('rust-toolchain.toml', '.node-version') }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: native-${{ runner.os }}-${{ matrix.component }}-${{ hashFiles('rust-toolchain.toml', '.node-version') }}-
       - name: Format, lint and test native code
+        env:
+          WAYRILL_GEODATA_API_TOKEN: ${{ matrix.component == 'service' && github.token || '' }}
         run: |
           & ./tools/Check-Native.ps1 -Component '${{ matrix.component }}'

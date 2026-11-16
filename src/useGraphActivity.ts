@@ -134,13 +134,13 @@ export default function useGraphActivity({
   }, [active, timestamp]);
   return useMemo(() => {
     if (!active || !plan) return noGraphActivity;
-    const matches =
+    const activity =
       recent &&
       recent.instanceId === instance &&
       recent.generation === generation &&
       recent.revision === revision
-        ? recent.rules
-        : [];
+        ? recent
+        : null;
     const endpoints =
       !ratesExpired &&
       traffic?.state === 'collecting' &&
@@ -150,6 +150,6 @@ export default function useGraphActivity({
       Date.now() - timestamp < 8000
         ? traffic.endpoints
         : [];
-    return graphActivity(plan, matches, endpoints);
+    return graphActivity(plan, activity?.rules ?? [], endpoints, activity?.resolvers);
   }, [active, plan, recent, instance, generation, revision, ratesExpired, traffic, timestamp]);
 }

@@ -323,7 +323,7 @@ impl Manager {
                 .map_or(Ok(()), crate::capture::Worker::stop)?;
             application_provider(service, plan.applications.clone(), options.as_ref())?
         };
-        let control = crate::live::Control::new(&plan.worker)?;
+        let control = crate::live::Control::for_worker(&plan.worker)?;
         let core = native::spawn_tun_with_token(
             &worker_exe,
             token,

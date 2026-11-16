@@ -10,7 +10,7 @@ use crate::{
     native::{validate_core, CoreIdentity, CoreProcess},
     proxy::ProxyManager,
     storage,
-    traffic::{Bridge, EndpointPageInput, Sample, Traffic},
+    traffic::{Bridge, EndpointPageInput, MetricsReading, MetricsRequest, Traffic},
 };
 use activation::{ActivationKind, KernelActivation};
 use serde::{Deserialize, Serialize};
@@ -1053,7 +1053,9 @@ impl Kernel {
             }
             "routing.activity" => {
                 let _: Empty = params(input)?;
-                Ok(self.events.routing.activity(&self.events.instance_id))
+                let mut activity = self.events.routing.activity(&self.events.instance_id);
+                activity["resolvers"] = self.statistics.resolver_activity();
+                Ok(activity)
             }
             "routing.log" => {
                 let p: crate::routing_log::Request = params(input)?;
@@ -2023,6 +2025,7 @@ impl Kernel {
         }
         let projection = self.resources.project(&profile.config)?;
         let mut network_config = self.network.configuration(&projection.config)?;
+        crate::traffic::instrument_resolvers(&mut network_config);
         let mut routing_log = crate::routing_log::instrument(
             &mut network_config,
             &profile.display_names,
@@ -2645,20 +2648,25 @@ impl Kernel {
         self.changed("network.changed");
     }
     // The metrics read runs outside the lifecycle lock. Ignore results from a replaced core.
-    pub fn traffic_request(&self) -> Option<(u64, u64, Bridge)> {
+    pub(crate) fn traffic_request(&self) -> Option<MetricsRequest> {
         if self.shutting_down
             || self.core_state != CoreState::Running
             || !self.statistics.due(Instant::now())
         {
             return None;
         }
-        self.statistics_bridge
-            .as_ref()
-            .map(|b| (self.generation, self.statistics.counter_epoch(), b.clone()))
+        Some(MetricsRequest {
+            generation: self.generation,
+            revision: self.revision(),
+            counter_epoch: self.statistics.counter_epoch(),
+            main: self.statistics_bridge.as_ref()?.clone(),
+            workers: self.tun.dns_metrics(),
+        })
     }
-    pub fn accept_traffic(&mut self, generation: u64, counter_epoch: u64, sample: Result<Sample>) {
+    pub(crate) fn accept_traffic(&mut self, reading: MetricsReading) {
+        let generation = reading.generation;
         if self.generation != generation
-            || self.statistics.counter_epoch() != counter_epoch
+            || self.statistics.counter_epoch() != reading.counter_epoch
             || self.core.is_none()
             || self.shutting_down
         {
@@ -2671,7 +2679,9 @@ impl Kernel {
         {
             return;
         }
-        match sample {
+        self.statistics
+            .record_resolvers(reading.revision, reading.resolvers, reading.observed_at);
+        match reading.traffic {
             Ok(value) => {
                 self.fake_dns_usage =
                     crate::fakedns::Usage::from_metrics(&value.counters["fakeDns"])

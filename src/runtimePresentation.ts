@@ -22,7 +22,7 @@ export function runtimePresentation(
     profileCurrent &&
     !personalRulesChanged &&
     snapshot.config.present &&
-    matchesApplied(draft?.config ?? null, runtime.savedConfig) &&
+    matchesApplied(draft?.config ?? null, runtime.savedConfig, !!draft?.resolverActivity) &&
     matchesCapture(draft?.capture, runtime.savedCapture) &&
     (!runtime.capabilities?.includes('xray.routingLog') ||
       (matchesCapture(draft?.displayNames?.routing, runtime.savedDisplayNames?.routing) &&

@@ -8,6 +8,8 @@ import { activityIntensity, activityPortKey, graphActivity, graphActivityPlan } 
 import type { TrafficEndpoint } from '../traffic';
 import { configureIcsGraph } from './internetSharing';
 import { importXrayConfig } from './xrayImport';
+import { FAKE_DNS_PORT } from './fakeDns';
+import { resolverActivityId } from './tags';
 
 it('lights only matched branches, even with a shared outbound, and retains provenance across worker cloning', () => {
   const graph = createProxyStarter();
@@ -118,6 +120,40 @@ it('lights routed DNS queries without lighting another resolver that shares the 
     activityIntensity(2),
   );
   expect(glow.ports.has(activityPortKey('local-dns', 'source', 'queries'))).toBe(false);
+});
+
+it('distinguishes resolver preferences, fallback, and FakeDNS even when the same server is reused', () => {
+  const graph = createDnsExample();
+  graph.nodes.push(makeNode('fakedns', { x: 0, y: 0 }, 'fake'));
+  graph.edges.push({
+    id: 'synthetic',
+    source: 'dns-routes',
+    sourceHandle: FAKE_DNS_PORT,
+    target: 'fake',
+    targetHandle: 'in',
+  });
+  graph.edges.find((edge) => edge.id === 'dns-local')!.target = 'remote-dns';
+  const compiled = structuredClone(compileRuntimeGraph(graph));
+  const servers = (
+    compiled.config.dns as { servers: { id?: string; tag?: string; address: string }[] }
+  ).servers;
+  const sameServer = servers.flatMap(({ address }, index) =>
+    address === 'https://1.1.1.1/dns-query' ? [index] : [],
+  );
+  expect(sameServer).toHaveLength(2);
+  expect(servers[sameServer[0]].tag).toBe(servers[sameServer[1]].tag);
+  expect(servers.every(({ id }) => id === undefined)).toBe(true);
+  const plan = graphActivityPlan(graph, compiled);
+  const fake = servers.findIndex(({ address }) => address === 'fakedns');
+  for (const [index, edge] of [
+    [sameServer[0], 'dns-local'],
+    [sameServer[1], 'dns-remote'],
+    [fake, 'synthetic'],
+  ] as const) {
+    const glow = graphActivity(plan, [], [], [{ id: resolverActivityId(index), attempts: 2 }]);
+    expect([...glow.edges.keys()].sort()).toEqual([edge, 'handler-resolver'].sort());
+    expect(glow.ports.get(activityPortKey('remote-dns', 'source', 'queries'))).toBeUndefined();
+  }
 });
 
 it('retains the dedicated ICS path added to an imported Xray graph', () => {

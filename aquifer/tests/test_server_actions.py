@@ -38,9 +38,40 @@ class ActionTests(unittest.TestCase):
         self.ns['validate'](self.request)
 
     def test_service_name_cannot_inject_options(self):
-        for service in ['--all', '../ssh.service', 'xray.service\nreboot', 'a;reboot.service']:
-            with self.assertRaises(self.ns['ActionError']):
-                self.ns['validate'](dict(self.request, action='restartXray', service=service))
+        for action in ('restartXray', 'restartNginx'):
+            for service in ('--all', '../ssh.service', 'xray.service\nreboot', 'a;reboot.service', None):
+                with self.subTest(action=action, service=service), self.assertRaises(self.ns['ActionError']):
+                    self.ns['validate'](dict(self.request, action=action, service=service))
+
+    def test_nginx_worker_checks_the_selected_unit_before_restart(self):
+        def run(service, active_exit):
+            request = dict(self.request, action='restartNginx', service=service)
+            state = {}
+            commands = []
+
+            def capture(args, timeout=15):
+                commands.append(args)
+                if args[1] == 'show':
+                    return types.SimpleNamespace(returncode=0, stdout=b'Id=nginx-main.service\nLoadState=loaded\n')
+                return types.SimpleNamespace(returncode=active_exit if args[1] == 'is-active' else 0)
+
+            with patch.dict(self.ns, load=lambda path: request if path.endswith('request.json') else state,
+                            capture=capture, save=lambda *args: None):
+                self.ns['worker'](request['id'])
+            return state, commands
+
+        for active_exit, expected in ((0, 'succeeded'), (3, 'failed')):
+            with self.subTest(active_exit=active_exit):
+                state, commands = run('nginx-main.service', active_exit)
+                self.assertEqual(state['state'], expected)
+                self.assertEqual(commands, [
+                    ['systemctl', 'show', '--property=Id,LoadState', '--', 'nginx.service'],
+                    ['systemctl', 'restart', '--', 'nginx-main.service'],
+                    ['systemctl', 'is-active', '--quiet', '--', 'nginx-main.service'],
+                ])
+        state, commands = run('ssh.service', 0)
+        self.assertEqual(state['errorCode'], 'NGINX_SERVICE')
+        self.assertEqual([args[1] for args in commands], ['show'])
 
     def test_logs_remove_repository_credentials_queries_and_escape_codes(self):
         result = self.ns['safe_line']('\x1b[31mhttps://user:secret@repo.test/index?token=secret\x1b[0m')
