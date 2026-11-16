@@ -15,7 +15,7 @@ if ($IncludeRegional) {
 $curl = & (Join-Path $PSScriptRoot 'Get-Curl.ps1') -Path $CurlPath
 $curlOptions = @('--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '15', '--retry', '2')
 $apiToken = $env:WAYRILL_GEODATA_API_TOKEN
-if ($apiToken -and $apiToken -cnotmatch '^[A-Za-z0-9_]+$') { throw 'Invalid GitHub geodata API credential.' }
+if ($apiToken -and $apiToken -cnotmatch '\A[A-Za-z0-9_.-]+\z') { throw 'Invalid GitHub geodata API credential.' }
 $cache = Join-Path $root '.tools/downloads/resources'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 

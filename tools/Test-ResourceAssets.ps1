@@ -41,7 +41,7 @@ $url = $args[-1]
 if ($url -eq 'https://api.github.com/repos/fixture/rules/releases/latest') {
     if ($env:WAYRILL_GEODATA_API_TOKEN -and
         ('--config' -notin $args -or '--no-location' -notin $args -or
-        [string]($input | Select-Object -First 1) -cne 'header = "Authorization: Bearer fixture_token"')) {
+        [string]($input | Select-Object -First 1) -cne 'header = "Authorization: Bearer ghs_fixture_head-er.payload.sign-ature"')) {
         throw 'GitHub API credential was not passed via stdin with redirects disabled.'
     }
     Get-Content -LiteralPath (Join-Path $root 'latest.json') -Raw
@@ -62,7 +62,7 @@ exit 0
     Assert-InstalledRelease 'release-1'
 
     Set-LatestRelease 'release-2'
-    $env:WAYRILL_GEODATA_API_TOKEN = 'fixture_token'
+    $env:WAYRILL_GEODATA_API_TOKEN = 'ghs_fixture_head-er.payload.sign-ature'
     $corruptAsset = Join-Path $fixture 'release-2/geosite.dat'
     [IO.File]::WriteAllText($corruptAsset, 'releAse-2 geosite.dat')
     $failed = $false
