@@ -32,7 +32,7 @@ try {
                 & (Join-Path $PSScriptRoot 'Get-ResourceAssets.ps1') -IncludeRegional:(-not $SkipTests) -CurlPath $CurlPath
                 if (-not $SkipTests) {
                     # Synthetic build/installer contracts; no installation or system changes.
-                    foreach ($taskScript in @('Test-PackageCleanup.ps1', 'Test-PinnedResources.ps1', 'Test-InstallerResources.ps1', 'Test-InstallerRetirement.ps1', 'Test-CompanionSetup.ps1', 'Test-CompanionRetirement.ps1')) {
+                    foreach ($taskScript in @('Test-PackageCleanup.ps1', 'Test-ResourceAssets.ps1', 'Test-InstallerResources.ps1', 'Test-InstallerRetirement.ps1', 'Test-CompanionSetup.ps1', 'Test-CompanionRetirement.ps1')) {
                         & (Join-Path $PSScriptRoot $taskScript)
                     }
                 }

@@ -2161,7 +2161,7 @@ mod transactional_tests {
         }
     }
     #[test]
-    fn accepts_all_pinned_packaged_files() {
+    fn accepts_all_downloaded_resource_files() {
         let r = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()

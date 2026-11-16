@@ -50,7 +50,8 @@ New-Item -ItemType Directory -Path $taskCacheRoot -Force | Out-Null
 $taskBuildLease=[IO.File]::Open((Join-Path $taskCacheRoot 'tun-core-build.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 $taskOldGoCache=$env:GOCACHE;$taskOldGoMod=$env:GOMODCACHE;$taskOldCGO=$env:CGO_ENABLED;$taskOldGoProcs=$env:GOMAXPROCS
 try {
-    $taskPin=(Get-Content (Join-Path $taskProject "service\dependencies.json") -Raw | ConvertFrom-Json).xray
+    $taskDependencies=Get-Content (Join-Path $taskProject "service\dependencies.json") -Raw | ConvertFrom-Json
+    $taskPin=$taskDependencies.xray
     $taskGoRoot=Join-Path $taskCacheRoot ('go-sdk\go'+$taskPin.build.goVersion)
     $taskGo=Join-Path $taskGoRoot 'go\bin\go.exe'
     $taskDownloads=Join-Path $taskCacheRoot 'downloads\tun'
@@ -127,6 +128,7 @@ try {
     if((Get-FileHash (Join-Path $MainOutputDirectory 'xray.exe')).Hash -ne $taskPin.executableSha256){throw 'Patched Xray executable differs from its audited pin.'}
     # Package the exact main source before private attribution/adapter changes.
     if(-not $BuildOnly) {
+        Copy-Item -LiteralPath (Join-Path $taskMainSource 'LICENSE') -Destination $MainOutputDirectory -Force
         Compress-Archive -LiteralPath $taskMainSource -DestinationPath (Join-Path $MainOutputDirectory 'source.zip') -Force
         foreach($taskPatch in $taskPatches.Keys) {
             Copy-Item -LiteralPath (Join-Path $taskProject $taskPatch) -Destination $MainOutputDirectory -Force
@@ -217,9 +219,21 @@ var proof string
     }
     [ordered]@{sha256=$taskHash;sourceCommit=$taskCommit;goVersion=$taskPin.build.goVersion} | ConvertTo-Json | Set-Content (Join-Path $taskProject 'service\daemon\src\tun-core-manifest.json') -Encoding utf8NoBOM
     Copy-Item (Join-Path $taskSource 'LICENSE'),(Join-Path $taskProject 'service\tun-core\wayrill_windows.go') -Destination $TunOutputDirectory -Force
-    $taskWintun=Get-ChildItem (Join-Path $taskCacheRoot 'service-deps\xray') -Filter 'wintun.dll' -Recurse -File | Select-Object -First 1
-    if (-not $taskWintun -or (Get-FileHash $taskWintun.FullName).Hash -ne 'E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE') { throw 'Missing pinned Wintun DLL.' }
-    Copy-Item $taskWintun.FullName -Destination $TunOutputDirectory -Force
+    $taskWintun=$taskDependencies.wintun
+    $taskWintunZip=Join-Path $taskDownloads ('wintun-'+$taskWintun.version+'.zip')
+    $taskWintunCache=Join-Path $taskCacheRoot 'service-deps/wintun'
+    if (-not (Test-Path -LiteralPath (Join-Path $taskWintunCache $taskWintun.archiveSha256.ToLowerInvariant())) -and
+        -not (Test-Path -LiteralPath $taskWintunZip)) {
+        & $taskCurl --fail --location --silent --show-error $taskWintun.url --output $taskWintunZip
+        if ($LASTEXITCODE -ne 0) { throw 'Wintun download failed.' }
+    }
+    $taskWintunPackage=& (Join-Path $PSScriptRoot 'Get-PinnedDependency.ps1') -Archive $taskWintunZip -ArchiveHash $taskWintun.archiveSha256 -CacheRoot $taskWintunCache
+    $taskWintunDll=Join-Path $taskWintunPackage.Root 'wintun/bin/amd64/wintun.dll'
+    if ((Get-FileHash -LiteralPath $taskWintunDll).Hash -ne $taskWintun.dllSha256) { throw 'Wintun DLL SHA-256 mismatch.' }
+    foreach ($taskDirectory in $MainOutputDirectory,$TunOutputDirectory) {
+        Copy-Item -LiteralPath $taskWintunDll -Destination $taskDirectory -Force
+        Copy-Item -LiteralPath (Join-Path $taskWintunPackage.Root 'wintun/LICENSE.txt') -Destination (Join-Path $taskDirectory 'LICENSE-Wintun') -Force
+    }
     # Corresponding patched source is shipped for MPL changes and reproducibility.
     Compress-Archive -LiteralPath $taskSource -DestinationPath (Join-Path $TunOutputDirectory 'source.zip') -Force
     Write-Host "Pinned TUN attribution worker: $taskHash"

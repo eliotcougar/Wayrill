@@ -1,4 +1,4 @@
-# Build fixtures remain pinned; installation resolves current upstream releases.
+# The installer and build tools use this catalogue of regional resources.
 function Get-WayrillInstallerResourcePlan($Dependencies,[int]$Mask) {
     if ($Mask -lt 0 -or $Mask -gt 15) { throw 'Invalid resource selection.' }
     $seen=@{}

@@ -49,26 +49,17 @@ $OutputDirectory=$taskStage
 $taskDownload=Join-Path $taskCacheRoot 'downloads\service'
 $taskAssets=Join-Path $taskCacheRoot 'service-deps'
 New-Item -ItemType Directory -Path $taskDownload,$taskAssets,$OutputDirectory -Force | Out-Null
-$taskDependencyCache=@{}
 try {
-foreach ($taskName in @('xray','winDivert')) {
-    $taskDependency=$taskDependencies.$taskName
-    $taskZip=Join-Path $taskDownload ($taskName+'-'+$taskDependency.version+'.zip')
-    $taskCache=Join-Path (Join-Path $taskAssets $taskName) $taskDependency.archiveSha256.ToLowerInvariant()
-    if (-not (Test-Path -LiteralPath $taskCache) -and -not (Test-Path -LiteralPath $taskZip)) {
-        if (-not (Test-Path -LiteralPath $CurlPath)) { throw 'Provide an OpenSSL curl-mingw executable with -CurlPath.' }
-        & $CurlPath --fail --location --silent --show-error $taskDependency.url --output $taskZip
-        if ($LASTEXITCODE -ne 0) { throw "$taskName download failed" }
-    }
-    $taskDependencyCache[$taskName]=& (Join-Path $PSScriptRoot 'Get-PinnedDependency.ps1') -Archive $taskZip -ArchiveHash $taskDependency.archiveSha256 -CacheRoot (Join-Path $taskAssets $taskName)
+$taskDependency=$taskDependencies.winDivert
+$taskZip=Join-Path $taskDownload ('winDivert-'+$taskDependency.version+'.zip')
+$taskDivertCache=Join-Path $taskAssets 'winDivert'
+if (-not (Test-Path -LiteralPath (Join-Path $taskDivertCache $taskDependency.archiveSha256.ToLowerInvariant())) -and
+    -not (Test-Path -LiteralPath $taskZip)) {
+    & $CurlPath --fail --location --silent --show-error $taskDependency.url --output $taskZip
+    if ($LASTEXITCODE -ne 0) { throw 'WinDivert download failed.' }
 }
-New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'xray'),(Join-Path $OutputDirectory 'windivert') -Force | Out-Null
-foreach ($taskFile in $taskDependencyCache.xray.Files) {
-    $taskDestination=Join-Path (Join-Path $OutputDirectory 'xray') $taskFile.path
-    New-Item -ItemType Directory -Path (Split-Path $taskDestination -Parent) -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $taskDependencyCache.xray.Root $taskFile.path) -Destination $taskDestination
-}
-if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.officialExecutableSha256) { throw 'Official Xray base executable SHA-256 mismatch.' }
+$taskDivertPackage=& (Join-Path $PSScriptRoot 'Get-PinnedDependency.ps1') -Archive $taskZip -ArchiveHash $taskDependency.archiveSha256 -CacheRoot $taskDivertCache
+New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'windivert') -Force | Out-Null
 & (Join-Path $PSScriptRoot 'Build-Capture.ps1') -SkipTests:$SkipTests -OutputDirectory (Join-Path $OutputDirectory 'capture')
 & (Join-Path $PSScriptRoot 'Build-Timezone.ps1') -OutputDirectory (Join-Path $OutputDirectory 'timezone') -CurlPath $CurlPath
 & (Join-Path $PSScriptRoot "Build-XrayCores.ps1") -SkipTests:$SkipTests -CurlPath $CurlPath -TunOutputDirectory (Join-Path $OutputDirectory "tun-core") -MainOutputDirectory (Join-Path $OutputDirectory "xray")
@@ -86,11 +77,9 @@ New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'companion-extens
 if ($LASTEXITCODE) { throw 'Chromium extension packaging failed.' }
 & (Join-Path $PSScriptRoot 'Copy-FirefoxCompanion.ps1') -Destination (Join-Path $OutputDirectory 'companion-firefox.xpi')
 if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\xray.exe')).Hash -ne $taskDependencies.xray.executableSha256) { throw 'Patched Xray executable SHA-256 mismatch.' }
-if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'xray\wintun.dll')).Hash -ne $taskDependencies.xray.wintunDllSha256) { throw 'Wintun DLL SHA-256 mismatch.' }
 $taskRoutingAssets=Join-Path $taskService 'routing-assets'
 foreach($taskResource in $taskDependencies.resourceData.files) {
     $taskResourceFile=Join-Path (Join-Path $taskService 'resource-assets') $taskResource.path
-    if((Get-FileHash -LiteralPath $taskResourceFile -Algorithm SHA256).Hash -ne $taskResource.sha256 -or (Get-Item -LiteralPath $taskResourceFile).Length -ne $taskResource.bytes) { throw 'Full resource data integrity check failed.' }
     Copy-Item -LiteralPath $taskResourceFile -Destination (Join-Path $OutputDirectory 'xray') -Force
 }
 $taskRoutingNotices=Join-Path $OutputDirectory 'routing-assets'
@@ -102,7 +91,7 @@ foreach($taskAsset in $taskDependencies.routingData.files) {
     if(Test-Path -LiteralPath $taskOldCopy) { Remove-Item -LiteralPath $taskOldCopy -Force }
 }
 Get-ChildItem -LiteralPath $taskRoutingAssets -File | Where-Object Extension -ne '.dat' | Copy-Item -Destination $taskRoutingNotices -Force
-$taskDivert=Join-Path $taskDependencyCache.winDivert.Root 'WinDivert-2.2.2-A'
+$taskDivert=Join-Path $taskDivertPackage.Root 'WinDivert-2.2.2-A'
 Copy-Item -LiteralPath (Join-Path $taskDivert 'x64\WinDivert.dll'),(Join-Path $taskDivert 'x64\WinDivert64.sys'),(Join-Path $taskDivert 'LICENSE'),(Join-Path $taskDivert 'include\windivert.h') -Destination (Join-Path $OutputDirectory 'windivert') -Force
 Copy-Item -LiteralPath (Join-Path $taskService 'scripts'),(Join-Path $taskService 'THIRD-PARTY-NOTICES.md'),(Join-Path $taskService 'dependencies.json') -Destination $OutputDirectory -Recurse -Force
 $taskNoticePath=Join-Path $OutputDirectory 'THIRD-PARTY-NOTICES.md'

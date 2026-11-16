@@ -8,8 +8,9 @@ source and Go module pins are packaged in xray/source.zip and tun-core/source.zi
 
 WinDivert is the unmodified LGPL-3.0-or-later vendor distribution. Retain its
 LICENSE/header and upstream source reference: https://github.com/basil00/WinDivert.
-The runtime does not unload the shared driver as automatic cleanup. Wintun and
-upstream notices come from the verified Xray vendor archive.
+The runtime does not unload the shared driver as automatic cleanup. The signed
+Wintun DLL and its redistribution license come from the verified Wintun archive:
+https://www.wintun.net/.
 
 Capture and attribution are separate GPL-3.0-only Rust executables derived from
 the v2rayN application-routing work identified in service/capture/provenance.json.
@@ -18,10 +19,10 @@ instructions are in capture-source.zip. Neither .NET nor TraceEvent ships.
 
 Original XTLS DATs are bundled. Optional Russian, Iranian and Chinese DATs are
 downloaded from the latest upstream release when selected during fresh/clean
-installation. Their GPL notices are in routing-assets. The manifest records the
-bundled XTLS assets and pinned regional test fixtures; installer and app updates
-follow the current upstream files. No subset extraction is performed. Sources include XTLS,
-RunetFreedom, Chocolate4U and Loyalsoldier; URLs/licenses belong to the manifest.
+installation. Their GPL notices are in routing-assets. Builds fetch the latest
+XTLS files and record the shipped file hashes in the package manifest. Service
+checks also fetch the current regional files. Source repositories and licenses
+are recorded in dependencies.json.
 
 The adapted Tauri NSIS template retains its MIT license in
 [installer notices](../docs/licenses/tauri-installer.md). gRPC dependency licenses

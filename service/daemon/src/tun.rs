@@ -118,7 +118,7 @@ impl Adapter {
             .map_err(|e| ApiError::io("Read compiled TUN pin", e))?;
         native::verify_hash(
             &dll,
-            dependencies["xray"]["wintunDllSha256"]
+            dependencies["wintun"]["dllSha256"]
                 .as_str()
                 .ok_or_else(|| invalid("The compiled Wintun pin is missing."))?,
         )?;

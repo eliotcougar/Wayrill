@@ -83,17 +83,18 @@ Some security policies quarantine capture-driver archives. Review any detection
 against the official release under your machine's policy, or use the isolated
 GitHub build workflow. The scripts do not change antivirus exclusions.
 
-The first build downloads public, pinned Xray/Go/WinDivert inputs and geodata.
-It verifies their hashes, builds both custom cores and capture workers, runs
+The build downloads pinned Xray source, Go, Wintun and WinDivert inputs.
+It verifies those hashes, builds both custom cores and capture workers, runs
 ordinary checks, maintained core-extension regressions and executable-backed
 compatibility tests, then packages the service and
 desktop installer. No running Wayrill, credentials or VM is required. Building
 does not install the result or change the machine's networking.
 
-Base XTLS geodata comes from a pinned Xray release archive, with both archive
-and extracted-file hashes checked. Daily rules releases are pruned upstream and
-are unsuitable as long-lived build inputs. Core compilation and its maintained
-Go regressions do not require geodata downloads.
+Base geodata comes from the latest XTLS rules release. The build resolves one
+release per provider and verifies each file against its published size and
+SHA-256. Service checks use the same process for regional test fixtures. Local
+copies are reused when they match the current release. Core compilation and its
+maintained Go regressions do not require geodata downloads.
 
 The installer is written under
 `.tools/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Build logs are under
@@ -134,10 +135,9 @@ not require it.
 
 Core and capture builds regenerate worker-integrity manifests in
 `service/daemon/src/`. Review these changes when altering those components; never
-disable hash checks to make an unrelated executable pass. Pinned build inputs
-are distinct from the latest geodata downloaded by installed apps. If a pinned
-asset disappears upstream, report the unavailable input rather than changing its
-hash to accept different content.
+disable hash checks to make an unrelated executable pass. If a pinned executable
+or source archive disappears upstream, report the unavailable input. Geodata
+follows upstream releases.
 
 See [testing](testing.md), [core integration](xray-integration.md) and
 [catalogue regeneration](core-defaults.md) for the corresponding contracts.

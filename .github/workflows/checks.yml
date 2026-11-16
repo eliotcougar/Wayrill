@@ -78,14 +78,6 @@ jobs:
             .tools/target
           key: native-${{ runner.os }}-${{ matrix.component }}-${{ hashFiles('rust-toolchain.toml', '.node-version') }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: native-${{ runner.os }}-${{ matrix.component }}-${{ hashFiles('rust-toolchain.toml', '.node-version') }}-
-      - name: Cache pinned geodata fixtures
-        if: matrix.component == 'service'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            service/resource-assets/*.dat
-            service/routing-assets/*.dat
-          key: native-geodata-${{ hashFiles('service/dependencies.json') }}
       - name: Format, lint and test native code
         run: |
           & ./tools/Check-Native.ps1 -Component '${{ matrix.component }}'
