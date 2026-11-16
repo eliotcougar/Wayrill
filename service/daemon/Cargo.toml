@@ -15,6 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_System_Rpc", "Win32_Security_Isolation", "Win32_System_SystemInformation", "Win32_System_Time"] }
+windows = { version = "0.62.2", features = ["ApplicationModel", "Management_Deployment", "Storage_Search", "Win32_System_WinRT"] }
 windows-service = "0.8.1"
 sha2 = "0.11"
 url = "2"

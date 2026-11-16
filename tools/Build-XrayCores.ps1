@@ -82,7 +82,7 @@ try {
     $taskPatches=[ordered]@{
         $taskPin.build.fakeDnsPatch=$taskPin.build.fakeDnsPatchSha256
         $taskPin.build.relayTelemetryPatch=$taskPin.build.relayTelemetryPatchSha256
-        $taskPin.build.xhttpHandshakePatch=$taskPin.build.xhttpHandshakePatchSha256
+        $taskPin.build.utlsHandshakePatch=$taskPin.build.utlsHandshakePatchSha256
     }
     # This extracted source is not part of the enclosing Wayrill Git worktree.
     # Otherwise git apply can silently skip every path when invoked below .tools/.
@@ -144,6 +144,7 @@ var proof string
 				}
 				errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", relay, proof)
 '@
+    $taskDecisionWithProof = $taskDecisionWithProof.Replace("`r`n", "`n")
     foreach ($taskEdit in @(
         @{Path=$taskSessionFile; Anchor='type Inbound struct {'; Next="type Inbound struct {`n`tWayrillApplicationProof string"},
         @{Path=$taskDispatcherFile; Anchor=$taskDecisionLine; Next=$taskDecisionWithProof}
@@ -195,6 +196,17 @@ var proof string
         $taskWindowsText=$taskWindowsText.Replace($taskReplacement[0],$taskReplacement[1])
     }
     [IO.File]::WriteAllText($taskWindowsTun,$taskWindowsText)
+    $taskUdpRoutes = Join-Path $taskProject $taskPin.build.tunUdpRoutesPatch
+    if ((Get-FileHash -LiteralPath $taskUdpRoutes).Hash -ne $taskPin.build.tunUdpRoutesPatchSha256) {
+        throw 'TUN UDP routing patch integrity failure.'
+    }
+    try {
+        $env:GIT_CEILING_DIRECTORIES = $taskSourceParent
+        & $taskGit -C $taskSource apply --whitespace=error-all $taskUdpRoutes
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot apply the TUN UDP routing patch.' }
+    } finally {
+        $env:GIT_CEILING_DIRECTORIES = $taskOldGitCeiling
+    }
     Get-ChildItem (Join-Path $taskProject 'service\core-control') -Filter '*.go' | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $taskSource ('main\wayrill_control_'+$_.Name)) -Force }
     Push-Location $taskSource
     try {

@@ -16,7 +16,7 @@ a change is compiled into Wayrill.
 | Main executable | `xray.exe`; upstream base plus the shared patches and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
-| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [XHTTP handshake timeout](../../service/xray-patches/xhttp-handshake-timeout.patch) |
+| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch) |
 | Initializers and additions | [core-init](../../service/core-init), [core-control](../../service/core-control), [tun-core](../../service/tun-core) |
 | Application of every change | [tools/Build-XrayCores.ps1](../../tools/Build-XrayCores.ps1) |
 | Main/source/patch/SDK/Wintun pins | [service/dependencies.json](../../service/dependencies.json) |
@@ -29,9 +29,8 @@ above rather than a second manually maintained hash table here.
 
 The shared FakeDNS patch includes real-DNS cancellation, allocator
 correctness and telemetry as well as shared FakeDNS. The patch currently covers
-**35 paths**, including tests and generated bindings. The builder also copies
-**11 Go files** and edits **three additional upstream TUN files**. The complete
-file index below makes those less visible changes reviewable.
+**35 paths**, including tests and generated bindings. The file index below also
+lists the Go files and hooks that the builder adds to the private worker.
 
 ## Active changes
 
@@ -63,20 +62,40 @@ binary patch. The bounded log supplies observations rather than per-tab attribut
 | X11 | Real, upstream-bound ICMP echo through TUN | Worker | Private Windows implementation and packet-stack hooks |
 | X12 | Routing-control and FakeDNS authority commands | Worker | App-owned commands; routing updates use existing upstream gRPC |
 | X13 | Per-flow policy-group selection telemetry | Shared | Private loopback SOCKS relay integration |
-| X14 | XHTTP TLS handshake deadline | Shared | Private fix for the stall reported in [#6590](https://github.com/XTLS/Xray-core/issues/6590) |
+| X14 | uTLS handshake deadline | Shared | Backport of [#7427](https://github.com/XTLS/Xray-core/pull/7427) |
+| X15 | Per-destination UDP routing with route-scoped FullCone | Worker | Adapts [#7346](https://github.com/XTLS/Xray-core/pull/7346) to the attributed Wayrill dispatcher |
 
-### X14 — XHTTP TLS handshake deadline
+### X15 — Per-destination UDP routing
 
-XHTTP starts a ten-second handshake deadline once the TCP connection is open.
-The deadline covers Go TLS, uTLS and REALITY. A peer that accepts TCP but never
-answers the TLS ClientHello can otherwise leave multiple HTTP/2 requests waiting
-on the same pending dial. The deadline closes the stalled socket and lets the
-pool dial again. HTTP requests retain their existing lifetime, so established
-streams stay usable beyond the handshake deadline. HTTP/3 uses QUIC's own
-handshake timeout.
+The TUN stack resolves native ownership and runs the normal Xray dispatcher
+for each new UDP destination. Rule matching uses the same process, ancestor,
+service, package, NAT and sniffing context as other TUN flows. After dispatch
+selection, compatible destinations can share a FullCone association for a
+fixed outbound. Sharing requires the same wire socket, attributed origin,
+process generation and mask, matched rule, and outbound. Rewritten
+destinations and policy relays use separate associations so FakeDNS reply
+mapping and selection of the concrete policy member remain correct.
 
-The patch changes `transport/internet/splithttp/dialer.go` and exercises the
-three TLS paths against a silent loopback peer in `handshake_timeout_test.go`.
+The worker asks for attribution in bounded UDP batches. The companion shares
+verified local socket ownership and process ancestry within each fresh native
+snapshot. A new batch requires a new observation. Forwarded flows still need
+an exact NAT tuple, and each destination still runs through Xray's dispatcher.
+
+An active source/destination pair uses its existing decision until the
+association ends or a live rule change invalidates it.
+Closing the stack cancels ownership lookups and closes its packet queues.
+WinDivert already routes each UDP datagram before choosing a relay.
+
+### X14 — uTLS handshake deadline
+
+Xray's shared uTLS wrapper caps `HandshakeContext` at 30 seconds. A silent TLS
+peer can otherwise leave HTTP/2 requests waiting on the same XHTTP dial.
+The deadline applies to fingerprinted TLS connections that use this wrapper
+and ends when the handshake completes.
+
+The backport changes `transport/internet/tls/tls.go`. A Wayrill regression
+exercises a silent peer with an in-memory connection and tests timeout and
+socket cleanup. [Upstream commit 87bd0381](https://github.com/XTLS/Xray-core/commit/87bd03816a806fbdc8338e541f3720782e3dfb27)
 
 ### X13 — Per-flow policy-group selection
 
@@ -362,6 +381,9 @@ Broad upstream test audits remain separate from the contributor build gate.
 | `service/tun-core/wayrill_icmp_windows.go` | `proxy/tun/wayrill_icmp_windows.go` | X11 |
 | `service/tun-core/wayrill_icmp_stack_windows.go` | `proxy/tun/wayrill_icmp_stack_windows.go` | X11 |
 | `service/tun-core/wayrill_icmp_test.go` | `proxy/tun/wayrill_icmp_test.go` | X11 deterministic packet/lifecycle tests; native uplink probes are maintained privately |
+| `service/tun-core/wayrill_udp_windows.go` | `proxy/tun/wayrill_udp_windows.go` | X15 attributed UDP association table |
+| `service/tun-core/wayrill_udp_attribution_windows.go` | `proxy/tun/wayrill_udp_attribution_windows.go` | X15 bounded attribution requests |
+| `service/tun-core/wayrill_udp_windows_test.go` | `proxy/tun/wayrill_udp_windows_test.go` | X15 Xray dispatcher and attribution integration |
 
 | Additional upstream file edited by the builder | IDs |
 | --- | --- |
@@ -369,6 +391,7 @@ Broad upstream test audits remain separate from the contributor build gate.
 | `common/session/session.go`, `app/dispatcher/default.go` | X09: private TUN application-match evidence in dispatcher decisions |
 | `proxy/tun/stack.go` | X11: ownership, echo interception and shutdown |
 | `proxy/tun/tun_windows.go` | X10: native settings reuse |
+| `app/dispatcher/default.go`, `app/router/router.go`, `common/session/session.go`, `common/session/wayrill_udp.go`, `proxy/tun/handler.go`, `proxy/tun/stack.go`, `proxy/tun/udp_fullcone.go` | X15: [private worker patch](../../service/xray-patches/tun-udp-routes.patch) |
 
 The builder also sets the main executable's `core.build` version marker to the
 pinned `Wayrill-socket-defaults` label. That label is not a complete list of its

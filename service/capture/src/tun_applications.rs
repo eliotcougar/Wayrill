@@ -13,6 +13,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -21,7 +22,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     sync::{oneshot, watch, Notify, Semaphore},
     task::{JoinHandle, JoinSet},
@@ -133,6 +134,8 @@ struct State {
     ambiguous_mask: Option<String>,
     published: RwLock<Published>,
     changed: Arc<Notify>,
+    udp_changed: Notify,
+    snapshot_ready: Notify,
     secret: [u8; 32],
     zero: String,
     nat: RwLock<NatPublished>,
@@ -156,7 +159,7 @@ impl NatPublished {
             .map(Option::flatten)
     }
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Identity {
     mask: String,
@@ -164,6 +167,29 @@ struct Identity {
     origin: Option<Origin>,
     #[serde(skip_serializing_if = "Option::is_none")]
     application_proof: Option<Arc<ApplicationProof>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    udp_owner: Option<UdpOwner>,
+}
+
+#[derive(Clone, Copy, Serialize)]
+struct UdpOwner {
+    pid: u32,
+    started: i64,
+    endpoint: u64,
+}
+
+#[derive(Clone)]
+enum LocalOwnership {
+    Verified(Identity),
+    Absent,
+    Ambiguous,
+    Pending(&'static str),
+}
+
+#[derive(Serialize)]
+struct UdpReply<'a> {
+    index: usize,
+    identity: &'a Identity,
 }
 // Verify every ordinary process generation, including unmatched ones: a PID
 // reused after the ownership sample must not inherit an old default identity.
@@ -175,16 +201,24 @@ fn identity_for(
     if !matches!(decision.kind, Kind::Selected | Kind::Unselected) {
         return None;
     }
-    if let Some(key) = decision.process {
+    let udp_owner = if let Some(key) = decision.process {
         if read_key(key.pid) != Some(key) {
             return None;
         }
-    }
+        Some(UdpOwner {
+            pid: key.pid,
+            started: key.started,
+            endpoint: decision.endpoint,
+        })
+    } else {
+        None
+    };
     match decision.kind {
         Kind::Unselected => Some(Identity {
             mask: zero.to_owned(),
             origin: None,
             application_proof: None,
+            udp_owner,
         }),
         Kind::Selected if decision.process.is_some() => decision.rule.map(|rule| Identity {
             mask: format!(
@@ -194,6 +228,7 @@ fn identity_for(
             ),
             origin: None,
             application_proof: decision.application_proof,
+            udp_owner,
         }),
         _ => None,
     }
@@ -217,6 +252,7 @@ impl State {
                 state.failure = Some(error);
             }
         }
+        self.snapshot_ready.notify_waiters();
     }
     async fn find(&self, flow: Flow) -> Result<Identity> {
         let arrived = clock::milliseconds();
@@ -230,65 +266,192 @@ impl State {
             }
             self.changed.notify_one();
             let snapshot = self.snapshot()?;
-            let decision = snapshot
-                .as_ref()
-                .and_then(|s| s.find_fresh(flow, now, arrived, 0));
-            let has_local_record = snapshot.as_ref().is_some_and(|s| s.has_local_record(flow));
-            reason = match decision.as_ref() {
-                None => "no fresh ownership snapshot",
-                Some(_) if !has_local_record => {
-                    "socket absent from native ownership tables and NAT not proven"
-                }
-                Some(d) if d.service_pending => "service identity unresolved",
-                Some(d) if matches!(d.kind, Kind::Selected | Kind::Unselected) => {
-                    "process generation changed or mask missing"
-                }
-                Some(_) => "process identity or ancestry unresolved",
-            };
-            let may_be_forwarded = decision.is_some() && !has_local_record;
-            match decision {
-                Some(decision) if decision.kind == Kind::Ambiguous => {
-                    return self
-                        .ambiguous_mask
-                        .as_ref()
-                        .map(|mask| Identity {
-                            mask: mask.clone(),
-                            origin: None,
-                            application_proof: None,
-                        })
-                        .ok_or_else(|| Error::invalid("Ambiguous TUN flow ownership."))
-                }
-                Some(decision) => {
-                    if let Some(identity) =
-                        identity_for(decision, &self.zero, native::processes::read_key)
-                    {
-                        return Ok(identity);
+            if let Some(snapshot) = snapshot.filter(|s| s.is_fresh(now, arrived)) {
+                match self.local_ownership(&snapshot, flow) {
+                    LocalOwnership::Verified(identity) => return Ok(identity),
+                    LocalOwnership::Ambiguous => {
+                        return Err(Error::invalid("Ambiguous TUN flow ownership."));
+                    }
+                    LocalOwnership::Pending(waiting) => reason = waiting,
+                    LocalOwnership::Absent => {
+                        reason = "socket absent from native ownership tables and NAT not proven";
+                        if let Some(identity) = self.forwarded(flow, arrived, now)? {
+                            return Ok(identity);
+                        }
                     }
                 }
-                _ => {}
-            }
-            // A missing PID is not evidence of forwarding. Only a new, complete
-            // Windows NAT inventory may prove this exact translated five-tuple.
-            if may_be_forwarded {
-                let nat = self
-                    .nat
-                    .read()
-                    .map_err(|_| Error::invalid("NAT state poisoned."))?;
-                if let Some(origin) = nat.find(flow, arrived, now)? {
-                    return Ok(Identity {
-                        mask: self.zero.clone(),
-                        origin: Some(origin),
-                        application_proof: None,
-                    });
-                }
-            }
-            if may_be_forwarded {
-                self.nat_changed.notify_one();
             }
             tokio::time::sleep(Duration::from_millis(40)).await;
         }
     }
+
+    fn local_ownership(&self, snapshot: &AttributionSnapshot, flow: Flow) -> LocalOwnership {
+        let decision = snapshot.find(flow, 0);
+        if decision.kind == Kind::Ambiguous {
+            return match &self.ambiguous_mask {
+                Some(mask) => LocalOwnership::Verified(Identity {
+                    mask: mask.clone(),
+                    origin: None,
+                    application_proof: None,
+                    udp_owner: None,
+                }),
+                None => LocalOwnership::Ambiguous,
+            };
+        }
+        if !snapshot.has_local_record(flow) {
+            return LocalOwnership::Absent;
+        }
+        if decision.service_pending {
+            return LocalOwnership::Pending("service identity unresolved");
+        }
+        if !matches!(decision.kind, Kind::Selected | Kind::Unselected) {
+            return LocalOwnership::Pending("process identity or ancestry unresolved");
+        }
+        identity_for(decision, &self.zero, native::processes::read_key)
+            .map(LocalOwnership::Verified)
+            .unwrap_or(LocalOwnership::Pending(
+                "process generation changed or mask missing",
+            ))
+    }
+
+    fn forwarded(&self, flow: Flow, arrived: u64, now: u64) -> Result<Option<Identity>> {
+        // Only a fresh, complete NAT inventory may prove this translated tuple.
+        let nat = self
+            .nat
+            .read()
+            .map_err(|_| Error::invalid("NAT state poisoned."))?;
+        if let Some(origin) = nat.find(flow, arrived, now)? {
+            return Ok(Some(Identity {
+                mask: self.zero.clone(),
+                origin: Some(origin),
+                application_proof: None,
+                udp_owner: None,
+            }));
+        }
+        self.nat_changed.notify_one();
+        Ok(None)
+    }
+
+    async fn serve_udp(&self, mut flows: Vec<(usize, Flow)>, stream: &mut TcpStream) -> Result<()> {
+        let arrived = clock::milliseconds();
+        let mut encoded = Vec::new();
+        let mut pending = Vec::with_capacity(flows.len());
+        while !flows.is_empty() {
+            let ready = self.snapshot_ready.notified();
+            let now = clock::milliseconds();
+            if now.saturating_sub(arrived) >= 1400 {
+                self.log_rejection(
+                    "UDP ownership could not be established for the remaining destinations.",
+                );
+                break;
+            }
+            if let Some(snapshot) = self
+                .snapshot()?
+                .filter(|s| s.read_at > arrived && s.is_fresh(now, arrived))
+            {
+                // Native UDP bindings and the validated TUN process policy
+                // are destination-independent for nonzero ports. This cache
+                // exists only while evaluating this freshly acquired snapshot.
+                let mut local = HashMap::new();
+                let share = snapshot.can_share_tun_udp_owner();
+                for (index, flow) in flows.drain(..) {
+                    let ownership = if share {
+                        local
+                            .entry((flow.local, flow.local_port))
+                            .or_insert_with(|| self.local_ownership(&snapshot, flow))
+                            .clone()
+                    } else {
+                        self.local_ownership(&snapshot, flow)
+                    };
+                    let identity = match ownership {
+                        LocalOwnership::Verified(identity) => Some(identity),
+                        LocalOwnership::Absent => self.forwarded(flow, arrived, now)?,
+                        LocalOwnership::Pending(_) => None,
+                        LocalOwnership::Ambiguous => {
+                            self.log_rejection("Ambiguous TUN flow ownership.");
+                            continue;
+                        }
+                    };
+                    if let Some(mut identity) = identity {
+                        let start = encoded.len();
+                        serde_json::to_writer(
+                            &mut encoded,
+                            &UdpReply {
+                                index,
+                                identity: &identity,
+                            },
+                        )?;
+                        if encoded.len() - start >= 4096 {
+                            encoded.truncate(start);
+                            identity.application_proof = None;
+                            serde_json::to_writer(
+                                &mut encoded,
+                                &UdpReply {
+                                    index,
+                                    identity: &identity,
+                                },
+                            )?;
+                        }
+                        encoded.push(b'\n');
+                    } else {
+                        pending.push((index, flow));
+                    }
+                }
+                if !encoded.is_empty() {
+                    stream.write_all(&encoded).await?;
+                    encoded.clear();
+                }
+                std::mem::swap(&mut flows, &mut pending);
+            }
+            if !flows.is_empty() {
+                self.udp_changed.notify_one();
+                tokio::select! {
+                    _ = ready => {},
+                    _ = tokio::time::sleep(Duration::from_millis(40)) => {},
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn log_rejection(&self, error: impl std::fmt::Display) {
+        if let Some(count) = self.rejections.record(clock::milliseconds()) {
+            eprintln!("TUN attribution rejected request ({count} since last report): {error}");
+        }
+    }
 }
+
+async fn wait_for_refresh(
+    state: &State,
+    stopping: &mut watch::Receiver<bool>,
+    read_at: u64,
+) -> bool {
+    let urgent = tokio::select! {
+        biased;
+        _ = stopping.changed() => return true,
+        _ = state.udp_changed.notified() => true,
+        _ = state.changed.notified() => false,
+        _ = tokio::time::sleep(Duration::from_secs(1)) => false,
+    };
+    let remaining = |minimum: u64| {
+        Duration::from_millis(minimum.saturating_sub(clock::milliseconds().saturating_sub(read_at)))
+    };
+    if !urgent {
+        tokio::select! {
+            biased;
+            _ = stopping.changed() => return true,
+            _ = state.udp_changed.notified() => {},
+            _ = tokio::time::sleep(remaining(100)) => return false,
+        }
+    }
+    // Coalesce native table reads while UDP ownership requests are waiting.
+    tokio::select! {
+        biased;
+        _ = stopping.changed() => true,
+        _ = tokio::time::sleep(remaining(25)) => false,
+    }
+}
+
 pub struct TunApplications {
     state: Arc<State>,
     endpoint: BridgeEndpoint,
@@ -319,6 +482,8 @@ impl TunApplications {
             ambiguous_mask,
             published: RwLock::new(Published::default()),
             changed: Arc::new(Notify::new()),
+            udp_changed: Notify::new(),
+            snapshot_ready: Notify::new(),
             secret,
             zero,
             nat: RwLock::new(NatPublished::default()),
@@ -349,22 +514,18 @@ impl TunApplications {
                         .write()
                         .map_err(|_| Error::invalid("TUN attribution state poisoned."))?
                         .snapshot = Some(snapshot);
+                    worker_state.snapshot_ready.notify_waiters();
                     if let Some(ready) = ready.take() {
                         if ready.send(Ok(())).is_err() {
                             break;
                         }
                     }
                     flush = false;
-                    let should_stop=runtime.block_on(async {
-                        tokio::select! {
-                            _=worker_stop.changed()=>return true,
-                            _=worker_state.changed.notified()=>{},
-                            _=tokio::time::sleep(Duration::from_secs(1))=>{},
-                        }
-                        let delay=100u64.saturating_sub(clock::milliseconds().saturating_sub(read_at));
-                        if delay>0 {tokio::select! {_=worker_stop.changed()=>return true,_=tokio::time::sleep(Duration::from_millis(delay))=>{}}}
-                        false
-                    });
+                    let should_stop = runtime.block_on(wait_for_refresh(
+                        &worker_state,
+                        &mut worker_stop,
+                        read_at,
+                    ));
                     if should_stop {
                         break;
                     }
@@ -525,6 +686,40 @@ struct Query {
     #[serde(default)]
     include_application_proof: bool,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UdpBatch {
+    auth: String,
+    udp: Vec<(String, u16, String, u16)>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Request {
+    Single(Query),
+    Udp(UdpBatch),
+}
+
+fn query_flow(
+    protocol: u8,
+    source: &str,
+    source_port: u16,
+    target: &str,
+    target_port: u16,
+) -> Result<Flow> {
+    if source_port == 0 || target_port == 0 {
+        return Err(Error::invalid("Invalid TUN query port."));
+    }
+    Ok(Flow {
+        protocol,
+        local: address(source).ok_or_else(|| Error::invalid("Invalid TUN source address."))?,
+        local_port: source_port,
+        remote: address(target)
+            .ok_or_else(|| Error::invalid("Invalid TUN destination address."))?,
+        remote_port: target_port,
+    })
+}
+
 fn auth(value: &str, secret: &[u8; 32]) -> bool {
     if value.len() != 64 {
         return false;
@@ -576,23 +771,37 @@ async fn serve(mut stream: TcpStream, state: Arc<State>, mut stopping: watch::Re
         return;
     }
     let request = async {
-        let mut bytes = [0; 1024];
-        let mut length = 0;
-        let end = loop {
-            if length == bytes.len() {
-                return Err(Error::invalid("TUN query exceeds capacity."));
-            }
-            let count = stream.read(&mut bytes[length..]).await?;
-            if count == 0 {
-                return Err(Error::invalid("Incomplete TUN query."));
-            }
-            let before = length;
-            length += count;
-            if let Some(at) = bytes[before..length].iter().position(|b| *b == b'\n') {
-                break before + at + 1;
+        const UDP_BATCH_LIMIT: usize = 512;
+        let mut bytes = Vec::with_capacity(1024);
+        BufReader::new((&mut stream).take(64 * 1024))
+            .read_until(b'\n', &mut bytes)
+            .await?;
+        if bytes.last() != Some(&b'\n') {
+            return Err(Error::invalid("Incomplete or oversized TUN query."));
+        }
+        let query = match serde_json::from_slice::<Request>(&bytes)? {
+            Request::Single(query) if bytes.len() <= 1024 => query,
+            Request::Single(_) => return Err(Error::invalid("TUN query exceeds capacity.")),
+            Request::Udp(batch) => {
+                if !auth(&batch.auth, &state.secret) {
+                    return Err(Error::invalid("Invalid TUN query authentication."));
+                }
+                if !(1..=UDP_BATCH_LIMIT).contains(&batch.udp.len()) {
+                    return Err(Error::invalid("Invalid TUN UDP batch size."));
+                }
+                let flows = batch
+                    .udp
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, (source, port, target, target_port))| {
+                        query_flow(17, &source, port, &target, target_port)
+                            .ok()
+                            .map(|flow| (index, flow))
+                    })
+                    .collect();
+                return state.serve_udp(flows, &mut stream).await;
             }
         };
-        let query: Query = serde_json::from_slice(&bytes[..end])?;
         if !auth(&query.auth, &state.secret) {
             return Err(Error::invalid("Invalid TUN query authentication."));
         }
@@ -601,28 +810,23 @@ async fn serve(mut stream: TcpStream, state: Arc<State>, mut stopping: watch::Re
             "udp" => 17,
             _ => return Err(Error::invalid("Invalid TUN query protocol.")),
         };
-        if query.source_port == 0 || query.destination_port == 0 {
-            return Err(Error::invalid("Invalid TUN query port."));
-        }
-        let flow = Flow {
+        let flow = query_flow(
             protocol,
-            local: address(&query.source)
-                .ok_or_else(|| Error::invalid("Invalid TUN source address."))?,
-            local_port: query.source_port,
-            remote: address(&query.destination)
-                .ok_or_else(|| Error::invalid("Invalid TUN destination address."))?,
-            remote_port: query.destination_port,
-        };
-        let mut result = state.find(flow).await.map_err(|error| {
+            &query.source,
+            query.source_port,
+            &query.destination,
+            query.destination_port,
+        )?;
+        let mut result = state.find(flow).await.inspect_err(|error| {
             // Only authenticated, valid ownership requests reach this point.
             // Bound repeated reports; never log the secret or destinations.
-            if let Some(count) = state.rejections.record(clock::milliseconds()) {
-                eprintln!("TUN attribution rejected request ({count} since last report): {error}");
-            }
-            error
+            state.log_rejection(error);
         })?;
         if !query.include_application_proof {
             result.application_proof = None;
+        }
+        if flow.protocol != 17 || !query.include_application_proof {
+            result.udp_owner = None;
         }
         let mut response = serde_json::to_vec(&result)?;
         // Keep diagnostics within both the private reply and Xray log readers.
@@ -915,6 +1119,8 @@ mod tests {
             ambiguous_mask: None,
             published: RwLock::new(Published::default()),
             changed: Arc::new(Notify::new()),
+            udp_changed: Notify::new(),
+            snapshot_ready: Notify::new(),
             secret: [0; 32],
             zero: "0".into(),
             nat: RwLock::new(NatPublished::default()),
@@ -963,11 +1169,87 @@ mod tests {
             ambiguous_mask: None,
             published: RwLock::new(Published::default()),
             changed: Arc::new(Notify::new()),
+            udp_changed: Notify::new(),
+            snapshot_ready: Notify::new(),
             secret: [0; 32],
             zero: "0".into(),
             nat: RwLock::new(NatPublished::default()),
             nat_changed: Arc::new(Notify::new()),
         })
+    }
+
+    #[tokio::test]
+    async fn udp_batch_uses_fresh_bindings_and_sends_verified_peers_ahead_of_an_unresolved_one() {
+        use crate::attribution::OwnerRow;
+        let state = lifecycle_state();
+        let local = address("127.0.0.1").unwrap();
+        let key = native::processes::read_key(std::process::id()).unwrap();
+        let snapshot = |bind_port, read_at| {
+            Arc::new(
+                AttributionSnapshot::new(
+                    &[],
+                    &[OwnerRow {
+                        local,
+                        port: bind_port,
+                        remote: None,
+                        remote_port: 0,
+                        pid: key.pid,
+                        module: None,
+                        state: 0,
+                    }],
+                    |_, _| {
+                        let mut decision = Decision::new(Kind::Unselected);
+                        decision.process = Some(key);
+                        Ok(decision)
+                    },
+                    read_at,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        state.published.write().unwrap().snapshot = Some(snapshot(12001, 0));
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (stop, stopping) = watch::channel(false);
+        let server = tokio::spawn(serve(stream, state.clone(), stopping));
+        let mut reader = BufReader::new(client);
+        let request = serde_json::json!({
+            "auth": "0".repeat(64),
+            "udp": [
+                ["127.0.0.1", 0, "192.0.2.1", 53],
+                ["127.0.0.1", 12001, "192.0.2.1", 53],
+                ["127.0.0.1", 12002, "192.0.2.1", 53],
+                ["127.0.0.1", 12002, "192.0.2.2", 443]
+            ]
+        });
+        reader
+            .get_mut()
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), state.udp_changed.notified())
+            .await
+            .unwrap();
+        state.published.write().unwrap().snapshot =
+            Some(snapshot(12002, clock::milliseconds() + 1));
+        state.snapshot_ready.notify_waiters();
+        for index in [2, 3] {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_millis(500), reader.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(reply["index"], index);
+            assert_eq!(reply["identity"]["udpOwner"]["pid"], key.pid);
+            assert_eq!(reply["identity"]["udpOwner"]["started"], key.started);
+        }
+        stop.send(true).unwrap();
+        server.await.unwrap();
     }
     #[tokio::test]
     async fn reported_runtime_fault_does_not_become_a_retirement_failure() {

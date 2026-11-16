@@ -103,11 +103,16 @@ impl AttributionSnapshot {
         arrived: u64,
         timestamp: i64,
     ) -> Option<Decision> {
-        if now.saturating_sub(self.read_at) > 500 || self.read_at < arrived {
-            None
-        } else {
-            Some(self.find(flow, timestamp))
-        }
+        self.is_fresh(now, arrived)
+            .then(|| self.find(flow, timestamp))
+    }
+    pub fn is_fresh(&self, now: u64, arrived: u64) -> bool {
+        self.read_at >= arrived && now.saturating_sub(self.read_at) <= 500
+    }
+    // The TUN helper uses native UDP tables and a process-only policy. Socket
+    // events can identify a remote peer and cannot share this ownership scope.
+    pub(crate) fn can_share_tun_udp_owner(&self) -> bool {
+        self.events.is_none()
     }
     /// Presence is separate from identity: an unresolved real socket must never
     /// be relabeled as forwarded traffic just because its process is unavailable.

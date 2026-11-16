@@ -1,4 +1,5 @@
 //! A service-owned restart barrier. WFP policy outlives every routing process.
+mod packages;
 mod versions;
 mod wfp;
 use crate::{storage, system_settings::version};
@@ -9,6 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 use wayrill_protocol::{ApiError, Result};
+
+const MAX_TARGETS: usize = 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
@@ -81,6 +84,30 @@ fn invalid(message: &str) -> ApiError {
     ApiError::new("INVALID_PARAMS", message)
 }
 
+fn too_many_targets() -> ApiError {
+    ApiError::new(
+        "APP_PROTECTION",
+        "Too many protected executable and package identities.",
+    )
+}
+
+fn normalize_targets(targets: &mut Vec<Target>) -> Result<()> {
+    targets.sort_by_cached_key(|target| {
+        (
+            matches!(target, Target::Package { .. }),
+            target.value().to_ascii_lowercase(),
+        )
+    });
+    targets.dedup_by(|a, b| {
+        std::mem::discriminant(a) == std::mem::discriminant(b)
+            && a.value().eq_ignore_ascii_case(b.value())
+    });
+    if targets.len() > MAX_TARGETS {
+        return Err(too_many_targets());
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Phase {
@@ -109,17 +136,30 @@ pub struct Set {
 }
 
 pub trait Backend {
+    fn package_executables(&self, applications: &[Target]) -> Result<Vec<Target>>;
     fn validate(&self, applications: &[Target]) -> Result<()>;
     fn replace(&self, applications: &[Target]) -> Result<()>;
 }
 pub struct Windows;
 impl Backend for Windows {
+    fn package_executables(&self, applications: &[Target]) -> Result<Vec<Target>> {
+        packages::executables(applications)
+    }
     fn validate(&self, applications: &[Target]) -> Result<()> {
         wfp::validate(applications)
     }
     fn replace(&self, applications: &[Target]) -> Result<()> {
         wfp::replace(applications)
     }
+}
+
+fn resolve(backend: &impl Backend, applications: &[Target]) -> Result<versions::Resolved> {
+    let mut result = versions::resolve(applications)?;
+    result
+        .targets
+        .extend(backend.package_executables(applications)?);
+    normalize_targets(&mut result.targets)?;
+    Ok(result)
 }
 pub struct Manager<B = Windows> {
     path: PathBuf,
@@ -193,7 +233,18 @@ impl<B: Backend> Manager<B> {
         }
         let mut config = request.config;
         config.validate()?;
-        for target in &config.applications {
+        if self.state.phase != Phase::Idle && config.enabled {
+            return Err(ApiError::new("BUSY", "Routing is recovering. Disable protection to release its applications, or wait before changing the list."));
+        }
+        let resolved = if config.enabled {
+            resolve(&self.backend, &config.applications)?
+        } else {
+            versions::Resolved {
+                applications: config.applications.clone(),
+                targets: vec![],
+            }
+        };
+        for target in config.applications.iter().chain(&resolved.targets) {
             if let Target::Executable { value } = target {
                 // Blocking a routing helper would prevent recovery itself.
                 if value.to_lowercase().starts_with(&format!(
@@ -204,17 +255,6 @@ impl<B: Backend> Manager<B> {
                 }
             }
         }
-        if self.state.phase != Phase::Idle && config.enabled {
-            return Err(ApiError::new("BUSY", "Routing is recovering. Disable protection to release its applications, or wait before changing the list."));
-        }
-        let resolved = if config.enabled {
-            versions::resolve(&config.applications)?
-        } else {
-            versions::Resolved {
-                applications: config.applications.clone(),
-                targets: vec![],
-            }
-        };
         config.applications = resolved.applications;
         config.validate()?;
         if config.enabled {
@@ -321,27 +361,15 @@ impl<B: Backend> Manager<B> {
         if !self.state.config.enabled {
             return Ok(false);
         }
-        let mut resolved = versions::resolve(&self.state.config.applications)?;
+        let mut resolved = resolve(&self.backend, &self.state.config.applications)?;
         if self.state.phase != Phase::Idle {
-            for target in &self.state.targets {
-                if !resolved.targets.contains(target) {
-                    resolved.targets.push(target.clone());
-                }
-            }
-        }
-        if resolved.targets.len() > 1024 {
-            return Err(invalid("Too many protected application versions."));
+            resolved.targets.extend(self.state.targets.iter().cloned());
+            normalize_targets(&mut resolved.targets)?;
         }
         let mut next = self.state.clone();
         next.config.applications = resolved.applications;
         next.config.validate()?;
         next.targets = resolved.targets;
-        next.targets.sort_by_key(|target| {
-            (
-                matches!(target, Target::Package { .. }),
-                target.value().to_ascii_lowercase(),
-            )
-        });
         if next == self.state {
             return Ok(false);
         }
@@ -409,7 +437,7 @@ pub fn prepare_installed_upgrade() -> Result<()> {
     }
     let mut config = state.config;
     config.validate()?;
-    let resolved = versions::resolve(&config.applications)?;
+    let resolved = resolve(&Windows, &config.applications)?;
     wfp::replace(&resolved.targets)
 }
 
@@ -422,8 +450,23 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
     #[derive(Clone, Default)]
-    struct Fake(Rc<RefCell<(Vec<Target>, bool, usize)>>);
+    struct Fake(
+        Rc<RefCell<(Vec<Target>, bool, usize)>>,
+        Rc<RefCell<Vec<Target>>>,
+    );
     impl Backend for Fake {
+        fn package_executables(&self, applications: &[Target]) -> Result<Vec<Target>> {
+            Ok(
+                if applications
+                    .iter()
+                    .any(|target| matches!(target, Target::Package { .. }))
+                {
+                    self.1.borrow().clone()
+                } else {
+                    Vec::new()
+                },
+            )
+        }
         fn validate(&self, _: &[Target]) -> Result<()> {
             Ok(())
         }
@@ -488,6 +531,44 @@ mod tests {
             storage::read::<State>(&path).unwrap().unwrap().phase,
             Phase::Idle
         );
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn package_policy_covers_new_installations_and_survives_service_handoff() {
+        let path = path();
+        let native = Fake::default();
+        let executable = |value: &str| Target::Executable {
+            value: value.into(),
+        };
+        let old = executable(r"C:\Packages\old\helper.exe");
+        let new = executable(r"C:\Packages\new\helper.exe");
+        let package = Target::Package {
+            value: "Example.Desktop_publisher".into(),
+        };
+        *native.1.borrow_mut() = vec![old.clone()];
+        let mut manager = Manager::open_with("owner", path.clone(), native.clone()).unwrap();
+        manager
+            .set(
+                Set {
+                    expected_version: version(&manager.state.config),
+                    config: Config {
+                        enabled: true,
+                        applications: vec![package.clone()],
+                    },
+                },
+                Path::new(r"C:\Wayrill"),
+            )
+            .unwrap();
+        manager.arm(Phase::Upgrade).unwrap();
+        assert_eq!(native.0.borrow().0, vec![old.clone(), package.clone()]);
+
+        *native.1.borrow_mut() = vec![new.clone()];
+        drop(manager);
+        let mut manager = Manager::open_with("owner", path.clone(), native.clone()).unwrap();
+        assert_eq!(native.0.borrow().0, vec![new, old, package.clone()]);
+        assert_eq!(manager.state.config.applications, vec![package]);
+        manager.ready().unwrap();
+        assert!(native.0.borrow().0.is_empty());
         std::fs::remove_file(path).unwrap();
     }
     #[test]

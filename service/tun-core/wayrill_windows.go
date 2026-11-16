@@ -37,6 +37,16 @@ type wayrillQuery struct {
 	IncludeApplicationProof bool   `json:"includeApplicationProof,omitempty"`
 }
 
+type wayrillIdentity struct {
+	Mask             string                  `json:"mask"`
+	ApplicationProof json.RawMessage         `json:"applicationProof,omitempty"`
+	UDPOwner         session.WayrillUDPOwner `json:"udpOwner,omitempty"`
+	Origin           *struct {
+		Source     string `json:"source"`
+		SourcePort uint16 `json:"sourcePort"`
+	} `json:"origin,omitempty"`
+}
+
 // Failure closes this flow before dispatch; it must not masquerade as an empty
 // process identity and accidentally select the ordinary unmatched route.
 func wayrillProcessIdentity(ctx context.Context, source, destination net.Destination, inbound *session.Inbound) (string, error) {
@@ -97,44 +107,18 @@ func wayrillProcessIdentity(ctx context.Context, source, destination net.Destina
 		DestinationPort:         uint16(destination.Port),
 		IncludeApplicationProof: inbound != nil,
 	}
-	dialer := stdnet.Dialer{Timeout: 1800 * time.Millisecond}
-	conn, err := dialer.DialContext(ctx, "tcp", strings.Join(fields[:2], ":"))
-	if err != nil {
-		return "", fmt.Errorf("TUN attribution unavailable: %w", err)
+	addr := strings.Join(fields[:2], ":")
+	var response wayrillIdentity
+	var err error
+	if batcher, ok := ctx.Value(wayrillUDPBatchKey{}).(*wayrillUDPBatcher); ok && network == "udp" {
+		response, err = batcher.lookup(ctx, addr, request)
+	} else {
+		err = wayrillAttributionExchange(ctx, addr, request, func(reader *bufio.Reader) error {
+			return readWayrillIdentity(reader, &response)
+		})
 	}
-	defer conn.Close()
-	stopCancel := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stopCancel()
-	if err = conn.SetDeadline(time.Now().Add(1800 * time.Millisecond)); err != nil {
-		return "", err
-	}
-	payload, err := json.Marshal(request)
-	if err != nil {
-		return "", err
-	}
-	if _, err = conn.Write(append(payload, '\n')); err != nil {
-		return "", err
-	}
-	reader := bufio.NewReaderSize(conn, 4096)
-	mask, err := reader.ReadSlice('\n')
 	if err != nil {
 		return "", fmt.Errorf("TUN flow attribution unresolved: %w", err)
-	}
-	var response struct {
-		Mask             string          `json:"mask"`
-		ApplicationProof json.RawMessage `json:"applicationProof,omitempty"`
-		Origin           *struct {
-			Source     string `json:"source"`
-			SourcePort uint16 `json:"sourcePort"`
-		} `json:"origin,omitempty"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(mask))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&response); err != nil {
-		return "", fmt.Errorf("invalid TUN identity response: %w", err)
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return "", fmt.Errorf("trailing TUN identity response")
 	}
 	value := response.Mask
 	if len(value) != width || strings.Trim(value, "0123456789abcdef") != "" {
@@ -159,5 +143,42 @@ func wayrillProcessIdentity(ctx context.Context, source, destination net.Destina
 	if inbound != nil && len(response.ApplicationProof) != 0 && !bytes.ContainsAny(response.ApplicationProof, "\r\n") {
 		inbound.WayrillApplicationProof = string(response.ApplicationProof)
 	}
+	if inbound != nil && destination.Network == net.Network_UDP {
+		inbound.WayrillUDPOwner = response.UDPOwner
+	}
 	return "wr-" + value + "-" + fields[2][:48], nil
+}
+
+func wayrillAttributionExchange(ctx context.Context, addr string, request any, read func(*bufio.Reader) error) error {
+	dialer := stdnet.Dialer{Timeout: 1800 * time.Millisecond}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("TUN attribution unavailable: %w", err)
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	if err := conn.SetDeadline(time.Now().Add(1800 * time.Millisecond)); err != nil {
+		return err
+	}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		return err
+	}
+	return read(bufio.NewReaderSize(conn, 4096))
+}
+
+func readWayrillIdentity(reader *bufio.Reader, into any) error {
+	line, err := reader.ReadSlice('\n')
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(line))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(into); err != nil {
+		return fmt.Errorf("invalid TUN identity response: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return fmt.Errorf("trailing TUN identity response")
+	}
+	return nil
 }

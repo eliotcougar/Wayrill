@@ -242,15 +242,10 @@ export default function AppProtectionSettings({
           </button>
         </div>
         <p className="field-help">
-          Add separate helper and networking executables too. Child processes are not included
-          automatically.
+          {kind === 'package'
+            ? 'Covers executables installed with the package. Add any networking helpers installed separately.'
+            : 'Add separate helper and networking executables too. Child processes are not included automatically.'}
         </p>
-        {kind === 'package' && (
-          <p className="field-help">
-            For packaged desktop apps that run outside AppContainer, select their executables
-            instead.
-          </p>
-        )}
         <ul className="app-protection-list">
           {draft.applications.map((target) => (
             <li key={identity(target)}>

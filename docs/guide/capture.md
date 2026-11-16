@@ -147,19 +147,20 @@ selection prepare a change; Apply commits it. These permissions are system-wide
 and remain after routing stops. They are separate from the routing rule that
 keeps `127.0.0.0/8` and IPv6 loopback local, subject to explicit Block rules.
 
-In **App protection**, select exact executable paths or AppContainer packages to
-block during routing restarts and installation over an existing version. Include
-networking helpers if they are separate processes. The barrier is released after
-successful routing recovery; explicit Stop releases it. This protects transitions,
-not every possible period of direct connectivity.
+In **App protection**, select executable paths or Windows packages to block
+during routing restarts and installation over an existing version. A package
+rule covers AppContainer traffic and executables in the installed package,
+including full-trust desktop apps and their bundled helpers. Add networking
+helpers installed separately. The block ends when routing resumes or you
+explicitly stop it.
 
 Versioned installations follow updates automatically. The service checks the
 selected installation every 30 seconds and again before arming protection. It
 recognizes numeric version folders (including `app-` versions) and hash-named
 version folders, updates the displayed executable path, and protects both old
 and new installed versions during a transition. It does not search the whole PC
-for another executable with the same name. Package selections already follow
-their package family across updates. After moving an app to a different
+for another executable with the same name. Package rules follow installed
+versions through the Windows package inventory. After moving an app to a different
 installation directory, select its new location.
 
 If an interrupted update leaves selected apps blocked, finish installation or

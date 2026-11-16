@@ -1,0 +1,232 @@
+diff --git a/app/dispatcher/default.go b/app/dispatcher/default.go
+index 879d922..6d3dc97 100644
+--- a/app/dispatcher/default.go
++++ b/app/dispatcher/default.go
+@@ -30,9 +30,18 @@ type cachedReader struct {
+ 	sync.Mutex
+ 	reader buf.TimeoutReader // *pipe.Reader or *buf.TimeoutWrapperReader
+ 	cache  buf.MultiBuffer
++	peekWayrillPackets func([]byte, int, time.Duration) (int, error)
++	peekCount int
+ }
+ 
+ func (r *cachedReader) Cache(b *buf.Buffer, deadline time.Duration) error {
++	if r.peekWayrillPackets != nil {
++		r.peekCount++
++		b.Clear()
++		n, err := r.peekWayrillPackets(b.Extend(b.Cap()), r.peekCount, deadline)
++		b.Resize(0, int32(n))
++		return err
++	}
+ 	mb, err := r.reader.ReadMultiBufferTimeout(deadline)
+ 	if err != nil {
+ 		return err
+@@ -346,6 +355,9 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
+ 		cReader := &cachedReader{
+ 			reader: outbound.Reader.(buf.TimeoutReader),
+ 		}
++		if udp := session.WayrillUDPDispatchFromContext(ctx); udp != nil {
++			cReader.peekWayrillPackets = udp.Peek
++		}
+ 		outbound.Reader = cReader
+ 		result, err := sniffer(ctx, cReader, sniffingRequest.MetadataOnly, destination.Network)
+ 		if err == nil {
+@@ -436,6 +448,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+ 	ob := outbounds[len(outbounds)-1]
+ 
+ 	var handler outbound.Handler
++	var wayrillRule string
+ 
+ 	routingLink := routing_session.AsRoutingContext(ctx)
+ 	inTag := routingLink.GetInboundTag()
+@@ -457,6 +470,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+ 			outTag := route.GetOutboundTag()
+ 			if h := d.ohm.GetHandler(outTag); h != nil {
+ 				isPickRoute = 2
++				wayrillRule = route.GetRuleTag()
+ 				if route.GetRuleTag() == "" {
+ 					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
+ 					if id := session.WayrillRelayIDFromContext(ctx); id != "" {
+@@ -518,5 +532,11 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+ 		log.Record(accessMessage)
+ 	}
+ 
++	if udp := session.WayrillUDPDispatchFromContext(ctx); udp != nil {
++		ctx = session.WithWayrillUDPDispatch(ctx, nil)
++		if !udp.Settle(ctx, wayrillRule) {
++			return
++		}
++	}
+ 	handler.Dispatch(ctx, link)
+ }
+diff --git a/app/router/router.go b/app/router/router.go
+index cd695d8..5d70ccc 100644
+--- a/app/router/router.go
++++ b/app/router/router.go
+@@ -9,6 +9,7 @@ import (
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/errors"
+ 	"github.com/xtls/xray-core/common/serial"
++	"github.com/xtls/xray-core/common/session"
+ 	"github.com/xtls/xray-core/core"
+ 	"github.com/xtls/xray-core/features/dns"
+ 	"github.com/xtls/xray-core/features/outbound"
+@@ -155,6 +156,7 @@ func (r *Router) ReloadRules(config *Config, shouldAppend bool) error {
+ 
+ 	r.balancers.Store(&newBalancers)
+ 	r.rules.Store(&newRules)
++	session.AdvanceWayrillUDPEpoch()
+ 	if !shouldAppend {
+ 		closeWebhooks(oldRules)
+ 	}
+@@ -181,6 +183,7 @@ func (r *Router) RemoveRule(tag string) error {
+ 		}
+ 	}
+ 	r.rules.Store(&newRules)
++	session.AdvanceWayrillUDPEpoch()
+ 	closeWebhooks(removed)
+ 	return nil
+ }
+diff --git a/common/session/session.go b/common/session/session.go
+index daffed6..cc1f103 100644
+--- a/common/session/session.go
++++ b/common/session/session.go
+@@ -36,6 +36,7 @@ func ExportIDToError(ctx context.Context) errors.ExportOption {
+ // Inbound is the metadata of an inbound connection.
+ type Inbound struct {
+ 	WayrillApplicationProof string
++	WayrillUDPOwner         WayrillUDPOwner
+ 	// Source address of the inbound connection.
+ 	Source net.Destination
+ 	// Local address of the inbound connection.
+diff --git a/common/session/wayrill_udp.go b/common/session/wayrill_udp.go
+new file mode 100644
+index 0000000..f1e0e5f
+--- /dev/null
++++ b/common/session/wayrill_udp.go
+@@ -0,0 +1,37 @@
++package session
++
++import (
++	"context"
++	"sync/atomic"
++	"time"
++)
++
++// The native attribution worker verifies the owning process before reporting
++// this identity. Endpoint is the kernel socket identity when available.
++type WayrillUDPOwner struct {
++	PID      uint32
++	Started  int64
++	Endpoint uint64
++}
++
++type WayrillUDPDispatch struct {
++	Peek   func([]byte, int, time.Duration) (int, error)
++	Settle func(context.Context, string) bool
++}
++
++type wayrillUDPDispatchKey struct{}
++
++func WithWayrillUDPDispatch(ctx context.Context, dispatch *WayrillUDPDispatch) context.Context {
++	return context.WithValue(ctx, wayrillUDPDispatchKey{}, dispatch)
++}
++
++func WayrillUDPDispatchFromContext(ctx context.Context) *WayrillUDPDispatch {
++	dispatch, _ := ctx.Value(wayrillUDPDispatchKey{}).(*WayrillUDPDispatch)
++	return dispatch
++}
++
++var wayrillUDPEpoch atomic.Uint64
++
++func WayrillUDPEpoch() uint64 { return wayrillUDPEpoch.Load() }
++
++func AdvanceWayrillUDPEpoch() { wayrillUDPEpoch.Add(1) }
+diff --git a/proxy/tun/handler.go b/proxy/tun/handler.go
+index d318d23..d7da313 100644
+--- a/proxy/tun/handler.go
++++ b/proxy/tun/handler.go
+@@ -217,6 +217,19 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
+ 
+ 	ctx, cancel := context.WithCancel(t.ctx)
+ 	defer cancel()
++	if udp, ok := conn.(*udpConn); ok && udp.wayrill != nil {
++		flows := udp.handler.wayrill
++		if !flows.track(udp, cancel) {
++			return
++		}
++		ctx = context.WithValue(ctx, wayrillUDPBatchKey{}, flows.attribution)
++		ctx = session.WithWayrillUDPDispatch(ctx, &session.WayrillUDPDispatch{
++			Peek: udp.queue.peekWayrillPackets,
++			Settle: func(ctx context.Context, rule string) bool {
++				return flows.settle(udp, ctx, rule)
++			},
++		})
++	}
+ 	ctx = c.ContextWithID(ctx, session.NewID())
+ 
+ 	source := net.DestinationFromAddr(conn.RemoteAddr())
+diff --git a/proxy/tun/stack.go b/proxy/tun/stack.go
+index b6314bf..f6aa31c 100644
+--- a/proxy/tun/stack.go
++++ b/proxy/tun/stack.go
+@@ -121,6 +121,7 @@ func NewStack(ctx context.Context, options StackOptions, handler ConnectionHandl
+ 	}
+ 	if owner, ok := handler.(*Handler); ok {
+ 		s.icmp = newWayrillICMP(ctx, owner)
++		s.udp.wayrill = newWayrillUDPFlows()
+ 	}
+ 	return s, nil
+ }
+@@ -133,6 +134,9 @@ func (s *stack) Start() error {
+ 
+ // Close is called by Handler to shut down the stack
+ func (s *stack) Close() error {
++	if s.udp != nil && s.udp.wayrill != nil {
++		s.udp.wayrill.close()
++	}
+ 	if s.icmp != nil {
+ 		s.icmp.close()
+ 	}
+diff --git a/proxy/tun/udp_fullcone.go b/proxy/tun/udp_fullcone.go
+index 6a71f4b..4f540b9 100644
+--- a/proxy/tun/udp_fullcone.go
++++ b/proxy/tun/udp_fullcone.go
+@@ -16,6 +16,7 @@ type udpConnectionHandler struct {
+ 	sync.RWMutex
+ 
+ 	udpConns map[net.Destination]*udpConn
++	wayrill  *wayrillUDPFlows
+ 
+ 	handleConnection func(conn net.Conn, dest net.Destination)
+ 	writePacket      func(data []byte, src net.Destination, dst net.Destination) error
+@@ -35,6 +36,10 @@ func newUdpConnectionHandler(handleConnection func(conn net.Conn, dest net.Desti
+ // this custom handler support FullCone NAT of returning packets, binding connection only by the source addr:port
+ func (u *udpConnectionHandler) HandlePacket(src net.Destination, dst net.Destination, data *buf.Buffer) {
+ 	data.UDP = &dst
++	if u.wayrill != nil {
++		u.wayrill.packet(u, src, dst, data)
++		return
++	}
+ 
+ 	u.RLock()
+ 	conn, found := u.udpConns[src]
+@@ -67,6 +72,10 @@ func (u *udpConnectionHandler) HandlePacket(src net.Destination, dst net.Destina
+ }
+ 
+ func (u *udpConnectionHandler) connectionFinished(conn *udpConn) {
++	if conn.wayrill != nil {
++		u.wayrill.finish(conn)
++		return
++	}
+ 	u.Lock()
+ 	// Close runs twice per flow; a newer conn may already own this src.
+ 	if u.udpConns[conn.src] == conn {
+@@ -79,6 +88,7 @@ func (u *udpConnectionHandler) connectionFinished(conn *udpConn) {
+ // udp connection abstraction
+ type udpConn struct {
+ 	handler *udpConnectionHandler
++	wayrill *wayrillUDPFlow
+ 
+ 	queue *packetQueue
+ 	src   net.Destination

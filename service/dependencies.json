@@ -2,7 +2,7 @@
   "xray": {
     "version": "26.10.29",
     "prerelease": false,
-    "executableSha256": "698B3026A5CECD112FF09524A71832D4BDFFC857D6DAEB77EAFDCEA431F6D07C",
+    "executableSha256": "81652F42FABC5236A20E15A2EE7DA9E927CCACA0359744C19B8D7BE6D03B342C",
     "license": "MPL-2.0",
     "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.10.29",
     "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
@@ -14,8 +14,10 @@
       "fakeDnsPatchSha256": "66900CF5EE37429372CBF7292472CCC581BA33337A26FB1A14DF5258F8DDA66E",
       "relayTelemetryPatch": "service/xray-patches/relay-telemetry.patch",
       "relayTelemetryPatchSha256": "865C6AD73FFF01F5C8B54D88E3FD5F0E88B8A490F4668973A376E1A2E12BEDA1",
-      "xhttpHandshakePatch": "service/xray-patches/xhttp-handshake-timeout.patch",
-      "xhttpHandshakePatchSha256": "2A9B642CB9A8B22145F45EACBA17F5D2A9A5740C6E9F77E23870B8BDE09482AC",
+      "utlsHandshakePatch": "service/xray-patches/utls-handshake-timeout.patch",
+      "utlsHandshakePatchSha256": "439A87AA5DA847814D9A871DE46BA9D8C1271B3EAB6A57D831FF4FA6ED0CC5C1",
+      "tunUdpRoutesPatch": "service/xray-patches/tun-udp-routes.patch",
+      "tunUdpRoutesPatchSha256": "235608C783441A2A30C0EB6B69D8037669277371FC9F77289A02A8660D314BAA",
       "initializerFiles": {
         "udp_windows.go": "A8D638AFF1145152469653B1279723E85072847216D0DFECE9FBABE64C48C087",
         "udp_windows_test.go": "535B3D8AA6D34D6D4EC75CDA432B14372C019C3D6F55F7C35140AF207099BBC8"
