@@ -12,7 +12,7 @@ selected apps through a proxy, and give DNS its own rules. Wayrill runs the grap
 as a Windows service. The bundled **Wayrill Aquifer** uses the same editing
 approach to manage Xray on a Linux server over SSH.
 
-[**Download the Windows beta**](https://github.com/eliotcougar/Wayrill/releases) ·
+[**Download the 0.38.0 Windows beta**](https://github.com/eliotcougar/Wayrill/releases/tag/v0.38.0) ·
 [Getting started](docs/guide/getting-started.md) ·
 [Documentation](docs/README.md) ·
 [Report a problem](https://github.com/eliotcougar/Wayrill/issues)
@@ -20,6 +20,7 @@ approach to manage Xray on a Linux server over SSH.
 Windows 10/11 · x64 · Public beta
 
 [![Checks](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/eliotcougar/Wayrill/actions/workflows/checks.yml)
+[![CodeQL](https://github.com/eliotcougar/Wayrill/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/eliotcougar/Wayrill/actions/workflows/codeql.yml)
 
 ![Wayrill showing connected traffic filters, DNS resolvers, policy groups and outbounds](docs/images/wayrill.png)
 
@@ -53,8 +54,23 @@ inbounds, users, routing rules, DNS and outbounds. Aquifer validates the generat
 configuration on the server before you deploy it. It backs up the previous
 configuration and can restore it if deployment fails.
 
+When Nginx sits in front of Xray, Aquifer shows the HTTP and stream routes it
+recognizes on a movable, read-only graph node. It uses the public ingress details
+when preparing compatible client connections. **Server Status** shows the
+detected Nginx service alongside Xray and lets you restart it.
+
 Aquifer uses your existing WinSCP installation and its saved sessions and host
 keys. [Aquifer setup and deployment](aquifer/README.md).
+
+## Manage configurations centrally with Wayrill Pool
+
+> **Wayrill Pool is still a preview and is not ready for production use.**
+
+Pool lets an administrator assign graphs, Stash layers, traffic and DNS filters,
+and individual server credentials to each user. Publish encrypted deliveries to
+a shared folder or serve them over HTTPS. Subscribers join with an invitation
+and keep their own capture settings. The Wayrill service checks for updates and
+keeps the last working configuration if an update fails. [Pool setup and enrollment](docs/guide/pool.md).
 
 ## From a webpage to its routing rules
 
@@ -67,11 +83,13 @@ editor, even when only the service is running. Choose an exact-domain or
 subdomain match, edit the entry yourself, or find a GeoSite group containing it.
 Review the change in your draft, then **Apply** when ready.
 
-Companion is bundled with Wayrill for **Firefox and Chromium browsers**. Firefox
-uses a Mozilla-signed add-on; Chromium browsers load the included extension
-folder. Destination data stays on your computer. Route labels are observations
-across this PC's apps and tabs, rather than proof of an individual request's
-route. [Set up Companion](docs/guide/browser-companion.md).
+**Companion 0.7.1** ships for Firefox and Chromium. Firefox now shares Chromium’s
+routing popup and **Time Zone** controls. Install or update Firefox Companion
+through the Add-ons Manager using the bundled Mozilla-signed XPI. Chromium
+browsers load the included extension folder.
+
+Destination data stays on your computer. The popup matches recent routes by
+destination across this PC’s apps and tabs. [Set up Companion](docs/guide/browser-companion.md).
 
 ## Set a timezone for an individual app
 
@@ -79,9 +97,9 @@ Use **Tools → Timezone spoofing** to set a timezone for a browser, executable 
 supported packaged app. Pick a timezone manually or use the exit IP of the Main
 outbound or a saved server, policy group or chain. Both 32-bit and 64-bit apps
 are supported on x64 Windows. Some runtimes need the override in place before
-launch, and protected apps may refuse it. Chromium Companion can configure the
-same browser-wide override without debugger permissions.
-[Timezone setup and supported behavior](docs/guide/browser-companion.md#timezone-override-chromium).
+launch, and protected apps may refuse it. Companion can configure a browser-wide
+override through Wayrill’s native bridge. Firefox applies saved changes after a
+full browser restart. [Timezone setup and supported behavior](docs/guide/browser-companion.md#timezone-override).
 
 ## What you can do
 
