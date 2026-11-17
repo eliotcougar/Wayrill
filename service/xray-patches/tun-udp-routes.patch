@@ -1,13 +1,25 @@
 diff --git a/app/dispatcher/default.go b/app/dispatcher/default.go
-index 879d922..6d3dc97 100644
+index 879d922..5aad14e 100644
 --- a/app/dispatcher/default.go
 +++ b/app/dispatcher/default.go
-@@ -30,9 +30,18 @@ type cachedReader struct {
+@@ -13,6 +13,7 @@ import (
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/protocol"
+ 	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/common/xudp"
+ 	"github.com/xtls/xray-core/core"
+ 	"github.com/xtls/xray-core/features/dns"
+ 	"github.com/xtls/xray-core/features/outbound"
+@@ -28,11 +29,20 @@ var errSniffingTimeout = errors.New("timeout on sniffing")
+ 
+ type cachedReader struct {
  	sync.Mutex
- 	reader buf.TimeoutReader // *pipe.Reader or *buf.TimeoutWrapperReader
- 	cache  buf.MultiBuffer
+-	reader buf.TimeoutReader // *pipe.Reader or *buf.TimeoutWrapperReader
+-	cache  buf.MultiBuffer
++	reader             buf.TimeoutReader // *pipe.Reader or *buf.TimeoutWrapperReader
++	cache              buf.MultiBuffer
 +	peekWayrillPackets func([]byte, int, time.Duration) (int, error)
-+	peekCount int
++	peekCount          int
  }
  
  func (r *cachedReader) Cache(b *buf.Buffer, deadline time.Duration) error {
@@ -21,7 +33,7 @@ index 879d922..6d3dc97 100644
  	mb, err := r.reader.ReadMultiBufferTimeout(deadline)
  	if err != nil {
  		return err
-@@ -346,6 +355,9 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
+@@ -346,6 +356,9 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
  		cReader := &cachedReader{
  			reader: outbound.Reader.(buf.TimeoutReader),
  		}
@@ -31,7 +43,7 @@ index 879d922..6d3dc97 100644
  		outbound.Reader = cReader
  		result, err := sniffer(ctx, cReader, sniffingRequest.MetadataOnly, destination.Network)
  		if err == nil {
-@@ -436,6 +448,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+@@ -436,6 +449,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
  	ob := outbounds[len(outbounds)-1]
  
  	var handler outbound.Handler
@@ -39,7 +51,7 @@ index 879d922..6d3dc97 100644
  
  	routingLink := routing_session.AsRoutingContext(ctx)
  	inTag := routingLink.GetInboundTag()
-@@ -457,6 +470,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+@@ -457,6 +471,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
  			outTag := route.GetOutboundTag()
  			if h := d.ohm.GetHandler(outTag); h != nil {
  				isPickRoute = 2
@@ -47,19 +59,71 @@ index 879d922..6d3dc97 100644
  				if route.GetRuleTag() == "" {
  					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
  					if id := session.WayrillRelayIDFromContext(ctx); id != "" {
-@@ -518,5 +532,12 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+@@ -471,10 +486,10 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
+ 						relay = "\twayrill-relay=" + id
+ 					}
+ 					var proof string
+-				if inbound := session.InboundFromContext(ctx); inbound != nil && inbound.WayrillApplicationProof != "" {
+-					proof = "\twayrill-app=" + inbound.WayrillApplicationProof
+-				}
+-				errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", relay, proof)
++					if inbound := session.InboundFromContext(ctx); inbound != nil && inbound.WayrillApplicationProof != "" {
++						proof = "\twayrill-app=" + inbound.WayrillApplicationProof
++					}
++					errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]", relay, proof)
+ 				}
+ 				handler = h
+ 			} else {
+@@ -518,5 +533,18 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
  		log.Record(accessMessage)
  	}
  
 +	if udp := session.WayrillUDPDispatchFromContext(ctx); udp != nil {
 +		ctx = session.WithWayrillUDPDispatch(ctx, nil)
 +		sharing, ok := handler.(interface{ WayrillCanShareUDP() bool })
-+		if !udp.Settle(ctx, wayrillRule, ok && sharing.WayrillCanShareUDP()) {
++		canShare := ok && sharing.WayrillCanShareUDP()
++		if !udp.Settle(ctx, wayrillRule, canShare) {
 +			return
++		}
++		// The local dispatcher has already separated these UDP associations.
++		// A source-only XUDP resume ID could rejoin them on an older peer.
++		if !canShare {
++			ctx = xudp.WithAssociationID(ctx)
 +		}
 +	}
  	handler.Dispatch(ctx, link)
  }
+diff --git a/app/proxyman/outbound/handler.go b/app/proxyman/outbound/handler.go
+index fe43c42..0e7fcad 100644
+--- a/app/proxyman/outbound/handler.go
++++ b/app/proxyman/outbound/handler.go
+@@ -22,6 +22,7 @@ import (
+ 	"github.com/xtls/xray-core/features/policy"
+ 	"github.com/xtls/xray-core/features/stats"
+ 	"github.com/xtls/xray-core/proxy"
++	"github.com/xtls/xray-core/proxy/freedom"
+ 	"github.com/xtls/xray-core/transport"
+ 	"github.com/xtls/xray-core/transport/internet"
+ 	"github.com/xtls/xray-core/transport/internet/stat"
+@@ -174,6 +175,18 @@ func (h *Handler) Tag() string {
+ 	return h.tag
+ }
+ 
++// WayrillCanShareUDP reports whether the handler can preserve the destination
++// and reply source of each datagram across a single IP-addressed association.
++func (h *Handler) WayrillCanShareUDP() bool {
++	config, ok := h.proxyConfig.(*freedom.Config)
++	if !ok || h.mux != nil || config.DestinationOverride != nil || config.ProxyProtocol != 0 ||
++		len(config.Noises) != 0 || len(config.FinalRules) != 0 {
++		return false
++	}
++	stream := h.streamSettings
++	return stream == nil || (stream.FinalMask == nil && stream.SocketSettings.GetDialerProxy() == "")
++}
++
+ // Dispatch implements proxy.Outbound.Dispatch.
+ func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
+ 	outbounds := session.OutboundsFromContext(ctx)
 diff --git a/app/router/router.go b/app/router/router.go
 index cd695d8..5d70ccc 100644
 --- a/app/router/router.go
@@ -102,14 +166,15 @@ index daffed6..cc1f103 100644
  	// Local address of the inbound connection.
 diff --git a/common/session/wayrill_udp.go b/common/session/wayrill_udp.go
 new file mode 100644
-index 0000000..f1e0e5f
+index 0000000..e3b5290
 --- /dev/null
 +++ b/common/session/wayrill_udp.go
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,53 @@
 +package session
 +
 +import (
 +	"context"
++	"sync"
 +	"sync/atomic"
 +	"time"
 +)
@@ -139,12 +204,27 @@ index 0000000..f1e0e5f
 +}
 +
 +var wayrillUDPEpoch atomic.Uint64
++var wayrillUDPReplies sync.RWMutex
 +
 +func WayrillUDPEpoch() uint64 { return wayrillUDPEpoch.Load() }
 +
-+func AdvanceWayrillUDPEpoch() { wayrillUDPEpoch.Add(1) }
++func AdvanceWayrillUDPEpoch() {
++	wayrillUDPReplies.Lock()
++	wayrillUDPEpoch.Add(1)
++	wayrillUDPReplies.Unlock()
++}
++
++// A rule update waits for replies that have already entered the packet sink.
++func WithWayrillUDPReply(epoch uint64, write func() error) error {
++	wayrillUDPReplies.RLock()
++	defer wayrillUDPReplies.RUnlock()
++	if epoch != wayrillUDPEpoch.Load() {
++		return context.Canceled
++	}
++	return write()
++}
 diff --git a/proxy/tun/handler.go b/proxy/tun/handler.go
-index d318d23..d7da313 100644
+index d318d23..79822f3 100644
 --- a/proxy/tun/handler.go
 +++ b/proxy/tun/handler.go
 @@ -217,6 +217,19 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
@@ -190,10 +270,18 @@ index b6314bf..f6aa31c 100644
  		s.icmp.close()
  	}
 diff --git a/proxy/tun/udp_fullcone.go b/proxy/tun/udp_fullcone.go
-index 6a71f4b..4f540b9 100644
+index 6a71f4b..f47d27f 100644
 --- a/proxy/tun/udp_fullcone.go
 +++ b/proxy/tun/udp_fullcone.go
-@@ -16,6 +16,7 @@ type udpConnectionHandler struct {
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"io"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/xtls/xray-core/common/buf"
+@@ -16,6 +17,7 @@ type udpConnectionHandler struct {
  	sync.RWMutex
  
  	udpConns map[net.Destination]*udpConn
@@ -201,7 +289,7 @@ index 6a71f4b..4f540b9 100644
  
  	handleConnection func(conn net.Conn, dest net.Destination)
  	writePacket      func(data []byte, src net.Destination, dst net.Destination) error
-@@ -35,6 +36,10 @@ func newUdpConnectionHandler(handleConnection func(conn net.Conn, dest net.Desti
+@@ -35,6 +37,10 @@ func newUdpConnectionHandler(handleConnection func(conn net.Conn, dest net.Desti
  // this custom handler support FullCone NAT of returning packets, binding connection only by the source addr:port
  func (u *udpConnectionHandler) HandlePacket(src net.Destination, dst net.Destination, data *buf.Buffer) {
  	data.UDP = &dst
@@ -212,7 +300,7 @@ index 6a71f4b..4f540b9 100644
  
  	u.RLock()
  	conn, found := u.udpConns[src]
-@@ -67,6 +72,10 @@ func (u *udpConnectionHandler) HandlePacket(src net.Destination, dst net.Destina
+@@ -67,6 +73,10 @@ func (u *udpConnectionHandler) HandlePacket(src net.Destination, dst net.Destina
  }
  
  func (u *udpConnectionHandler) connectionFinished(conn *udpConn) {
@@ -223,7 +311,7 @@ index 6a71f4b..4f540b9 100644
  	u.Lock()
  	// Close runs twice per flow; a newer conn may already own this src.
  	if u.udpConns[conn.src] == conn {
-@@ -79,6 +88,7 @@ func (u *udpConnectionHandler) connectionFinished(conn *udpConn) {
+@@ -79,6 +89,7 @@ func (u *udpConnectionHandler) connectionFinished(conn *udpConn) {
  // udp connection abstraction
  type udpConn struct {
  	handler *udpConnectionHandler
@@ -231,34 +319,101 @@ index 6a71f4b..4f540b9 100644
  
  	queue *packetQueue
  	src   net.Destination
-diff --git a/app/proxyman/outbound/handler.go b/app/proxyman/outbound/handler.go
-index fe43c42..e936821 100644
---- a/app/proxyman/outbound/handler.go
-+++ b/app/proxyman/outbound/handler.go
-@@ -22,6 +22,7 @@ import (
- 	"github.com/xtls/xray-core/features/policy"
- 	"github.com/xtls/xray-core/features/stats"
- 	"github.com/xtls/xray-core/proxy"
-+	"github.com/xtls/xray-core/proxy/freedom"
- 	"github.com/xtls/xray-core/transport"
- 	"github.com/xtls/xray-core/transport/internet"
- 	"github.com/xtls/xray-core/transport/internet/stat"
-@@ -175,6 +176,18 @@ func (h *Handler) Tag() string {
+@@ -90,6 +101,10 @@ func (c *udpConn) ReadMultiBuffer() (buf.MultiBuffer, error) {
+ 	if !ok {
+ 		return nil, io.EOF
+ 	}
++	if c.wayrill != nil && !c.wayrill.active() {
++		b.Release()
++		return nil, io.EOF
++	}
+ 	return buf.MultiBuffer{b}, nil
  }
  
-+// WayrillCanShareUDP reports whether the handler can preserve the destination
-+// and reply source of each datagram across a single IP-addressed association.
-+func (h *Handler) WayrillCanShareUDP() bool {
-+	config, ok := h.proxyConfig.(*freedom.Config)
-+	if !ok || h.mux != nil || config.DestinationOverride != nil || config.ProxyProtocol != 0 ||
-+		len(config.Noises) != 0 || len(config.FinalRules) != 0 {
-+		return false
+@@ -100,6 +115,9 @@ func (c *udpConn) Read(p []byte) (int, error) {
+ 		return 0, io.EOF
+ 	}
+ 	defer b.Release()
++	if c.wayrill != nil && !c.wayrill.active() {
++		return 0, io.EOF
 +	}
-+	stream := h.streamSettings
-+	return stream == nil || (stream.FinalMask == nil && stream.SocketSettings.GetDialerProxy() == "")
+ 	n := copy(p, b.Bytes())
+ 	if n != int(b.Len()) {
+ 		return 0, io.ErrShortBuffer
+@@ -117,7 +135,7 @@ func (c *udpConn) WriteMultiBuffer(mb buf.MultiBuffer) error {
+ 				dst = *b.UDP
+ 			}
+ 		}
+-		err := c.handler.writePacket(b.Bytes(), dst, c.src)
++		err := c.writeDatagram(b.Bytes(), dst)
+ 		if err != nil {
+ 			buf.ReleaseMulti(mb[i:])
+ 			return err
+@@ -130,7 +148,7 @@ func (c *udpConn) WriteMultiBuffer(mb buf.MultiBuffer) error {
+ // Write returning packets back
+ func (c *udpConn) Write(p []byte) (int, error) {
+ 	// sending packets back mean sending payload with source/destination reversed
+-	err := c.handler.writePacket(p, c.dst, c.src)
++	err := c.writeDatagram(p, c.dst)
+ 	if err != nil {
+ 		return 0, err
+ 	}
+@@ -138,6 +156,13 @@ func (c *udpConn) Write(p []byte) (int, error) {
+ 	return len(p), nil
+ }
+ 
++func (c *udpConn) writeDatagram(p []byte, peer net.Destination) error {
++	if c.wayrill != nil {
++		return c.handler.wayrill.reply(c, p, peer)
++	}
++	return c.handler.writePacket(p, peer, c.src)
 +}
 +
- // Dispatch implements proxy.Outbound.Dispatch.
- func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
- 	outbounds := session.OutboundsFromContext(ctx)
- 	ob := outbounds[len(outbounds)-1]
+ func (c *udpConn) Close() error {
+ 	c.handler.connectionFinished(c)
+ 
+@@ -176,6 +201,7 @@ type packetQueue struct {
+ 	limit  int
+ 	notify chan struct{}
+ 	closed bool
++	budget *atomic.Int64
+ }
+ 
+ func newPacketQueue(limit int) *packetQueue {
+@@ -189,6 +215,13 @@ func (q *packetQueue) push(b *buf.Buffer) bool {
+ 	if q.closed || len(q.items) >= q.limit {
+ 		return false
+ 	}
++	if q.budget != nil {
++		size := queuedUDPBytes(b)
++		if q.budget.Add(size) > wayrillUDPQueuedByteLimit {
++			q.budget.Add(-size)
++			return false
++		}
++	}
+ 	q.items = append(q.items, b)
+ 	select {
+ 	case q.notify <- struct{}{}:
+@@ -208,6 +241,9 @@ func (q *packetQueue) pop() (*buf.Buffer, bool) {
+ 			if len(q.items) == 0 {
+ 				q.items = nil
+ 			}
++			if q.budget != nil {
++				q.budget.Add(-queuedUDPBytes(b))
++			}
+ 			q.mu.Unlock()
+ 			return b, true
+ 		}
+@@ -220,6 +256,12 @@ func (q *packetQueue) pop() (*buf.Buffer, bool) {
+ 	}
+ }
+ 
++const wayrillUDPQueuedByteLimit = 64 << 20
++
++func queuedUDPBytes(b *buf.Buffer) int64 {
++	return int64(b.Cap()) + 64 // Include a minimum charge for the buffer record.
++}
++
+ func (q *packetQueue) close() {
+ 	q.mu.Lock()
+ 	defer q.mu.Unlock()

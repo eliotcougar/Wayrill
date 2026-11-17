@@ -709,7 +709,10 @@ impl Runtime {
             let mut candidate = worker.clone();
             candidate["routing"] = next.clone();
             if !crate::live::same_except_rules(worker, &candidate) {
-                return Err(failure("Live sharing updates can change rules only."));
+                return Err(ApiError::new(
+                    "LIVE_UNSUPPORTED",
+                    "These sharing rules require a guarded restart.",
+                ));
             }
             let allowed: BTreeSet<_> = worker["outbounds"]
                 .as_array()

@@ -159,7 +159,7 @@ func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
 			key := udpFlowKey{src, alias}
 			otherAddr := net.ParseAddress("192.0.2.1")
 			for i := range wayrillUDPAliasLimit {
-				flows.addAliasLocked(udpFlowKey{src, net.UDPDestination(otherAddr, net.Port(i+1))}, active)
+				flows.addAliasLocked(udpFlowKey{src, net.UDPDestination(otherAddr, net.Port(i+1))}, active, wayrillUDPBinding{})
 			}
 			evicted := flows.aliases[key] == nil
 			flows.mu.Unlock()
@@ -179,9 +179,7 @@ func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
 			// Simulate the deadline passing for the revalidated alias.
 			flows.mu.Lock()
 			oldEntry := flows.aliases[key]
-			expired := oldEntry.Value.(wayrillUDPAlias)
-			expired.expires = time.Now()
-			oldEntry.Value = expired
+			oldEntry.Value.(*wayrillUDPAlias).expires = time.Now()
 			flows.mu.Unlock()
 			if remote := exchange(src, alias, second); remote.Port != initial.Port {
 				t.Fatal("expiration replaced the shared socket")
@@ -328,6 +326,40 @@ func listenWayrillUDPEcho(t *testing.T) *stdnet.UDPConn {
 	return conn
 }
 
+func TestWayrillUDPRejectsRepliesFromRetiredFlow(t *testing.T) {
+	flows := newWayrillUDPFlows()
+	t.Cleanup(flows.close)
+	src := net.UDPDestination(net.ParseAddress("192.0.2.2"), 53001)
+	dst := net.UDPDestination(net.ParseAddress("198.51.100.8"), 443)
+	connections := make(chan *udpConn, 1)
+	writes := 0
+	h := newUdpConnectionHandler(func(conn net.Conn, _ net.Destination) {
+		connections <- conn.(*udpConn)
+	}, func(_ []byte, _, _ net.Destination) error {
+		writes++
+		return nil
+	})
+	h.wayrill = flows
+	h.HandlePacket(src, dst, buf.FromBytes([]byte{1}))
+	var conn *udpConn
+	select {
+	case conn = <-connections:
+	case <-time.After(time.Second):
+		t.Fatal("no UDP flow")
+	}
+	if _, err := conn.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	session.AdvanceWayrillUDPEpoch()
+	if err := conn.WriteMultiBuffer(buf.MultiBuffer{buf.FromBytes([]byte{2})}); err == nil {
+		t.Fatal("reply survived a rule change")
+	}
+	conn.Close()
+	if _, err := conn.Write([]byte{3}); err == nil || writes != 1 {
+		t.Fatalf("retired flow reached the packet sink: writes=%d err=%v", writes, err)
+	}
+}
+
 func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {
 	const proof = `{"owner":{"name":"child.exe","pid":42},"matches":[{"process":{"name":"parent.exe","pid":7},"predicates":[0]}]}`
 	secret := strings.Repeat("a", 64)
@@ -337,6 +369,9 @@ func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {
 	}
 	defer meta.Close()
 	t.Setenv("WAYRILL_TUN_METADATA", meta.Addr().String()+":"+secret+":2:wr-n")
+	var replaceDNSOwner atomic.Bool
+	var omitDNSOwner atomic.Bool
+	var replaceNATAlias atomic.Bool
 	go func() {
 		for {
 			conn, err := meta.Accept()
@@ -362,13 +397,26 @@ func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {
 					"udpOwner": session.WayrillUDPOwner{PID: 42, Started: 123, Endpoint: 246},
 				}
 				switch port {
+				case 53:
+					if omitDNSOwner.Load() {
+						continue
+					}
+					if replaceDNSOwner.Load() {
+						reply["mask"] = "00"
+						delete(reply, "applicationProof")
+						reply["udpOwner"] = session.WayrillUDPOwner{PID: 43, Started: 125, Endpoint: 248}
+					}
 				case 445:
 					reply["udpOwner"] = session.WayrillUDPOwner{PID: 42, Started: 124, Endpoint: 247}
 				case 446, 447:
 					reply["mask"] = "00"
 					delete(reply, "applicationProof")
 					delete(reply, "udpOwner")
-					reply["origin"] = map[string]any{"source": "192.168.137.10", "sourcePort": 54001}
+					origin := "192.168.137.10"
+					if port == 447 && replaceNATAlias.Load() {
+						origin = "192.168.137.11"
+					}
+					reply["origin"] = map[string]any{"source": origin, "sourcePort": 54001}
 				case 448, 449:
 					reply["mask"] = "02"
 					delete(reply, "applicationProof")
@@ -430,6 +478,12 @@ func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
+	worker := s.(*stack).udp
+	replies := 0
+	worker.writePacket = func([]byte, net.Destination, net.Destination) error {
+		replies++
+		return nil
+	}
 	src := net.UDPDestination(net.ParseAddress("10.90.0.1"), 53001)
 	deliverTo := func(dst net.Destination, tag, expectedProof string) udpTestDelivery {
 		t.Helper()
@@ -462,7 +516,8 @@ func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {
 	if reused := deliver(445, "direct", proof); reused.association == direct.association || reused.owner.Started != 124 {
 		t.Fatalf("a different process generation joined an existing association: %+v", reused)
 	}
-	if a, b := deliver(446, "nat", ""), deliver(447, "nat", ""); a.association != b.association {
+	natPrimary, natAlias := deliver(446, "nat", ""), deliver(447, "nat", "")
+	if natPrimary.association != natAlias.association {
 		t.Fatal("same proven Windows NAT origin and route lost FullCone")
 	}
 	if a, b := deliver(448, "direct", ""), deliver(449, "direct", ""); a.association == b.association {
@@ -476,6 +531,58 @@ func TestWayrillUDPDispatchUsesAttributedRoute(t *testing.T) {
 	if a.association == b.association || a.target.Address.String() != domain || b.target.Address.String() != domain {
 		t.Fatalf("FakeDNS rewrite did not preserve each destination: %+v, %+v", a, b)
 	}
+	flows := worker.wayrill
+	replaceNATAlias.Store(true)
+	flows.mu.Lock()
+	alias := flows.aliases[udpFlowKey{src, natAlias.destination}].Value.(*wayrillUDPAlias)
+	alias.binding.until = time.Now().Add(-time.Second)
+	flows.mu.Unlock()
+	late := buf.FromBytes([]byte("reply to previous NAT origin"))
+	late.UDP = &natAlias.destination
+	if err := alias.conn.WriteMultiBuffer(buf.MultiBuffer{late}); err != nil || replies != 0 {
+		t.Fatalf("NAT alias rebind injected a reply or stopped the shared socket: writes=%d err=%v", replies, err)
+	}
+	if current := deliver(446, "nat", ""); current.association != natPrimary.association {
+		t.Fatal("revoking one translated destination closed an unrelated NAT route")
+	}
+	if rebound := deliver(447, "nat", ""); rebound.association == natPrimary.association {
+		t.Fatal("a different NAT origin reused the previous route's socket")
+	}
+	key := udpFlowKey{src, child.destination}
+	expireDNSOwner := func() *udpConn {
+		flows.mu.Lock()
+		defer flows.mu.Unlock()
+		conn := flows.flows[key]
+		conn.wayrill.binding.until = time.Now().Add(-time.Second)
+		return conn
+	}
+	conn := expireDNSOwner()
+	if _, err := conn.Write([]byte("late response")); err != nil || replies != 1 {
+		t.Fatalf("valid reply did not survive ownership renewal: writes=%d err=%v", replies, err)
+	}
+	omitDNSOwner.Store(true)
+	expireDNSOwner()
+	if _, err := conn.Write([]byte("unproven response")); err != nil || replies != 1 {
+		t.Fatalf("failed verification injected a reply or destroyed the association: writes=%d err=%v", replies, err)
+	}
+	omitDNSOwner.Store(false)
+	if got := deliver(53, "dns", proof); got.association != child.association {
+		t.Fatal("revalidating the same socket changed the association")
+	}
+	replaceDNSOwner.Store(true)
+	expireDNSOwner()
+	flows.mu.Lock()
+	refresh := flows.refreshLocked(conn, key, &conn.wayrill.binding)
+	pushWayrillPacket(refresh.queue, buf.FromBytes([]byte("old owner's packet")))
+	flows.mu.Unlock()
+	if _, err := conn.Write([]byte("previous owner's reply")); err == nil || replies != 1 {
+		t.Fatalf("retired owner could still receive a reply: writes=%d err=%v", replies, err)
+	}
+	<-refresh.done
+	if got := deliver(53, "direct", ""); got.owner.PID != 43 || got.association == child.association {
+		t.Fatalf("rebound tuple retained the previous owner's route: %+v", got)
+	}
+	replaceDNSOwner.Store(false)
 	if err := r.ReloadRules(&router.Config{Rule: rules[len(rules)-1:]}, false); err != nil {
 		t.Fatal(err)
 	}

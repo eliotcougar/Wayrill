@@ -16,7 +16,7 @@ a change is compiled into Wayrill.
 | Main executable | `xray.exe`; upstream base plus the shared patches and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
-| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch), [resolver activity](../../service/xray-patches/resolver-activity.patch) |
+| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch), [resolver activity](../../service/xray-patches/resolver-activity.patch), [UDP association and datagram handling](../../service/xray-patches/udp-safety.patch) |
 | Initializers and additions | [core-init](../../service/core-init), [core-control](../../service/core-control), [tun-core](../../service/tun-core) |
 | Application of every change | [tools/Build-XrayCores.ps1](../../tools/Build-XrayCores.ps1) |
 | Main/source/patch/SDK/Wintun pins | [service/dependencies.json](../../service/dependencies.json) |
@@ -62,9 +62,10 @@ binary patch. The bounded log supplies observations rather than per-tab attribut
 | X11 | Real, upstream-bound ICMP echo through TUN | Worker | Private Windows implementation and packet-stack hooks |
 | X12 | Routing-control and FakeDNS authority commands | Worker | App-owned commands; routing updates use existing upstream gRPC |
 | X13 | Per-flow policy-group selection telemetry | Shared | Private loopback SOCKS relay integration |
-| X14 | uTLS handshake deadline | Shared | Backport of [#7427](https://github.com/XTLS/Xray-core/pull/7427) |
+| X14 | uTLS handshake deadline | Shared | Uses the implementation from unmerged [#7427](https://github.com/XTLS/Xray-core/pull/7427) |
 | X15 | Per-destination UDP routing with route-scoped FullCone | Worker | Adapts [#7346](https://github.com/XTLS/Xray-core/pull/7346) to the attributed Wayrill dispatcher |
 | X16 | DNS resolver attempt counters | Shared | Uses the existing stats manager and metrics handler. The query counter is a private hook. |
+| X17 | XUDP resumption boundaries and large Direct UDP replies | Shared | Source-pinned fixes for the XUDP server and Freedom packet reader |
 
 ### X16 — DNS resolver attempts
 
@@ -97,13 +98,34 @@ verified local socket ownership and process ancestry within each fresh native
 snapshot. A new batch requires a new observation. Forwarded flows still need
 an exact NAT tuple, and each destination still runs through Xray's dispatcher.
 
-The first destination uses its decision until the association ends or a live
-rule change invalidates it. Additional destinations use a separate FIFO cache
-of up to 16,384 aliases, each valid for one minute. An expired or evicted alias
-goes through attribution and routing again. It can rejoin the same open socket
-if its new decision is compatible. Aliases do not consume slots for new flows.
-Closing the stack cancels ownership lookups and closes its packet queues.
+Additional destinations use a separate FIFO cache of up to 16,384 aliases,
+each valid for one minute. An expired or evicted alias goes through attribution
+and routing again. It can rejoin the same open socket if its new decision is
+compatible. Aliases do not consume slots for new flows.
+
+Attributed destinations refresh their Windows socket ownership or NAT proof
+within a two-second lease. Sends and replies both require a current proof. A
+changed owner retires the association and discards packets held for its old
+owner. The next packet is dispatched independently. A brief snapshot failure
+withholds traffic and allows a retry on the existing socket. Native ownership
+comes from snapshots, so a rebind between samples can be invisible.
+Each stack limits queued UDP buffer storage to 64 MiB across pending and
+established flows. Rule generation changes reject stale queued packets and
+retired reply writers. Closing the stack cancels pending ownership checks and
+releases its queues.
 WinDivert already routes each UDP datagram before choosing a relay.
+
+### X17 — XUDP resumption and Direct UDP replies
+
+The server scopes XUDP resumption to the initial target, inbound and
+authenticated user as well as the wire ID. Each independently dispatched TUN
+association uses its own resume ID, including when the peer uses an older
+server. Resumption detaches the previous downlink reader without closing or
+draining the shared pipe, so the association can retain its remote socket.
+
+Freedom uses full-size pooled scratch storage for native TUN replies. Paths
+that use smaller legacy frame buffers keep a small read buffer, detect
+truncation, and skip oversized replies without ending their associations.
 
 ### X14 — uTLS handshake deadline
 
@@ -147,8 +169,12 @@ See [UDP buffers](xray-customizations.md) and [Global Defaults](../reference/def
 
 Native DNS work is coalesced per nameserver, domain and address family. Each
 waiter retains its own deadline; the shared work survives while another waiter
-needs it. The last waiter leaving or DNS shutdown cancels it. Work has an
-eight-second bound, extended for a longer configured nameserver timeout.
+needs it. The last waiter leaving cancels foreground work. Stale cache hits
+start or retain one refresh per name and address family, using the nameserver
+budget without a separate waiter. DNS shutdown cancels both kinds of work.
+The default shared deadline is eight seconds and extends for longer configured
+nameserver timeouts. Cleanup replaces expired cached records so active readers
+can finish using an immutable snapshot.
 Completed A/AAAA results survive the other family's timeout. Cancellation closes
 an owned TCP DNS connection. Single-family TTLs and existing dual-stack TTL
 semantics are preserved.
@@ -210,8 +236,10 @@ The runtime-only `wayrill-dns://` server and authenticated native resolver
 handler carry address-family options, `FakeEnable`, TTL and DNS response codes
 between cores. The handler is selected only on generated native-resolver inbound
 tags (`wdr-n-` followed by an unpadded Base64url identity) and requires local
-authenticated access. Frame sizes, concurrency and query
-time are bounded; cancellation interrupts unread links and active requests.
+authenticated access. Frame sizes, concurrency and query time are bounded.
+The private TCP connection carries one request. A caller disconnect cancels the
+native lookup, and expiry or shutdown releases the socket even if the request
+frame is incomplete.
 
 Ordinary DNS wire messages do not encode the distinction between synthetic client
 answers and internal lookups needing real addresses. Losing that distinction
@@ -222,7 +250,10 @@ forwarding. The private scheme cannot be selected in a saved public profile.
 ### X07 — FakeDNS allocator correctness
 
 Native allocation preserves the full four-/sixteen-byte address width, including
-leading-zero custom pools and wraparound. Holder initialization/publication,
+leading-zero custom pools and wraparound. A persistent cursor starts at a random
+point in each pool and avoids rescanning the same occupied addresses during
+DNS bursts. It skips live mappings and leaves eviction to the native LRU.
+Holder initialization/publication,
 membership checks and snapshots use consistent locking, including pre-start
 checks. Reverse lookup releases the holder lock before invoking log callbacks,
 so a callback inspecting occupancy cannot deadlock the holder.
@@ -411,6 +442,7 @@ Broad upstream test audits remain separate from the contributor build gate.
 | `proxy/tun/stack.go` | X11: ownership, echo interception and shutdown |
 | `proxy/tun/tun_windows.go` | X10: native settings reuse |
 | `app/dispatcher/default.go`, `app/proxyman/outbound/handler.go`, `app/router/router.go`, `common/session/session.go`, `common/session/wayrill_udp.go`, `proxy/tun/handler.go`, `proxy/tun/stack.go`, `proxy/tun/udp_fullcone.go` | X15: [private worker patch](../../service/xray-patches/tun-udp-routes.patch) |
+| `common/mux/server.go`, `common/mux/session.go`, `common/mux/xudp_scope_test.go`, `common/xudp/xudp.go`, `common/xudp/xudp_test.go`, `proxy/freedom/freedom.go`, `proxy/freedom/udp_datagram_test.go`, `transport/pipe/impl.go`, `transport/pipe/reader.go` | X17: [shared UDP patch](../../service/xray-patches/udp-safety.patch) |
 
 The builder also sets the main executable's `core.build` version marker to the
 pinned `Wayrill-socket-defaults` label. That label is not a complete list of its

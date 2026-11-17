@@ -1,5 +1,5 @@
 diff --git a/app/dispatcher/fakednssniffer.go b/app/dispatcher/fakednssniffer.go
-index 9476288c..eed4c654 100644
+index 9476288..eed4c65 100644
 --- a/app/dispatcher/fakednssniffer.go
 +++ b/app/dispatcher/fakednssniffer.go
 @@ -27,10 +27,22 @@ func newFakeDNSSniffer(ctx context.Context) (protocolSnifferWithMetadata, error)
@@ -27,7 +27,7 @@ index 9476288c..eed4c654 100644
  				errors.LogInfo(ctx, "fake dns got domain: ", domainFromFakeDNS, " for ip: ", ob.Target.Address.String())
  				return &fakeDNSSniffResult{domainName: domainFromFakeDNS}, nil
 diff --git a/app/dispatcher/sniffer.go b/app/dispatcher/sniffer.go
-index d6acf0d9..5ff367a0 100644
+index d6acf0d..5ff367a 100644
 --- a/app/dispatcher/sniffer.go
 +++ b/app/dispatcher/sniffer.go
 @@ -98,8 +98,11 @@ func (s *Sniffer) SniffMetadata(c context.Context) (SniffResult, error) {
@@ -44,7 +44,7 @@ index d6acf0d9..5ff367a0 100644
  		}
  	}
 diff --git a/app/dns/cache_controller.go b/app/dns/cache_controller.go
-index 6e2fd6c9..c84c98d7 100644
+index 6e2fd6c..80ae37a 100644
 --- a/app/dns/cache_controller.go
 +++ b/app/dns/cache_controller.go
 @@ -14,7 +14,6 @@ import (
@@ -73,8 +73,32 @@ index 6e2fd6c9..c84c98d7 100644
  	}
  
  	c.cacheCleanup = &task.Periodic{
+@@ -124,14 +125,18 @@ func (c *CacheController) writeAndShrink(expiredKeys []string) {
+ 		if rec == nil {
+ 			continue
+ 		}
+-		if rec.A != nil && rec.A.Expire.Before(now) {
+-			rec.A = nil
++		// Readers may still hold rec after dropping the cache lock.
++		kept := *rec
++		if kept.A != nil && kept.A.Expire.Before(now) {
++			kept.A = nil
+ 		}
+-		if rec.AAAA != nil && rec.AAAA.Expire.Before(now) {
+-			rec.AAAA = nil
++		if kept.AAAA != nil && kept.AAAA.Expire.Before(now) {
++			kept.AAAA = nil
+ 		}
+-		if rec.A == nil && rec.AAAA == nil {
++		if kept.A == nil && kept.AAAA == nil {
+ 			delete(c.ips, domain)
++		} else if kept != *rec {
++			c.ips[domain] = &kept
+ 		}
+ 	}
+ 
 diff --git a/app/dns/dns.go b/app/dns/dns.go
-index e452bda5..c5e6b146 100644
+index e452bda..c5e6b14 100644
 --- a/app/dns/dns.go
 +++ b/app/dns/dns.go
 @@ -209,6 +209,11 @@ func (s *DNS) Start() error {
@@ -183,14 +207,15 @@ index e452bda5..c5e6b146 100644
  		gi := groupOf[result.index]
 diff --git a/app/dns/fakedns/address_width_test.go b/app/dns/fakedns/address_width_test.go
 new file mode 100644
-index 00000000..b0aa59ff
+index 0000000..b581491
 --- /dev/null
 +++ b/app/dns/fakedns/address_width_test.go
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,67 @@
 +package fakedns
 +
 +import (
 +	"fmt"
++	"net/netip"
 +	"testing"
 +
 +	"github.com/xtls/xray-core/common/net"
@@ -223,9 +248,39 @@ index 00000000..b0aa59ff
 +		})
 +	}
 +}
++
++func TestAllocationWrapSkipsActiveMappings(t *testing.T) {
++	for _, prefix := range []string{"255.255.255.252/30", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffc/126"} {
++		t.Run(prefix, func(t *testing.T) {
++			h, err := NewFakeDNSHolderConfigOnly(&FakeDnsPool{IpPool: prefix, LruSize: 3})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err = h.Start(); err != nil {
++				t.Fatal(err)
++			}
++			first := netip.MustParsePrefix(prefix).Addr()
++			last := first.Next().Next().Next()
++			h.nextIP = last
++			active := h.GetFakeIPForDomain("active.example")[0]
++			if got, _ := netip.AddrFromSlice(active.IP()); got != last {
++				t.Fatalf("first allocation = %v, want %v", active, last)
++			}
++			for i := range 32 {
++				other := h.GetFakeIPForDomain(fmt.Sprintf("wrap-%d.example", i))[0]
++				if other == active || !h.IsIPInIPPool(other) {
++					t.Fatalf("reused an active mapping or left the pool: %v", other)
++				}
++				if got := h.GetDomainFromFakeDNS(active); got != "active.example" {
++					t.Fatalf("active mapping changed to %q", got)
++				}
++			}
++		})
++	}
++}
 diff --git a/app/dns/fakedns/command/command.pb.go b/app/dns/fakedns/command/command.pb.go
 new file mode 100644
-index 00000000..1d039c71
+index 0000000..1d039c7
 --- /dev/null
 +++ b/app/dns/fakedns/command/command.pb.go
 @@ -0,0 +1,493 @@
@@ -724,7 +779,7 @@ index 00000000..1d039c71
 +}
 diff --git a/app/dns/fakedns/command/command.proto b/app/dns/fakedns/command/command.proto
 new file mode 100644
-index 00000000..9821a353
+index 0000000..9821a35
 --- /dev/null
 +++ b/app/dns/fakedns/command/command.proto
 @@ -0,0 +1,48 @@
@@ -778,7 +833,7 @@ index 00000000..9821a353
 +}
 diff --git a/app/dns/fakedns/command/command_grpc.pb.go b/app/dns/fakedns/command/command_grpc.pb.go
 new file mode 100644
-index 00000000..50e88253
+index 0000000..50e8825
 --- /dev/null
 +++ b/app/dns/fakedns/command/command_grpc.pb.go
 @@ -0,0 +1,203 @@
@@ -986,10 +1041,31 @@ index 00000000..50e88253
 +	Metadata: "app/dns/fakedns/command/command.proto",
 +}
 diff --git a/app/dns/fakedns/fake.go b/app/dns/fakedns/fake.go
-index e00f0ec6..c25ee22f 100644
+index e00f0ec..bd6993b 100644
 --- a/app/dns/fakedns/fake.go
 +++ b/app/dns/fakedns/fake.go
-@@ -23,16 +23,23 @@ type Holder struct {
+@@ -2,10 +2,10 @@ package fakedns
+ 
+ import (
+ 	"context"
+-	"math"
+-	"math/big"
++	"crypto/rand"
++	"math/bits"
++	"net/netip"
+ 	"sync"
+-	"time"
+ 
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/cache"
+@@ -17,22 +17,30 @@ import (
+ type Holder struct {
+ 	domainToIP cache.Lru
+ 	ipRange    *net.IPNet
++	nextIP     netip.Addr
+ 	mu         sync.Mutex
+ 
+ 	config *FakeDnsPool
  }
  
  func (fkdns *Holder) IsIPInIPPool(ip net.Address) bool {
@@ -1015,7 +1091,7 @@ index e00f0ec6..c25ee22f 100644
  	}
  	return []net.Address{}
  }
-@@ -76,6 +83,8 @@ func (fkdns *Holder) initializeFromConfig() error {
+@@ -76,6 +84,8 @@ func (fkdns *Holder) initializeFromConfig() error {
  }
  
  func (fkdns *Holder) initialize(ipPoolCidr string, lruSize int) error {
@@ -1024,7 +1100,31 @@ index e00f0ec6..c25ee22f 100644
  	var ipRange *net.IPNet
  	var err error
  
-@@ -97,6 +106,13 @@ func (fkdns *Holder) initialize(ipPoolCidr string, lruSize int) error {
+@@ -83,11 +93,19 @@ func (fkdns *Holder) initialize(ipPoolCidr string, lruSize int) error {
+ 		return errors.New("Unable to parse CIDR for Fake DNS IP assignment").Base(err)
+ 	}
+ 
+-	ones, bits := ipRange.Mask.Size()
+-	rooms := bits - ones
+-	if math.Log2(float64(lruSize)) >= float64(rooms) {
+-		return errors.New("LRU size is bigger than subnet size")
++	ones, width := ipRange.Mask.Size()
++	hostBits := width - ones
++	if lruSize <= 0 || bits.Len(uint(lruSize)) > hostBits {
++		return errors.New("fake DNS LRU must leave at least one address free")
+ 	}
++	// Choose a new starting offset per authority to reduce address reuse
++	// across restarts while clients may still hold old DNS answers.
++	start := make([]byte, len(ipRange.IP))
++	rand.Read(start)
++	for i, mask := range ipRange.Mask {
++		start[i] = ipRange.IP[i] | (start[i] &^ mask)
++	}
++	fkdns.nextIP, _ = netip.AddrFromSlice(start)
+ 	fkdns.domainToIP = cache.NewLru(lruSize)
+ 	fkdns.ipRange = ipRange
+ 	return nil
+@@ -97,43 +115,44 @@ func (fkdns *Holder) initialize(ipPoolCidr string, lruSize int) error {
  func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
  	fkdns.mu.Lock()
  	defer fkdns.mu.Unlock()
@@ -1038,27 +1138,40 @@ index e00f0ec6..c25ee22f 100644
  	if v, ok := fkdns.domainToIP.Get(domain); ok {
  		return []net.Address{v.(net.Address)}
  	}
-@@ -109,8 +125,9 @@ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
- 	bigIntIP := big.NewInt(0).SetBytes(fkdns.ipRange.IP)
- 	bigIntIP = bigIntIP.Add(bigIntIP, new(big.Int).SetUint64(currentTimeMillis))
- 	var ip net.Address
-+	address := make([]byte, len(fkdns.ipRange.IP))
+-	currentTimeMillis := uint64(time.Now().UnixMilli())
+-	ones, bits := fkdns.ipRange.Mask.Size()
+-	rooms := bits - ones
+-	if rooms < 64 {
+-		currentTimeMillis %= (uint64(1) << rooms)
+-	}
+-	bigIntIP := big.NewInt(0).SetBytes(fkdns.ipRange.IP)
+-	bigIntIP = bigIntIP.Add(bigIntIP, new(big.Int).SetUint64(currentTimeMillis))
+-	var ip net.Address
++	// Keep the cursor between requests. Starting each scan at the current
++	// millisecond repeatedly walks the same occupied run during DNS bursts.
  	for {
 -		ip = net.IPAddress(bigIntIP.Bytes())
-+		ip = net.IPAddress(bigIntIP.FillBytes(address))
- 
- 		// if we run for a long time, we may go back to beginning and start seeing the IP in use
- 		if _, ok := fkdns.domainToIP.PeekKeyFromValue(ip); !ok {
-@@ -118,7 +135,7 @@ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
+-
+-		// if we run for a long time, we may go back to beginning and start seeing the IP in use
+-		if _, ok := fkdns.domainToIP.PeekKeyFromValue(ip); !ok {
+-			break
++		ip := net.IPAddress(fkdns.nextIP.AsSlice())
++		fkdns.nextIP = fkdns.nextIP.Next()
++		if !fkdns.ipRange.Contains(fkdns.nextIP.AsSlice()) {
++			fkdns.nextIP, _ = netip.AddrFromSlice(fkdns.ipRange.IP)
  		}
- 
- 		bigIntIP = bigIntIP.Add(bigIntIP, big.NewInt(1))
+-
+-		bigIntIP = bigIntIP.Add(bigIntIP, big.NewInt(1))
 -		if !fkdns.ipRange.Contains(bigIntIP.Bytes()) {
-+		if bigIntIP.BitLen() > bits || !fkdns.ipRange.Contains(bigIntIP.FillBytes(address)) {
- 			bigIntIP = big.NewInt(0).SetBytes(fkdns.ipRange.IP)
+-			bigIntIP = big.NewInt(0).SetBytes(fkdns.ipRange.IP)
++		if _, ok := fkdns.domainToIP.PeekKeyFromValue(ip); !ok {
++			fkdns.domainToIP.Put(domain, ip)
++			return []net.Address{ip}
  		}
  	}
-@@ -128,12 +145,17 @@ func (fkdns *Holder) GetFakeIPForDomain(domain string) []net.Address {
+-	fkdns.domainToIP.Put(domain, ip)
+-	return []net.Address{ip}
+ }
  
  // GetDomainFromFakeDNS checks if an IP is a fake IP and have corresponding domain name
  func (fkdns *Holder) GetDomainFromFakeDNS(ip net.Address) string {
@@ -1078,7 +1191,7 @@ index e00f0ec6..c25ee22f 100644
  	errors.LogInfo(context.Background(), "A fake ip request to ", ip, ", however there is no matching domain name in fake DNS")
  	return ""
  }
-@@ -232,7 +254,7 @@ func init() {
+@@ -232,7 +251,7 @@ func init() {
  		if f, err = NewFakeDNSHolderConfigOnly(config.(*FakeDnsPool)); err != nil {
  			return nil, err
  		}
@@ -1087,7 +1200,7 @@ index e00f0ec6..c25ee22f 100644
  	}))
  
  	common.Must(common.RegisterConfig((*FakeDnsPoolMulti)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
-@@ -241,6 +263,6 @@ func init() {
+@@ -241,6 +260,6 @@ func init() {
  		if f, err = NewFakeDNSHolderMulti(config.(*FakeDnsPoolMulti)); err != nil {
  			return nil, err
  		}
@@ -1097,7 +1210,7 @@ index e00f0ec6..c25ee22f 100644
  }
 diff --git a/app/dns/fakedns/logging_test.go b/app/dns/fakedns/logging_test.go
 new file mode 100644
-index 00000000..3261314b
+index 0000000..3261314
 --- /dev/null
 +++ b/app/dns/fakedns/logging_test.go
 @@ -0,0 +1,53 @@
@@ -1156,7 +1269,7 @@ index 00000000..3261314b
 +}
 diff --git a/app/dns/fakedns/stats.go b/app/dns/fakedns/stats.go
 new file mode 100644
-index 00000000..3e8b7155
+index 0000000..3e8b715
 --- /dev/null
 +++ b/app/dns/fakedns/stats.go
 @@ -0,0 +1,29 @@
@@ -1191,7 +1304,7 @@ index 00000000..3e8b7155
 +}
 diff --git a/app/dns/fakedns/stats_test.go b/app/dns/fakedns/stats_test.go
 new file mode 100644
-index 00000000..6cca61d8
+index 0000000..6cca61d
 --- /dev/null
 +++ b/app/dns/fakedns/stats_test.go
 @@ -0,0 +1,105 @@
@@ -1302,51 +1415,57 @@ index 00000000..6cca61d8
 +}
 diff --git a/app/dns/fakedns/wayrill_lifecycle_test.go b/app/dns/fakedns/wayrill_lifecycle_test.go
 new file mode 100644
-index 00000000..24a1b890
+index 0000000..ec94dd1
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_lifecycle_test.go
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,44 @@
 +package fakedns
 +
 +import (
 +	"context"
-+	"github.com/xtls/xray-core/common"
-+	xnet "github.com/xtls/xray-core/common/net"
-+	"github.com/xtls/xray-core/common/session"
-+	"github.com/xtls/xray-core/transport"
-+	"github.com/xtls/xray-core/transport/pipe"
++	"net"
 +	"strings"
 +	"testing"
 +	"time"
++
++	"github.com/xtls/xray-core/common/buf"
++	xnet "github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/transport"
 +)
 +
 +func TestWayrillResolverCancellationReleasesUnreadClient(t *testing.T) {
 +	t.Setenv("WAYRILL_FAKEDNS", "127.0.0.1:1:"+strings.Repeat("a", 64))
-+	reader, writer := pipe.New()
-+	outReader, outWriter := pipe.New()
-+	defer common.Interrupt(reader)
-+	defer common.Interrupt(writer)
-+	defer common.Interrupt(outReader)
-+	defer common.Interrupt(outWriter)
-+	ctx, cancel := context.WithCancel(session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)}))
++	remote, local := net.Pipe()
++	defer remote.Close()
++	defer local.Close()
++	ctx, cancel := context.WithCancel(session.ContextWithInbound(context.Background(),
++		&session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234), Conn: local}))
 +	defer cancel()
 +	done := make(chan error, 1)
 +	go func() {
-+		_, err := WayrillHandleResolver(ctx, &transport.Link{Reader: reader, Writer: outWriter}, resolverTestClient{})
++		_, err := WayrillHandleResolver(ctx, &transport.Link{Reader: buf.NewReader(local), Writer: buf.NewWriter(local)}, resolverTestClient{})
 +		done <- err
 +	}()
-+	// No request bytes arrive. Parent cancellation must interrupt the blocked read,
-+	// not wait for the independent eight-second timeout.
++	if err := remote.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := remote.Write([]byte("{")); err != nil {
++		t.Fatal(err)
++	}
 +	cancel()
 +	select {
-+	case <-done:
++	case err := <-done:
++		if err == nil {
++			t.Fatal("incomplete frame accepted")
++		}
 +	case <-time.After(time.Second):
-+		t.Fatal("cancelled resolver retained its blocked input")
++		t.Fatal("cancelled resolver retained its blocked TCP read")
 +	}
 +}
 diff --git a/app/dns/fakedns/wayrill_native_context_test.go b/app/dns/fakedns/wayrill_native_context_test.go
 new file mode 100644
-index 00000000..922cae41
+index 0000000..922cae4
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_native_context_test.go
 @@ -0,0 +1,175 @@
@@ -1527,7 +1646,7 @@ index 00000000..922cae41
 +}
 diff --git a/app/dns/fakedns/wayrill_request_context_test.go b/app/dns/fakedns/wayrill_request_context_test.go
 new file mode 100644
-index 00000000..90392c8e
+index 0000000..90392c8
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_request_context_test.go
 @@ -0,0 +1,90 @@
@@ -1623,10 +1742,10 @@ index 00000000..90392c8e
 +}
 diff --git a/app/dns/fakedns/wayrill_resolver.go b/app/dns/fakedns/wayrill_resolver.go
 new file mode 100644
-index 00000000..f0d11529
+index 0000000..d291c3c
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_resolver.go
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,190 @@
 +package fakedns
 +
 +// The private resolver bridge preserves native DNS lookup options. Ordinary DNS
@@ -1645,7 +1764,6 @@ index 00000000..f0d11529
 +	"strings"
 +	"time"
 +
-+	"github.com/xtls/xray-core/common"
 +	"github.com/xtls/xray-core/common/buf"
 +	errutil "github.com/xtls/xray-core/common/errors"
 +	"github.com/xtls/xray-core/common/net"
@@ -1751,8 +1869,9 @@ index 00000000..f0d11529
 +	}
 +	// This handler is reachable only through the service-generated loopback
 +	// inbound. Authentication remains mandatory, even for a local caller.
-+	if !inbound.Source.IsValid() || !inbound.Source.Address.Family().IsIP() || !inbound.Source.Address.IP().IsLoopback() {
-+		return true, fmt.Errorf("private resolver is loopback only")
++	conn := inbound.Conn
++	if conn == nil || inbound.Source.Network != net.Network_TCP || !inbound.Source.IsValid() || !inbound.Source.Address.Family().IsIP() || !inbound.Source.Address.IP().IsLoopback() {
++		return true, fmt.Errorf("private resolver requires a loopback TCP connection")
 +	}
 +	_, secret, err := wayrillEndpoint(os.Getenv("WAYRILL_FAKEDNS"))
 +	if err != nil {
@@ -1770,11 +1889,12 @@ index 00000000..f0d11529
 +	}
 +	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 +	defer cancel()
-+	stop := context.AfterFunc(ctx, func() { common.Interrupt(link.Reader); common.Interrupt(link.Writer) })
++	stop := context.AfterFunc(ctx, func() { conn.Close() })
 +	defer stop()
 +	reader := &buf.BufferedReader{Reader: link.Reader}
 +	defer reader.Close()
-+	data, err := bufio.NewReaderSize(reader, 2048).ReadSlice('\n')
++	frame := bufio.NewReaderSize(reader, 2048)
++	data, err := frame.ReadSlice('\n')
 +	if err != nil {
 +		return true, err
 +	}
@@ -1782,6 +1902,18 @@ index 00000000..f0d11529
 +	if wayrillDecode(data, &request) != nil || subtle.ConstantTimeCompare([]byte(request.Auth), []byte(secret)) != 1 || !wayrillDomain(request.Domain) || !request.Option.IPv4Enable && !request.Option.IPv6Enable {
 +		return true, fmt.Errorf("invalid private resolver request")
 +	}
++	// One request per connection. A disconnect or any additional input ends
++	// the lookup even when the inbound is blocked waiting for this handler.
++	disconnected := make(chan struct{})
++	go func() {
++		defer close(disconnected)
++		_, _ = frame.ReadByte()
++		cancel()
++	}()
++	defer func() {
++		conn.Close()
++		<-disconnected
++	}()
 +	ips, ttl, queryErr := native.LookupIPContext(ctx, request.Domain, request.Option)
 +	if ctx.Err() != nil {
 +		return true, ctx.Err()
@@ -1806,19 +1938,22 @@ index 00000000..f0d11529
 +}
 diff --git a/app/dns/fakedns/wayrill_resolver_test.go b/app/dns/fakedns/wayrill_resolver_test.go
 new file mode 100644
-index 00000000..d9b701a9
+index 0000000..249ac07
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_resolver_test.go
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,149 @@
 +package fakedns
 +
 +import (
 +	"context"
++	"encoding/json"
++	"errors"
 +	"net"
 +	"net/url"
 +	"strings"
 +	"sync"
 +	"testing"
++	"time"
 +
 +	"github.com/xtls/xray-core/common/buf"
 +	xnet "github.com/xtls/xray-core/common/net"
@@ -1876,7 +2011,7 @@ index 00000000..d9b701a9
 +			go func() {
 +				defer pending.Done()
 +				defer c.Close()
-+				ctx := session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234)})
++				ctx := session.ContextWithInbound(context.Background(), &session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234), Conn: c})
 +				handled, err := WayrillHandleResolver(ctx, &transport.Link{Reader: buf.NewReader(c), Writer: buf.NewWriter(c)}, resolverTestClient{})
 +				if !handled || err != nil {
 +					t.Errorf("resolver: handled=%v err=%v", handled, err)
@@ -1908,9 +2043,57 @@ index 00000000..d9b701a9
 +		t.Fatal("DNS response code was lost", e)
 +	}
 +}
++
++type blockingResolverTestClient struct {
++	resolverTestClient
++	entered chan struct{}
++}
++
++func (c blockingResolverTestClient) LookupIPContext(ctx context.Context, _ string, _ dns.IPOption) ([]net.IP, uint32, error) {
++	close(c.entered)
++	<-ctx.Done()
++	return nil, 0, ctx.Err()
++}
++
++func TestWayrillResolverCancelsNativeLookupWhenCallerDisconnects(t *testing.T) {
++	secret := strings.Repeat("a", 64)
++	t.Setenv("WAYRILL_FAKEDNS", "127.0.0.1:1:"+secret)
++	remote, local := net.Pipe()
++	defer remote.Close()
++	defer local.Close()
++	ctx, cancel := context.WithCancel(session.ContextWithInbound(context.Background(),
++		&session.Inbound{Tag: "wdr-n-test", Source: xnet.TCPDestination(xnet.LocalHostIP, 1234), Conn: local}))
++	defer cancel()
++	client := blockingResolverTestClient{entered: make(chan struct{})}
++	done := make(chan error, 1)
++	go func() {
++		_, err := WayrillHandleResolver(ctx, &transport.Link{Reader: buf.NewReader(local), Writer: buf.NewWriter(local)}, client)
++		done <- err
++	}()
++	if err := remote.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
++		t.Fatal(err)
++	}
++	if err := json.NewEncoder(remote).Encode(wayrillLookup{secret, "test.example", dns.IPOption{IPv4Enable: true}}); err != nil {
++		t.Fatal(err)
++	}
++	select {
++	case <-client.entered:
++	case <-time.After(time.Second):
++		t.Fatal("native lookup did not start")
++	}
++	remote.Close()
++	select {
++	case err := <-done:
++		if !errors.Is(err, context.Canceled) {
++			t.Fatal(err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("disconnected caller left a DNS lookup running")
++	}
++}
 diff --git a/app/dns/fakedns/wayrill_shared.go b/app/dns/fakedns/wayrill_shared.go
 new file mode 100644
-index 00000000..86aa3eb4
+index 0000000..86aa3eb
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_shared.go
 @@ -0,0 +1,376 @@
@@ -2292,7 +2475,7 @@ index 00000000..86aa3eb4
 +}
 diff --git a/app/dns/fakedns/wayrill_shared_test.go b/app/dns/fakedns/wayrill_shared_test.go
 new file mode 100644
-index 00000000..b9e77677
+index 0000000..b9e7767
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_shared_test.go
 @@ -0,0 +1,298 @@
@@ -2596,7 +2779,7 @@ index 00000000..b9e77677
 +}
 diff --git a/app/dns/fakedns/wayrill_usage_test.go b/app/dns/fakedns/wayrill_usage_test.go
 new file mode 100644
-index 00000000..9a145247
+index 0000000..9a14524
 --- /dev/null
 +++ b/app/dns/fakedns/wayrill_usage_test.go
 @@ -0,0 +1,58 @@
@@ -2659,7 +2842,7 @@ index 00000000..9a145247
 +	check(3, 5)
 +}
 diff --git a/app/dns/nameserver.go b/app/dns/nameserver.go
-index 5112f358..a1cca965 100644
+index 5112f35..a1cca96 100644
 --- a/app/dns/nameserver.go
 +++ b/app/dns/nameserver.go
 @@ -2,6 +2,7 @@ package dns
@@ -2691,7 +2874,7 @@ index 5112f358..a1cca965 100644
  		checkSystem := ns.QueryStrategy == QueryStrategy_USE_SYS
  
 diff --git a/app/dns/nameserver_cached.go b/app/dns/nameserver_cached.go
-index cbd2f031..84e2fecf 100644
+index cbd2f03..5002fa8 100644
 --- a/app/dns/nameserver_cached.go
 +++ b/app/dns/nameserver_cached.go
 @@ -8,7 +8,6 @@ import (
@@ -2702,15 +2885,43 @@ index cbd2f031..84e2fecf 100644
  	"github.com/xtls/xray-core/features/dns"
  )
  
-@@ -48,29 +47,65 @@ func queryIP(ctx context.Context, s CachedNameserver, domain string, option dns.
+@@ -35,7 +34,7 @@ func queryIP(ctx context.Context, s CachedNameserver, domain string, option dns.
+ 				if cache.serveStale && (cache.serveExpiredTTL == 0 || cache.serveExpiredTTL < ttl) {
+ 					errors.LogDebugInner(ctx, err, cache.name, " cache OPTIMISTE ", fqdn, " -> ", ips)
+ 					log.Record(&log.DNSLog{Server: cache.name, Domain: fqdn, Result: ips, Status: log.DNSCacheOptimiste, Elapsed: 0, Error: err})
+-					go pull(ctx, s, fqdn, option)
++					refresh(ctx, s, fqdn, option)
+ 					return ips, 1, err
+ 				}
+ 			}
+@@ -47,30 +46,76 @@ func queryIP(ctx context.Context, s CachedNameserver, domain string, option dns.
+ 	return fetch(ctx, s, fqdn, option)
  }
  
- func pull(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) {
+-func pull(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) {
 -	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
-+	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sharedQueryTimeout)
- 	defer cancel()
+-	defer cancel()
++func refresh(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) {
++	cache := s.getCacheController()
++	if option.IPv4Enable {
++		key, run := familyQuery(s, fqdn, true)
++		cache.requestGroup.refresh(ctx, key, cache.queryTimeout, run)
++	}
++	if option.IPv6Enable {
++		key, run := familyQuery(s, fqdn, false)
++		cache.requestGroup.refresh(ctx, key, cache.queryTimeout, run)
++	}
++}
  
- 	fetch(nctx, s, fqdn, option)
+-	fetch(nctx, s, fqdn, option)
++func familyQuery(s CachedNameserver, fqdn string, ipv4 bool) (string, func(context.Context) result) {
++	family := "6"
++	if ipv4 {
++		family = "4"
++	}
++	return fqdn + family, func(ctx context.Context) result {
++		return doFetch(ctx, s, fqdn, dns.IPOption{IPv4Enable: ipv4, IPv6Enable: !ipv4})
++	}
  }
  
  func fetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) ([]net.IP, uint32, error) {
@@ -2722,9 +2933,7 @@ index cbd2f031..84e2fecf 100644
 -		key = key + "4"
 -	case option.IPv6Enable:
 -		key = key + "6"
-+	if err := ctx.Err(); err != nil {
-+		return nil, 0, err
- 	}
+-	}
 -
 -	v, _, _ := s.getCacheController().requestGroup.Do(key, func() (any, error) {
 -		return doFetch(ctx, s, fqdn, option), nil
@@ -2732,15 +2941,13 @@ index cbd2f031..84e2fecf 100644
 -	ret := v.(result)
 -
 -	return ret.ips, ret.ttl, ret.error
++	if err := ctx.Err(); err != nil {
++		return nil, 0, err
++	}
 +	cache := s.getCacheController()
 +	join := func(ipv4 bool) (*sharedQuery, func()) {
-+		family := "6"
-+		if ipv4 {
-+			family = "4"
-+		}
-+		return cache.requestGroup.join(ctx, fqdn+family, cache.queryTimeout, func(queryCtx context.Context) result {
-+			return doFetch(queryCtx, s, fqdn, dns.IPOption{IPv4Enable: ipv4, IPv6Enable: !ipv4})
-+		})
++		key, run := familyQuery(s, fqdn, ipv4)
++		return cache.requestGroup.join(ctx, key, cache.queryTimeout, run)
 +	}
 +	var q4, q6 *sharedQuery
 +	if option.IPv4Enable {
@@ -2784,7 +2991,7 @@ index cbd2f031..84e2fecf 100644
  }
  
  type result struct {
-@@ -82,44 +117,29 @@ type result struct {
+@@ -82,44 +127,29 @@ type result struct {
  func doFetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) result {
  	sub4, sub6 := s.getCacheController().registerSubscribers(fqdn, option)
  	defer closeSubscribers(sub4, sub6)
@@ -2845,7 +3052,7 @@ index cbd2f031..84e2fecf 100644
  	}
  
 diff --git a/app/dns/nameserver_fakedns.go b/app/dns/nameserver_fakedns.go
-index f2127c9e..72728ddf 100644
+index f2127c9..72728dd 100644
 --- a/app/dns/nameserver_fakedns.go
 +++ b/app/dns/nameserver_fakedns.go
 @@ -26,12 +26,21 @@ func (s *FakeDNSServer) IsDisableCache() bool {
@@ -2872,7 +3079,7 @@ index f2127c9e..72728ddf 100644
  	} else {
  		ips = f.fakeDNSEngine.GetFakeIPForDomain(domain)
 diff --git a/app/dns/nameserver_tcp.go b/app/dns/nameserver_tcp.go
-index 185dbad3..33eca178 100644
+index 185dbad..33eca17 100644
 --- a/app/dns/nameserver_tcp.go
 +++ b/app/dns/nameserver_tcp.go
 @@ -169,6 +169,8 @@ func (s *TCPNameServer) sendQuery(ctx context.Context, noResponseErrCh chan<- er
@@ -2886,10 +3093,10 @@ index 185dbad3..33eca178 100644
  			if err != nil {
 diff --git a/app/dns/query_group.go b/app/dns/query_group.go
 new file mode 100644
-index 00000000..0b57c1f8
+index 0000000..5a9cf47
 --- /dev/null
 +++ b/app/dns/query_group.go
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,114 @@
 +package dns
 +
 +import (
@@ -2900,13 +3107,14 @@ index 00000000..0b57c1f8
 +
 +const sharedQueryTimeout = 8 * time.Second
 +
-+// A query belongs to the nameserver, not to its first waiter. The last waiter
-+// leaving cancels it; a nameserver budget also bounds continuously joined work.
++// The nameserver bounds each query. Work can be retained by callers waiting for
++// an answer or by the cache when it needs to refresh a stale record.
 +type sharedQuery struct {
 +	ctx     context.Context
 +	done    chan struct{}
 +	cancel  context.CancelFunc
 +	waiters int
++	refresh bool
 +	result  result
 +}
 +
@@ -2924,6 +3132,30 @@ index 00000000..0b57c1f8
 +		close(q.done)
 +		return q, func() {}
 +	}
++	q := g.startLocked(ctx, key, timeout, run)
++	q.waiters++
++	return q, func() {
++		g.Lock()
++		defer g.Unlock()
++		q.waiters--
++		if q.waiters == 0 && !q.refresh {
++			if g.queries[key] == q {
++				delete(g.queries, key)
++			}
++			q.cancel()
++		}
++	}
++}
++
++func (g *queryGroup) refresh(ctx context.Context, key string, timeout time.Duration, run func(context.Context) result) {
++	g.Lock()
++	defer g.Unlock()
++	if !g.closed {
++		g.startLocked(ctx, key, timeout, run).refresh = true
++	}
++}
++
++func (g *queryGroup) startLocked(ctx context.Context, key string, timeout time.Duration, run func(context.Context) result) *sharedQuery {
 +	q := g.queries[key]
 +	if q != nil && q.ctx.Err() != nil {
 +		delete(g.queries, key)
@@ -2947,18 +3179,7 @@ index 00000000..0b57c1f8
 +			g.Unlock()
 +		}()
 +	}
-+	q.waiters++
-+	return q, func() {
-+		g.Lock()
-+		defer g.Unlock()
-+		q.waiters--
-+		if q.waiters == 0 {
-+			if g.queries[key] == q {
-+				delete(g.queries, key)
-+			}
-+			q.cancel()
-+		}
-+	}
++	return q
 +}
 +
 +func (q *sharedQuery) wait(ctx context.Context) result {
@@ -2991,7 +3212,7 @@ index 00000000..0b57c1f8
 +	}
 +}
 diff --git a/app/dns/script.go b/app/dns/script.go
-index c4cae519..94505bb8 100644
+index c4cae51..94505bb 100644
 --- a/app/dns/script.go
 +++ b/app/dns/script.go
 @@ -1,6 +1,7 @@
@@ -3019,7 +3240,7 @@ index c4cae519..94505bb8 100644
  		}
 diff --git a/app/dns/wayrill_cached_context_test.go b/app/dns/wayrill_cached_context_test.go
 new file mode 100644
-index 00000000..7414b406
+index 0000000..7414b40
 --- /dev/null
 +++ b/app/dns/wayrill_cached_context_test.go
 @@ -0,0 +1,72 @@
@@ -3097,7 +3318,7 @@ index 00000000..7414b406
 +}
 diff --git a/app/dns/wayrill_context_test.go b/app/dns/wayrill_context_test.go
 new file mode 100644
-index 00000000..0e2ad13c
+index 0000000..0e2ad13
 --- /dev/null
 +++ b/app/dns/wayrill_context_test.go
 @@ -0,0 +1,81 @@
@@ -3184,10 +3405,10 @@ index 00000000..0e2ad13c
 +}
 diff --git a/app/dns/wayrill_query_group_test.go b/app/dns/wayrill_query_group_test.go
 new file mode 100644
-index 00000000..c5332f62
+index 0000000..da6e6ce
 --- /dev/null
 +++ b/app/dns/wayrill_query_group_test.go
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,228 @@
 +package dns
 +
 +import (
@@ -3347,9 +3568,78 @@ index 00000000..c5332f62
 +		s.cache.requestGroup.close()
 +	}
 +}
++
++type staleQueryServer struct {
++	cache   *CacheController
++	started chan context.Context
++}
++
++func (s *staleQueryServer) getCacheController() *CacheController { return s.cache }
++func (s *staleQueryServer) sendQuery(ctx context.Context, _ chan<- error, _ string, _ fdns.IPOption) {
++	s.started <- ctx
++}
++
++func TestStaleRefreshUsesResolverBudgetAndSharesWithWaiters(t *testing.T) {
++	cache := NewCacheController("stale-test", false, true, 0)
++	defer cache.requestGroup.close()
++	cache.queryTimeout = 20 * time.Second
++	server := &staleQueryServer{cache: cache, started: make(chan context.Context, 16)}
++	fqdn := "stale.example."
++	option := fdns.IPOption{IPv4Enable: true}
++	cache.ips[fqdn] = &record{A: &IPRecord{IP: []net.IP{net.ParseIP("192.0.2.1")}, Expire: time.Now().Add(-time.Minute)}}
++	ctx, cancel := context.WithCancel(context.Background())
++	for range 16 {
++		ips, ttl, err := queryIP(ctx, server, fqdn, option)
++		if err != nil || len(ips) != 1 || ttl != 1 {
++			t.Fatalf("lost stale answer: %v, ttl=%d, err=%v", ips, ttl, err)
++		}
++	}
++	cancel()
++	var refresh context.Context
++	select {
++	case refresh = <-server.started:
++	case <-time.After(time.Second):
++		t.Fatal("stale answer did not trigger a refresh")
++	}
++	deadline, ok := refresh.Deadline()
++	if !ok || time.Until(deadline) <= sharedQueryTimeout {
++		t.Fatalf("refresh did not use configured resolver timeout: %v", deadline)
++	}
++	cache.requestGroup.Lock()
++	waiters := cache.requestGroup.queries[fqdn+"4"].waiters
++	cache.requestGroup.Unlock()
++	if waiters != 0 {
++		t.Fatalf("stale cache hits left %d callers waiting for the refresh", waiters)
++	}
++	waiter, stop := context.WithCancel(context.Background())
++	q, release := cache.requestGroup.join(waiter, fqdn+"4", cache.queryTimeout, func(ctx context.Context) result {
++		t.Error("foreground waiter started a second refresh")
++		return result{}
++	})
++	stop()
++	if !errors.Is(q.wait(waiter).error, context.Canceled) {
++		t.Fatal("foreground waiter did not cancel")
++	}
++	release()
++	if err := refresh.Err(); err != nil {
++		t.Fatal("canceling the observer canceled the cache refresh:", err)
++	}
++	cache.updateRecord(&dnsRequest{reqType: dnsmessage.TypeA, domain: fqdn, start: time.Now()},
++		&IPRecord{IP: []net.IP{net.ParseIP("192.0.2.2")}, Expire: time.Now().Add(time.Minute)})
++	querySignal(t, q.done)
++	ips, ttl, err := queryIP(context.Background(), server, fqdn, option)
++	if err != nil || len(ips) != 1 || ips[0].String() != "192.0.2.2" || ttl <= 1 {
++		t.Fatalf("refresh did not replace stale answer: %v, ttl=%d, err=%v", ips, ttl, err)
++	}
++	select {
++	case <-server.started:
++		t.Fatal("stale requests started redundant network queries")
++	default:
++	}
++}
 diff --git a/app/dns/wayrill_shared_ttl_test.go b/app/dns/wayrill_shared_ttl_test.go
 new file mode 100644
-index 00000000..d198070a
+index 0000000..d198070
 --- /dev/null
 +++ b/app/dns/wayrill_shared_ttl_test.go
 @@ -0,0 +1,75 @@
@@ -3429,7 +3719,7 @@ index 00000000..d198070a
 +	}
 +}
 diff --git a/app/metrics/metrics.go b/app/metrics/metrics.go
-index 6d1cff72..9295457f 100644
+index 6d1cff7..9295457 100644
 --- a/app/metrics/metrics.go
 +++ b/app/metrics/metrics.go
 @@ -16,6 +16,7 @@ import (
@@ -3456,7 +3746,7 @@ index 6d1cff72..9295457f 100644
  	if err != nil {
 diff --git a/app/metrics/wayrill_usage_test.go b/app/metrics/wayrill_usage_test.go
 new file mode 100644
-index 00000000..02570555
+index 0000000..0257055
 --- /dev/null
 +++ b/app/metrics/wayrill_usage_test.go
 @@ -0,0 +1,50 @@
@@ -3512,7 +3802,7 @@ index 00000000..02570555
 +}
 diff --git a/common/cache/wayrill_usage.go b/common/cache/wayrill_usage.go
 new file mode 100644
-index 00000000..50a10b73
+index 0000000..50a10b7
 --- /dev/null
 +++ b/common/cache/wayrill_usage.go
 @@ -0,0 +1,9 @@
@@ -3526,7 +3816,7 @@ index 00000000..50a10b73
 +	return l.doubleLinkedlist.Len(), l.capacity
 +}
 diff --git a/features/dns/fakedns.go b/features/dns/fakedns.go
-index 021f820b..69d436d8 100644
+index 021f820..69d436d 100644
 --- a/features/dns/fakedns.go
 +++ b/features/dns/fakedns.go
 @@ -1,6 +1,8 @@
@@ -3566,7 +3856,7 @@ index 021f820b..69d436d8 100644
 +	GetFakeDNSStats() []FakeDNSPoolStats
 +}
 diff --git a/proxy/dns/dns.go b/proxy/dns/dns.go
-index efeb56cd..5160a417 100644
+index 712197b..2ff794f 100644
 --- a/proxy/dns/dns.go
 +++ b/proxy/dns/dns.go
 @@ -3,6 +3,7 @@ package dns
