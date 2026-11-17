@@ -1,4 +1,4 @@
-import { Plus, RefreshCw, Send } from 'lucide-react';
+import { FlaskConical, Plus, RefreshCw, Send } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { layerNames } from './layers';
 import { mayHaveDelivery, usesLayer } from './management';
@@ -30,6 +30,7 @@ type Props = {
   pending: Member[];
   publish: (members: Member[]) => void;
   copy: (member: Member) => void;
+  simulate: (member: Member) => void;
 };
 function Row({
   title,
@@ -73,6 +74,7 @@ export default function PoolViews({
   pending,
   publish,
   copy,
+  simulate,
 }: Props) {
   const [query, setQuery] = useState('');
   const [deliveryState, setDeliveryState] = useState<DeliveryState | ''>('');
@@ -367,6 +369,16 @@ export default function PoolViews({
               >
                 Preview
               </button>
+              {!!member.publishedAt && !member.withdrawn && (
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  title="Open their published invitation in a simulated Wayrill window"
+                  onClick={() => simulate(member)}
+                >
+                  <FlaskConical size={15} /> Test invitation…
+                </button>
+              )}
               {view === 'users' ? (
                 <>
                   <button

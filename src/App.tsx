@@ -2,7 +2,7 @@ import RuntimeProgressOverlay from './components/RuntimeProgressOverlay';
 import BackupDialog, { type BackupRequestState } from './components/BackupDialog';
 import { isBackupFilter } from './backup/model';
 import { writePreferences } from './backup/preferences';
-import { errorText, desktopServiceAvailable } from './serviceClient';
+import { errorText, desktopServiceAvailable, type serviceCall } from './serviceClient';
 import { openAquifer } from './openAquifer';
 import { runtimeProgress } from './runtimeProgress';
 import useSubscriptionMaintenance, {
@@ -188,7 +188,15 @@ type LayerWorkspace = {
   onClose: () => void;
 };
 
-export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
+type SimulationWorkspace = Pick<LayerWorkspace, 'graph' | 'stash'> & {
+  route: typeof serviceCall;
+  onReview: () => void;
+};
+
+export default function App({
+  layer,
+  simulation,
+}: { layer?: LayerWorkspace; simulation?: SimulationWorkspace } = {}) {
   const [savingLayer, setSavingLayer] = useState(false);
   const layerOperation = useRef(false);
   const trafficUnits = useTrafficUnits();
@@ -200,7 +208,7 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
   const [poolOpen, setPoolOpen] = useState<'connect' | 'graph' | 'stash' | null>(null);
 
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
-  const stash = useStash(layer?.stash);
+  const stash = useStash((layer ?? simulation)?.stash);
   const runtime = useRuntime();
   const poolStatus = usePoolStatus(
     !layer && runtime.connected && runtime.capabilities.includes('pool.managed'),
@@ -226,7 +234,7 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
     stash.ready ? stash.stash : undefined,
     stash.ready ? stash : undefined,
     graphBlocked,
-    layer?.graph,
+    (layer ?? simulation)?.graph,
   );
   const graphFileRead = useFileRead();
   // Opening a different graph supersedes any file read still in progress.
@@ -1329,9 +1337,15 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                   <DiagnosticFocusContext.Provider value={diagnosticFocus}>
                     <div className="app-shell">
                       <MenuBar
-                        brand={layer ? 'Wayrill Pool' : undefined}
+                        brand={
+                          simulation
+                            ? 'Wayrill · Pool simulation'
+                            : layer
+                              ? 'Wayrill Pool'
+                              : undefined
+                        }
                         menus={
-                          layer
+                          layer || simulation
                             ? menus
                                 .filter((menu) => ['Edit', 'View', 'Graph'].includes(menu.label))
                                 .map((menu) => ({
@@ -1339,7 +1353,8 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                                   items: menu.items.filter(
                                     (item) =>
                                       !item.separator &&
-                                      !['Check graph', 'Traffic statistics…'].includes(item.label),
+                                      item.label !== 'Traffic statistics…' &&
+                                      (!layer || item.label !== 'Check graph'),
                                   ),
                                 }))
                             : menus
@@ -1392,24 +1407,23 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                       {timezoneOpen && <TimezoneSettings onClose={() => setTimezoneOpen(false)} />}
                       {poolOpen === 'connect' && (
                         <PoolConnection
-                          poolStatus={poolStatus}
-                          revision={
-                            runtime.capabilities.includes('pool.managed')
+                          live={{
+                            poolStatus,
+                            revision: runtime.capabilities.includes('pool.managed')
                               ? runtime.snapshot?.config.revision
-                              : undefined
-                          }
-                          testsBusy={outboundTests.busy || outboundTests.open || !!poolTest}
-                          onTestGraph={(graph) => {
-                            setPoolOpen(null);
-                            setPoolTest({ graph, stash: stash.get() });
+                              : undefined,
+                            testsBusy: outboundTests.busy || outboundTests.open || !!poolTest,
+                            onTestGraph: (graph) => {
+                              setPoolOpen(null);
+                              setPoolTest({ graph, stash: stash.get() });
+                            },
+                            onOpenGraph: (graph) => {
+                              editor.restoreWorkspace(graph, stash.get(), true);
+                              setPoolOpen(null);
+                            },
+                            hasDifferentDraft: (graph) =>
+                              !jsonEqual(toDocument(editor.getGraph()), toDocument(graph)),
                           }}
-                          onOpenGraph={(graph) => {
-                            editor.restoreWorkspace(graph, stash.get(), true);
-                            setPoolOpen(null);
-                          }}
-                          hasDifferentDraft={(graph) =>
-                            !jsonEqual(toDocument(editor.getGraph()), toDocument(graph))
-                          }
                           onClose={() => setPoolOpen(null)}
                         />
                       )}
@@ -1568,7 +1582,33 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                           Stash
                         </button>
                         <div className="toolbar-spacer" />
-                        {layer ? (
+                        {simulation ? (
+                          <>
+                            <span className="pool-connection-indicator">
+                              <Waves size={15} aria-hidden="true" />
+                              Simulation
+                            </span>
+                            <button
+                              className="secondary-button"
+                              onClick={() => {
+                                if (
+                                  (!editor.canUndo && stash.get() === simulation.stash) ||
+                                  window.confirm('Discard edits to this simulated graph?')
+                                )
+                                  simulation.onReview();
+                              }}
+                            >
+                              Review invitation…
+                            </button>
+                            <button
+                              className="primary-button"
+                              disabled={analysis.pending || !graphCompilation}
+                              onClick={() => setPlayground({ mode: 'route' })}
+                            >
+                              Routing playground…
+                            </button>
+                          </>
+                        ) : layer ? (
                           <>
                             <button
                               className="secondary-button"
@@ -2059,12 +2099,14 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                         <span
                           className="save-status"
                           title={
-                            layer
-                              ? 'Save this layer to keep your changes in Pool.'
-                              : editor.storageError ||
-                                (runtime.desktop
-                                  ? 'The graph draft is saved automatically in protected Windows storage. Saving does not apply it.'
-                                  : 'This draft exists in this browser tab only. Export graph to keep a file copy.')
+                            simulation
+                              ? 'Changes are temporary and stay in the simulation.'
+                              : layer
+                                ? 'Save this layer to keep your changes in Pool.'
+                                : editor.storageError ||
+                                  (runtime.desktop
+                                    ? 'The graph draft is saved automatically in protected Windows storage. Saving does not apply it.'
+                                    : 'This draft exists in this browser tab only. Export graph to keep a file copy.')
                           }
                         >
                           {editor.saveStatus === 'saved' ? (
@@ -2074,15 +2116,17 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                           ) : (
                             <AlertCircle size={12} />
                           )}
-                          {layer
-                            ? 'Pool layer draft'
-                            : editor.saveStatus === 'saved'
-                              ? 'Draft saved'
-                              : editor.saveStatus === 'saving'
-                                ? 'Saving…'
-                                : editor.saveStatus === 'session'
-                                  ? 'Draft unsaved'
-                                  : 'Save failed'}
+                          {simulation
+                            ? 'Simulation · routing off'
+                            : layer
+                              ? 'Pool layer draft'
+                              : editor.saveStatus === 'saved'
+                                ? 'Draft saved'
+                                : editor.saveStatus === 'saving'
+                                  ? 'Saving…'
+                                  : editor.saveStatus === 'session'
+                                    ? 'Draft unsaved'
+                                    : 'Save failed'}
                         </span>
                       </footer>
                       <input
@@ -2400,7 +2444,7 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                       )}
                       {stashOpen && (
                         <ConfigurationStash
-                          layerMode={!!layer}
+                          layerMode={!!layer || !!simulation}
                           graph={editor.graph}
                           store={stash}
                           replaceLabel={
@@ -2617,7 +2661,7 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                             graph={editor.graph}
                             onApply={saveNodeData}
                             onTest={
-                              layer
+                              layer || simulation
                                 ? undefined
                                 : (settings) => testDnsDraft(editingNode.id, settings)
                             }
@@ -2680,6 +2724,7 @@ export default function App({ layer }: { layer?: LayerWorkspace } = {}) {
                           key={`${playground.mode}:${playground.nodeId ?? ''}`}
                           draft={playground.draft ?? graphCompilation}
                           runtime={runtime}
+                          simulation={simulation?.route}
                           graph={editor.graph}
                           initialMode={playground.mode}
                           initialNodeId={playground.nodeId}

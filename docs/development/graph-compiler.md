@@ -29,4 +29,4 @@ Chained filters always use background analysis, including small canvases whose s
 
 `routingPaths.test.ts` independently traverses the editing graph and compares it with first-match evaluation of compiled rules over packet matrices. Cases cover precedence, child fallbacks, disabled rules, shared branches, multiple sources, intersections, rejected opaque conjunctions and expansion limits. Flattened configs are imported/exported without requiring topology equality. The public Chained filters example combines a parent port guard with a child domain rule; policy groups/Observatory have a separate example. The core suite checks configuration acceptance with `run -test` and compares generated decisions from both compilers with Xray's `TestRoute` handler; see [testing](testing.md) for the distinction between these checks and actual traffic.
 
-Pinned source: [Xray router first-match evaluation](https://github.com/XTLS/Xray-core/blob/0afec66085a85191e9dd2a4a6646c7c9a94688d1/app/router/router.go).
+See [first-match evaluation in the pinned Xray router](https://github.com/XTLS/Xray-core/blob/676eaf66f8f05d4d558ee7a74b4736623d3feeb9/app/router/router.go).

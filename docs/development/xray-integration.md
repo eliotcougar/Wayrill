@@ -5,8 +5,8 @@ every active patch, added Go file and build-script edit, with its purpose, scope
 upstream status and verification requirements. Reconcile it whenever the custom
 core or its upstream base changes.
 
-The current base is Xray v26.10.29, commit
-`0afec66085a85191e9dd2a4a6646c7c9a94688d1`. Both packaged cores are audited
+The current base is Xray v26.11.9, commit
+`676eaf66f8f05d4d558ee7a74b4736623d3feeb9`. Both packaged cores are audited
 source builds. The main core is not the unmodified upstream release executable.
 `service/dependencies.json` pins the base source archive, patches, initializer
 files, Go toolchain and main executable. The private worker has its own integrity
@@ -84,7 +84,7 @@ control. Its attribution hook precedes dispatch. Native addresses use plain IP
 literals, including IPv6, on the Rust bridge. Exported Xray configurations contain
 no private capture plan or privileged control endpoints.
 
-Xray v26.10.29 uses its lightweight packet stack. The old gVisor ICMP adapters and
+Xray uses its lightweight packet stack. The old gVisor ICMP adapters and
 readiness flag are gone. ICMP interception is attached only to real TUN handlers;
 WireGuard/MASQUE consumers retain upstream stack behavior. The build rejects
 gVisor packages in the Windows runtime dependency graph. An indirect gVisor module

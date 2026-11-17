@@ -58,7 +58,7 @@ try {
     $taskGoZip=Join-Path $taskDownloads ('go'+$taskPin.build.goVersion+'.zip')
     $taskCurl=& (Join-Path $PSScriptRoot 'Get-Curl.ps1') -Path $CurlPath
     $taskCommit=$taskPin.sourceCommit
-    if ($taskCommit -ne '0afec66085a85191e9dd2a4a6646c7c9a94688d1') { throw 'Review the TUN extension when updating Xray.' }
+    if ($taskCommit -ne '676eaf66f8f05d4d558ee7a74b4736623d3feeb9') { throw 'Review the TUN extension when updating Xray.' }
     $taskSourceZip=Join-Path $taskDownloads ('xray-source-'+$taskCommit+'.zip')
     New-Item -ItemType Directory -Path $taskDownloads,$TunOutputDirectory -Force | Out-Null
     if(-not (Test-Path $taskGoZip)) {

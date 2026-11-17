@@ -1,0 +1,6 @@
+{
+  "identifier": "pool-simulation",
+  "description": "Subscriber simulation window",
+  "windows": ["pool-simulation"],
+  "permissions": ["core:default", "core:window:allow-close"]
+}

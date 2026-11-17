@@ -25,6 +25,7 @@ import PoolInbox from './PoolInbox';
 import { accountRevision, readObservedServers, type ObservedServer } from './accounts';
 import {
   copyPoolInvitation,
+  simulatePoolInvitation,
   createPoolInvite,
   prepareDelivery,
   publishMember,
@@ -534,6 +535,7 @@ export default function PoolWorkspace() {
               }
               pending={pending}
               publish={(members) => void run(() => publish(members))}
+              simulate={(member) => void run(() => simulatePoolInvitation(pool, member))}
               copy={(member) =>
                 void run(async () => {
                   await copyPoolInvitation(pool, member);

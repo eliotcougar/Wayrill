@@ -80,6 +80,7 @@ export const advancedSettings: Record<string, readonly string[]> = {
     'serverMaxHeaderBytes',
     'xmux',
     'downloadSettings',
+    'h2Params',
     'extra',
   ],
   KCPConfig: [

@@ -1,4 +1,4 @@
-// Generated from Xray-core 0afec66085a85191e9dd2a4a6646c7c9a94688d1.
+// Generated from Xray-core 676eaf66f8f05d4d558ee7a74b4736623d3feeb9.
 // Regenerate with the audited protocol-schema helper when upgrading the core.
 export const protocolSource = {
   "DokodemoConfig": {
@@ -1299,6 +1299,10 @@ export const protocolSource = {
       {
         "key": "downloadSettings",
         "goType": "*StreamConfig"
+      },
+      {
+        "key": "h2Params",
+        "goType": "json.RawMessage"
       },
       {
         "key": "extra",

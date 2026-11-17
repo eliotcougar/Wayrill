@@ -4,6 +4,8 @@
 mod export;
 #[path = "../../src/picker.rs"]
 mod picker;
+#[path = "../../../service/pool_access.rs"]
+mod pool_access;
 #[path = "../../src/pool_accounts.rs"]
 mod pool_accounts;
 #[path = "../../src/pool_publisher.rs"]
@@ -13,8 +15,11 @@ mod pool_publisher;
 mod pool_transfer;
 #[path = "../../src/routing_source.rs"]
 mod routing_source;
+mod simulation;
 #[path = "../../src/vault.rs"]
 mod vault;
+
+use routing_source::http as subscription_http;
 
 use std::{
     path::PathBuf,
@@ -130,8 +135,10 @@ fn main() {
                 serial: Mutex::new(()),
                 _lease: lease,
             }));
+            app.manage(simulation::Invitation::default());
             Ok(())
         })
+        .on_window_event(simulation::window_event)
         .invoke_handler(tauri::generate_handler![
             pool_read,
             pool_accounts_read,
@@ -145,6 +152,10 @@ fn main() {
             routing_source::routing_source_download,
             pool_publisher::pool_publish,
             pool_publisher::pool_validate_folder,
+            simulation::pool_simulation_open,
+            simulation::pool_simulation_invitation,
+            simulation::pool_simulation_download,
+            simulation::pool_simulation_route,
         ])
         .run(tauri::generate_context!())
         .expect("Could not start Wayrill Pool");

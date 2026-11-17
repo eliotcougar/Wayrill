@@ -1,12 +1,12 @@
 {
   "xray": {
-    "version": "26.10.29",
+    "version": "26.11.9",
     "prerelease": false,
-    "executableSha256": "39322F81B685455DE41FB5ED7A90BE088A017014C877F061DF34D69C463A03FA",
+    "executableSha256": "5997635D9D3B9B5EC686048789D13D4813733E7398D0C8A89EF3027109EE3863",
     "license": "MPL-2.0",
-    "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.10.29",
-    "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
-    "sourceArchiveSha256": "A48A7BF42D5ED7E09F14414B55DDFC9AFCBA486C7D614D4026D381D34469BEC1",
+    "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.11.9",
+    "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
+    "sourceArchiveSha256": "05623C5394D82870EDCFDD9355169B05453DA133544355012B2CD1874E67F100",
     "build": {
       "tag": "Wayrill-socket-defaults",
       "goVersion": "1.27.3",

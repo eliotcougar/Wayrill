@@ -18,6 +18,8 @@ mod native;
 mod observation;
 mod operation_gate;
 mod outbound_tests;
+#[path = "../../pool_access.rs"]
+mod pool_access;
 mod proxy;
 mod recovery;
 mod resource_download;
@@ -88,7 +90,9 @@ fn main() {
                 let input: serde_json::Value = serde_json::from_slice(&bytes)
                     .map_err(|e| ApiError::io("Decode subscription task", e))?;
                 if input["operation"] == "poolDownload" {
-                    subscriptions::pool::download(input["source"].clone())
+                    wayrill_protocol::params(input["source"].clone())
+                        .and_then(|source| pool_access::download(&source))
+                        .map(serde_json::Value::String)
                 } else if input["operation"] == "download" {
                     #[derive(Deserialize)]
                     #[serde(rename_all = "camelCase", deny_unknown_fields)]

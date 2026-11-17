@@ -5,7 +5,7 @@ use wayrill_ipc::windows::request;
 use wayrill_protocol::{http_proxy_input, MAX_CONFIG};
 
 #[path = "../../service/subscription_http.rs"]
-mod http;
+pub(crate) mod http;
 
 #[tauri::command]
 pub async fn routing_source_file(

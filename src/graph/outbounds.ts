@@ -378,7 +378,7 @@ const vlessFields: SettingDefinition[] = [
   field('mux', 'muxEnabled', 'Enable multiplexing', 'boolean', false, {
     visibleWhen: { network: ['raw', 'ws', 'grpc', 'httpupgrade', 'kcp', 'hysteria', 'xdrive'] },
   }),
-  field('mux', 'muxConcurrency', 'TCP multiplex concurrency', 'number', 8, {
+  field('mux', 'muxConcurrency', 'TCP multiplex concurrency', 'number', 128, {
     min: -1,
     max: 32767,
     visibleWhen: {

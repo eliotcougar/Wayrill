@@ -1,11 +1,11 @@
 {
   "version": 1,
   "core": {
-    "version": "26.10.29",
-    "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
-    "executableSha256": "39322F81B685455DE41FB5ED7A90BE088A017014C877F061DF34D69C463A03FA"
+    "version": "26.11.9",
+    "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
+    "executableSha256": "5997635D9D3B9B5EC686048789D13D4813733E7398D0C8A89EF3027109EE3863"
   },
-  "protocolSchemaSha256": "38036cad78af3d8ffbd27ca630e743326c1ca9b370bdbd8ef72e78845daaa91f",
+  "protocolSchemaSha256": "5fb833259c95549dc7dad1404eff2b9f9c3e109c9a7ef5060321c1e5bf93ee4f",
   "sourceFiles": {
     "infra/conf/api.go": "40878700df0bc24e4ff87bea2669e6f3d2f00f9e2864c841ea35d096134c6ced",
     "infra/conf/blackhole.go": "11bab408fa98826bcb2dd0aef1b7e597616a3251b4b37407473b8f7695d23180",
@@ -14,11 +14,11 @@
     "infra/conf/dns_proxy.go": "eda8a79ee16ae012770c6e17d0e4e126653790c7558dd037e975b8f9c4866a48",
     "infra/conf/dokodemo.go": "dc615975e05922bd087d93135c4cb2e0da317a07d0e37b9de4447efbfdc2fd77",
     "infra/conf/fakedns.go": "72697ac1f2a71bcc198c65e54ac52ea01975cf678f4529cbe8d13f694394194d",
-    "infra/conf/freedom.go": "0b5befe3c0bb45269009dd6ef4bbe4cceb7a7126ac518f386b4ee6642090389f",
-    "infra/conf/geodata.go": "e0efecafa83e2edd1b3a369acc543ac76305fc9bf75fa949c840318a3f8f0a80",
+    "infra/conf/freedom.go": "8c0f83b77bb40c4de172d4a003860ac8adfa9975a193e55ed34b80f702e3a5d0",
+    "infra/conf/geodata.go": "87791983732c2ea81b491111439fa3051e39a4b033b5fbfb4bf60587f106fdb2",
     "infra/conf/http.go": "093c0aa48ebea396766f836a7be4036f429ff100eb4bf5f0bc70679fc7e59936",
     "infra/conf/hysteria.go": "28627316ad7c5a68202aea51c489c1c7e33742b570113bde7a323cce45a7bc8b",
-    "infra/conf/log.go": "78f26719e7f19087ffa217e593a0cc9ecbaa998746c106672b2ee5cf26fa0781",
+    "infra/conf/log.go": "53aa3475a035adcda001262c8f2931736c1a2e65e5e65a34afbc346aabedc035",
     "infra/conf/loopback.go": "66c80d5c42efcbf6c83e2f9cb9319f7acaa7bc10bba1a83b7e89426150815cac",
     "infra/conf/masque.go": "dc8750465a97611015c1c7cebff594c8bd8f88973045cfe918b6d90b0c3b4c69",
     "infra/conf/metrics.go": "56a587aef8f493d9ced8833d51a5de8ef74bfac16988689be7aa1ad34a78cf7b",
@@ -31,11 +31,11 @@
     "infra/conf/socks.go": "487ef1e587b0cfbb2f9cde8ab71f28922acf5bfa95719e5d24b8c5d2be9063a5",
     "infra/conf/transport_finalmask.go": "d1037d60d4a372b82eb7e053726c76ac49bf84726367517d49b0df93c7284455",
     "infra/conf/transport_internet.go": "d07fb2fe1f3935f86396564afb26d79e0cfe865adc5dd52bd694f5cff8518d9c",
-    "infra/conf/transport_method.go": "a485be8746527d03041edea2c99ba9d6d4866c9b44cd1475c1264790f2258468",
+    "infra/conf/transport_method.go": "017bde70fa6b9f37ca1f445409b5ed96de2b2cce85993ce32e4e0179e52c3ff1",
     "infra/conf/transport_security.go": "dd7ea89e62d90bfd644bbd37ae44f0a1f8e66d10095fe12bd87a774571e4554e",
     "infra/conf/transport_sockopt.go": "9fba6eab1f52d0dac18c26b12f828a04762dfe44f08c123218da53faf45b32e3",
     "infra/conf/trojan.go": "9aa3c084b6e1eb8e0819c360c6ac316c5055fe31fde7b6879683aa277b5a4e50",
-    "infra/conf/tun.go": "da0c7ef10c90b39b643b03619bf6eb239373bb05190fcf4647e5a67af6603c5d",
+    "infra/conf/tun.go": "40db7516078c9b1c021cc24f2aa23b96c6fde984e4450f18804b0670faecb15a",
     "infra/conf/version.go": "a9729d582b503d8ece3bd56e55ce0205b0d30267f16325c6dc00fd618adaa5be",
     "infra/conf/vless.go": "931e622cb00384016921fb825edd166f2753b9447113a0ed36c946e53e1b06d1",
     "infra/conf/vmess.go": "64a95f1085c794407432f6e89e22b835f5ae5f747dcafa425f5b3aff7b3ee096",
@@ -267,6 +267,8 @@
       "network": "*NetworkList",
       "port": "*PortList",
       "ip": "*StringList",
+      "delay": "*Int32Range",
+      "logLevel": "string",
       "blockDelay": "*Int32Range"
     },
     "GRPCConfig": {
@@ -400,9 +402,9 @@
     "LogConfig": {
       "access": "string",
       "error": "string",
-      "loglevel": "string",
       "dnsLog": "bool",
-      "maskAddress": "string"
+      "maskAddress": "string",
+      "loglevel": "string"
     },
     "LoopbackConfig": {
       "inboundTag": "string",
@@ -759,6 +761,7 @@
       "serverMaxHeaderBytes": "int32",
       "xmux": "XmuxConfig",
       "downloadSettings": "*StreamConfig",
+      "h2Params": "json.RawMessage",
       "extra": "json.RawMessage"
     },
     "StrategyConfig": {

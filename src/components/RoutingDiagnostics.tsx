@@ -25,7 +25,7 @@ type Job = {
   cancelled: boolean;
 };
 
-function useDiagnosticJob() {
+function useDiagnosticJob(request: typeof serviceCall) {
   const [state, setState] = useState<{
     busy: boolean;
     result?: RoutingDiagnosticResult;
@@ -43,11 +43,11 @@ function useDiagnosticJob() {
     const id = job.current;
     if (id != null && cancelSent.current !== id) {
       cancelSent.current = id;
-      void serviceCall('routing.diagnosticCancel', { job: id }).catch(() => {
+      void request('routing.diagnosticCancel', { job: id }).catch(() => {
         if (cancelSent.current === id) cancelSent.current = null;
       });
     }
-  }, []);
+  }, [request]);
   const retire = useCallback(() => {
     active.current = false;
     sequence.current++;
@@ -68,7 +68,7 @@ function useDiagnosticJob() {
     const accept = (reply: Job) => {
       if (!active.current || sequence.current !== id) {
         if (reply.busy)
-          void serviceCall('routing.diagnosticCancel', { job: reply.job }).catch(() => {});
+          void request('routing.diagnosticCancel', { job: reply.job }).catch(() => {});
         return;
       }
       job.current = reply.busy ? reply.job : null;
@@ -85,9 +85,7 @@ function useDiagnosticJob() {
       });
       if (reply.busy)
         timer.current = setTimeout(() => {
-          void serviceCall<Job>('routing.diagnosticGet', { job: reply.job })
-            .then(accept)
-            .catch(fail);
+          void request<Job>('routing.diagnosticGet', { job: reply.job }).then(accept).catch(fail);
         }, 150);
     };
     const fail = (error: unknown) => {
@@ -99,7 +97,7 @@ function useDiagnosticJob() {
       }
     };
     try {
-      accept(await serviceCall<Job>('routing.diagnosticStart', input));
+      accept(await request<Job>('routing.diagnosticStart', input));
     } catch (error) {
       fail(error);
     }
@@ -110,6 +108,7 @@ function useDiagnosticJob() {
 export default function RoutingDiagnostics({
   draft,
   runtime,
+  simulation,
   graph,
   onIssue,
   onClose,
@@ -118,13 +117,14 @@ export default function RoutingDiagnostics({
 }: {
   draft: DiagnosticConfiguration | null;
   runtime: RuntimeController;
+  simulation?: typeof serviceCall;
   graph: GraphState;
   onIssue: (issue: Diagnostic) => void;
   onClose: () => void;
   initialMode?: Mode;
   initialNodeId?: string;
 }) {
-  const [mode, setMode] = useState<Mode>(initialMode),
+  const [mode, setMode] = useState<Mode>(simulation ? 'route' : initialMode),
     [source, setSource] = useState<'draft' | 'applied'>('draft');
   const applied = useMemo(
     () =>
@@ -138,7 +138,8 @@ export default function RoutingDiagnostics({
     [runtime.savedConfig, runtime.savedCapture, runtime.savedDisplayNames],
   );
   const plan = source === 'draft' ? draft : applied;
-  const available = runtime.connected && runtime.capabilities.includes('routing.diagnostics');
+  const available =
+    !!simulation || (runtime.connected && runtime.capabilities.includes('routing.diagnostics'));
   const inputs = diagnosticInputs(plan),
     handlers = diagnosticHandlers(plan);
   const initialTag = graph.nodes.find((node) => node.id === initialNodeId)?.data.settings.tag;
@@ -166,12 +167,14 @@ export default function RoutingDiagnostics({
     mode: Mode;
     destination: string;
   } | null>(null);
-  const test = useDiagnosticJob();
+  const test = useDiagnosticJob(simulation ?? serviceCall);
   const tabs = useEditorTabs(
-    [
-      { key: 'route', label: 'Route' },
-      { key: 'dns', label: 'DNS' },
-    ] as const,
+    simulation
+      ? [{ key: 'route', label: 'Route' }]
+      : ([
+          { key: 'route', label: 'Route' },
+          { key: 'dns', label: 'DNS' },
+        ] as const),
     mode,
     (value) => {
       setMode(value);
@@ -276,7 +279,11 @@ export default function RoutingDiagnostics({
       onClose={onClose}
       footer={
         <>
-          <span className="playground-scope">Isolated test · no configuration changes</span>
+          <span className="playground-scope">
+            {simulation
+              ? 'Simulated request · no traffic sent'
+              : 'Isolated test · no configuration changes'}
+          </span>
           {test.busy ? (
             <button className="secondary-button" onClick={test.cancel}>
               Cancel test
@@ -295,21 +302,23 @@ export default function RoutingDiagnostics({
     >
       <fieldset disabled={test.busy} className="playground-form" onChange={change}>
         <div className="playground-row">
-          <label className="editor-field">
-            <span>Configuration</span>
-            <select
-              value={source}
-              onChange={(e) => {
-                setSource(e.target.value as 'draft' | 'applied');
-                change();
-              }}
-            >
-              <option value="draft">Edited graph</option>
-              <option value="applied" disabled={!applied}>
-                Applied revision {runtime.savedRevision || ''}
-              </option>
-            </select>
-          </label>
+          {!simulation && (
+            <label className="editor-field">
+              <span>Configuration</span>
+              <select
+                value={source}
+                onChange={(e) => {
+                  setSource(e.target.value as 'draft' | 'applied');
+                  change();
+                }}
+              >
+                <option value="draft">Edited graph</option>
+                <option value="applied" disabled={!applied}>
+                  Applied revision {runtime.savedRevision || ''}
+                </option>
+              </select>
+            </label>
+          )}
           <label className="editor-field">
             <span>{mode === 'route' ? 'Traffic source' : 'DNS handler'}</span>
             {mode === 'route' ? (
@@ -331,7 +340,7 @@ export default function RoutingDiagnostics({
             )}
           </label>
         </div>
-        <EditorTabs tabs={tabs} label="Diagnostic type" disabled={test.busy} />
+        {!simulation && <EditorTabs tabs={tabs} label="Diagnostic type" disabled={test.busy} />}
         <label className="editor-field">
           <span>{mode === 'dns' ? 'Domain' : 'Destination domain or IP'}</span>
           <input
@@ -458,7 +467,7 @@ export default function RoutingDiagnostics({
           </p>
         </EditorTabPanel>
       </fieldset>
-      {!runtime.connected && (
+      {!simulation && !runtime.connected && (
         <p className="field-message" role="status">
           Connect to the networking service to run diagnostics.
         </p>
@@ -475,7 +484,9 @@ export default function RoutingDiagnostics({
       )}
       {!plan && (
         <p className="field-message" role="status">
-          Correct the graph’s Check errors before testing, or select an applied configuration.
+          {simulation
+            ? 'Correct the graph’s Check errors before testing.'
+            : 'Correct the graph’s Check errors before testing, or select an applied configuration.'}
         </p>
       )}
       {(error || jobError || result?.error) && (

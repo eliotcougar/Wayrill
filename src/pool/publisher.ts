@@ -12,6 +12,7 @@ import { jsonArray, jsonRecord, parseJson } from '../graph/xrayJson';
 import { parsePoolBundle, type PoolBundle } from './model';
 import { resolvePoolDelivery, type PoolDelivery } from './delivery';
 import { validatePublishedGraph } from './validation';
+import type { PoolSource } from './PoolConnection';
 import { parseGraph, toDocument } from '../graph/model';
 import { parseStash } from '../profiles/import';
 import { withPoolUser, type PoolUser } from './exports';
@@ -283,8 +284,24 @@ export async function publishMember(
   await invoke('pool_publish', { folder: pool.folder, recipient, text: output });
 }
 
+function invitationSource(pool: Publisher, member: Member): PoolSource {
+  return {
+    kind: pool.url ? 'url' : 'folder',
+    address: pool.url || pool.folder,
+    invite: member.invite,
+  };
+}
+
 export function copyPoolInvitation(pool: Publisher, member: Member) {
-  return navigator.clipboard.writeText(
-    ['Wayrill Pool invitation', pool.url || pool.folder, member.invite].join('\n'),
-  );
+  const { address, invite } = invitationSource(pool, member);
+  return navigator.clipboard.writeText(['Wayrill Pool invitation', address, invite].join('\n'));
+}
+
+export function simulatePoolInvitation(pool: Publisher, member: Member) {
+  return invoke<void>('pool_simulation_open', {
+    setup: {
+      user: member.name,
+      source: invitationSource(pool, member),
+    },
+  });
 }

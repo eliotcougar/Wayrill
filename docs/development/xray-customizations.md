@@ -4,19 +4,19 @@ This is the maintained inventory of changes compiled into Wayrill's Xray
 executables. It covers patches, added Go files and build-script edits. Existing
 upstream APIs used by Wayrill are identified separately from custom APIs.
 
-Last reconciled: **30 October 2026**, the pinned core build. PR states below were
-checked on GitHub on that date. They describe upstream publication, not whether
-a change is compiled into Wayrill.
+The patch inventory tracks the pinned build below. The upstream PR status
+notes record the state at the time of their review.
 
 ## Build baseline and scope
 
 | Item | Current source of truth |
 | --- | --- |
-| Upstream base | Xray **v26.10.29**, commit `0afec66085a85191e9dd2a4a6646c7c9a94688d1` |
+| Upstream base | Xray **v26.11.9**, commit `676eaf66f8f05d4d558ee7a74b4736623d3feeb9` |
 | Main executable | `xray.exe`; upstream base plus the shared patches and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
 | Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch), [resolver activity](../../service/xray-patches/resolver-activity.patch), [UDP association and datagram handling](../../service/xray-patches/udp-safety.patch) |
+| Private worker patch | [Attributed UDP routing](../../service/xray-patches/tun-udp-routes.patch) |
 | Initializers and additions | [core-init](../../service/core-init), [core-control](../../service/core-control), [tun-core](../../service/tun-core) |
 | Application of every change | [tools/Build-XrayCores.ps1](../../tools/Build-XrayCores.ps1) |
 | Main/source/patch/SDK/Wintun pins | [service/dependencies.json](../../service/dependencies.json) |

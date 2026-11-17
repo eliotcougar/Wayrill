@@ -11,44 +11,59 @@ import {
 } from '../profiles/serviceSubscriptions';
 import { errorText, serviceCall } from '../serviceClient';
 import { choosePoolFolder } from './handoff';
-import type { PoolCapture, PoolEntries } from './model';
+import type { PoolBindings, PoolCapture, PoolEntries } from './model';
+import type { Stash } from '../profiles/import';
 import { portLabel } from '../graph/catalog';
 import type { PoolOptions, PoolSelection } from './delivery';
 import PoolOutboundChoice from './PoolOutboundChoice';
 import { PoolSettingSummary } from './PoolSettingFields';
 import type usePoolStatus from './usePoolStatus';
 
-type Preview = PoolEntries & {
+export type PoolPreview = PoolEntries & {
   digest: string;
   revision: number;
   selection?: PoolSelection;
   options?: PoolOptions;
 };
 
-export default function PoolConnection({
-  poolStatus,
-  revision,
-  testsBusy,
-  onOpenGraph,
-  onTestGraph,
-  hasDifferentDraft,
-  onClose,
-}: {
+export type PoolSource = { kind: 'folder' | 'url'; address: string; invite: string };
+export type PoolReview = {
+  source: PoolSource;
+  capture: PoolCapture;
+  selection?: PoolSelection;
+  bindings?: PoolBindings;
+  expectedDigest?: string;
+};
+type Simulation = {
+  user: string;
+  source: PoolSource;
+  inspect: (request: PoolReview) => Promise<PoolPreview>;
+  prepare: (request: PoolReview) => Promise<{ graph: GraphState; stash: Stash }>;
+  onPrepare: (workspace: { graph: GraphState; stash: Stash }) => void;
+};
+type LiveConnection = {
   poolStatus: ReturnType<typeof usePoolStatus>;
   revision: number | undefined;
   testsBusy: boolean;
   onOpenGraph: (graph: GraphState) => void;
   onTestGraph: (graph: GraphState) => void;
   hasDifferentDraft: (graph: GraphState) => boolean;
-  onClose: () => void;
-}) {
-  const { status, accept, error: statusError } = poolStatus;
-  const [kind, setKind] = useState<'folder' | 'url'>('folder');
-  const [address, setAddress] = useState('');
-  const [invite, setInvite] = useState('');
+};
+
+export default function PoolConnection({
+  onClose,
+  ...props
+}: ({ live: LiveConnection } | { simulation: Simulation }) & { onClose: () => void }) {
+  const live = 'live' in props ? props.live : undefined;
+  const simulation = 'simulation' in props ? props.simulation : undefined;
+  const { status, accept, error: statusError } = live?.poolStatus ?? {};
+  const revision = live?.revision;
+  const [kind, setKind] = useState<PoolSource['kind']>(simulation?.source.kind ?? 'folder');
+  const [address, setAddress] = useState(simulation?.source.address ?? '');
+  const [invite, setInvite] = useState(simulation?.source.invite ?? '');
   const [capture, setCapture] = useState<PoolCapture>('current');
   const [start, setStart] = useState(true);
-  const [preview, setPreview] = useState<Preview>();
+  const [preview, setPreview] = useState<PoolPreview>();
   const [customize, setCustomize] = useState(false);
   const [selection, setSelection] = useState<PoolSelection>();
   const [busy, setBusy] = useState(false);
@@ -92,15 +107,16 @@ export default function PoolConnection({
     }
   }
   async function openGraph(test = false, confirmed = false) {
+    if (!live) return;
     const result = await readSubscriptionDocument('applied');
     const graph = result.text && parseGraph(result.text);
     if (!graph || !graph.poolId) throw new Error('There is no applied Pool graph to open.');
-    if (!test && !confirmed && hasDifferentDraft(graph)) {
+    if (!test && !confirmed && live.hasDifferentDraft(graph)) {
       setConfirmOpen(true);
       return;
     }
     await refreshServiceStash();
-    (test ? onTestGraph : onOpenGraph)(graph);
+    (test ? live.onTestGraph : live.onOpenGraph)(graph);
   }
   const source = () => ({ kind, address: address.trim(), invite: invite.trim() });
   function pasteInvitation(text: string) {
@@ -118,6 +134,19 @@ export default function PoolConnection({
     return true;
   }
   async function inspect(connected: boolean, choice?: PoolSelection, keepBindings = true) {
+    if (simulation) {
+      const next = await simulation.inspect({
+        source: source(),
+        capture,
+        selection: choice,
+        expectedDigest: choice ? preview?.digest : undefined,
+        bindings: choice && keepBindings ? assignments : undefined,
+      });
+      setPreview(next);
+      setSelection(next.selection);
+      if (!choice) setCustomize(false);
+      return;
+    }
     const { job } = await serviceCall<{ job: number }>('pool.preview', {
       ...(connected ? {} : { source: source() }),
       capture: connected ? 'current' : capture,
@@ -131,7 +160,7 @@ export default function PoolConnection({
         : {}),
     });
     await waitSubscriptionJob(job);
-    const next = await serviceCall<Preview>('pool.previewResult', { job });
+    const next = await serviceCall<PoolPreview>('pool.previewResult', { job });
     setPreview(next);
     setSelection(next.selection);
     if (!choice) setCustomize(connected);
@@ -141,7 +170,7 @@ export default function PoolConnection({
     const { job } = await serviceCall<{ job: number }>(method, params);
     await waitSubscriptionJob(job);
     const next = await readSubscriptionProgress<NonNullable<typeof status>>('pool.status');
-    accept(next);
+    accept?.(next);
     return next;
   }
 
@@ -188,7 +217,9 @@ export default function PoolConnection({
               ? 'Choose Pool configuration'
               : status?.connection
                 ? 'Pool connection'
-                : 'Connect to Pool'
+                : simulation
+                  ? 'Test Pool invitation'
+                  : 'Connect to Pool'
       }
       onClose={onClose}
       busy={busy}
@@ -452,6 +483,10 @@ export default function PoolConnection({
                     ...(!connected && defaultChoice && { followDefault: true }),
                   },
                 };
+                if (simulation) {
+                  simulation.onPrepare(await simulation.prepare({ ...changes, source: source() }));
+                  return;
+                }
                 if (status?.connection) await command('pool.bind', changes);
                 else
                   await command('pool.enroll', {
@@ -467,7 +502,11 @@ export default function PoolConnection({
               })
             }
           >
-            {status?.connection ? 'Apply choices' : 'Connect to Pool'}
+            {simulation
+              ? 'Open simulated graph'
+              : status?.connection
+                ? 'Apply choices'
+                : 'Connect to Pool'}
           </button>
         </fieldset>
       ) : status?.connection ? (
@@ -479,7 +518,7 @@ export default function PoolConnection({
           {justConnected && <p role="status">Connected. Your choices are saved.</p>}
           <button
             className={justConnected ? 'primary-button' : 'secondary-button'}
-            disabled={testsBusy}
+            disabled={live?.testsBusy}
             onClick={() => void run(() => openGraph(true))}
           >
             Test connections
@@ -536,30 +575,35 @@ export default function PoolConnection({
           </button>
         </fieldset>
       ) : (
-        <fieldset disabled={!status || status.busy || busy}>
+        <fieldset disabled={(!simulation && !status) || status?.busy || busy}>
+          {simulation && <legend>{simulation.user}</legend>}
           <label className="editor-field">
             <span>Invitation or private access key</span>
             <input
               type="password"
               autoComplete="off"
               maxLength={100}
+              readOnly={!!simulation}
               value={invite}
               onChange={(event) => setInvite(event.currentTarget.value)}
               onPaste={(event) => {
-                if (pasteInvitation(event.clipboardData.getData('text'))) {
+                if (!simulation && pasteInvitation(event.clipboardData.getData('text'))) {
                   event.preventDefault();
                   setFailure('');
                 }
               }}
             />
-            <small className="field-help">
-              Paste the full invitation to fill in the source automatically. If you have only the
-              private key, enter the folder or URL below.
-            </small>
+            {!simulation && (
+              <small className="field-help">
+                Paste the full invitation to fill in the source automatically. If you have only the
+                private key, enter the folder or URL below.
+              </small>
+            )}
           </label>
           <label className="editor-field">
             <span>Source</span>
             <select
+              disabled={!!simulation}
               value={kind}
               onChange={(event) => {
                 setKind(event.currentTarget.value === 'url' ? 'url' : 'folder');
@@ -574,11 +618,12 @@ export default function PoolConnection({
             <span>{kind === 'folder' ? 'Pool folder' : 'Pool folder URL'}</span>
             <input
               value={address}
+              readOnly={!!simulation}
               maxLength={2048}
               onChange={(event) => setAddress(event.currentTarget.value)}
             />
           </label>
-          {kind === 'folder' && (
+          {kind === 'folder' && !simulation && (
             <button
               className="secondary-button"
               onClick={() =>
@@ -597,27 +642,44 @@ export default function PoolConnection({
               value={capture}
               onChange={(event) => setCapture(event.currentTarget.value as PoolCapture)}
             >
-              <option value="current">Keep applied capture (local proxy if new)</option>
+              <option value="current">
+                {simulation
+                  ? 'Use the new-install default (local proxy)'
+                  : 'Keep applied capture (local proxy if new)'}
+              </option>
               <option value="proxy">Local proxy</option>
               <option value="tun">TUN</option>
             </select>
           </label>
-          {intervalField}
-          <label className="check-control">
-            <input
-              type="checkbox"
-              checked={start}
-              onChange={(event) => setStart(event.currentTarget.checked)}
-            />
-            Start routing after enrollment
-          </label>
-          <p className="field-help">
-            Enrollment replaces the applied routing graph with the administrator’s graph. It also
-            authorizes future routing, DNS and Stash updates from this Pool.
-          </p>
+          {simulation ? (
+            <p className="field-help">
+              Review the published delivery as a new subscriber. Graph and Stash changes stay in
+              this window. Routing stays off.
+            </p>
+          ) : (
+            <>
+              {intervalField}
+              <label className="check-control">
+                <input
+                  type="checkbox"
+                  checked={start}
+                  onChange={(event) => setStart(event.currentTarget.checked)}
+                />
+                Start routing after enrollment
+              </label>
+              <p className="field-help">
+                Enrollment replaces the applied routing graph with the administrator’s graph. It
+                also authorizes future routing, DNS and Stash updates from this Pool.
+              </p>
+            </>
+          )}
           <button
             className="primary-button"
-            disabled={!address.trim() || !invite.trim() || !intervalValid || revision === undefined}
+            disabled={
+              !address.trim() ||
+              !invite.trim() ||
+              (!simulation && (!intervalValid || revision === undefined))
+            }
             onClick={() => void run(() => inspect(false))}
           >
             Review Pool configuration

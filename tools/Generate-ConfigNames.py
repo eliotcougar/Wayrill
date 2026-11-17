@@ -44,6 +44,7 @@ for spec in structures.values():
 
 # The graph/compiler/service use this established, Go-case-insensitive spelling.
 structures['Config']['fields']['fakedns'] = structures['Config']['fields'].pop('fakeDns')
+structures['LogConfig']['fields']['loglevel'] = structures['LogConfig']['fields'].pop('logLevel')
 
 # Accounts use two JSON decoders (protocol.User plus protocol-specific account).
 # Reuse their existing reviewed catalogue, rather than guessing at credential keys.

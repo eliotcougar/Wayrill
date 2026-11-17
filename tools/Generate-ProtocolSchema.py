@@ -5,7 +5,7 @@ parser.add_argument('--source',type=Path,required=True,help='Pinned Xray-core ch
 parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parent.parent/'src/graph/protocolSource.ts')
 args=parser.parse_args()
 commit=subprocess.check_output(['git','-C',str(args.source),'rev-parse','HEAD'],text=True).strip()
-if commit!='0afec66085a85191e9dd2a4a6646c7c9a94688d1':raise SystemExit('Audit a new core revision before regenerating the field catalogue.')
+if commit!='676eaf66f8f05d4d558ee7a74b4736623d3feeb9':raise SystemExit('Audit a new core revision before regenerating the field catalogue.')
 source=args.source/'infra/conf'
 target=args.output
 structs={}
@@ -36,5 +36,5 @@ required=['DokodemoConfig','HTTPServerConfig','HTTPClientConfig','HTTPRemoteConf
 missing=[name for name in required if name not in structs]
 if missing: raise SystemExit('Missing audited structures: '+repr(missing))
 result={name:structs[name] for name in required}
-target.write_text('// Generated from Xray-core 0afec66085a85191e9dd2a4a6646c7c9a94688d1.\n// Regenerate with the audited protocol-schema helper when upgrading the core.\nexport const protocolSource = '+json.dumps(result,indent=2)+' as const;\n',encoding='utf-8')
+target.write_text(f'// Generated from Xray-core {commit}.\n// Regenerate with the audited protocol-schema helper when upgrading the core.\nexport const protocolSource = '+json.dumps(result,indent=2)+' as const;\n',encoding='utf-8')
 print(json.dumps({'structures':len(result),'fields':sum(len(v['fields']) for v in result.values()),'output':str(target)}))

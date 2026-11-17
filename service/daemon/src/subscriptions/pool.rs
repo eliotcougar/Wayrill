@@ -1,17 +1,9 @@
 //! Managed Pool enrollment shares the subscription actor's admission and durable
 //! library. Downloads and compilation run outside the routing lock.
 use super::*;
-use aes_gcm::{
-    aead::{Aead, Payload},
-    Aes256Gcm, KeyInit, Nonce,
-};
+use crate::pool_access::Source;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use sha2::{Digest, Sha256};
-use std::{
-    fs::File,
-    io::Read,
-    path::{Component, Path, Prefix},
-};
 
 fn default_minutes() -> u64 {
     5
@@ -26,84 +18,12 @@ pub(super) fn validate_minutes(minutes: u64) -> Result<()> {
     Ok(())
 }
 
-const MAX_FILE: usize = wayrill_protocol::MAX_CONFIG;
-
 fn error(message: &str) -> ApiError {
     ApiError::new("POOL", message)
 }
 fn digest(text: &str) -> String {
     STANDARD.encode(Sha256::digest(text.as_bytes()))
 }
-fn hex(text: &str, bytes: usize) -> bool {
-    text.len() == bytes * 2
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct Source {
-    kind: String,
-    address: String,
-    invite: String,
-}
-impl Source {
-    fn parts(&self) -> Result<(&str, &str)> {
-        self.invite
-            .strip_prefix("wp1.")
-            .and_then(|value| value.split_once('.'))
-            .filter(|(recipient, key)| hex(recipient, 16) && hex(key, 32))
-            .ok_or_else(|| {
-                error("Enter the private access key supplied by the Pool administrator.")
-            })
-    }
-    fn location(&self) -> Result<String> {
-        let (recipient, _) = self.parts()?;
-        let name = format!("{recipient}.wayrill-pool.json");
-        match self.kind.as_str() {
-            "folder" => {
-                let root = Path::new(&self.address);
-                if self.address.len() > 2048
-                    || self.address.contains('\0')
-                    || !root.is_absolute()
-                    || !matches!(root.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::UNC(..)))
-                    || self.address.get(2..).is_some_and(|rest| rest.contains(':'))
-                {
-                    return Err(error("Choose an absolute path to the Pool folder."));
-                }
-                Ok(root.join(name).to_string_lossy().into_owned())
-            }
-            "url" => {
-                let mut url = url::Url::parse(&self.address)
-                    .map_err(|_| error("Enter the Pool folder URL."))?;
-                let loopback = match url.host() {
-                    Some(url::Host::Ipv4(address)) => address.is_loopback(),
-                    Some(url::Host::Ipv6(address)) => address.is_loopback(),
-                    Some(url::Host::Domain("localhost")) => true,
-                    _ => false,
-                };
-                if self.address.len() > 2048
-                    || url.host().is_none()
-                    || !url.username().is_empty()
-                    || url.password().is_some()
-                    || url.query().is_some()
-                    || url.fragment().is_some()
-                    || !(url.scheme() == "https" || url.scheme() == "http" && loopback)
-                {
-                    return Err(error("Use an HTTPS folder URL, or HTTP on localhost, without credentials or a query."));
-                }
-                url.path_segments_mut()
-                    .map_err(|_| error("Invalid Pool folder URL."))?
-                    .pop_if_empty()
-                    .push(&name);
-                Ok(url.into())
-            }
-            _ => Err(error("Choose Folder or URL.")),
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Connection {
@@ -318,90 +238,6 @@ fn verify_routing(
     Ok(())
 }
 
-fn folder_file(path: &str) -> Result<String> {
-    let file = File::open(path)
-        .map_err(|_| error("Cannot open the Pool access file. It may have been withdrawn."))?;
-    if !file
-        .metadata()
-        .map_err(|_| error("Cannot inspect the Pool access file."))?
-        .is_file()
-    {
-        return Err(error("Pool access must be a regular file."));
-    }
-    let mut text = String::new();
-    file.take(MAX_FILE as u64 + 1)
-        .read_to_string(&mut text)
-        .map_err(|_| error("Cannot read the Pool access file."))?;
-    if text.len() > MAX_FILE {
-        return Err(error("The Pool access file exceeds 16 MiB."));
-    }
-    Ok(text)
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Envelope {
-    format: String,
-    version: u32,
-    recipient: String,
-    nonce: String,
-    data: String,
-}
-fn decode(text: &str, recipient: &str, key: &str) -> Result<String> {
-    if text.len() > MAX_FILE {
-        return Err(error("The Pool access file exceeds 16 MiB."));
-    }
-    let invalid = || error("The Pool access key is incorrect, or the access file is invalid.");
-    let envelope: Envelope = serde_json::from_str(text).map_err(|_| invalid())?;
-    if envelope.format != "wayrill.pool.access"
-        || envelope.version != 1
-        || envelope.recipient != recipient
-    {
-        return Err(invalid());
-    }
-    let key: Vec<u8> = (0..key.len())
-        .step_by(2)
-        .map(|at| u8::from_str_radix(&key[at..at + 2], 16))
-        .collect::<std::result::Result<_, _>>()
-        .map_err(|_| invalid())?;
-    let nonce = STANDARD.decode(envelope.nonce).map_err(|_| invalid())?;
-    let nonce: [u8; 12] = nonce.try_into().map_err(|_| invalid())?;
-    let data = STANDARD.decode(envelope.data).map_err(|_| invalid())?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| invalid())?;
-    let aad = format!("wayrill.pool.access:1:{recipient}");
-    let plaintext = cipher
-        .decrypt(
-            &Nonce::from(nonce),
-            Payload {
-                msg: &data,
-                aad: aad.as_bytes(),
-            },
-        )
-        .map_err(|_| invalid())?;
-    String::from_utf8(plaintext).map_err(|_| invalid())
-}
-
-/// Runs in the restricted worker, with the folder read under the owner's token.
-pub(crate) fn download(input: Value) -> Result<Value> {
-    let source: Source = params(input)?;
-    let location = source.location()?;
-    let text = if source.kind == "folder" {
-        folder_file(&location)?
-    } else {
-        crate::subscription_http::fetch_with_policy(
-            &location,
-            location.starts_with("http://"),
-            "",
-            &BTreeMap::from([("Cache-Control".into(), "no-cache".into())]),
-            None,
-            true,
-        )
-        .map_err(|message| error(&format!("Pool download failed. {message}")))?
-    };
-    let (recipient, key) = source.parts()?;
-    Ok(Value::String(decode(&text, recipient, key)?))
-}
-
 pub(super) fn perform(
     kernel: &Arc<Mutex<Kernel>>,
     manager: &Manager,
@@ -548,8 +384,7 @@ pub(super) fn perform(
     let text = response
         .as_str()
         .ok_or_else(|| error("Invalid Pool download response."))?;
-    let mut bundle: Value =
-        serde_json::from_str(text).map_err(|_| error("Invalid Wayrill Pool configuration."))?;
+    let (bundle, published_version, content_digest) = crate::pool_access::publication(text)?;
     let pool_name = bundle["poolName"].as_str().map(str::to_owned);
     if matches!(task, Task::Refresh) {
         if let Some(choice) = selection.as_mut().filter(|choice| choice.follow_default) {
@@ -558,21 +393,6 @@ pub(super) fn perform(
             }
         }
     }
-    let published_version = match bundle
-        .as_object_mut()
-        .and_then(|bundle| bundle.remove("publication"))
-    {
-        None => 0,
-        Some(value) => value
-            .as_u64()
-            .filter(|version| (1..=9_007_199_254_740_991).contains(version))
-            .ok_or_else(|| error("Invalid Pool publication number."))?,
-    };
-    let content_digest = if published_version == 0 {
-        digest(text)
-    } else {
-        digest(&bundle.to_string())
-    };
     let connection = current.pool.as_ref().filter(|_| initial.is_none());
     if let Some(connection) = connection {
         if connection.published_version > published_version

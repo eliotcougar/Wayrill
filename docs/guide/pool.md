@@ -129,6 +129,23 @@ Removing a user or deleting a Pool withdraws its deliveries. Deleting a Pool
 also removes its saved layers and assignments. Revoke previously distributed
 server credentials on the server to end access.
 
+## Test a published invitation
+
+Choose **Test invitation** next to a user in **Users** or **Publishing**.
+Wayrill opens a separate window with the user’s invitation filled in and
+reads the delivery from the same folder or URL the subscriber will use.
+If you have pending edits, publish them first to test those changes.
+
+Choose **Review Pool configuration** and try the defaults or customize the
+graph, layers, outbounds and inbound assignments as a new subscriber would.
+Choose **Open simulated graph** to explore the resulting graph, rules and Stash.
+Use **Routing playground** to enter a destination and see which rule and
+outbound or policy group Xray selects. The playground uses Wayrill’s networking
+service to evaluate the rules. It sends no traffic to the destination.
+
+Edits stay in the simulation. **Review invitation** starts a fresh review,
+and closing the window discards the simulation.
+
 ## Connect as a subscriber
 
 1. In Wayrill, open **Tools → Connect to Pool** and paste into

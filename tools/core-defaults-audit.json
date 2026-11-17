@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "coreVersion": "26.10.29",
-  "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
-  "executableSha256": "39322f81b685455de41fb5ed7a90be088a017014c877f061df34d69c463a03fa",
+  "coreVersion": "26.11.9",
+  "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
+  "executableSha256": "5997635d9d3b9b5ec686048789d13d4813733e7398d0c8a89ef3027109ee3863",
   "platform": "windows/amd64",
   "auditedFiles": {
     "app/dispatcher/default.go": "3f9bea7df37745c3fa86eb239e9f508f021d3d0004a3ebf621587cce980a6298",
@@ -27,7 +27,7 @@
     "app/dns/nameserver.go": "6714ff521bffab03d6982b81bd617932980f9378e9d2619bdb7ffd2f0d6d5e49",
     "app/dns/query_group.go": "93365f20506720f4f16e2dc361d887f4eb5fcbfe27e46d2c5bb969249329984c",
     "app/dns/script.go": "21bb851a88e9e0897e729f564f9e29ed62669a491ef833d044f4916d4a5e49a8",
-    "app/geodata/download.go": "38f04dc2d612bc332db5e8068b12fe685f90edcbdaa60ece58417691dbbd76aa",
+    "app/geodata/download.go": "dc0d012390d3876298f1647e0f039f43a28ad4242b27dcc4b17136123d0b38ec",
     "app/geodata/geodata.go": "61b6b4eb9382294ea944393dc7e58a9220c0dc2c3565d6a993ac80aef896125b",
     "app/observatory/burst/burst.go": "5e8446b63228ef14deea198fc543ccceb9c2a392c35ea135ff5b3536b7f7ff1f",
     "app/observatory/burst/burstobserver.go": "a1506b48653b3a1f6cf454039849d6c18ddc2ddd352f539063d29cf16a822612",
@@ -37,7 +37,7 @@
     "app/observatory/explainErrors.go": "dc6ce779d66a0f7b0e264c2729aabae3fe96f350fcf7fbc03ecf5a928d2f9e6d",
     "app/observatory/observatory.go": "a12383be08128bf58fcccb8a04f0f6e18a38279fe44f9ceef9fb8f609565074e",
     "app/observatory/observer.go": "13695e0edc373d198afe7b423b83ae7f19b9cad666856be4d3cf647040a2f434",
-    "app/proxyman/outbound/handler.go": "77d3085a461b30a6a4d25273ba1487c9715655e1a6cfeafe17d6df0605f2c453",
+    "app/proxyman/outbound/handler.go": "296ce5b4b9127846dc490155fc04859731e724ad80280c07f98841d1a247ef83",
     "app/proxyman/outbound/outbound.go": "dea17216b8c93544f8136047c11a77ceb7c684ecf0837117131c50eb956f0eea",
     "app/router/balancing_override.go": "8d926826894547b3cb4ede859a8cd9c62633be8554361a2a1be6c9ae8949c097",
     "app/router/balancing.go": "9bdd54d6f831b99e12238de591c880fb92c5f9ba3675fabd93e6e2fc544f014d",
@@ -71,8 +71,8 @@
     "features/dns/localdns/client.go": "61a5b767c70295dafae039c4d38eced4d8dbcb548ddcbde748c19b122b86e7ad",
     "features/policy/default.go": "e2080673039682744915ff9a1bd47681d96b38a67f3b2b902609c87d99dc20bf",
     "features/policy/policy.go": "f44daba732d720b5195798475f83b6fae1b488f9e45eacd8651201189cc6dc97",
-    "go.mod": "73a9a9f2fa2869497c9b5014625dcf05136d1f21b7dff5256753510bd3f708d2",
-    "go.sum": "c6075ea19b634041b91ed1451870ef9bf9240b7da78b2256c31cb0a9794cca78",
+    "go.mod": "05b5ec4430acb5898c9c95e3886a41b4399a4e05d605165833498432baa4ade9",
+    "go.sum": "d36f2d9ff1786fd06aa382b718375a4d50336d4d50ebcb4573110a4c1eae25fc",
     "infra/conf/api.go": "40878700df0bc24e4ff87bea2669e6f3d2f00f9e2864c841ea35d096134c6ced",
     "infra/conf/blackhole.go": "11bab408fa98826bcb2dd0aef1b7e597616a3251b4b37407473b8f7695d23180",
     "infra/conf/buildable.go": "8365c19a01287d4f193b5614a4000fe5b89162ac14462c0a61c4ab29fe827eb2",
@@ -82,14 +82,14 @@
     "infra/conf/dns.go": "fdc0ba45b7c9a8885b7885ac44cbb7a6143f6de80e50abfdf461f06a48db7108",
     "infra/conf/dokodemo.go": "dc615975e05922bd087d93135c4cb2e0da317a07d0e37b9de4447efbfdc2fd77",
     "infra/conf/fakedns.go": "72697ac1f2a71bcc198c65e54ac52ea01975cf678f4529cbe8d13f694394194d",
-    "infra/conf/freedom.go": "0b5befe3c0bb45269009dd6ef4bbe4cceb7a7126ac518f386b4ee6642090389f",
-    "infra/conf/geodata.go": "e0efecafa83e2edd1b3a369acc543ac76305fc9bf75fa949c840318a3f8f0a80",
+    "infra/conf/freedom.go": "8c0f83b77bb40c4de172d4a003860ac8adfa9975a193e55ed34b80f702e3a5d0",
+    "infra/conf/geodata.go": "87791983732c2ea81b491111439fa3051e39a4b033b5fbfb4bf60587f106fdb2",
     "infra/conf/http.go": "093c0aa48ebea396766f836a7be4036f429ff100eb4bf5f0bc70679fc7e59936",
     "infra/conf/hysteria.go": "28627316ad7c5a68202aea51c489c1c7e33742b570113bde7a323cce45a7bc8b",
     "infra/conf/init.go": "0b4150d57ccda872eab850388c9b8b4e11aeaa699133196fa17cd685f74bf831",
     "infra/conf/lint.go": "ed52d3e7a65d5b042db9e8875f15d7c4dd629100595f2ff06f9d8b5435c81bf2",
     "infra/conf/loader.go": "8ca8faa03256aaa6f22e49444ed774086652352e1f166afe8bc43b5eeb9b84e5",
-    "infra/conf/log.go": "78f26719e7f19087ffa217e593a0cc9ecbaa998746c106672b2ee5cf26fa0781",
+    "infra/conf/log.go": "53aa3475a035adcda001262c8f2931736c1a2e65e5e65a34afbc346aabedc035",
     "infra/conf/loopback.go": "66c80d5c42efcbf6c83e2f9cb9319f7acaa7bc10bba1a83b7e89426150815cac",
     "infra/conf/masque.go": "dc8750465a97611015c1c7cebff594c8bd8f88973045cfe918b6d90b0c3b4c69",
     "infra/conf/metrics.go": "56a587aef8f493d9ced8833d51a5de8ef74bfac16988689be7aa1ad34a78cf7b",
@@ -102,11 +102,11 @@
     "infra/conf/socks.go": "487ef1e587b0cfbb2f9cde8ab71f28922acf5bfa95719e5d24b8c5d2be9063a5",
     "infra/conf/transport_finalmask.go": "d1037d60d4a372b82eb7e053726c76ac49bf84726367517d49b0df93c7284455",
     "infra/conf/transport_internet.go": "d07fb2fe1f3935f86396564afb26d79e0cfe865adc5dd52bd694f5cff8518d9c",
-    "infra/conf/transport_method.go": "a485be8746527d03041edea2c99ba9d6d4866c9b44cd1475c1264790f2258468",
+    "infra/conf/transport_method.go": "017bde70fa6b9f37ca1f445409b5ed96de2b2cce85993ce32e4e0179e52c3ff1",
     "infra/conf/transport_security.go": "dd7ea89e62d90bfd644bbd37ae44f0a1f8e66d10095fe12bd87a774571e4554e",
     "infra/conf/transport_sockopt.go": "9fba6eab1f52d0dac18c26b12f828a04762dfe44f08c123218da53faf45b32e3",
     "infra/conf/trojan.go": "9aa3c084b6e1eb8e0819c360c6ac316c5055fe31fde7b6879683aa277b5a4e50",
-    "infra/conf/tun.go": "da0c7ef10c90b39b643b03619bf6eb239373bb05190fcf4647e5a67af6603c5d",
+    "infra/conf/tun.go": "40db7516078c9b1c021cc24f2aa23b96c6fde984e4450f18804b0670faecb15a",
     "infra/conf/version.go": "a9729d582b503d8ece3bd56e55ce0205b0d30267f16325c6dc00fd618adaa5be",
     "infra/conf/vless.go": "931e622cb00384016921fb825edd166f2753b9447113a0ed36c946e53e1b06d1",
     "infra/conf/vmess.go": "64a95f1085c794407432f6e89e22b835f5ae5f747dcafa425f5b3aff7b3ee096",
@@ -114,7 +114,7 @@
     "infra/conf/xray.go": "6620e01be06b90b4452dcf6bf2d9ced2cda3d1362ed353273b9000cb31af856f",
     "main/wayrill_init_udp_windows.go": "a8d638aff1145152469653b1279723e85072847216d0dfece9fbabe64c48c087",
     "proxy/dns/dns.go": "838cf4a04cdbf26d8e9862bfa320ff496e79d1eb1b3e52ebd0f1323993267b46",
-    "proxy/freedom/freedom.go": "b55003ae774b7a8f75f7f36b4982065456f9b915a479c4b3f61390eb12a707e1",
+    "proxy/freedom/freedom.go": "c767696d3b5ef5d1237c0a067804a60c3ace7e409e9d3d73f2596bf3e84a39c8",
     "proxy/masque/account.go": "18884311cfafa8169a3f6c03fa891ad4ef0cc157487cdb50dd9de6c35a3a8fce",
     "proxy/masque/client.go": "e75e2cd8867f116810c7b7deef6aa81235989083253b102e52ea132b15a02387",
     "proxy/masque/pool.go": "0b41c7a29c29a667a99b315876fbeeaf9ebef10d7b7dfc65fba32798a19b2a06",
@@ -123,7 +123,7 @@
     "proxy/socks/server.go": "a19fe08e33d2226a658acc8d0a258bf850f4c3be0ecac26311a669186b70d025",
     "proxy/socks/temp_udp_listen.go": "538a8937f93bb50eb25220e83d2fa9f11b1288cb64f51b314cbf5c3e0d8b8935",
     "proxy/tun/config.go": "adf99d841a06b082636cddb7abe443967b5f51fa2e8a2dae4f85bf0b67d53492",
-    "proxy/tun/config.pb.go": "a2f855d4937f5f908df623d93beefaac5b0f7a54064c7e3fc36f65bcc27d1e46",
+    "proxy/tun/config.pb.go": "cb2d6798b0ab97f57c0d9d641f6b748bdd828b43156459c1eafc23c7f5c125ae",
     "proxy/tun/handler.go": "cd7e9ad749f5fd322228bdb2407906c188d93a5e1b5ccdfd197f8def9cbd2ab5",
     "proxy/tun/packet.go": "c7f2941087a8cff934346e2ca7f976e081c9a67a5282585928f3b85fbbd2e600",
     "proxy/tun/stack.go": "f300cabfeef27383b2401530a6475fb527332e17a2b144bd1acddd3f7338c00a",
@@ -136,12 +136,13 @@
     "proxy/tun/tun_linux.go": "b12bd0e4c6ad8f1f1d8ba24cde834a5e5ba069365060fafd60a9db84c7d83c47",
     "proxy/tun/tun_system_dns.go": "802ca872d001d8390f04c2ee8006d35f5dbdaf4b2925727c51d966a6adf6d5d8",
     "proxy/tun/tun_windows_outbound.go": "f459865ec03e8a6673c8be29abbee66344a18117862186327cb195800eac4157",
-    "proxy/tun/tun_windows_wfp.go": "3875eeb123c02027417c4c73c0fa22e862a898220e1e4217cc62aab2cb129372",
-    "proxy/tun/tun_windows.go": "97c33e68893b49ee8db2c2bf054d08b71ead68a80f125a5177d1bab9ad5a3760",
+    "proxy/tun/wfp_leak.go": "a4cf8b55fc4f8ab089f12e8e0854573765b69c7f45ab217eeeceb4ee93e2455c",
+    "proxy/tun/tun_windows_wfp.go": "aa2f0a62777b363a71728bc94aa7de2981f094636e45d73e73e4929488ba3cd0",
+    "proxy/tun/tun_windows.go": "dcbd380195cf6ab3dbb91d6761db6bbe68952b5cc2421fcdd94664f34325b7b8",
     "proxy/tun/tun.go": "692d3551e5572087fc4e2454cc47000f9126ec44d7625848f5523247027fd7be",
     "proxy/tun/udp_fullcone.go": "993fa987b7e6a460d3337a647750711a1ce95a8933ceb89b09816a752f1ca7ee",
-    "proxy/wireguard/bind.go": "fa0062fc8c498d78bc626f5b76d035c54ef3bb2addd39904f3cdce5adb3655cc",
-    "proxy/wireguard/client.go": "6bfc69dce281f51d414087efda741f4f7079fa7129798852e14bc84f9bad63e0",
+    "proxy/wireguard/bind.go": "b4e360434ce96a2dcb1e83ee46d3ae05641242ea0a23af14c9f07e966e414c27",
+    "proxy/wireguard/client.go": "06e3f7f5718005735061419abd474d6ff956c356333028efc14e356a99db7cad",
     "proxy/wireguard/config.go": "91d779a55e86cd8cbc79ccf8af75c48c9b477102977d416a3bf4727ee8fb0043",
     "proxy/wireguard/netstack.go": "7699af76176f60324873476fb62ff652604ed09182336a21762cfe61b308e2ba",
     "proxy/wireguard/server.go": "277fc23e1f878a9b3dae9a7e0b89b4d166d173459920148f48f44b1caa1aa050",
@@ -155,7 +156,7 @@
     "transport/internet/finalmask/fragment/config.go": "a79b7f34d734ec6e791daa055650cf678911d0d41a60dfca59ada580188663c2",
     "transport/internet/finalmask/fragment/conn.go": "724d1eec92e2fef12f9589230d7b8b3f205725458a0553c3d89ae51b005ec7fc",
     "transport/internet/finalmask/udphop/config.go": "1fbfa75723b6e400862f23a6151b0ce4bfc811527b874ec74f87421921698248",
-    "transport/internet/finalmask/udphop/conn.go": "22290914121a630d441d07dc600d87bfda198e6d22837dc0b7dac9432c8932b2",
+    "transport/internet/finalmask/udphop/conn.go": "9cc451622eb72baaa2b7925b1f8bfeda107c8be1c709975683ac92cfb6248739",
     "transport/internet/grpc/config.go": "0ab9cf95f1d6bceb5d066355f3526c2cf2d09e245ae063dedd98b5f003335194",
     "transport/internet/grpc/dial.go": "f429ec9bb1fa143bc9c42cbcd976a20ef17774e37403444d0232d621d5de439d",
     "transport/internet/grpc/grpc.go": "ee5a4da6c91132e21b46ec1b0fd1ba56b198fbb2f52d64e811cdcc071b1053a5",
@@ -194,37 +195,38 @@
     "transport/internet/splithttp/connection.go": "200e380affb30ac813efdc1121e0e9fb9f12733a72e6efc2a20ef6802d2802f7",
     "transport/internet/splithttp/dialer.go": "ed4ec0d02b7f4bed517f1326c534186e7648af81fe0c974f601a1e933666d0cd",
     "transport/internet/splithttp/h1_conn.go": "ab3c443f56dfd4226ebf817b77758160539f6d32b0af860a2c218031a40d611f",
-    "transport/internet/splithttp/hub.go": "aa33fb1704405c95c62d31f736d0a3826b4d7683c07dda1541e299c28c61830d",
+    "transport/internet/splithttp/hub.go": "a651b04643dde70653955a55501f4607d7ed6bb647ea3d39596fb63f7d734aaa",
     "transport/internet/splithttp/mux.go": "cf708eade61b8ab021faa7f64e0dfa82bd49142e7ccc028d456aed71366b8067",
     "transport/internet/splithttp/splithttp.go": "a1d4958aaf79d95aa8eab2c2687202d962b56e4d7c754950514243dcfe80c2af",
     "transport/internet/splithttp/upload_queue.go": "261c7d1c523b53f94c7948dd42f8ed68300e425dcebdc196979c63d8372916b3",
     "transport/internet/splithttp/xpadding.go": "ea049551efb5f42bdbbf413f0dd6108ee0df03e02bdcdffc4937fb945ce0f430",
     "transport/internet/system_dialer.go": "27567d9b47b77bc3ed26bca2809898ac5b80a98ddfffc0f2aaffc6a65a54e44e",
+    "transport/internet/system_listener.go": "b822d00bb6c6538e96c969db05b1e970f40bf7f0908299dbde1b4b6f9b201e4e",
     "transport/internet/tls/config_other.go": "b3e8220ee2c54e6e615376761097ffb7636b8083db073a98acc8e75b57e4f146",
     "transport/internet/tls/config_windows.go": "b8c2fced26108c3191ea764b6f268cb12ad772a5d2702d54b931f235294e5670",
     "transport/internet/tls/config.go": "159270ac6ce0bc87f48b29acdddf3676349d3b8c0ec5f183be4397ed8e69d8e8",
     "transport/internet/tls/ech.go": "c8dfdae9ad6fd87ecb129485a554a0b22924c2ce6eaf0f16dbbdbf4e379b570f",
     "transport/internet/tls/grpc.go": "1ff1e554b3c698911c23ee05967d93358344f4ec1b74aa59216558db365dce4c",
     "transport/internet/tls/pin.go": "8e05cee81943cd44a4f1445d5df29b153c6b04c0f3c9dcfc5aa92aad416d0e05",
-    "transport/internet/tls/tls.go": "c8661140fa2a4c8ebbcf930ab8af02452db0059c52bd69fb24befebfa075000c",
+    "transport/internet/tls/tls.go": "4138bd784f3c2917f872272f0ddd15807211a1a23ef4c8e09e45f2843954568a",
     "transport/internet/tls/unsafe.go": "68ea8bd3e03e2dfa7c0075a9be97243e7e9bd2d356dcaa1d73134392818773a3",
     "transport/internet/websocket/config.go": "c86ed0b78db04786ad77741cd13baf5780447d5fabc5452abd29d9289b5c0476",
     "transport/internet/websocket/connection.go": "9dab111b322846525fd23b8361e9aff5578c236388e39dc6fd27b938a423fe80",
     "transport/internet/websocket/dialer.go": "247b1512b2c868f7766a7f40dca88ab69ce248ddc5a58bd9ae57d06deaa01c56",
     "transport/internet/websocket/hub.go": "33d757c1116783ab08abd1f11cfaf733cc06fc9850dc99097584f65254e72b3d",
     "transport/internet/websocket/ws.go": "0f71e273aa3bc70aaef13b2a22be5f2e50e306c3843e4bb365a8f9d6ab9163a6",
-    "transport/internet/xdrive/client.go": "ef4fddfeb400e80c96c739dbaf74825766d349ffe8581e5bc108a2572db3abb1",
-    "transport/internet/xdrive/conn.go": "431dd8516f3a0f74b22889cc69c01173211dcbf4a5eac7f4cfe8d746fc74a13b",
-    "transport/internet/xdrive/drive.go": "6c5ee8bef724e85ee9a022d6d085a2e6ba02d61cba645eeb70a70758196254c1",
+    "transport/internet/xdrive/client.go": "190b7a703bdae2d5cd83b2c71c72c49ca7579057004bb4e6a9d7dea6305bf838",
+    "transport/internet/xdrive/conn.go": "f0ee80b29ff9a24469dbc6009b25b6593851d4b79456051f83cbc4331112d006",
+    "transport/internet/xdrive/drive.go": "bdb7e5608a2d3d933c0d7d8b070203fffcf7f04d144fdbfd06d8c239d76f9014",
     "transport/internet/xdrive/jsonpath.go": "32527f116aa8d5c021d5c155f80593c85486a6202012602f3eff6f523e3d191a",
-    "transport/internet/xdrive/local.go": "be48e34407c46e4da69f7c039c562c1a2a1a11523b5aa5d5dcd4b0483a8cfd7b",
-    "transport/internet/xdrive/params.go": "8872e98bd006cbb6a9eaf10b1203aaf91afe97bdbede50f195c9b677415e9bfb",
+    "transport/internet/xdrive/local.go": "623a6c1153c9c6a846883bfc2bc1506f01e8cd52d9b2e087944491de8eb34b3f",
+    "transport/internet/xdrive/params.go": "7115ea0705c98393268efddfecad8b640b7fb66b3ab5e22bfe931fe94c3fdbbc",
     "transport/internet/xdrive/s3.go": "607e95246f885f784e172551ef70c8645ec775e0d00840f3daac2b852a1f1a18",
-    "transport/internet/xdrive/slots.go": "cbeba5daf9de0cb42537da7aa20a067d6b1d6f378f820656e44680926a070d7c",
-    "transport/internet/xdrive/storage.go": "d412258786f154d3e81fb3f5ca3c913d92011806fc6fbff5b68804865db19c33",
+    "transport/internet/xdrive/slots.go": "f7a3ba667adc9fb0429fe6ac22845be8cb94dfad3444769fbef0a7fa7c9c0552",
+    "transport/internet/xdrive/storage.go": "80873c5b071a2142c761a32cd2b6aed94c4decf42da1685f8a6eb72f4ddd38b7",
     "transport/internet/xdrive/template.go": "897cfd75ab10f05fbcbc49eed3bdc747cc14044826c74b590fc8ad0d13967aa3",
     "transport/internet/xdrive/wal.go": "313fb6637bb499cd92d0639cd596d15b4a4f4c413872706d2235d3feaf78d53f",
-    "transport/internet/xdrive/xdrive.go": "5eaaeff1aadf31f7bc391efc078d14d3d87ea284b126a6dfdb5cb4003f58ee3b"
+    "transport/internet/xdrive/xdrive.go": "5a4f0abb61b9a5388dc200454fae8c5f544ab407031d5542e8fd93537f5876c1"
   },
   "overrides": {
     "StreamConfig.network": {
@@ -259,8 +261,8 @@
       "hint": "None — no destination overrides"
     },
     "MuxConfig.concurrency": {
-      "value": 8,
-      "hint": "8 (when mux is enabled)",
+      "value": 128,
+      "hint": "At least 128 when enabled. Negative disables TCP mux.",
       "sources": [
         "infra/conf/xray.go",
         "app/proxyman/outbound/handler.go"
@@ -858,13 +860,14 @@
     },
     "TLSConfig.fingerprint": {
       "value": "chrome",
-      "hint": "chrome",
+      "hint": "chrome (Chrome 155 fingerprint)",
       "sources": [
         "infra/conf/transport_security.go",
         "transport/internet/tls/config.go",
         "transport/internet/tls/tls.go",
         "transport/internet/websocket/dialer.go",
-        "transport/internet/httpupgrade/dialer.go"
+        "transport/internet/httpupgrade/dialer.go",
+        "https://raw.githubusercontent.com/refraction-networking/utls/a13c59ffe98b/u_common.go"
       ]
     },
     "TLSConfig.alpn": {
@@ -976,7 +979,12 @@
     },
     "REALITYConfig.fingerprint": {
       "value": "chrome",
-      "hint": "chrome"
+      "hint": "chrome (Chrome 155 fingerprint)",
+      "sources": [
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/tls.go",
+        "https://raw.githubusercontent.com/refraction-networking/utls/a13c59ffe98b/u_common.go"
+      ]
     },
     "REALITYConfig.serverName": {
       "hint": "Empty — must match a server-allowed name"
@@ -1496,8 +1504,7 @@
       ]
     },
     "XDriveConfig.flushIntervalMs": {
-      "value": 20,
-      "hint": "20",
+      "hint": "10 for Drive slot storage, 20 for other backends",
       "sources": [
         "transport/internet/xdrive/params.go"
       ]
@@ -1510,8 +1517,7 @@
       ]
     },
     "XDriveConfig.maxPollIntervalMs": {
-      "value": 500,
-      "hint": "500",
+      "hint": "200 for Drive slot storage, 500 for other backends",
       "sources": [
         "transport/internet/xdrive/params.go"
       ]
@@ -1524,8 +1530,7 @@
       ]
     },
     "XDriveConfig.concurrency": {
-      "value": 8,
-      "hint": "8",
+      "hint": "64 for Drive slot storage, 8 for other backends",
       "sources": [
         "transport/internet/xdrive/params.go"
       ]
@@ -2294,6 +2299,28 @@
       "sources": [
         "infra/conf/transport_method.go"
       ]
+    },
+    "SocketConfig.tcpMptcp": {
+      "value": false,
+      "hint": "Off by default. Enable to use Multipath TCP.",
+      "sources": [
+        "infra/conf/transport_internet.go",
+        "transport/internet/system_listener.go"
+      ]
+    },
+    "SplitHTTPConfig.h2Params": {
+      "hint": "Go HTTP/2 server defaults",
+      "sources": [
+        "transport/internet/splithttp/hub.go"
+      ]
+    },
+    "TunConfig.autoSystemWfpBlockLeak": {
+      "hint": "No additional WFP leak filters",
+      "sources": [
+        "infra/conf/tun.go",
+        "proxy/tun/wfp_leak.go",
+        "proxy/tun/tun_windows_wfp.go"
+      ]
     }
   },
   "globals": {
@@ -2394,7 +2421,7 @@
     },
     "muxConcurrency": {
       "field": "MuxConfig.concurrency",
-      "encoded": 8
+      "encoded": 128
     },
     "xudpConcurrency": {
       "field": "MuxConfig.xudpConcurrency",
@@ -2620,6 +2647,7 @@
   "externalSources": {
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go": "e94680d15f3e9c0ab514f8490729da1e1edbc24b55884d3cf2e01f682cd78925",
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go": "6351a6070a38f4e0c8118bcdecec2a67dfb6ca7457ee2dbaa90d20a40eb5beeb",
-    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go": "b7c0961f569e7b9c9ee9504d04163cef1e5b0eb4bafd5b8a827810f31f62dacc"
+    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go": "b7c0961f569e7b9c9ee9504d04163cef1e5b0eb4bafd5b8a827810f31f62dacc",
+    "https://raw.githubusercontent.com/refraction-networking/utls/a13c59ffe98b/u_common.go": "48e37602f831bd8b312d6e0e8d9ee860b237c4cf99e12f97fdb04ff0695ac211"
   }
 }

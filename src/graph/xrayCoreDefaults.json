@@ -1,17 +1,18 @@
 {
   "version": 1,
   "core": {
-    "version": "26.10.29",
-    "sourceCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
-    "executableSha256": "39322f81b685455de41fb5ed7a90be088a017014c877f061df34d69c463a03fa",
+    "version": "26.11.9",
+    "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
+    "executableSha256": "5997635d9d3b9b5ec686048789d13d4813733e7398d0c8a89ef3027109ee3863",
     "platform": "windows/amd64"
   },
-  "auditSha256": "88bf9065b6d64f19324d0ebcf980c53c36aef1cc6b74de8a3b9a92453621dc08",
-  "schemaSha256": "38036cad78af3d8ffbd27ca630e743326c1ca9b370bdbd8ef72e78845daaa91f",
+  "auditSha256": "f31931274232a07cfe3f2a4215f6148ee84e4d6b068074a0329443b32993b5e1",
+  "schemaSha256": "5fb833259c95549dc7dad1404eff2b9f9c3e109c9a7ef5060321c1e5bf93ee4f",
   "externalSources": {
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go": "e94680d15f3e9c0ab514f8490729da1e1edbc24b55884d3cf2e01f682cd78925",
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/chrome_parrot.go": "6351a6070a38f4e0c8118bcdecec2a67dfb6ca7457ee2dbaa90d20a40eb5beeb",
-    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go": "b7c0961f569e7b9c9ee9504d04163cef1e5b0eb4bafd5b8a827810f31f62dacc"
+    "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/internal/protocol/params.go": "b7c0961f569e7b9c9ee9504d04163cef1e5b0eb4bafd5b8a827810f31f62dacc",
+    "https://raw.githubusercontent.com/refraction-networking/utls/a13c59ffe98b/u_common.go": "48e37602f831bd8b312d6e0e8d9ee860b237c4cf99e12f97fdb04ff0695ac211"
   },
   "fields": {
     "DokodemoConfig.allowedNetwork": {
@@ -1368,9 +1369,11 @@
       ]
     },
     "TunConfig.autoSystemWfpBlockLeak": {
-      "hint": "None — empty list",
+      "hint": "No additional WFP leak filters",
       "sources": [
-        "infra/conf/tun.go"
+        "infra/conf/tun.go",
+        "proxy/tun/wfp_leak.go",
+        "proxy/tun/tun_windows_wfp.go"
       ]
     },
     "LoopbackConfig.inboundTag": {
@@ -1649,8 +1652,8 @@
       ]
     },
     "MuxConfig.concurrency": {
-      "value": 8,
-      "hint": "8 (when mux is enabled)",
+      "value": 128,
+      "hint": "At least 128 when enabled. Negative disables TCP mux.",
       "sources": [
         "infra/conf/xray.go",
         "app/proxyman/outbound/handler.go"
@@ -1933,6 +1936,12 @@
         "infra/conf/transport_method.go",
         "transport/internet/splithttp/config.go",
         "common/utils/browser.go"
+      ]
+    },
+    "SplitHTTPConfig.h2Params": {
+      "hint": "Go HTTP/2 server defaults",
+      "sources": [
+        "transport/internet/splithttp/hub.go"
       ]
     },
     "SplitHTTPConfig.extra": {
@@ -2298,8 +2307,8 @@
       ]
     },
     "XDriveConfig.flushIntervalMs": {
-      "value": 20,
-      "hint": "20",
+      "value": 0,
+      "hint": "10 for Drive slot storage, 20 for other backends",
       "sources": [
         "transport/internet/xdrive/params.go"
       ]
@@ -2312,8 +2321,8 @@
       ]
     },
     "XDriveConfig.maxPollIntervalMs": {
-      "value": 500,
-      "hint": "500",
+      "value": 0,
+      "hint": "200 for Drive slot storage, 500 for other backends",
       "sources": [
         "transport/internet/xdrive/params.go"
       ]
@@ -2326,8 +2335,8 @@
       ]
     },
     "XDriveConfig.concurrency": {
-      "value": 8,
-      "hint": "8",
+      "value": 0,
+      "hint": "64 for Drive slot storage, 8 for other backends",
       "sources": [
         "transport/internet/xdrive/params.go"
       ]
@@ -2462,13 +2471,14 @@
     },
     "TLSConfig.fingerprint": {
       "value": "chrome",
-      "hint": "chrome",
+      "hint": "chrome (Chrome 155 fingerprint)",
       "sources": [
         "infra/conf/transport_security.go",
         "transport/internet/tls/config.go",
         "transport/internet/tls/tls.go",
         "transport/internet/websocket/dialer.go",
-        "transport/internet/httpupgrade/dialer.go"
+        "transport/internet/httpupgrade/dialer.go",
+        "https://raw.githubusercontent.com/refraction-networking/utls/a13c59ffe98b/u_common.go"
       ]
     },
     "TLSConfig.rejectUnknownSni": {
@@ -2697,9 +2707,11 @@
     },
     "REALITYConfig.fingerprint": {
       "value": "chrome",
-      "hint": "chrome",
+      "hint": "chrome (Chrome 155 fingerprint)",
       "sources": [
-        "infra/conf/transport_security.go"
+        "infra/conf/transport_security.go",
+        "transport/internet/tls/tls.go",
+        "https://raw.githubusercontent.com/refraction-networking/utls/a13c59ffe98b/u_common.go"
       ]
     },
     "REALITYConfig.serverName": {
@@ -2871,9 +2883,10 @@
     },
     "SocketConfig.tcpMptcp": {
       "value": false,
-      "hint": "Disabled",
+      "hint": "Off by default. Enable to use Multipath TCP.",
       "sources": [
-        "infra/conf/transport_sockopt.go"
+        "infra/conf/transport_internet.go",
+        "transport/internet/system_listener.go"
       ]
     },
     "SocketConfig.customSockopt": {
@@ -4224,7 +4237,7 @@
     },
     "muxConcurrency": {
       "field": "MuxConfig.concurrency",
-      "encoded": 8
+      "encoded": 128
     },
     "xudpConcurrency": {
       "field": "MuxConfig.xudpConcurrency",

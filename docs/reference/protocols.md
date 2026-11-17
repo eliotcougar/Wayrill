@@ -1,6 +1,6 @@
 # Protocols and native settings
 
-Wayrill's first beta uses a pinned, customized **Xray 26.10.29**. The following
+Wayrill uses a pinned, customized **Xray 26.11.9**. The following
 families have node editors. A valid combination still depends on the selected
 transport, security mode, peer and Windows runtime support.
 
