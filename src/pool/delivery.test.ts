@@ -5,6 +5,7 @@ import { factoryDefaults } from '../graph/defaults';
 import { createDnsExample } from '../graph/example';
 import { createProxyStarter } from '../graph/examples';
 import { parseGraph, serializeGraph } from '../graph/model';
+import { cloneJson } from '../graph/xrayJson';
 import { poolResourceSettings } from '../graph/poolSettings';
 import { factoryResources, resourceDependencies, selectResource } from '../graph/resources';
 import { compileRuntimeGraph } from '../graph/runtime';
@@ -155,12 +156,12 @@ it('publishes the guided starter and compiles the subscriber’s assigned captur
   });
 });
 
-function fixture() {
+function fixture(trafficId = 'rules') {
   const graph = createProxyStarter();
   const inbound = graph.nodes.find((node) => node.id === 'proxy') ?? graph.nodes[0];
   const outbound = graph.nodes.find((node) => node.data.kind === 'direct-outbound')!;
   outbound.data.poolOutbound = true;
-  const traffic = makeNode('routing-filter', { x: 2, y: 2 }, 'rules');
+  const traffic = makeNode('routing-filter', { x: 2, y: 2 }, trafficId);
   const dns = makeNode('dns-routing-filter', { x: 5, y: 5 }, 'dns-rules');
   const handler = makeNode('dns-handler', { x: 8, y: 8 }, 'handler');
   const resolver = makeNode('dns-servers', { x: 10, y: 10 }, 'resolver');
@@ -460,7 +461,8 @@ it('follows new default Stashes and DNS filters after customizing only a traffic
 });
 
 it('delivers only assigned choices and uses stable selections on each subscriber machine', () => {
-  const { pool, member, servers, inbound, outbound, traffic, dns } = fixture();
+  // Imported node IDs can coincide with JavaScript object property names.
+  const { pool, member, servers, inbound, outbound, traffic, dns } = fixture('__proto__');
   const delivery = prepareDelivery(pool, member, servers);
   expect(JSON.stringify(delivery)).toContain('alice-secret');
   expect(JSON.stringify(delivery)).not.toMatch(/bob-secret|hidden-entry/);
@@ -468,6 +470,9 @@ it('delivers only assigned choices and uses stable selections on each subscriber
   expect(defaults.selection?.graph).toBe('first');
   expect(defaults.options?.graphs.map(({ id }) => id)).toEqual(['first', 'second']);
   expect(defaults.options?.stashes).toHaveLength(2);
+  expect(
+    defaults.options?.filters.find(({ id }) => id === traffic.id)?.defaultLayer,
+  ).toBeUndefined();
   const selection = {
     graph: 'second',
     stashes: ['one', 'two'],
@@ -518,7 +523,7 @@ it('delivers only assigned choices and uses stable selections on each subscriber
     ...delivery,
     layers: delivery.layers.filter(({ id }) => id !== 'traffic'),
   };
-  const { choiceNames } = resolvePoolDelivery(delivery, selection);
+  const choiceNames = cloneJson(resolvePoolDelivery(delivery, selection).choiceNames);
   expect(() => resolvePoolDelivery(removedFilter, selection, false, choiceNames)).toThrow(
     /Traffic rules.*Routing filter.*no longer available/,
   );

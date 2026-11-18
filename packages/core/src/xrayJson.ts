@@ -12,6 +12,9 @@ export function jsonText(value: unknown): string {
 // integers are not silently collapsed before the preservation contract is made.
 export const jsonRecord = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !jsonArray(v);
+export function ownValue<T>(record: Record<string, T> | undefined, key: string): T | undefined {
+  return record && Object.hasOwn(record, key) ? record[key] : undefined;
+}
 /** JSON.parse is a boundary, never an implicit source of any. */
 export const parseJson = (text: string): unknown => JSON.parse(text);
 export function parseJsonObject(text: string): Record<string, unknown> {

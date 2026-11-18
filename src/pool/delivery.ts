@@ -5,7 +5,7 @@ import { refreshStashComposites } from '../graph/policySources';
 import { parseGraph, toDocument } from '../graph/model';
 import { typedConnectionProblem } from '../graph/connectionTypes';
 import type { NodeKind, StashLink } from '../graph/types';
-import { jsonRecord } from '../graph/xrayJson';
+import { jsonRecord, ownValue } from '../graph/xrayJson';
 import {
   composePoolLayers,
   isLayer,
@@ -145,12 +145,9 @@ export function resolvePoolDelivery(
       )
     : selected && requested?.filters;
   const outbounds = (selected && requested?.outbounds) || {};
-  const choiceNames: PoolChoiceNames = {
-    graph: base.name,
-    stashes: {},
-    filters: {},
-    outbounds: {},
-  };
+  const stashNames = new Map<string, string>();
+  const filterNames = new Map<string, { target: string; layer: string }>();
+  const outboundNames = new Map<string, { target: string; entry: string }>();
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node.data]));
   const byTarget = new Map<string, { id: string; name: string }[]>();
   for (const { id, data, name } of delivery.layers) {
@@ -171,25 +168,26 @@ export function resolvePoolDelivery(
             // A withdrawn optional Stash cannot be delivered. Outbound assignments
             // below independently require every explicitly selected connection.
             if (stashOverrides) return [];
-            const name = previous?.stashes?.[id];
+            const name = ownValue(previous?.stashes, id);
             missing(`A selected Stash${name ? ` “${name}”` : ''} is no longer available.`);
             return [];
           }
-          choiceNames.stashes![id] = layer.name;
+          stashNames.set(id, layer.name);
           return [{ id }];
         })
       : defaults.filter(({ target }) => !target)),
     ...(filters
       ? Object.entries(filters).flatMap(([target, id]) => {
-          const name = layerById.get(id)?.name ?? previous?.filters?.[target]?.layer;
-          const targetName = nodeMap.get(target)?.label ?? previous?.filters?.[target]?.target;
+          const saved = ownValue(previous?.filters, target);
+          const name = layerById.get(id)?.name ?? saved?.layer;
+          const targetName = nodeMap.get(target)?.label ?? saved?.target;
           if (!compatible(target, id)) {
             missing(
               `A selected filter${name ? ` “${name}”` : ''}${targetName ? ` for “${targetName}”` : ''} is no longer available or compatible.`,
             );
             return [];
           }
-          choiceNames.filters![target] = { target: targetName!, layer: name! };
+          filterNames.set(target, { target: targetName!, layer: name! });
           return [{ id, target }];
         })
       : defaults.filter(({ id, target }) => {
@@ -222,14 +220,15 @@ export function resolvePoolDelivery(
       const node = placeholders.find((item) => item.id === nodeId);
       const entry = stash && findStashEntry(stash, link);
       if (!node || !entry?.profile || !accepts(nodeId, entry.profile.kind)) {
-        const name = entry?.name ?? previous?.outbounds?.[nodeId]?.entry;
-        const target = nodeMap.get(nodeId)?.label ?? previous?.outbounds?.[nodeId]?.target;
+        const saved = ownValue(previous?.outbounds, nodeId);
+        const name = entry?.name ?? saved?.entry;
+        const target = nodeMap.get(nodeId)?.label ?? saved?.target;
         missing(
           `A selected outbound${name ? ` “${name}”` : ''}${target ? ` for “${target}”` : ''} is no longer available or compatible.`,
         );
         return current;
       }
-      choiceNames.outbounds![nodeId] = { target: node.data.label, entry: entry.name };
+      outboundNames.set(nodeId, { target: node.data.label, entry: entry.name });
       resolved.set(nodeId, link);
       return applyStashedProfile(current, entry, node.position, node.id, link);
     },
@@ -284,7 +283,12 @@ export function resolvePoolDelivery(
           }),
       ...(requested?.outbounds && { outbounds: Object.fromEntries(resolved) }),
     } satisfies PoolSelection,
-    choiceNames,
+    choiceNames: {
+      graph: base.name,
+      stashes: Object.fromEntries(stashNames),
+      filters: Object.fromEntries(filterNames),
+      outbounds: Object.fromEntries(outboundNames),
+    },
     ...(inspect && {
       options: {
         defaultGraph: delivery.defaultGraph,
@@ -305,7 +309,7 @@ export function resolvePoolDelivery(
               name: node.data.label,
               choices,
               active,
-              defaultLayer: defaultFilters[node.id],
+              defaultLayer: ownValue(defaultFilters, node.id),
             },
           ];
         }),

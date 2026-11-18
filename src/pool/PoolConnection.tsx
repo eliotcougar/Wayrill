@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import Dialog from '../components/Dialog';
 import './pool.css';
 import { parseGraph } from '../graph/model';
+import { ownValue } from '../graph/xrayJson';
 import { exportFile } from '../exportFile';
 import { protectedRead } from '../protectedStorage';
 import type { GraphState } from '../graph/types';
@@ -218,8 +219,7 @@ export default function PoolConnection({
   const known = new Set(preview?.placeholders.map(({ id }) => id));
   const assignments = Object.fromEntries(
     (preview?.inbounds ?? []).flatMap(({ id, targets }) => {
-      const target =
-        preview && Object.hasOwn(preview.bindings, id) ? preview.bindings[id] : undefined;
+      const target = ownValue(preview?.bindings, id);
       return target && (targets?.includes(target) ?? known.has(target)) ? [[id, target]] : [];
     }),
   );
@@ -235,10 +235,7 @@ export default function PoolConnection({
     : (selection?.stashOverrides ?? {});
   const filterPreferences = selection?.filters
     ? Object.fromEntries(
-        (options?.filters ?? []).map(({ id }) => [
-          id,
-          Object.hasOwn(selection.filters!, id) ? selection.filters![id] : null,
-        ]),
+        (options?.filters ?? []).map(({ id }) => [id, ownValue(selection.filters, id) ?? null]),
       )
     : (selection?.filterOverrides ?? {});
   const customizationAvailable =
@@ -450,7 +447,8 @@ export default function PoolConnection({
             {preview.inbounds
               .filter(({ enabled }) => enabled)
               .map((inbound) => {
-                const route = preview.placeholders.find(({ id }) => id === assignments[inbound.id]);
+                const target = ownValue(assignments, inbound.id);
+                const route = preview.placeholders.find(({ id }) => id === target);
                 return (
                   <li key={inbound.id}>
                     <strong>{inbound.name}</strong>
@@ -629,13 +627,17 @@ export default function PoolConnection({
                         name={name}
                         accepts={accepts}
                         entries={options.entries}
-                        value={selection.outbounds?.[id]}
+                        value={ownValue(selection.outbounds, id)}
                         onChange={(link) => {
-                          const outbounds = { ...selection.outbounds };
-                          if (link) outbounds[id] = link;
-                          else delete outbounds[id];
+                          const outbounds = new Map(Object.entries(selection.outbounds ?? {}));
+                          if (link) outbounds.set(id, link);
+                          else outbounds.delete(id);
                           void run(() =>
-                            inspect(connected, { ...selection, outbounds, followDefault: false }),
+                            inspect(connected, {
+                              ...selection,
+                              outbounds: Object.fromEntries(outbounds),
+                              followDefault: false,
+                            }),
                           );
                         }}
                       />
@@ -705,7 +707,7 @@ export default function PoolConnection({
                       {!inbound.enabled && ' · Disabled'}
                     </span>
                     <select
-                      value={assignments[inbound.id] ?? ''}
+                      value={ownValue(assignments, inbound.id) ?? ''}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
                         setPreview(
@@ -731,9 +733,8 @@ export default function PoolConnection({
                           </option>
                         ))}
                     </select>
-                    {Object.hasOwn(preview.bindings, inbound.id) &&
-                      preview.bindings[inbound.id] &&
-                      !assignments[inbound.id] && (
+                    {ownValue(preview.bindings, inbound.id) &&
+                      !Object.hasOwn(assignments, inbound.id) && (
                         <small className="field-help">
                           The previously assigned route is unavailable.
                         </small>
