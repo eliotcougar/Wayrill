@@ -130,15 +130,24 @@ user across all their assigned graphs. The user’s override takes precedence ov
 the selected graph’s setting. If both inherit, Wayrill uses the subscriber’s
 local default. Delivery Preview shows the values each graph will supply.
 
-Pool can manage routing domain strategy, core log level, and the UDP listener
-buffer sizes. Leave a buffer field blank to inherit, or enter **0** to use the
-Windows socket default. Windows capture, log privacy, resource files, and other
-local preferences stay with the subscriber. Wayrill shows the supplied settings
-during enrollment and next to the corresponding local defaults. Removing an
-override takes effect on the next published update.
+Pool can manage routing domain strategy, core log level, UDP listener buffer sizes,
+and the default files for plain `geosite:` and `geoip:` rules. Leave a buffer
+field blank to inherit, or enter **0** to use the Windows socket default.
 
-Update subscribers to a Wayrill build that supports app settings overrides
-before publishing a delivery that uses them. Older clients keep their last
+To publish filters that use Russian groups, choose `ru-geosite.dat` and
+`ru-geoip.dat` in **Graph settings**, according to which groups the filters use.
+Exporting a graph from Wayrill to Pool carries over its default geodata
+filenames. During enrollment or an update, Wayrill fetches missing packaged
+files referenced by the selected graph. Custom filenames require the matching
+DAT on the subscriber or a download source configured for it in **Resource
+files**. Explicit `ext:` selectors still name their own files.
+
+Wayrill shows the supplied settings during enrollment and next to the local
+defaults. Local resource selections and update schedules stay with the
+subscriber. Removing an override takes effect on the next published update.
+
+Update subscribers to a Wayrill build that supports the settings you plan
+to publish. Older clients keep their last
 working configuration when they encounter the new format.
 
 ## Use accounts observed by Aquifer

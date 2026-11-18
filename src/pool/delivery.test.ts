@@ -1,8 +1,12 @@
 // @vitest-environment node
 import { expect, it } from 'vitest';
 import { makeNode } from '../graph/catalog';
+import { factoryDefaults } from '../graph/defaults';
+import { createDnsExample } from '../graph/example';
 import { createProxyStarter } from '../graph/examples';
 import { parseGraph, serializeGraph } from '../graph/model';
+import { poolResourceSettings } from '../graph/poolSettings';
+import { factoryResources, resourceDependencies, selectResource } from '../graph/resources';
 import { compileRuntimeGraph } from '../graph/runtime';
 import { readRuleTable, tableSettings } from '../graph/rules';
 import { readDnsFilter, dnsFilterSettings } from '../graph/dns';
@@ -18,6 +22,90 @@ import { openGraphLayer } from './graphLayer';
 
 const stash = { format: 'wayrill.stash' as const, version: 3 as const, groups: [] };
 const recipient = '0123456789abcdef0123456789abcdef';
+
+it('applies published geofile defaults to traffic and DNS while retaining subscriber defaults', () => {
+  const graph = createDnsExample();
+  graph.defaults = {
+    ...factoryDefaults(),
+    resources: selectResource(factoryResources(), 'packaged-ru-geosite', true),
+  };
+  const traffic = graph.nodes.find(({ id }) => id === 'routes')!;
+  const table = readRuleTable(traffic.data.settings);
+  table.rules[0].conditions.domain = 'geosite:ru-blocked';
+  traffic.data.settings = tableSettings(table);
+  const dns = graph.nodes.find(({ id }) => id === 'dns-routes')!;
+  const filter = readDnsFilter(dns.data.settings);
+  filter.rules[0].domains = 'geosite:ru-blocked';
+  filter.rules[0].expectedIPs = 'geoip:ir';
+  dns.data.settings = dnsFilterSettings(filter);
+  const member: Member = {
+    id: 'alice',
+    name: 'Alice',
+    invite: '',
+    configurationId: 'work',
+    settings: { geoIpFile: 'ir-geoip.dat' },
+  };
+  const exported = {
+    ...capturePoolGraph('Work', graph, stash, [], ['socks']),
+    settings: poolResourceSettings(graph),
+  };
+  const pool: Publisher = {
+    id: 'pool',
+    name: 'Pool',
+    folder: 'C:\\Pool',
+    members: [member],
+    configurations: [{ id: 'work', bundle: exported }],
+  };
+  const local = createProxyStarter();
+  local.defaults = {
+    ...factoryDefaults(),
+    resources: selectResource(factoryResources(), 'packaged-cn-geosite', true),
+  };
+  const prepared = subscriptionEngine({
+    operation: 'poolPrepare',
+    stash: '',
+    appliedGraph: serializeGraph(local),
+    bundle: prepareDelivery(pool, member),
+    capture: 'proxy',
+    recipient,
+    bindings: { proxy: 'socks' },
+  });
+  expect(prepared).toHaveProperty('graph');
+  if (!('graph' in prepared)) throw new Error('Expected a prepared Pool graph.');
+  const enrolled = parseGraph(prepared.graph!);
+  expect(enrolled.defaults?.resources).toEqual(local.defaults.resources);
+  expect(enrolled.poolSettings).toEqual({
+    geoSiteFile: 'ru-geosite.dat',
+    geoIpFile: 'ir-geoip.dat',
+  });
+  const compiled = compileRuntimeGraph(enrolled);
+  expect(compiled.config.routing).toMatchObject({
+    rules: expect.arrayContaining([
+      expect.objectContaining({ domain: ['ext:ru-geosite.dat:ru-blocked'] }),
+    ]),
+  });
+  expect(compiled.config.dns).toMatchObject({
+    servers: expect.arrayContaining([
+      expect.objectContaining({
+        domains: ['ext:ru-geosite.dat:ru-blocked'],
+        expectedIPs: ['ext:ir-geoip.dat:ir'],
+      }),
+    ]),
+  });
+  expect(resourceDependencies(compiled.config)).toEqual(['ir-geoip.dat', 'ru-geosite.dat']);
+  const inherited = preparePoolWorkspace(
+    { ...exported, settings: undefined },
+    enrolled,
+    stash,
+    recipient,
+    'current',
+    { proxy: 'socks' },
+  ).graph;
+  expect(resourceDependencies(compileRuntimeGraph(inherited).config)).toEqual([
+    'cn-geosite.dat',
+    'geoip.dat',
+  ]);
+});
 
 it('publishes the guided starter and compiles the subscriber’s assigned capture path', () => {
   const { graph, stash } = openGraphLayer(undefined, 'traffic');

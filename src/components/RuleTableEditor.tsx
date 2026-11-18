@@ -8,7 +8,7 @@ import {
 } from '../graph/internetSharing';
 import RoutingLog from './RoutingLog';
 import GeoBrowseButton from './GeoBrowseButton';
-import { readResources } from '../graph/resources';
+import { readGraphResources } from '../graph/resources';
 import { effectiveDefaults, factoryDefaults } from '../graph/defaults';
 import { boundedText } from '../text';
 import OutputList from './OutputList';
@@ -90,7 +90,11 @@ export default function RuleTableEditor({
   const domainInput = useRef<HTMLTextAreaElement | null>(null);
   const ipInput = useRef<HTMLTextAreaElement | null>(null);
   const expandedInput = useRef<HTMLTextAreaElement | null>(null);
-  const resources = useMemo(() => readResources(graph.defaults), [graph.defaults]);
+  const { defaults, poolSettings } = graph;
+  const resources = useMemo(
+    () => readGraphResources({ defaults, poolSettings }),
+    [defaults, poolSettings],
+  );
   const requested = useRequestedDiagnostic();
   const dialog = useRef<HTMLDialogElement>(null);
   const [table, setTable] = useState(() => readRuleTable(node.data.settings));

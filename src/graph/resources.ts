@@ -8,6 +8,7 @@ import { readRuleTable, tableSettings, routingListEntries } from './rules';
 import type { GlobalDefaults, GraphState, RuleNodeData } from './types';
 
 export type ResourceKind = 'geoip' | 'geosite';
+export const poolResourceKinds = { geoSiteFile: 'geosite', geoIpFile: 'geoip' } as const;
 export interface ResourceFile {
   id: string;
   name: string;
@@ -126,6 +127,12 @@ export function resourceUrlProblem(text: string): string | null {
   }
   return null;
 }
+export function validResourceFilename(name: string): boolean {
+  return (
+    /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}\.dat$/.test(name) &&
+    !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])\.dat$/i.test(name)
+  );
+}
 export function parseResources(value: unknown): ResourceSet {
   if (!value || typeof value !== 'object' || jsonArray(value))
     throw new Error('Invalid resource set.');
@@ -162,8 +169,7 @@ export function parseResources(value: unknown): ResourceSet {
       !/^[a-zA-Z0-9_-]{1,80}$/.test(e.id) ||
       ids.has(e.id) ||
       typeof e.name !== 'string' ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}\.dat$/.test(e.name) ||
-      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])\.dat$/i.test(e.name) ||
+      !validResourceFilename(e.name) ||
       names.has(e.name.toLowerCase()) ||
       !['geoip', 'geosite'].includes(e.kind) ||
       typeof e.url !== 'string' ||
@@ -246,6 +252,40 @@ function upgradeResources(value: object): ResourceSet {
 export function readResources(defaults?: GlobalDefaults): ResourceSet {
   return parseResources(defaults?.resources ?? factoryResources());
 }
+export function readGraphResources({
+  defaults,
+  poolSettings,
+}: Pick<GraphState, 'defaults' | 'poolSettings'>): ResourceSet {
+  const set = readResources(defaults);
+  for (const [key, kind] of Object.entries(poolResourceKinds) as [
+    keyof typeof poolResourceKinds,
+    ResourceKind,
+  ][]) {
+    const name = poolSettings?.[key];
+    if (typeof name !== 'string') continue;
+    const index = set.files.findIndex((file) => file.name.toLowerCase() === name.toLowerCase());
+    let file = set.files[index];
+    if (file?.kind !== kind) {
+      const packaged = packagedResources.find((file) => file.name === name.toLowerCase());
+      let id = `pool-${kind}`;
+      while (set.files.some((file) => file.id === id)) id += '-1';
+      file = {
+        id,
+        name: packaged?.name ?? name,
+        kind,
+        url: packaged?.url ?? '',
+        enabled: false,
+        autoUpdate: false,
+        intervalHours: 24,
+        throughWayrill: false,
+      };
+      if (index < 0) set.files.push(file);
+      else set.files[index] = file;
+    }
+    for (const option of set.files) if (option.kind === kind) option.enabled = option === file;
+  }
+  return set;
+}
 export function resourceFiles(set: ResourceSet): ResourceFilePlan[] {
   return set.files.map((file) => ({
     id: file.id,
@@ -256,15 +296,18 @@ export function resourceFiles(set: ResourceSet): ResourceFilePlan[] {
     intervalHours: file.intervalHours,
     throughWayrill: file.throughWayrill,
     fetchOnUse:
-      !!file.url && !packagedResources.some((p) => p.id === file.id && p.url === file.url),
+      !!file.url &&
+      !packagedResources.some(
+        (p) => (p.id === file.id || p.name === file.name) && p.url === file.url,
+      ),
   }));
 }
 export function resourcePlans(graph: GraphState): ResourceFilePlan[] {
-  return resourceFiles(readResources(graph.defaults));
+  return resourceFiles(readGraphResources(graph));
 }
 /** All filters share the resource menu. Only matcher fields in a compilation copy change. */
 export function resourceCompilationGraph(graph: GraphState): GraphState {
-  const set = readResources(graph.defaults);
+  const set = readGraphResources(graph);
   const primary = (kind: ResourceKind) => {
     const selected = set.files.find((file) => file.kind === kind && file.enabled);
     if (!selected)

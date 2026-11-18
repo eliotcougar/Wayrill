@@ -1,6 +1,8 @@
 import { createProxyStarter } from '../graph/examples';
 import { makeNode } from '../graph/catalog';
 import { tableSettings } from '../graph/rules';
+import { factoryDefaults } from '../graph/defaults';
+import { readGraphResources } from '../graph/resources';
 import type { GraphState } from '../graph/types';
 import { parseStash, type Stash } from '../profiles/import';
 import { defaultGroup } from '../profiles/stashModel';
@@ -76,7 +78,14 @@ export function openGraphLayer(
   }
   const { graph } = editablePoolGraph(bundle);
   return {
-    graph: { ...(bundle.version === 3 ? graph : ensurePoolCapture(graph)), name: bundle.name },
+    graph: {
+      ...(bundle.version === 3 ? graph : ensurePoolCapture(graph)),
+      name: bundle.name,
+      defaults: {
+        ...(graph.defaults ?? factoryDefaults()),
+        resources: readGraphResources({ defaults: graph.defaults, poolSettings: bundle.settings }),
+      },
+    },
     stash: parseStash(bundle.stash),
   };
 }

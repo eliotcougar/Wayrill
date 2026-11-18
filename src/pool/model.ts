@@ -688,7 +688,7 @@ export function preparePoolWorkspace(
         name: bundle.name,
         poolId: recipient,
         poolSettings: bundle.settings,
-        defaults: device.defaults ?? factoryDefaults(),
+        defaults: local?.defaults ?? device.defaults ?? factoryDefaults(),
         captureOptions: device.captureOptions,
         mainOutboundId: shared.mainOutboundId,
         nodes,

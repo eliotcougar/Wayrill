@@ -504,6 +504,18 @@ pub(super) fn perform(
         stash: stash.into(),
         catalog,
     };
+    let (plans, proxy) = kernel
+        .lock()
+        .map_err(|_| error("Routing controller unavailable."))?
+        .pool_resource_downloads(
+            &candidate["config"],
+            serde_json::from_value(candidate["resources"].clone())
+                .map_err(|_| error("Invalid prepared Pool resource files."))?,
+        )?;
+    worker::check(stop, shutdown)?;
+    let files = crate::resources::download_files(&plans, stop, proxy);
+    worker::check(stop, shutdown)?;
+    let files = files?;
     let mut routing = kernel
         .lock()
         .map_err(|_| error("Routing controller unavailable."))?;
@@ -518,7 +530,7 @@ pub(super) fn perform(
         ));
     }
     let mut next = (*current).clone();
-    routing.validate_pool_resources(&candidate["config"])?;
+    routing.install_pool_resources(&candidate["config"], files, stop)?;
     next.pool_pending = Some(pending);
     manager.commit(next)?;
     let activate =

@@ -455,6 +455,28 @@ impl Kernel {
         }
         Ok(())
     }
+    pub(crate) fn pool_resource_downloads(
+        &self,
+        config: &Value,
+        plans: Vec<crate::resources::FilePlan>,
+    ) -> Result<(Vec<crate::resources::FilePlan>, Option<u16>)> {
+        let files = self.resources.missing_pool_files(config, plans)?;
+        let proxy = files
+            .iter()
+            .any(|file| file.through_wayrill)
+            .then(|| self.subscription_proxy_port().ok())
+            .flatten();
+        Ok((files, proxy))
+    }
+    pub(crate) fn install_pool_resources(
+        &mut self,
+        config: &Value,
+        files: Vec<(crate::resources::FilePlan, Vec<u8>)>,
+        stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<()> {
+        self.resources.install_pool_files(config, files, stop)?;
+        self.validate_pool_resources(config)
+    }
     pub(crate) fn subscription_candidate_hash(candidate: &Value) -> Result<String> {
         let config = normalize_config(candidate["config"].clone())?;
         let capture: Option<Plan> = serde_json::from_value(candidate["capture"].clone())

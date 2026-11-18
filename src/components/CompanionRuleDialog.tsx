@@ -7,7 +7,7 @@ import {
   type DomainAddition,
 } from '../companionRules';
 import { readRuleTable } from '../graph/rules';
-import { readResources } from '../graph/resources';
+import { readGraphResources } from '../graph/resources';
 import { geoSources, type GeoGroup, type GeoPage } from '../geodata';
 import { errorText, serviceCall } from '../serviceClient';
 import type { GraphState } from '../graph/types';
@@ -42,9 +42,10 @@ export default function CompanionRuleDialog({
   const [entry, setEntry] = useState(`full:${request.host}`);
   const [error, setError] = useState('');
   const [added, setAdded] = useState(false);
+  const { defaults, poolSettings } = graph;
   const sources = useMemo(
-    () => geoSources(readResources(graph.defaults), 'geosite'),
-    [graph.defaults],
+    () => geoSources(readGraphResources({ defaults, poolSettings }), 'geosite'),
+    [defaults, poolSettings],
   );
   const [file, setFile] = useState(sources[0]?.file ?? '');
   const source = sources.find((source) => source.file === file);

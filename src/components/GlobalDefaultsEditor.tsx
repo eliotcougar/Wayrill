@@ -36,7 +36,12 @@ import {
 } from '../graph/coreDefaults';
 import PolicyFields from './PolicyFields';
 import { jsonRecord, parseJson } from '../graph/xrayJson';
-import { formatPoolSetting, poolSettingKeys } from '../graph/poolSettings';
+import {
+  formatPoolSetting,
+  isPoolResourceKey,
+  poolResourceLabel,
+  poolSettingKeys,
+} from '../graph/poolSettings';
 import { graphMetricsTag, updateImportedCoreDefaults } from '../graph/nativeCore';
 import { DEFAULT_METRICS_TAG, occupiedTags, tagOverrideProblem } from '../graph/nodeTags';
 
@@ -343,10 +348,20 @@ export default function GlobalDefaultsEditor({
           {(search
             ? 'resources geoip geosite files sources updates'.includes(search.trim().toLowerCase())
             : section === 'resources') && (
-            <ResourceFields
-              value={draft.resources ?? factoryResources()}
-              onChange={(resources) => setDraft((d) => ({ ...d, resources }))}
-            />
+            <>
+              {poolSettingKeys.filter(isPoolResourceKey).map((key) =>
+                graph.poolSettings?.[key] === undefined ? null : (
+                  <p className="field-help" key={key}>
+                    This graph uses {graph.poolSettings[key]} as its{' '}
+                    {poolResourceLabel(key).toLowerCase()} from Pool.
+                  </p>
+                ),
+              )}
+              <ResourceFields
+                value={draft.resources ?? factoryResources()}
+                onChange={(resources) => setDraft((d) => ({ ...d, resources }))}
+              />
+            </>
           )}
           {(search
             ? 'traffic display rate amount units'.includes(search.trim().toLowerCase())

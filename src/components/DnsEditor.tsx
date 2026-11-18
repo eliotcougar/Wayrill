@@ -4,7 +4,7 @@ import type { ResourceWarningReport } from '../serviceClient';
 import AdvancedSettings from './AdvancedSettings';
 import GeoMatcherField from './GeoMatcherField';
 import { GeoResourcesContext } from '../geodata';
-import { readResources } from '../graph/resources';
+import { readGraphResources } from '../graph/resources';
 import { isUdpResolver, tcpResolverAddress, udpDnsPolicyWarnings } from '../graph/dnsTransport';
 import { boundedText } from '../text';
 import OutputList from './OutputList';
@@ -413,7 +413,11 @@ export default function DnsEditor({
     focusIssue(issue);
   };
   useModalDialog(dialog);
-  const resources = useMemo(() => readResources(graph.defaults), [graph.defaults]);
+  const { defaults, poolSettings } = graph;
+  const resources = useMemo(
+    () => readGraphResources({ defaults, poolSettings }),
+    [defaults, poolSettings],
+  );
   const tabs = useEditorTabs(
     [
       {

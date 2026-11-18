@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Dialog from '../components/Dialog';
 import type { GraphState } from '../graph/types';
+import { poolResourceSettings } from '../graph/poolSettings';
 import type { Stash } from '../profiles/import';
 import { errorText } from '../serviceClient';
 import { capturePoolGraph, capturePoolStash, poolInputs } from './model';
@@ -33,7 +34,10 @@ export default function PoolExport({
           ? {
               kind: 'graph',
               name: name.trim(),
-              bundle: capturePoolGraph(name, graph, stash, groups, inputIds),
+              bundle: {
+                ...capturePoolGraph(name, graph, stash, groups, inputIds),
+                settings: poolResourceSettings(graph),
+              },
             }
           : { kind: 'stash', name: name.trim(), stash: capturePoolStash(stash, groups) },
       );

@@ -1,7 +1,7 @@
 import { parseJson } from './graph/xrayJson';
 import { useEffect, useState } from 'react';
 import { desktopServiceAvailable, errorText, serviceCall } from './serviceClient';
-import { readResources, resourcePlans } from './graph/resources';
+import { readResources, resourceFiles } from './graph/resources';
 import type { GraphState } from './graph/types';
 let pending: Promise<unknown> = Promise.resolve();
 /** Serialize schedule writes; rapid Apply/Undo must leave the latest schedule installed. */
@@ -9,9 +9,10 @@ export default function useResourceSync(graph: GraphState, connected: boolean) {
   const [error, setError] = useState('');
   let key = '';
   try {
+    const resources = readResources(graph.defaults);
     key = JSON.stringify({
-      files: resourcePlans(graph),
-      reloadAfterAutoUpdates: readResources(graph.defaults).reloadAfterAutoUpdates,
+      files: resourceFiles(resources),
+      reloadAfterAutoUpdates: resources.reloadAfterAutoUpdates,
     });
   } catch {
     /* Graph diagnostics report invalid drafts. */

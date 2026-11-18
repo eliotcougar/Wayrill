@@ -64,6 +64,46 @@ pub struct FilePlan {
     #[serde(default)]
     pub through_wayrill: bool,
 }
+pub(crate) fn download_files(
+    files: &[FilePlan],
+    stop: &AtomicBool,
+    proxy_port: Option<u16>,
+) -> Result<Vec<(FilePlan, Vec<u8>)>> {
+    let mut items = Vec::new();
+    let mut total = 0;
+    for plan in files {
+        if stop.load(Ordering::Acquire) {
+            return Err(invalid("Resource update canceled."));
+        }
+        let proxy = if plan.through_wayrill {
+            Some(proxy_port.ok_or_else(|| {
+                ApiError::new(
+                    "RESOURCE_PROXY",
+                    "Start an HTTP-compatible loopback proxy inbound to download through Wayrill.",
+                )
+            })?)
+        } else {
+            None
+        };
+        let bytes = crate::resource_download::fetch(&plan.url, stop, proxy)
+            .and_then(|bytes| {
+                validate_dat(&bytes, &plan.kind)?;
+                Ok(bytes)
+            })
+            .map_err(|mut error| {
+                error.message = format!("{}: {}", plan.file, error.message);
+                error
+            })?;
+        total += bytes.len();
+        if total > 256 * 1024 * 1024 {
+            return Err(invalid(
+                "Resource update batch exceeds 256 MiB. Update fewer files at once.",
+            ));
+        }
+        items.push((plan.clone(), bytes));
+    }
+    Ok(items)
+}
 pub(crate) fn valid_name(name: &str) -> bool {
     name.len() <= 200
         && name.ends_with(".dat")
@@ -609,6 +649,77 @@ impl Manager {
             files,
         )
     }
+    pub(crate) fn missing_pool_files(
+        &self,
+        config: &Value,
+        plans: Vec<FilePlan>,
+    ) -> Result<Vec<FilePlan>> {
+        validate_plans(&plans)?;
+        let s = self.state.lock().unwrap();
+        let config = crate::resource_rules::resolve_aliases(config, &s.stored.file_aliases);
+        let mut missing = Vec::new();
+        for plan in plans {
+            if self.assets.join(&plan.file).is_file()
+                || !crate::resource_rules::uses_resources(&config, std::slice::from_ref(&plan.file))
+            {
+                continue;
+            }
+            let plan = s
+                .stored
+                .files
+                .iter()
+                .find(|file| file.file.eq_ignore_ascii_case(&plan.file) && file.kind == plan.kind)
+                .cloned()
+                .unwrap_or(plan);
+            if plan.url.is_empty() {
+                return Err(ApiError::new(
+                    "POOL_RESOURCES",
+                    format!(
+                        "Import {} in Resource files before applying this Pool graph.",
+                        plan.file
+                    ),
+                ));
+            }
+            missing.push(plan);
+        }
+        Ok(missing)
+    }
+    pub(crate) fn install_pool_files(
+        &mut self,
+        config: &Value,
+        mut files: Vec<(FilePlan, Vec<u8>)>,
+        stop: &AtomicBool,
+    ) -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        let mut s = self.state.lock().unwrap();
+        if s.busy || !self.uploads.is_empty() {
+            return Err(ApiError::new(
+                "BUSY",
+                "Wait for the resource update or import to finish.",
+            ));
+        }
+        recover_stored(&self.assets, &self.data, &mut s.stored)?;
+        let config = crate::resource_rules::resolve_aliases(config, &s.stored.file_aliases);
+        files.retain(|(plan, _)| {
+            !self.assets.join(&plan.file).exists()
+                && s.stored
+                    .files
+                    .iter()
+                    .find(|file| file.file.eq_ignore_ascii_case(&plan.file))
+                    .is_none_or(|file| {
+                        file.kind == plan.kind
+                            && file.url == plan.url
+                            && file.through_wayrill == plan.through_wayrill
+                    })
+                && crate::resource_rules::uses_resources(&config, std::slice::from_ref(&plan.file))
+        });
+        if !files.is_empty() {
+            commit(&self.assets, &self.data, &files, stop, false, &mut s.stored)?;
+        }
+        Ok(())
+    }
     pub fn generation(&self) -> u64 {
         self.state.lock().unwrap().stored.generation
     }
@@ -822,23 +933,7 @@ impl Manager {
         }
         let worker = std::thread::Builder::new().name("wayrill-resources".into()).spawn(move || {
             let result: Result<()> = (|| {
-                let mut items = Vec::new();
-                let mut total = 0usize;
-                for p in &files {
-                    if stop.load(Ordering::SeqCst) {
-                        return Err(invalid("Resource update canceled."));
-                    }
-                    let proxy = if p.through_wayrill { Some(proxy_port.ok_or_else(|| ApiError::new("RESOURCE_PROXY", "Start an HTTP-compatible loopback proxy inbound to download through Wayrill."))?) } else { None };
-                    let bytes = crate::resource_download::fetch(&p.url, &stop, proxy)?;
-                    validate_dat(&bytes, &p.kind)?;
-                    total += bytes.len();
-                    if total > 256 * 1024 * 1024 {
-                        return Err(invalid(
-                            "Resource update batch exceeds 256 MiB. Update fewer files at once.",
-                        ));
-                    }
-                    items.push((p.clone(), bytes));
-                }
+                let items = download_files(&files, &stop, proxy_port)?;
                 let mut s = state.lock().unwrap();
                 commit(&assets, &data, &items, &stop, reload, &mut s.stored)?;
                 Ok(())
@@ -1407,6 +1502,51 @@ mod transactional_tests {
             fetch_on_use: false,
             through_wayrill: false,
         }
+    }
+    #[test]
+    fn pool_provisions_only_referenced_missing_files_without_requesting_a_reload() {
+        let lab = Lab::new();
+        let mut manager = lab.manager();
+        let geoip = FilePlan {
+            file: "ru-geoip.dat".into(),
+            url: "https://example.test/geoip.dat".into(),
+            ..plan()
+        };
+        let geosite = FilePlan {
+            id: "site".into(),
+            file: "ru-geosite.dat".into(),
+            kind: "geosite".into(),
+            url: "https://example.test/geosite.dat".into(),
+            ..plan()
+        };
+        let config = json!({"dns":{"servers":[{"expectedIPs":["ext:ru-geoip.dat:us"]}]}});
+        let plans = vec![geoip.clone(), geosite];
+        let missing = manager.missing_pool_files(&config, plans.clone()).unwrap();
+        assert_eq!(missing, vec![geoip.clone()]);
+        let stop = AtomicBool::new(false);
+        let downloaded = vec![(geoip, dat())];
+        manager
+            .install_pool_files(&config, downloaded.clone(), &stop)
+            .unwrap();
+        assert_eq!(
+            manager
+                .project(&config)
+                .unwrap()
+                .report
+                .skipped_selector_count,
+            0
+        );
+        assert_eq!(manager.generation(), 1);
+        assert_eq!(manager.reload_generation(), 0);
+        assert!(manager
+            .missing_pool_files(&config, plans)
+            .unwrap()
+            .is_empty());
+        manager
+            .install_pool_files(&config, downloaded, &stop)
+            .unwrap();
+        assert_eq!(manager.generation(), 1);
+        assert!(manager.state.lock().unwrap().stored.files.is_empty());
     }
     #[test]
     fn every_preset_resource_is_catalogued_and_browsable_without_configuration() {

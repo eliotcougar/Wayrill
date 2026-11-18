@@ -1,5 +1,12 @@
 import { globalFields } from './defaults';
+import {
+  packagedResources,
+  poolResourceKinds,
+  readGraphResources,
+  validResourceFilename,
+} from './resources';
 import { fieldProblem } from './settingValidation';
+import type { GraphState } from './types';
 import { jsonRecord } from './xrayJson';
 
 export const poolSettingKeys = [
@@ -7,11 +14,34 @@ export const poolSettingKeys = [
   'logLevel',
   'udpListenerReceiveKiB',
   'udpListenerSendKiB',
+  'geoSiteFile',
+  'geoIpFile',
 ] as const;
 export type PoolSettingKey = (typeof poolSettingKeys)[number];
 export type PoolSettings = Partial<Record<PoolSettingKey, string | number>>;
+export type PoolResourceKey = keyof typeof poolResourceKinds;
+export const isPoolResourceKey = (key: PoolSettingKey): key is PoolResourceKey =>
+  Object.hasOwn(poolResourceKinds, key);
 export const isPoolSettingKey = (key: string): key is PoolSettingKey =>
   poolSettingKeys.some((allowed) => allowed === key);
+export const poolResourceLabel = (key: PoolResourceKey) =>
+  key === 'geoSiteFile' ? 'Default GeoSite file' : 'Default GeoIP file';
+
+export function poolResourceProblem(key: PoolResourceKey, value: unknown): string | null {
+  if (typeof value !== 'string' || !validResourceFilename(value))
+    return 'Enter a DAT filename such as ru-geosite.dat.';
+  const file = packagedResources.find((file) => file.name === value.toLowerCase());
+  if (file && file.kind !== poolResourceKinds[key]) return 'Choose a file of the matching type.';
+  return null;
+}
+
+export function poolResourceSettings(graph: GraphState): PoolSettings | undefined {
+  const settings: PoolSettings = {};
+  for (const { kind, name, enabled } of readGraphResources(graph).files) {
+    if (enabled) settings[kind === 'geosite' ? 'geoSiteFile' : 'geoIpFile'] = name;
+  }
+  return Object.keys(settings).length ? settings : undefined;
+}
 
 export function parsePoolSettings(value: unknown): PoolSettings | undefined {
   if (value === undefined) return undefined;
@@ -21,6 +51,11 @@ export function parsePoolSettings(value: unknown): PoolSettings | undefined {
     throw new Error('This setting cannot be managed by a Pool.');
   for (const key of poolSettingKeys) {
     if (!received.includes(key)) continue;
+    if (isPoolResourceKey(key)) {
+      const problem = poolResourceProblem(key, value[key]);
+      if (problem) throw new Error(`Pool settings: ${poolResourceLabel(key)} — ${problem}`);
+      continue;
+    }
     const field = globalFields.find((item) => item.key === key)!;
     const setting = value[key];
     const problem =
@@ -29,6 +64,12 @@ export function parsePoolSettings(value: unknown): PoolSettings | undefined {
         : 'Invalid value.';
     if (problem) throw new Error(`Pool settings: ${field.label} — ${problem}`);
   }
+  if (
+    typeof value.geoSiteFile === 'string' &&
+    typeof value.geoIpFile === 'string' &&
+    value.geoSiteFile.toLowerCase() === value.geoIpFile.toLowerCase()
+  )
+    throw new Error('Pool settings: Choose different GeoSite and GeoIP files.');
   return received.length ? value : undefined;
 }
 
