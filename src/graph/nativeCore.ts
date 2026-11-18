@@ -1,8 +1,19 @@
-import { applyDefaults, defaultsProblems, factoryDefaults } from './defaults';
+import { applyDefaults, defaultsProblems, effectiveDefaults, factoryDefaults } from './defaults';
 import { coreProjection } from './xrayProjection';
 import { udpListenerFields } from './udpListeners';
 import { jsonRecord, patchProjection, parseJson, parseJsonObject } from './xrayJson';
 import type { GlobalDefaults, GraphState, SettingValue } from './types';
+import { editableTag } from './nodeTags';
+import { remapGraphTag } from './tagRemap';
+
+export function graphMetricsTag(graph: GraphState): string {
+  if (graph.xray) {
+    const node = graph.nodes.find((node) => node.id === graph.xray?.optionsNodeId);
+    return node ? (editableTag(node.data, node.id)?.value ?? '') : '';
+  }
+  const defaults = effectiveDefaults(graph.defaults ?? factoryDefaults());
+  return defaults.metricsEnabled ? String(defaults.metricsTag ?? '') : '';
+}
 
 const read = (o: Record<string, unknown>, key: string) =>
   o[Object.keys(o).find((k) => k.toLowerCase() === key.toLowerCase()) ?? key];
@@ -62,8 +73,10 @@ export function updateImportedCoreDefaults(
   defaults: GlobalDefaults,
 ): GraphState {
   const next = applyDefaults(graph, defaults);
-  if (!graph.xray) return next;
-  return {
+  const updateMetricsReferences = (updated: GraphState) =>
+    remapGraphTag(updated, 'outbound', graphMetricsTag(graph), graphMetricsTag(updated));
+  if (!graph.xray) return updateMetricsReferences(next);
+  return updateMetricsReferences({
     ...next,
     xray: { ...graph.xray, defaultsProjection: coreProjection(next.defaults!) },
     nodes: next.nodes.map((n) =>
@@ -88,7 +101,7 @@ export function updateImportedCoreDefaults(
           }
         : n,
     ),
-  };
+  });
 }
 
 export function syncImportedCoreDefaults(graph: GraphState): GraphState {

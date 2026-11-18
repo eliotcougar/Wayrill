@@ -6,6 +6,14 @@ names still produce distinct tags. Names can contain Unicode and do not affect
 the fixed tag width. Ordinary reference controls search by name and retain native
 prefix expressions and external references in an advanced section.
 
+To change a graph node's tag, select it and open **Properties → Advanced · Tag**.
+**Set tag** saves an explicit value. **Reset to automatic** derives a fresh tag
+from the node's current name and identity, or uses the singleton default for
+native DNS and metrics. Graph edges stay attached and exact references in the
+graph follow the edit. Prefix selectors keep their spelling and can match a
+different set after a tag changes. Core metrics also exposes its tag in the
+advanced Core, routing & policy settings in Global Defaults.
+
 Tagless native imports still round-trip unchanged. Editor previews derive stable
 identities from node IDs; an explicit edit saves those identities into the draft.
 Opening or cancelling an editor leaves the imported graph untouched. Copying a

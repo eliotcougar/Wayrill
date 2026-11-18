@@ -54,6 +54,8 @@ import type {
 } from '../graph/types';
 import NodeIcon from '@wayrill/ui/NodeIcon';
 import { isGraphInbound, isDisabledInbound } from '../graph/inboundState';
+import { editableTag } from '../graph/nodeTags';
+import NodeTagEditor from './NodeTagEditor';
 
 interface Props {
   libraryEdit?: boolean;
@@ -176,6 +178,7 @@ export default function Inspector({
     : undefined;
   if (node) node = { ...node, data: data! };
   const definition = node && getDefinition(node.data.kind);
+  const tag = node && !libraryEdit ? editableTag(node.data, node.id) : undefined;
   const connections = node
     ? graph.edges.filter(
         (connection) => connection.source === node.id || connection.target === node.id,
@@ -306,7 +309,9 @@ export default function Inspector({
               maxLength={tun ? 100 : 128}
               disabled={tun && !jsonRecord(hintRoot)}
               onChange={(event) =>
-                onUpdate(node.id, { label: boundedText(event.target.value, tun ? 100 : 128) })
+                onUpdate(node.id, {
+                  label: boundedText(event.target.value, tun ? 100 : 128),
+                })
               }
             />
           </div>
@@ -391,6 +396,9 @@ export default function Inspector({
             <button className="secondary-button node-editor-action" onClick={() => onEdit(node.id)}>
               {editorAction(node.data)}
             </button>
+          )}
+          {tag && (
+            <NodeTagEditor key={node.id} graph={graph} node={node} tag={tag} onUpdate={onUpdate} />
           )}
           {definition.sections
             ? nodeSettingGroups(definition, visibleFields).map((section) => {

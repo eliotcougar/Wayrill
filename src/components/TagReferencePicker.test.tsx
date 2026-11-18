@@ -12,6 +12,9 @@ import { compileRuntimeGraph } from '../graph/runtime';
 import type { GraphState } from '../graph/types';
 import { importXrayConfig } from '../graph/xrayImport';
 import { compileXrayGraph } from '../graph/xrayCompiler';
+import { nativeLiveFixture } from '../graph/nativeLiveFixture';
+import { editableTag } from '../graph/nodeTags';
+import NodeTagEditor from './NodeTagEditor';
 
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
@@ -54,7 +57,9 @@ it('retains native routing references and the effective core config when cards a
   const original = compileRuntimeGraph(graph).config;
   let renamed = graph;
   for (const node of graph.nodes)
-    renamed = editGraphNode(renamed, node.id, { label: '新しい名前 · ' + node.data.label });
+    renamed = editGraphNode(renamed, node.id, {
+      label: '新しい名前 · ' + node.data.label,
+    });
   expect(compileRuntimeGraph(renamed).config).toEqual(original);
   expect(
     graphTagChoices(renamed, 'inbound').every((choice) => choice.name.startsWith('新しい名前')),
@@ -64,7 +69,12 @@ it('retains native routing references and the effective core config when cards a
 it('makes tagless native nodes selectable without changing an untouched native import', () => {
   const config = {
     inbounds: [
-      { protocol: 'socks', listen: '127.0.0.1', port: 18080, settings: { auth: 'noauth' } },
+      {
+        protocol: 'socks',
+        listen: '127.0.0.1',
+        port: 18080,
+        settings: { auth: 'noauth' },
+      },
     ],
     outbounds: [{ protocol: 'freedom' }],
   };
@@ -83,6 +93,121 @@ it('makes tagless native nodes selectable without changing an untouched native i
     outbounds: [{ ...config.outbounds[0], tag: outputs[0].tag }],
   });
   expect(graphTagChoices(edited, 'outbound')[0].name).toBe('Internet');
+});
+
+it('sets and resets an imported tag through Advanced while preserving the compiled route', async () => {
+  const config = nativeLiveFixture('noauth');
+  const original = importXrayConfig(JSON.stringify(config));
+  let graph = original;
+  const inboundId = graph.xray!.inboundOrder[0];
+  const render = () => {
+    const node = graph.nodes.find((item) => item.id === inboundId)!;
+    root.render(
+      <NodeTagEditor
+        key={node.id}
+        graph={graph}
+        node={node}
+        tag={editableTag(node.data, node.id)!}
+        onUpdate={(id, data) => {
+          graph = editGraphNode(graph, id, data);
+          render();
+        }}
+      />,
+    );
+  };
+  await act(render);
+  const details = host.querySelector('details')!;
+  expect(details.open).toBe(false);
+  await act(() => details.querySelector('summary')!.click());
+  const input = host.querySelector('input')!;
+  expect(input.value).toBe('qa-mixed');
+  const click = (label: string) =>
+    act(() => [...host.querySelectorAll('button')].find((b) => b.textContent === label)!.click());
+  async function type(value: string) {
+    await act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  await type('wr-reserved');
+  expect(host.querySelector('[role=alert]')?.textContent).toContain('reserved');
+  await type('dns-query');
+  expect(host.querySelector('[role=alert]')?.textContent).toContain('already used');
+  await type('custom-input');
+  await click('Set tag');
+  expect(details.open).toBe(true);
+  const restored = nodeTag(graph.nodes.find((item) => item.id === inboundId)!.data, inboundId);
+  expect(compileXrayGraph(graph).config).toMatchObject({
+    inbounds: [{ tag: 'custom-input' }],
+    routing: {
+      rules: [
+        { inboundTag: ['custom-input'] },
+        { inboundTag: ['dns-query'] },
+        { inboundTag: ['custom-input'] },
+      ],
+    },
+  });
+  await click('Reset to automatic');
+  expect(compileXrayGraph(graph).config).toMatchObject({
+    inbounds: [{ tag: restored }],
+    routing: {
+      rules: [
+        { inboundTag: [restored] },
+        { inboundTag: ['dns-query'] },
+        { inboundTag: [restored] },
+      ],
+    },
+  });
+  expect(compileXrayGraph(original).config).toEqual(config);
+});
+
+it('retags the native DNS source without rewriting the same tag in another namespace', () => {
+  const config = nativeLiveFixture('noauth');
+  const outbounds = config.outbounds as Record<string, unknown>[];
+  outbounds.find((outbound) => outbound.tag === 'dns-handler')!.tag = 'dns-query';
+  const routing = config.routing as { rules: Record<string, unknown>[] };
+  routing.rules[0].outboundTag = 'dns-query';
+  const graph = importXrayConfig(JSON.stringify(config));
+  const dns = graph.nodes.find((node) => node.id === graph.xray!.dnsNodeId)!;
+  const tag = editableTag(dns.data, dns.id)!;
+  const renamed = editGraphNode(graph, dns.id, {
+    settings: tag.settingsFor('private-query'),
+  });
+  expect(compileXrayGraph(renamed).config).toMatchObject({
+    dns: { tag: 'private-query' },
+    routing: {
+      rules: [
+        { inboundTag: ['qa-mixed'], outboundTag: 'dns-query' },
+        { inboundTag: ['private-query'], outboundTag: 'upstream' },
+        { inboundTag: ['qa-mixed'], outboundTag: 'upstream' },
+      ],
+    },
+  });
+});
+
+it('keeps native dial-through references on their destination after an old tag is reused', () => {
+  const config = nativeLiveFixture('noauth');
+  (config.outbounds as Record<string, unknown>[]).push({
+    tag: 'dependent',
+    protocol: 'freedom',
+    streamSettings: { sockopt: { dialerProxy: 'upstream' } },
+  });
+  let graph = importXrayConfig(JSON.stringify(config));
+  const change = (old: string, tag: string) => {
+    const node = graph.nodes.find((item) => item.data.settings.tag === old)!;
+    graph = editGraphNode(graph, node.id, { settings: { ...node.data.settings, tag } });
+  };
+  change('upstream', 'custom-upstream');
+  change('direct', 'upstream');
+  expect(compileXrayGraph(graph).config.outbounds).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ tag: 'upstream', protocol: 'freedom' }),
+      expect.objectContaining({
+        tag: 'dependent',
+        streamSettings: { sockopt: { dialerProxy: 'custom-upstream' } },
+      }),
+    ]),
+  );
 });
 
 it.each([false, true])(
@@ -181,7 +306,11 @@ it('handles Escape within the picker and restores keyboard focus after selecting
   await act(render);
   const toggle = host.querySelector<HTMLButtonElement>('#keyboard')!;
   await act(() => toggle.click());
-  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  const event = new KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true,
+    cancelable: true,
+  });
   await act(() => host.querySelector<HTMLInputElement>('input')!.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(true);
   expect(parentKey).not.toHaveBeenCalled();
@@ -287,8 +416,14 @@ it('includes native DNS query sources and metrics without modifying their tags',
     servers: [{ address: '8.8.8.8', tag: 'old-server-query' }],
   });
   const options = makeNode('xray-options', { x: 0, y: 0 });
-  options.data.settings.json = JSON.stringify({ metrics: { tag: 'old-metrics' } });
-  const graph: GraphState = { name: 'Native', nodes: [dns, servers, options], edges: [] };
+  options.data.settings.json = JSON.stringify({
+    metrics: { tag: 'old-metrics' },
+  });
+  const graph: GraphState = {
+    name: 'Native',
+    nodes: [dns, servers, options],
+    edges: [],
+  };
   const original = JSON.stringify(graph);
   expect(graphTagChoices(graph, 'inbound').map((choice) => choice.tag)).toEqual([
     'old-dns-query',

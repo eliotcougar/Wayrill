@@ -18,6 +18,7 @@ import {
   bindingsFor,
   defaultSections,
   defaultsProblems,
+  effectiveDefaults,
   factoryDefaults,
   globalFields,
   resetCoreDefault,
@@ -36,6 +37,8 @@ import {
 import PolicyFields from './PolicyFields';
 import { jsonRecord, parseJson } from '../graph/xrayJson';
 import { formatPoolSetting, poolSettingKeys } from '../graph/poolSettings';
+import { graphMetricsTag, updateImportedCoreDefaults } from '../graph/nativeCore';
+import { DEFAULT_METRICS_TAG, occupiedTags, tagOverrideProblem } from '../graph/nodeTags';
 
 export default function GlobalDefaultsEditor({
   graph,
@@ -75,7 +78,30 @@ export default function GlobalDefaultsEditor({
     ...issue,
     fieldKey: globalFields.find((f) => issue.controlId?.endsWith(`-${f.key}`))?.key ?? 'policy',
   }));
-  const issues = [...defaultsProblems(draft), ...numericIssues];
+  const metrics = effectiveDefaults(draft);
+  const tag = String(metrics.metricsTag ?? '');
+  const metricsTagProblem =
+    metrics.metricsEnabled && tag && tag !== graphMetricsTag(graph)
+      ? tagOverrideProblem(
+          tag,
+          DEFAULT_METRICS_TAG,
+          occupiedTags(graph, 'outbound', graph.xray?.optionsNodeId, false),
+          4096,
+        )
+      : undefined;
+  const issues: Diagnostic[] = [
+    ...defaultsProblems(draft),
+    ...numericIssues,
+    ...(metricsTagProblem
+      ? [
+          {
+            severity: 'error' as const,
+            fieldKey: 'metricsTag',
+            message: metricsTagProblem,
+          },
+        ]
+      : []),
+  ];
   const errors = issues.filter((i) => i.severity === 'error');
   const changed =
     globalFields.filter(
@@ -96,10 +122,14 @@ export default function GlobalDefaultsEditor({
     ),
   ).length;
   const large = largeGraph(graph);
-  const previewGraph = useMemo(
-    () => (errors.length ? graph : applyDefaults(graph, draft)),
-    [graph, draft, errors.length],
-  );
+  const previewGraph = useMemo(() => {
+    if (errors.length) return graph;
+    try {
+      return updateImportedCoreDefaults(graph, draft);
+    } catch {
+      return applyDefaults(graph, draft);
+    }
+  }, [graph, draft, errors.length]);
   const analysis = useGraphAnalysis(previewGraph, large && !errors.length, 'nodes');
   const inheritedErrors = useMemo(() => {
     if (errors.length) return [];
@@ -151,7 +181,7 @@ export default function GlobalDefaultsEditor({
   const renderFields = (fields: typeof globalFields) => (
     <div className="field-grid defaults-field-grid">
       {fields
-        .filter((f) => f.key !== 'metricsTag')
+        .filter((f) => f.key !== 'metricsTag' || metrics.metricsEnabled)
         .map((f) => (
           <div
             className={
