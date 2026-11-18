@@ -4,6 +4,7 @@ import { normalizeUserAgent } from './trafficTuning';
 import { syncImportedCoreDefaults } from './nativeCore';
 import { updateGraphNode } from './model';
 import type { GraphState, RuleNodeData } from './types';
+import { ensureNodeTags } from './tags';
 
 /** Shared editing semantics for graph and library editors. */
 export function editGraphNode(
@@ -12,6 +13,7 @@ export function editGraphNode(
   update: Partial<RuleNodeData>,
 ): GraphState {
   const node = graph.nodes.find((n) => n.id === id);
+  if (!node) return graph;
   if (node?.data.kind === 'fakedns' && update.settings)
     return editFakeDnsGraph(graph, id, update.settings);
   if (node && update.settings && update.overrides === undefined) {
@@ -41,7 +43,7 @@ export function editGraphNode(
       };
     }
   }
-  const next = updateGraphNode(graph, id, update);
+  const next = ensureNodeTags(updateGraphNode(graph, id, update));
   if (node?.data.kind === 'xray-options' && update.settings && graph.xray)
     try {
       return syncImportedCoreDefaults(next);

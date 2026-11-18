@@ -45,12 +45,6 @@ export function policyDiagnosticTab(data: RuleNodeData, issue?: Diagnostic) {
   if (data.kind === 'observatory') return 'observation' as const;
   const key = issue?.fieldKey ?? '';
   if (
-    ['strategy', 'expected', 'maxRTT', 'tolerance', 'baselines', 'costs', 'strategyExtra'].includes(
-      key,
-    )
-  )
-    return 'strategy' as const;
-  if (
     [
       'observe',
       'mode',

@@ -314,7 +314,7 @@ export default function PolicySourcesEditor({
         )}
         {manual && (
           <section aria-label="Manual outbound set">
-            <h3>Manual outbound set</h3>
+            <h3>Selected members</h3>
             <PolicyOutboundPicker
               label="Add outbound"
               excludeId={node.id}
@@ -327,7 +327,7 @@ export default function PolicySourcesEditor({
             />
             {!!sources.manual.length && (
               <label className="editor-field">
-                <span>Search manual set</span>
+                <span>Find selected members</span>
                 <input
                   autoComplete="off"
                   aria-label="Search manual set"
@@ -392,8 +392,8 @@ export default function PolicySourcesEditor({
         )}
         {mode === 'prefixes' && (
           <p className="notice">
-            Native Xray selectors match outbound tag prefixes. The preview follows the current graph
-            tags. Imported prefix semantics stay intact.
+            Choose outbounds by name. Imported native prefix expressions remain available in the
+            selection’s advanced section.
           </p>
         )}
       </div>

@@ -9,6 +9,7 @@ import {
   parseJsonArray,
 } from './xrayJson';
 import { isExecutableOutboundKind } from './outbounds';
+import { nativeResolverUsesRouter } from './addressValidation';
 import {
   dnsHandlerFields,
   dnsServerFields,
@@ -40,7 +41,7 @@ export function nativeJson(data: RuleNodeData): Record<string, unknown> {
 export function nativeConfig(data: RuleNodeData): Record<string, unknown> {
   const json = nativeJson(data);
   if (Object.keys(json).some((k) => k.toLowerCase() === 'tag'))
-    throw new Error('Use the Tag field rather than adding tag to native options.');
+    throw new Error('Node tags are managed automatically. Remove tag from native options.');
   const current = { ...json, ...(data.settings.tag ? { tag: String(data.settings.tag) } : {}) };
   return data.native
     ? (patchProjection(data.native.original, data.native.projection, current) as Record<
@@ -74,16 +75,7 @@ export function nativeOutputs(data: RuleNodeData): { id: string; name: string }[
     }
     if (data.kind === 'xray-dns-servers') {
       const servers = nativeJson(data).servers;
-      return jsonArray(servers) &&
-        servers.some((s) => {
-          const a = jsonRecord(s) ? s.address : s;
-          return (
-            typeof a === 'string' &&
-            a !== 'localhost' &&
-            a.toLowerCase() !== 'fakedns' &&
-            !/^(?:tcp|https|quic)\+local:\/\//i.test(a)
-          );
-        })
+      return jsonArray(servers) && servers.some(nativeResolverUsesRouter)
         ? [{ id: 'queries', name: 'Native query routing' }]
         : [];
     }
@@ -181,11 +173,7 @@ export function nativeSummary(data: RuleNodeData): [string, string][] {
         ['Protocol', jsonText(j.protocol ?? '')],
         ['Listen', `${jsonText(j.listen ?? '')}:${jsonText(j.port ?? '')}`],
       ];
-    if (data.kind === 'xray-outbound')
-      return [
-        ['Protocol', jsonText(j.protocol ?? '')],
-        ['Tag', String(data.settings.tag || '(untagged)')],
-      ];
+    if (data.kind === 'xray-outbound') return [['Protocol', jsonText(j.protocol ?? '')]];
     if (data.kind === 'xray-dns') return [];
     if (data.kind === 'xray-dns-servers')
       return [

@@ -1,7 +1,9 @@
 import type { Connection } from '@xyflow/react';
-import { getDefinition, getOutputPorts, portLabel } from './catalog';
+import { getOutputPorts, portLabel } from './catalog';
 import { connectionProblem } from './structure';
 import type { GraphState, RuleEdge, RuleNode } from './types';
+import { ensureNodeTags } from './tags';
+import { nodeReferenceDetail } from './tagReferences';
 
 export function connectionIsEditable(graph: GraphState, edge: RuleEdge): boolean {
   return (
@@ -37,21 +39,7 @@ export function preferredConnectionOutput(
 }
 
 export function endpointDetail(node: RuleNode, graph?: GraphState): string {
-  const title = getDefinition(node.data.kind).title;
-  const ambiguous = graph?.nodes.some(
-    (other) =>
-      other.id !== node.id &&
-      other.data.label === node.data.label &&
-      other.data.kind === node.data.kind &&
-      other.data.settings.tag === node.data.settings.tag,
-  );
-  return [
-    title !== node.data.label && title,
-    node.data.settings.tag,
-    ambiguous && `ID ${node.id.slice(-8)}`,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  return nodeReferenceDetail(node, graph ?? { name: '', nodes: [node], edges: [] });
 }
 
 export function connectionDescription(graph: GraphState, edge: Connection | RuleEdge): string {
@@ -101,7 +89,7 @@ export function applyConnectionEdit(
   const old = edgeId ? graph.edges.find((edge) => edge.id === edgeId)! : undefined;
   if (old && sameConnection(old, connection)) return graph;
   const updated = { ...old, ...connection, id: old?.id ?? id, selected: true };
-  return {
+  return ensureNodeTags({
     ...graph,
     nodes: graph.nodes.map((node) => (node.selected ? { ...node, selected: false } : node)),
     edges: old
@@ -112,5 +100,5 @@ export function applyConnectionEdit(
           ...graph.edges.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)),
           updated,
         ],
-  };
+  });
 }

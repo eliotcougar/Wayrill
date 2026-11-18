@@ -68,7 +68,7 @@ export function protocolJson(data: RuleNodeData): Record<string, unknown> {
   const value = parseXrayJson(String(data.settings.json));
   if (!jsonRecord(value)) throw new Error('Protocol options must be a JSON object.');
   if (Object.keys(value).some((k) => k.toLowerCase() === 'tag'))
-    throw new Error('Use the node Tag field instead of adding tag to protocol options.');
+    throw new Error('Node tags are managed automatically. Remove tag from protocol options.');
   const spec = specForKind(data.kind);
   if (
     spec &&

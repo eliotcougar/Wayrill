@@ -1,4 +1,26 @@
 /* Shared rows and form grids. Apps own placement and grouping. */
+.policy-group-basics > .editor-two-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.policy-group-basics .editor-field,
+.policy-group-basics > .field-help {
+  margin: 0;
+}
+
+.policy-group-basics > .field-help {
+  margin-top: var(--space-2);
+}
+
+@media (width <= 600px) {
+  .policy-group-basics > .editor-two-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -150,7 +150,7 @@ fn validate_selection(
     bindings: Option<&BTreeMap<String, String>>,
     selection: Option<&Selection>,
 ) -> Result<()> {
-    if !matches!(capture, "current" | "proxy" | "tun") {
+    if !matches!(capture, "current" | "proxy" | "tun" | "both") {
         return Err(error("Choose the capture setup for this computer."));
     }
     let valid_id = |id: &str| {

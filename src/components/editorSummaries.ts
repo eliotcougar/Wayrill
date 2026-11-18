@@ -27,7 +27,10 @@ export function summarizeTerms(value: string): string {
     (inverse ? ' (native list)' : '')
   );
 }
-export function ruleConditionSummary(rule: TableRule): string {
+export function ruleConditionSummary(
+  rule: TableRule,
+  inboundNames?: ReadonlyMap<string, string>,
+): string {
   if (rule.matchAll) return 'Match all traffic';
   const targets: string[] = [];
   const parts = routingConditionFields.flatMap((field) => {
@@ -35,14 +38,18 @@ export function ruleConditionSummary(rule: TableRule): string {
     const value =
       raw && ['domain', 'ip'].includes(field.key)
         ? routingListEntries(raw, field.key).join('\n')
-        : raw;
+        : raw && field.key === 'inboundTag' && inboundNames
+          ? listEntries(raw)
+              .map((tag) => inboundNames.get(tag) ?? tag)
+              .join('\n')
+          : raw;
     if (value && ['domain', 'ip', 'process'].includes(field.key) && rule.targetMatch !== 'all') {
       targets.push(`${field.label}: ${field.list ? summarizeTerms(value) : value}`);
       return [];
     }
     return value
       ? [
-          `${field.label}: ${field.list ? summarizeTerms(value) : value.length > 100 ? `${value.slice(0, 97)}…` : value}`,
+          `${field.key === 'inboundTag' ? 'Inbound sources' : field.label}: ${field.list ? summarizeTerms(value) : value.length > 100 ? `${value.slice(0, 97)}…` : value}`,
         ]
       : [];
   });

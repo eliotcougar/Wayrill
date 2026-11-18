@@ -1,3 +1,6 @@
+import { nativeValue } from './nativeProperties';
+import { jsonRecord } from './xrayJson';
+
 // Leaf validators shared by node schemas, protocol forms and graph compilers.
 export function isIpLiteral(address: string): boolean {
   if (address.includes(':')) {
@@ -39,8 +42,16 @@ export function domainProblem(value: string): string | null {
   return null;
 }
 export const dnsIpLiteral = isIpLiteral;
+export const isLocalResolver = (address: string) =>
+  address.toLowerCase() === 'localhost' || /^(tcp|https|h2c|quic)\+local:\/\//i.test(address);
+export function nativeResolverUsesRouter(server: unknown): boolean {
+  const address = jsonRecord(server) ? nativeValue(server, 'address') : server;
+  return (
+    typeof address === 'string' && address.toLowerCase() !== 'fakedns' && !isLocalResolver(address)
+  );
+}
 export function dnsAddressProblem(address: string): string | null {
-  if (dnsIpLiteral(address) || address === 'localhost') return null;
+  if (dnsIpLiteral(address) || address.toLowerCase() === 'localhost') return null;
   try {
     const url = new URL(address);
     if (

@@ -9,6 +9,7 @@ import {
   parseJsonArray,
 } from './xrayJson';
 import { isExecutableOutboundKind } from './outbounds';
+import { nativeResolverUsesRouter } from './addressValidation';
 import {
   dnsHandlerFields,
   dnsServerFields,
@@ -75,16 +76,7 @@ export function nativeOutputs(data: RuleNodeData): { id: string; name: string }[
     }
     if (data.kind === 'xray-dns-servers') {
       const servers = nativeJson(data).servers;
-      return jsonArray(servers) &&
-        servers.some((s) => {
-          const a = jsonRecord(s) ? s.address : s;
-          return (
-            typeof a === 'string' &&
-            a !== 'localhost' &&
-            a.toLowerCase() !== 'fakedns' &&
-            !/^(?:tcp|https|quic)\+local:\/\//i.test(a)
-          );
-        })
+      return jsonArray(servers) && servers.some(nativeResolverUsesRouter)
         ? [{ id: 'queries', name: 'Native query routing' }]
         : [];
     }

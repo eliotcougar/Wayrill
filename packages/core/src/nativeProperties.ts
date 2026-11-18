@@ -16,8 +16,10 @@ export function setSniffingProtocols(
   ]);
 }
 
+export const nativeKey = (o: Record<string, unknown>, key: string): string =>
+  Object.keys(o).find((k) => k.toLowerCase() === key.toLowerCase()) ?? key;
 export const nativeValue = (o: Record<string, unknown>, key: string): unknown =>
-  o[Object.keys(o).find((k) => k.toLowerCase() === key.toLowerCase()) ?? key];
+  o[nativeKey(o, key)];
 export function setNative(
   o: Record<string, unknown>,
   key: string,

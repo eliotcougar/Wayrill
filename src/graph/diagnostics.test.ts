@@ -8,6 +8,21 @@ import { analyzeGraph } from './analysis';
 import * as runtime from './runtime';
 import { importXrayConfig } from './xrayImport';
 describe('Runtime graph diagnostics', () => {
+  it('diagnoses inbound conditions using whole selected tags, including literal commas', () => {
+    const graph = createTrafficExample();
+    const input = graph.nodes.find((n) => n.id === 'socks')!;
+    input.data.settings.tag = 'work,laptop';
+    const filter = graph.nodes.find((n) => n.id === 'routes')!;
+    const table = readRuleTable(filter.data.settings);
+    table.rules[0].conditions.inboundTag = 'work,laptop';
+    table.rules[1].conditions.inboundTag = 'laptop';
+    Object.assign(filter.data.settings, tableSettings(table));
+    expect(
+      diagnoseRuntimeGraph(graph)
+        .filter((issue) => issue.message.includes('excludes every inbound'))
+        .map((issue) => issue.rowId),
+    ).toEqual([table.rules[1].id]);
+  });
   it('accepts the complete current example and its round trip', () => {
     for (const g of [createTrafficExample(), parseGraph(serializeGraph(createTrafficExample()))])
       expect(diagnoseRuntimeGraph(g).filter((i) => i.severity === 'error')).toEqual([]);

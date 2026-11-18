@@ -1,5 +1,7 @@
 import { sharedConfigRules, icsNodeProblems, sharedRuleVariants } from './internetSharing';
 import { compileNatRouting } from './natRouting';
+import { outboundReferences } from '@wayrill/core/outboundReferences';
+import { getNativePath } from '@wayrill/core/nativeProperties';
 import { listenerProblem, listenerEndpointsConflict } from './listeners';
 import { isDisabledInbound } from './inboundState';
 import { udpDnsPolicyWarnings } from './dnsTransport';
@@ -118,6 +120,11 @@ export function projectObserver(data: RuleNodeData, subjects: string[]): Record<
         },
         ...extras(data, 'extra'),
       };
+}
+export function runtimeOutboundBundle(data: RuleNodeData): Record<string, unknown>[] {
+  return data.kind === 'xray-outbound' || data.native
+    ? [xrayOutboundConfig(data)]
+    : outboundBundle(data);
 }
 export function xrayOutboundConfig(data: RuleNodeData): Record<string, unknown> {
   if (isProtocolKind(data.kind)) return protocolConfig(data);
@@ -364,36 +371,10 @@ export function compileXrayGraph(
   for (const o of outbounds) {
     const node = outputByTag.get(String(o.tag)),
       old = node?.data.native?.original;
-    const stream = jsonRecord(o.streamSettings) ? o.streamSettings : undefined,
-      sock = stream && jsonRecord(stream.sockopt) ? stream.sockopt : undefined;
-    const oldStream = old && jsonRecord(old.streamSettings) ? old.streamSettings : undefined,
-      oldSock = oldStream && jsonRecord(oldStream.sockopt) ? oldStream.sockopt : undefined;
-    if (
-      sock &&
-      typeof sock.dialerProxy === 'string' &&
-      sock.dialerProxy === oldSock?.dialerProxy &&
-      outboundTagMap.has(sock.dialerProxy)
-    )
-      sock.dialerProxy = outboundTagMap.get(sock.dialerProxy);
-    if (
-      jsonRecord(o.proxySettings) &&
-      old &&
-      jsonRecord(old.proxySettings) &&
-      o.proxySettings.tag === old.proxySettings.tag &&
-      typeof o.proxySettings.tag === 'string' &&
-      outboundTagMap.has(o.proxySettings.tag)
-    )
-      o.proxySettings.tag = outboundTagMap.get(o.proxySettings.tag);
-    if (
-      o.protocol === 'loopback' &&
-      jsonRecord(o.settings) &&
-      old &&
-      jsonRecord(old.settings) &&
-      o.settings.inboundTag === old.settings.inboundTag &&
-      typeof o.settings.inboundTag === 'string' &&
-      inboundTagMap.has(o.settings.inboundTag)
-    )
-      o.settings.inboundTag = inboundTagMap.get(o.settings.inboundTag);
+    for (const ref of outboundReferences(o, 'all'))
+      if (old && getNativePath(old, ref.path) === ref.tag)
+        ref.object[ref.key] =
+          (ref.namespace === 'outbound' ? outboundTagMap : inboundTagMap).get(ref.tag) ?? ref.tag;
   }
   const applicationWarnings: string[] = [];
   const captureAvailable = inputNodes.some((n) =>

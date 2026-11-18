@@ -7,9 +7,33 @@ import type { NodeKind } from './types';
 import type { SettingValue } from '@wayrill/core/settings';
 import { makeNode as makeAquiferNode } from '../../aquifer/src/graph/catalog';
 import { diagnoseGraph as diagnoseAquifer } from '../../aquifer/src/graph/model';
+import { graphTagChoices } from './tagReferences';
 
 type BasicOutboundKind = 'vless-outbound' | 'socks-outbound' | 'direct-outbound' | 'block-outbound';
 type Settings = Record<string, SettingValue>;
+
+it('offers concrete native dial-through destinations and validates them like protocol cards', () => {
+  const owner = makeNode('socks-outbound', { x: 0, y: 0 }, 'owner');
+  owner.data.settings.tag = 'owner';
+  owner.data.settings.dialerProxy = 'native';
+  const native = makeNode('xray-outbound', { x: 0, y: 0 }, 'native');
+  native.data.settings = { tag: 'native', json: '{"protocol":"freedom"}' };
+  const chain = makeNode('proxy-chain', { x: 0, y: 0 }, 'chain');
+  chain.data.settings.tag = 'chain';
+  const graph = { name: 'Dial through', nodes: [owner, native, chain], edges: [] };
+  expect(graphTagChoices(graph, 'dialer', owner.id).map((choice) => choice.tag)).toEqual([
+    'native',
+  ]);
+  expect(graphTagChoices(graph, 'outbound', owner.id).map((choice) => choice.tag)).toEqual([
+    'native',
+    'chain',
+  ]);
+  expect(
+    diagnoseGraph({ ...graph, nodes: [owner, native] }).filter(
+      (issue) => issue.fieldKey === 'dialerProxy',
+    ),
+  ).toEqual([]);
+});
 
 it.each([
   [

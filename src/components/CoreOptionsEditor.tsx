@@ -181,7 +181,7 @@ export default function CoreOptionsEditor({
           {Object.hasOwn(draft, 'metrics') && (
             <NativeObjectFields
               object={object('metrics')}
-              fields={metricsFields}
+              fields={metricsFields.filter((field) => field.key !== 'tag')}
               idPrefix="native-metrics"
               onValidity={validity}
               onChange={(o) => section('metrics', o)}

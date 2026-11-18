@@ -1,12 +1,18 @@
 import { invoke } from '@tauri-apps/api/core';
 import { jsonRecord, parseJson } from '../graph/xrayJson';
-import { parseStash, serializeStash } from '../profiles/import';
+import { parseStash, serializeStash, type Stash } from '../profiles/import';
 import { defaultGroup } from '../profiles/stashModel';
 import { serverEntry, withPoolUser, type PoolUser } from './exports';
 import type { PoolBundle } from './model';
 import { generatedTag } from '../graph/tags';
 
-export type AccountRef = { server: string; account: string; host?: string; port?: number };
+export type AccountRef = {
+  server: string;
+  account: string;
+  host?: string;
+  port?: number;
+  stashName?: string;
+};
 type ObservedAccount = PoolUser & { inbound: string; revision: string; viaNginx?: boolean };
 export type ObservedServer = {
   id: string;
@@ -22,6 +28,10 @@ export const isAccountRef = (value: unknown): value is AccountRef =>
   typeof value.server === 'string' &&
   typeof value.account === 'string' &&
   (value.host === undefined || typeof value.host === 'string') &&
+  (value.stashName === undefined ||
+    (typeof value.stashName === 'string' &&
+      !!value.stashName.trim() &&
+      value.stashName.length <= 128)) &&
   (value.port === undefined ||
     (Number.isSafeInteger(value.port) && Number(value.port) >= 1 && Number(value.port) <= 65535));
 
@@ -108,6 +118,33 @@ function clientOutbound(account: ObservedAccount, ref: AccountRef) {
   };
 }
 
+export function cachedAccountStash(servers: readonly ObservedServer[], current: Stash): Stash {
+  const existing = new Set(current.groups.flatMap((group) => group.entries.map(({ id }) => id)));
+  return {
+    format: 'wayrill.stash',
+    version: 3,
+    groups: servers.map((server) => ({
+      ...defaultGroup(),
+      id: 'aquifer-' + server.id,
+      name: server.name,
+      entries: server.accounts.flatMap((account) => {
+        const id = generatedTag('account', accountKey({ server: server.id, account: account.id }));
+        return existing.has(id)
+          ? []
+          : [
+              {
+                ...serverEntry(
+                  (account.name + ' · ' + account.inbound).slice(0, 128),
+                  clientOutbound(account, { server: server.id, account: account.id }),
+                ),
+                id,
+              },
+            ];
+      }),
+    })),
+  };
+}
+
 export function withObservedAccounts(
   bundle: PoolBundle,
   memberId: string,
@@ -124,20 +161,29 @@ export function withObservedAccounts(
     return {
       ...match,
       account: { ...match.account, outbound: clientOutbound(match.account, ref) },
+      stashName: ref.stashName,
       key: accountKey(ref),
     };
   });
   const primary = accounts.find((item) => item.key === main);
   if (main && !primary) throw new Error('Choose an assigned account for Main.');
-  const result = primary ? withPoolUser(bundle, memberId, primary.account) : bundle;
+  const result = primary
+    ? withPoolUser(bundle, memberId, {
+        ...primary.account,
+        name: primary.stashName ?? primary.account.name,
+      })
+    : bundle;
   if (!accounts.length) return result;
   const stash = parseStash(result.stash);
   const groupId = `aquifer-${memberId}`;
   const previous = stash.groups.find((group) => group.id === groupId);
   const extras = accounts
     .filter((item) => item !== primary)
-    .map(({ server, account, key }) => ({
-      ...serverEntry(`${server.name} · ${account.inbound}`.slice(0, 128), account.outbound),
+    .map(({ server, account, key, stashName }) => ({
+      ...serverEntry(
+        stashName ?? `${server.name} · ${account.inbound}`.slice(0, 128),
+        account.outbound,
+      ),
       id: generatedTag('account', key),
     }));
   const group = {

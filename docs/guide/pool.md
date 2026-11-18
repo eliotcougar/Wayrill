@@ -9,38 +9,43 @@ Use test users and configurations while evaluating it.
 
 ## Create a Pool
 
-1. Choose **Create Pool**, name it, and choose a local publishing folder. If an
-   HTTPS server serves that folder, enter its base URL. Invitations use that
-   URL. For folder-based enrollment, subscribers need read access to the
-   folder or its network share.
-2. In the first-delivery guide, choose **Create graph**. The suggested starter
-   connects subscriber traffic to a routing filter with Direct and Block
-   outputs. Traffic uses Direct until you add rules or choose another outbound.
-   Review the graph and choose **Save layer**. To start from an existing graph,
-   choose **File → Export graph to Pool** in Wayrill, select the inbounds to
-   convert, and open **Review exports** in Pool.
-3. Choose **Set up user**. Pool preselects the graph when there is only one.
-   Add any Stash layers, filter layers or private server accounts this user needs.
-   Choose **Save and continue to publishing**, then **Review delivery**.
-4. Choose **Publish delivery** and **Copy invitation**. Send each user their own
-   invitation privately. It contains their access key for the encrypted delivery.
+1. Choose **Create Pool**, give it a name, and select the local folder where
+   Pool will write encrypted deliveries. For subscribers on another PC,
+   choose **Through a Windows share** and enter the share path
+   (for example, `\\server\WayrillPool`), or choose **Through HTTPS** and
+   enter the URL that serves the folder. Set up the share or web hosting
+   first so subscribers can read the deliveries. Use **On this computer**
+   when testing and publishing on the same PC.
+2. Choose **Use starter graph** to try the flow with Direct routing and both
+   capture modes already wired. Use **Design graph** if you need a proxy or
+   custom rules in place before publishing. To reuse a Wayrill graph, export
+   it from **File → Export graph to Pool**, then open **Review exports** in Pool.
+3. Name the first user and choose **Review delivery**. With one graph, Pool
+   selects it automatically. Expand the delivery options if this user needs
+   optional layers, app settings, or a private Aquifer account.
+4. Check the default graph and Main outbound, then choose **Publish delivery**.
+   From **Invitation ready**, choose **Test as subscriber** to verify the
+   published invitation, or **Copy invitation** to send it privately.
 
 ## Edit and assign layers
 
 Each user can receive several graphs and layers. Every graph includes its
 default filters and outbounds. In **Edit graph**, select an outbound and enable
 **Outbound placeholder** in Properties to let the subscriber replace it with a
-server, chain or policy group from their delivered Stash. Add **Inbound
-Placeholder** nodes from the Inbounds library. Name them for their purpose and
-connect each Data output. Enable the DNS, Encrypted DNS, or NAT outputs in
-Properties when you need separate paths. Exporting a Wayrill graph converts
-the selected real inbounds into placeholders and keeps their connections.
-Subscribers supply the actual listeners and capture settings.
+server, chain or policy group from their delivered Stash.
 
-Existing Pool graphs open with editable placeholders for their published
-entry paths. Subscribers need Wayrill 0.37.9 or later to receive deliveries
-published with selectable layers. Existing invitations still work with the
-new version.
+A graph template needs exactly one **Proxy capture** and one **TUN capture**
+Inbound Placeholder, each with its Data output connected. They can lead to
+the same path or different paths. New templates start with both. In an older
+template, the editor adds the missing capture entries using an existing path
+as a starting point. Existing assignments retain their original entry IDs.
+To add an entry yourself, choose **Inbound Placeholder** in the node library
+and set **Local capture** in Properties. Additional inbounds, such as ICS,
+can use an **Any inbound** placeholder. Enable the DNS, Encrypted DNS, or
+NAT outputs when you need separate paths. When exporting a Wayrill graph,
+selected inbounds retain their wiring as placeholders. Older invitations
+still work. Subscribers need a client with the dedicated capture choices
+to open newly saved templates.
 
 Choose **New layer → Stash** to assemble a separate set of servers, chains,
 and policy groups. Use **Edit Stash** to update a saved layer. You can also
@@ -53,6 +58,14 @@ whose outputs the layer should use. Start with an empty rule list or copy the
 selected filter’s rules. Use **Edit rules** to update the layer. Edit the base
 graph when the output connections need to change. You can also send filters
 from Wayrill using **Export → Export to Pool**.
+
+In **Edit graph → Linked layers**, choose a saved Traffic or DNS filter layer
+for each filter node and select the Stashes the graph should include. Link one
+filter layer to multiple nodes when they should share the same rules. Keep the
+graph’s output wiring and connect any new ports added from the source. Make
+changes to shared rules and Stash entries in their source layers. A source edit
+marks affected deliveries for publishing, even for users who received the
+layer only through their graph. Use **Publish** to deliver the latest content.
 
 Use **Manage** on a layer to rename it, duplicate it, export it as a file, or
 assign it to multiple users. In **Assign users**, search by name and use
@@ -71,6 +84,43 @@ The new user gets their own invitation. Assign their private Aquifer accounts
 separately. You can also copy graph and layer assignments in **Edit delivery**.
 **Preview** shows what is applied by default and what subscribers can choose.
 Open **Edit delivery** from the preview to correct an assignment.
+
+### Reuse users, Stashes and filters
+
+Choose **Add similar user** next to a user whose setup is close to the one you
+need. Enter the new name, then enable **Make separate copies of this user’s
+Stashes** when their servers need different credentials. Saving creates and
+assigns private copies and opens the first copy for editing. Optional Stashes
+keep their optional status. Shared source Stashes and existing users keep their
+own settings. Private Aquifer account assignments must be chosen for the new user.
+
+Each layer has a **Duplicate** action. Give the copy a name and choose
+**Create copy and edit**. A copied Stash retains its servers, policy groups,
+chains and their references. In **Edit credentials**, change account IDs,
+passwords or keys together, then apply the changes and save the Stash. Referencing
+policy groups and chains follow the edited server entries. Use the usual
+outbound editor for endpoint, transport and other connection settings.
+Traffic and DNS filter copies retain their rules and output mappings and can be
+edited independently before being linked or assigned.
+
+In a Stash editor, use **Copy / move from Stash** to select servers, policy groups
+or chains from another saved Stash. Search or filter by entry type, select the
+entries, then copy them. Referenced servers and dynamic subscription pools are
+included automatically. Enable **Move selected entries out of the source Stash**
+to move the selected entries when you save. A server still used by the source’s
+policy groups or chains must be copied. Saving commits both Stashes together.
+Closing without saving discards the pending transfer.
+
+Use **Import from Aquifer** to browse cached server configurations. Search by
+account name, inbound or server address and select the accounts to copy into this
+Stash. Choose **All cached servers** to collect one user’s accounts across
+several servers in one step. Accounts already imported into the Stash are omitted.
+To update an existing server, use its **Replace with an Aquifer account** button
+and select the new account. Its name and references from policy groups and chains
+are retained. Read a server in
+Aquifer first to refresh the cache. These imported connections are snapshots.
+For accounts that should follow future Aquifer observations when published,
+use **Aquifer server accounts** in the user’s delivery instead.
 
 ## Publish app settings
 
@@ -100,7 +150,10 @@ that user should receive. Pool puts the selected connections in that person’s
 Stash. To route through one immediately after the user receives the update,
 select it as **Main outbound** and use a dedicated server placeholder marked
 **Main** in the base graph. Expand **Use a different public endpoint** if clients
-connect through a different host or port.
+connect through a different host or port. Set **Stash entry name** when adding
+the account, or change it later under **Edit entry settings**. Leave it blank
+to use the generated name. A custom name carries forward when Aquifer observes
+new connection settings for that account.
 
 Aquifer refreshes the cache when it reads a remote configuration or verifies a
 successful deployment. The cache is encrypted for the current Windows user.
@@ -136,8 +189,9 @@ Wayrill opens a separate window with the user’s invitation filled in and
 reads the delivery from the same folder or URL the subscriber will use.
 If you have pending edits, publish them first to test those changes.
 
-Choose **Review Pool configuration** and try the defaults or customize the
-graph, layers, outbounds and inbound assignments as a new subscriber would.
+Choose a capture mode and select **Review configuration**. Try the defaults
+or customize the graph, layers, outbounds and inbound assignments as a new
+subscriber would.
 Choose **Open simulated graph** to explore the resulting graph, rules and Stash.
 Use **Routing playground** to enter a destination and see which rule and
 outbound or policy group Xray selects. The playground uses Wayrill’s networking
@@ -148,20 +202,22 @@ and closing the window discards the simulation.
 
 ## Connect as a subscriber
 
-1. In Wayrill, open **Tools → Connect to Pool** and paste into
-   **Invitation or private access key**. The invitation fills in the source
-   automatically. You can also enter the folder or URL and private key separately.
-2. Keep your applied capture setup or choose a local proxy or TUN. The default
-   for a new machine is a local proxy. Choose **Review Pool configuration**.
-   Continue with the defaults, or open **Customize configuration** to choose a
-   graph for this computer, Stash layers, filter rules and outbound replacements.
-   Review where your traffic will go. Wayrill fills in a single route automatically.
-   If there are several routes, choose one for each enabled local inbound.
-   The Data path also handles traffic
-   from local outputs without a separate path on the placeholder.
-3. Connect, then choose **Test connections** to test the applied Pool graph.
-   Use **Open applied graph** to load it into the editor. Use **Edit configuration
-   choices** to revisit the setup later.
+1. Open **Tools → Connect to Pool** and paste the invitation. Wayrill shows its
+   folder or URL. If you received the private key separately, enter it and use
+   **Enter folder or URL manually** to supply the source.
+2. Choose **Proxy** for apps you point at a local listener, **TUN** for
+   whole-computer capture, or **Both**. If you already have custom inbounds,
+   **Keep existing inbounds** preserves them. Choose **Review configuration**.
+3. Check the selected graph and where each local input goes. When several
+   graphs are available, choose one for this computer. Expand **Customize layers
+   and outbounds** or **Inbound assignments** if you need different choices.
+   **Start routing if stopped** controls whether Wayrill starts routing during
+   enrollment. Choose **Connect to Pool** to apply the reviewed configuration.
+4. If you chose Proxy, use the shown address and port in your apps or open
+   Windows capture settings. **Test outbounds** checks the configured server
+   paths. **Open applied graph** loads the configuration into the editor.
+   Use **Edit configuration choices** to change layers, outbounds or local
+   capture later.
 
 Wayrill saves assignments by node ID. Renaming or moving a placeholder
 preserves its assignments. A new placeholder stays unused until assigned.
@@ -172,7 +228,8 @@ and apply new choices.
 The main graph header shows the connected Pool. Click its indicator to see the
 last check, change the update interval or resolve a paused or failed update.
 The networking service checks for updates while Wayrill is closed. The default
-interval is five minutes and can be set from 1 to 1,440 minutes. **Check now**
+interval is five minutes and can be set from 1 to 1,440 minutes under
+**Connection settings**. **Check for updates**
 runs an immediate check and reports whether a delivery was applied. The connection
 window shows the last check since service startup and when the Pool configuration
 was last applied. A failed update keeps the last working configuration.

@@ -49,6 +49,9 @@
   flex: 1;
   min-width: 240px;
 }
+.policy-set-sources .policy-picker + .editor-field {
+  margin-top: var(--space-3);
+}
 .policy-stash-picker {
   margin: var(--space-3) 0;
 }
@@ -130,16 +133,15 @@
 }
 
 .policy-fallback {
-  max-width: 760px;
-  margin-top: 20px;
+  margin-bottom: var(--space-4);
 }
 .policy-fallback > .field {
   max-width: 100%;
   margin-bottom: 12px;
 }
 
-.policy-name-field {
-  margin: 12px 20px;
+.policy-group-basics {
+  margin: var(--space-3) var(--space-5);
   flex-shrink: 0;
 }
 .prepared-library {
@@ -161,18 +163,4 @@
   .prepared-library .stash-entry-main {
     flex-basis: 100%;
   }
-}
-
-.policy-editor .policy-name-field {
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-  margin: 8px 20px;
-}
-.policy-name-field > span {
-  margin: 0;
-}
-.policy-name-field > input {
-  flex: 1;
-  min-width: 0;
 }

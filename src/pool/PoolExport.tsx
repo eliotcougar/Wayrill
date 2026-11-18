@@ -116,7 +116,7 @@ export default function PoolExport({
       </div>
       <p className="field-help">
         {mode === 'graph'
-          ? 'Includes the graph’s traffic and DNS filters and required Stash entries. Each subscriber keeps their own capture setup.'
+          ? 'Includes the graph’s filters and required Stash entries. If a Proxy or TUN placeholder is missing, it starts with an existing entry path.'
           : 'Includes the selected groups and their dependencies. Subscription URLs and download headers stay in Wayrill.'}
       </p>
       {error && (

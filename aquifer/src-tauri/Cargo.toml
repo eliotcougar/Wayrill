@@ -1,6 +1,6 @@
 [package]
 name = "wayrill-aquifer"
-version = "0.2.10"
+version = "0.2.11"
 description = "Remote Xray graph and server management"
 edition = "2021"
 

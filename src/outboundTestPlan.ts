@@ -4,21 +4,33 @@ import { factoryDefaults, resolveNodeData } from './graph/defaults';
 import { udpListenerEnvironment } from './graph/udpListeners';
 import {
   policyCandidates,
+  policyProfileTag,
+  policyReferenceSet,
+  readPolicySources,
+  type PolicyProfile,
   refreshPolicyGraph,
   resolvePolicyReference,
 } from './graph/policySources';
 import { compileDnsGraph } from './graph/dnsCompilation';
-import { nativeConfig } from './graph/xrayNodes';
+import { mergeTestDns, nativeTestDns, type TestDns } from './outboundTestDns';
+import { isXrayOutbound, nativeConfig } from './graph/xrayNodes';
 import { readProxyChain, observationSnapshot } from './graph/composites';
 import { makeNode } from './graph/catalog';
 import { preparedPreview } from './profiles/preparedPreview';
 import { stashEditorNode } from './profiles/workspace';
 import { entryLink, findStashEntry } from './profiles/stashModel';
-import { xrayOutboundConfig } from './graph/xrayCompiler';
+import { runtimeOutboundBundle } from './graph/xrayCompiler';
 import { allOutboundNodes } from './graph/nativePool';
 import type { GraphState, RuleNode, StashLink } from './graph/types';
 import type { Stash, StashEntry } from './profiles/import';
 import { stableProfileKey } from './graph/profileIdentity';
+import {
+  copyOutboundBundle,
+  outboundReferences,
+  ProfileDialerTags,
+} from '@wayrill/core/outboundReferences';
+import { cloneJson, xrayStringList } from '@wayrill/core/xrayJson';
+import { nativeKey } from '@wayrill/core/nativeProperties';
 
 export interface TestRow {
   key: string;
@@ -74,45 +86,88 @@ const record = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 /** Canonicalize local/generated tags without conflating different transport credentials or hops. */
 export function testIdentity(config: Record<string, unknown>, tag: string): string {
-  const tags = new Map<string, string>();
+  const tags = new Map<string, string>(),
+    groups = new Map<string, string>(),
+    inputs = new Map<string, string>();
   const outputs = config.outbounds as Record<string, unknown>[];
-  outputs.forEach((o, i) => tags.set(String(o.tag), `out-${i}`));
+  outputs.forEach((o, i) => {
+    if (typeof o.tag === 'string' && o.tag) tags.set(o.tag, `out-${i}`);
+  });
   const routing = record(config.routing) ? config.routing : {};
   if (Array.isArray(routing.balancers))
     routing.balancers.forEach((b, i) => {
-      if (record(b)) tags.set(String(b.tag), `group-${i}`);
+      if (record(b) && typeof b.tag === 'string') groups.set(b.tag, `group-${i}`);
     });
-  let reinjections = 0;
   for (const o of outputs)
     if (
       o.protocol === 'loopback' &&
       record(o.settings) &&
-      typeof o.settings.inboundTag === 'string'
+      typeof o.settings.inboundTag === 'string' &&
+      !inputs.has(o.settings.inboundTag)
     )
-      tags.set(o.settings.inboundTag, `hop-${reinjections++}`);
-  const walk = (v: unknown, key = ''): unknown =>
+      inputs.set(o.settings.inboundTag, `hop-${inputs.size}`);
+  const copy = cloneJson(config);
+  for (const output of copy.outbounds as Record<string, unknown>[]) {
+    if (typeof output.tag === 'string') output.tag = tags.get(output.tag) ?? output.tag;
+    for (const ref of outboundReferences(output, 'all'))
+      ref.object[ref.key] = (ref.namespace === 'outbound' ? tags : inputs).get(ref.tag) ?? ref.tag;
+  }
+  const replace = (
+    object: Record<string, unknown>,
+    key: string,
+    mapping: ReadonlyMap<string, string>,
+  ) => {
+    const actual = nativeKey(object, key),
+      value = object[actual];
+    if (typeof value === 'string') object[actual] = mapping.get(value) ?? value;
+  };
+  const select = (object: Record<string, unknown>, key: string) => {
+    const actual = nativeKey(object, key);
+    if (object[actual] === undefined) return;
+    const prefixes = xrayStringList(object[actual]).filter(
+      (p): p is string => typeof p === 'string',
+    );
+    object[actual] = [...tags]
+      .filter(([tag]) => prefixes.some((prefix) => tag.startsWith(prefix)))
+      .map(([, canonical]) => canonical);
+  };
+  const copiedRouting = record(copy.routing) ? copy.routing : {};
+  for (const rule of Array.isArray(copiedRouting.rules) ? copiedRouting.rules : [])
+    if (record(rule)) {
+      replace(rule, 'outboundTag', tags);
+      replace(rule, 'balancerTag', groups);
+      const key = nativeKey(rule, 'inboundTag');
+      if (rule[key] !== undefined)
+        rule[key] = xrayStringList(rule[key]).map((tag) =>
+          typeof tag === 'string' ? (inputs.get(tag) ?? tag) : tag,
+        );
+    }
+  let weightedTags = false;
+  for (const group of Array.isArray(copiedRouting.balancers) ? copiedRouting.balancers : [])
+    if (record(group)) {
+      replace(group, 'tag', groups);
+      replace(group, 'fallbackTag', tags);
+      select(group, 'selector');
+      const strategy = record(group.strategy) ? group.strategy : {};
+      const settings = record(strategy.settings) ? strategy.settings : {};
+      if (Array.isArray(settings.costs) && settings.costs.length) weightedTags = true;
+    }
+  for (const key of ['observatory', 'burstObservatory'])
+    if (record(copy[key])) select(copy[key], 'subjectSelector');
+  // Least-load expressions can derive costs from tag spelling, including numbers
+  // captured by a regexp. Those names are data and must remain in the identity.
+  const weightTagNames = weightedTags ? [...tags.keys()] : undefined;
+  const walk = (v: unknown): unknown =>
     Array.isArray(v)
-      ? v.map((x) => walk(x, key))
+      ? v.map(walk)
       : record(v)
         ? Object.fromEntries(
             Object.keys(v)
               .sort()
-              .map((k) => [k, walk(v[k], k)]),
+              .map((k) => [k, walk(v[k])]),
           )
-        : typeof v === 'string' &&
-            [
-              'tag',
-              'dialerProxy',
-              'outboundTag',
-              'balancerTag',
-              'fallbackTag',
-              'selector',
-              'subjectSelector',
-              'inboundTag',
-            ].includes(key)
-          ? (tags.get(v) ?? v)
-          : v;
-  return JSON.stringify({ config: walk(config), target: tags.get(tag) ?? tag });
+        : v;
+  return JSON.stringify({ config: walk(copy), target: tags.get(tag) ?? tag, weightTagNames });
 }
 export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTarget) => void) {
   const selection = input.selection;
@@ -228,16 +283,45 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
   const hasDns = graph.nodes.some(
     (n) => n.data.kind === 'dns-handler' || n.data.kind === 'xray-dns',
   );
-  let dns: ReturnType<typeof compileDnsGraph> | undefined;
+  let dnsResult: TestDns | Error | undefined;
   const options = graph.nodes.find((n) => n.data.kind === 'xray-options');
   const policy = options ? nativeConfig(options.data).policy : undefined;
   const environment = udpListenerEnvironment(graph.defaults ?? factoryDefaults());
-  const targets = new Map<string, { node: RuleNode; name: string; origin: TestOrigin }>(),
+  const targets = new Map<
+      string,
+      { node: RuleNode; name: string; origin: TestOrigin; group?: RuleNode }
+    >(),
     identities = new Map<string, string>();
   const rows: TestRow[] = [];
   const dependencies = new Map(
-    allOutboundNodes(graph).map((n) => [String(n.data.settings.tag), n]),
+    allOutboundNodes(graph)
+      .filter(isXrayOutbound)
+      .map((n) => [String(n.data.settings.tag), n]),
   );
+  const canvasGroups = new Set(
+    input.graph.nodes.filter((n) => n.data.kind === 'policy-group').map((n) => n.id),
+  );
+  const scopes = new Map<RuleNode | undefined, ReturnType<typeof profileScope>>();
+  function profileScope(extra?: RuleNode) {
+    const names = new ProfileDialerTags(),
+      profiles = new Map<string, PolicyProfile>();
+    const register = (ref: PolicyProfile) => {
+      const tag = policyProfileTag(ref);
+      profiles.set(tag, ref);
+      names.add(String(ref.profile.settings.tag ?? ''), tag);
+    };
+    const groups = graph.nodes.filter((n) => canvasGroups.has(n.id));
+    if (extra) groups.push(extra);
+    for (const group of groups) {
+      const sources = readPolicySources(group.data);
+      if (group.data.settings.selection !== 'prefixes')
+        for (const { reference } of policyReferenceSet(graph, group, sources))
+          if (reference.type === 'profile') register(reference);
+      if (group.data.settings.fallbackEnabled && sources.fallback?.type === 'profile')
+        register(sources.fallback);
+    }
+    return { names, profiles };
+  }
   // Only the DNS branch and its reusable definitions belong to DNS tests. Unrelated
   // canvas groups may contain thousands of candidates and must not be replicated.
   const outgoing = new Map<string, string[]>();
@@ -252,8 +336,12 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
         const target = nodesById.get(id);
         if (target) visit(target);
       }
-      if (node.data.kind === 'policy-group')
+      if (node.data.kind === 'policy-group') {
         for (const candidate of policyCandidates(graph, node)) visit(candidate.node);
+        const fallback = readPolicySources(node.data).fallback;
+        if (node.data.settings.fallbackEnabled && fallback)
+          visit(resolvePolicyReference(graph, fallback));
+      }
       if (node.data.kind === 'proxy-chain')
         for (const step of readProxyChain(node.data).steps)
           visit(resolvePolicyReference(graph, step.outbound));
@@ -261,18 +349,12 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
         isOutboundKind(node.data.kind) &&
         !['policy-group', 'proxy-chain'].includes(node.data.kind)
       ) {
-        const value = xrayOutboundConfig(node.data);
-        const stream = record(value.streamSettings) ? value.streamSettings : {};
-        const sock = record(stream.sockopt) ? stream.sockopt : {};
-        const proxy = record(value.proxySettings) ? value.proxySettings : {};
-        const tag =
-          typeof sock.dialerProxy === 'string'
-            ? sock.dialerProxy
-            : typeof proxy.tag === 'string'
-              ? proxy.tag
-              : '';
-        const dependency = dependencies.get(tag);
-        if (dependency) visit(dependency);
+        for (const ref of runtimeOutboundBundle(node.data).flatMap((outbound) =>
+          outboundReferences(outbound),
+        )) {
+          const dependency = ref.namespace === 'outbound' && dependencies.get(ref.tag);
+          if (dependency) visit(dependency);
+        }
       }
     };
     for (const n of graph.nodes)
@@ -291,20 +373,41 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
         : {}),
     };
   }
-  function configuration(node: RuleNode): TestTarget & { identity: string } {
+  function configuration(node: RuleNode, group?: RuleNode): TestTarget & { identity: string } {
+    let scope: ReturnType<typeof profileScope> | undefined;
+    function bundleFor(member: RuleNode, profile: boolean) {
+      const bundle = runtimeOutboundBundle(member.data);
+      if (!profile || !group) return bundle;
+      return copyOutboundBundle(bundle, new Map(), (tag) => {
+        const extra = canvasGroups.has(group.id) ? undefined : group;
+        scope ??= scopes.get(extra);
+        if (!scope) {
+          scope = profileScope(extra);
+          scopes.set(extra, scope);
+        }
+        return scope.names.resolve(
+          tag,
+          dependencies.has(tag) || scope.profiles.has(tag),
+          member.data.label,
+        );
+      });
+    }
     // Portable definitions include chains, nested groups, fragmentation and native settings.
     const context = nodesById.has(node.id) ? graph : { ...graph, nodes: [...graph.nodes, node] };
     const config: Record<string, unknown> =
-      node.data.kind === 'proxy-chain' ||
-      node.data.kind === 'policy-group' ||
-      node.data.settings.finalFragmentEnabled
+      node.data.kind === 'proxy-chain' || node.data.kind === 'policy-group'
         ? preparedPreview(context, node).config
         : {
-            outbounds: [xrayOutboundConfig(node.data)],
+            outbounds: bundleFor(node, !!group),
             routing: { rules: [], balancers: [] },
           };
     const outputs = config.outbounds as Record<string, unknown>[];
-    let outboundTag = String(node.data.settings.tag);
+    let outboundTag = String(node.data.settings.tag ?? '');
+    if (!outboundTag && isXrayOutbound(node)) {
+      outboundTag = generatedTag('wte', node.id);
+      while (testTags.has(outboundTag)) outboundTag += '-x';
+      outputs[0] = { ...outputs[0], tag: outboundTag };
+    }
     if (node.data.kind === 'policy-group') {
       // Xray balancers are routing targets, not outbound handlers. Give the
       // private HTTP listener one loopback handler that enters this balancer.
@@ -341,25 +444,24 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
     const known = new Set(outputs.map((o) => String(o.tag)));
     for (let i = 0; i < outputs.length; i++) {
       const o = outputs[i];
-      const stream = record(o.streamSettings) ? o.streamSettings : {};
-      const sock = record(stream.sockopt) ? stream.sockopt : {};
-      const proxy = record(o.proxySettings) ? o.proxySettings : {};
-      const tag =
-        typeof sock.dialerProxy === 'string'
-          ? sock.dialerProxy
-          : typeof proxy.tag === 'string'
-            ? proxy.tag
-            : undefined;
-      if (tag && !known.has(tag)) {
-        const dependency = dependencies.get(tag);
+      for (const ref of outboundReferences(o)) {
+        if (ref.namespace !== 'outbound') continue;
+        const tag = ref.tag;
+        if (known.has(tag)) continue;
+        const profile = scope?.profiles.get(tag);
+        const dependency = profile ? resolvePolicyReference(graph, profile) : dependencies.get(tag);
         if (
           !dependency ||
           dependency.data.kind === 'policy-group' ||
           dependency.data.kind === 'proxy-chain'
         )
-          throw new Error(`Missing test dependency: ${tag}.`);
-        known.add(tag);
-        outputs.push(xrayOutboundConfig(dependency.data));
+          throw new Error(`Missing test dependency: ${ref.tag}.`);
+        for (const part of bundleFor(dependency, !!profile)) {
+          const partTag = String(part.tag);
+          if (known.has(partTag)) throw new Error(`Conflicting test dependency: ${partTag}.`);
+          known.add(partTag);
+          outputs.push(part);
+        }
       }
     }
     // The DNS/policy context is fixed for this plan. Fingerprint only the owned
@@ -367,58 +469,40 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
     const identity = testIdentity(config, outboundTag);
     // Keep the graph's DNS policy when resolving outbound destinations. Ordinary traffic rules are excluded.
     if (hasDns) {
-      dns ??= compileDnsGraph(dnsContext());
-      config.dns = dns.dns;
-      if (dns.fakedns) config.fakedns = dns.fakedns;
-      const existing = new Set(outputs.map((o) => o.tag));
-      outputs.push(...dns.outbounds.filter((o) => !existing.has(o.tag)));
-      const routing = config.routing as {
-        rules: unknown[];
-        balancers: unknown[];
-      };
-      routing.rules.push(...dns.routing.rules);
-      for (const b of dns.routing.balancers ?? [])
-        if (!routing.balancers.some((x) => record(x) && x.tag === b.tag)) routing.balancers.push(b);
-      for (const key of ['observatory', 'burstObservatory'] as const)
-        if (dns[key]) {
-          const current = config[key],
-            incoming = dns[key];
-          if (record(current) && record(incoming)) {
-            const { subjectSelector: oldSubjects, ...oldSettings } = current;
-            const { subjectSelector: newSubjects, ...newSettings } = incoming;
-            if (JSON.stringify(oldSettings) !== JSON.stringify(newSettings))
-              throw new Error(
-                'Outbound and DNS observation settings cannot be combined for this isolated test.',
-              );
-            config[key] = {
-              ...oldSettings,
-              subjectSelector: [
-                ...new Set([
-                  ...((Array.isArray(oldSubjects) ? oldSubjects : []) as unknown[]).filter(
-                    (s): s is string => typeof s === 'string',
-                  ),
-                  ...((Array.isArray(newSubjects) ? newSubjects : []) as unknown[]).filter(
-                    (s): s is string => typeof s === 'string',
-                  ),
-                ]),
-              ],
-            };
-          } else config[key] = incoming;
+      if (!dnsResult) {
+        try {
+          dnsResult = graph.xray
+            ? nativeTestDns(refreshPolicyGraph(input.graph, input.stash))
+            : compileDnsGraph(dnsContext());
+        } catch (error) {
+          dnsResult = error instanceof Error ? error : new Error('Invalid DNS configuration.');
         }
+      }
+      if (dnsResult instanceof Error) throw dnsResult;
+      mergeTestDns(config, dnsResult);
     }
     return { id: '', config, outboundTag, identity };
   }
-  function collect(node: RuleNode, origin: TestOrigin, seen = new Set<string>()): string[] {
+  function collect(
+    node: RuleNode,
+    origin: TestOrigin,
+    seen = new Set<string>(),
+    group?: RuleNode,
+  ): string[] {
     if (node.data.kind === 'block-outbound') return [];
     if (seen.has(node.id) || seen.size >= 16)
       throw new Error('Outbound set contains a cycle or too many nested groups.');
     if (node.data.kind === 'policy-group' && input.mode !== 'speed') {
       const next = new Set(seen).add(node.id);
       return [
-        ...new Set(policyCandidates(graph, node).flatMap((c) => collect(c.node, origin, next))),
+        ...new Set(
+          policyCandidates(graph, node).flatMap((c) =>
+            collect(c.node, origin, next, c.reference.type === 'profile' ? node : undefined),
+          ),
+        ),
       ];
     }
-    const config = configuration(node);
+    const config = configuration(node, group);
     const root = (config.config.outbounds as Record<string, unknown>[]).find(
       (o) => o.tag === config.outboundTag,
     );
@@ -440,7 +524,7 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
     if (!selectedTarget || id === selectedTarget)
       onTarget?.({ id, config: config.config, outboundTag: config.outboundTag });
     identities.set(identity, id);
-    targets.set(id, { node, name: node.data.label, origin });
+    targets.set(id, { node, name: node.data.label, origin, group });
     return [id];
   }
   for (const row of roots) {
@@ -518,7 +602,7 @@ export function createTestPlan(input: TestPlanInput, onTarget?: (target: TestTar
       ids.map((id) => {
         const t = targets.get(id);
         if (!t) throw new Error('Unknown test target.');
-        const target = configuration(t.node);
+        const target = configuration(t.node, t.group);
         return { id, config: target.config, outboundTag: target.outboundTag };
       }),
   };

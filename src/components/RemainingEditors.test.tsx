@@ -118,3 +118,61 @@ it('edits native DNS server strings through the real form and converts them only
     { address: '1.0.0.1', finalQuery: false },
   ]);
 });
+
+it('retains hidden imported DNS query and metrics tags during ordinary form edits', async () => {
+  const graph = importXrayConfig(
+    JSON.stringify({
+      dns: {
+        tag: 'custom-query-source',
+        servers: [{ address: '1.1.1.1', tag: 'custom-server-source' }],
+      },
+      metrics: { tag: 'custom-metrics', listen: '127.0.0.1:18590' },
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    }),
+  );
+  const apply = vi.fn();
+  const servers = graph.nodes.find((node) => node.data.kind === 'xray-dns-servers')!;
+  await act(() =>
+    root.render(<NativeDnsEditor node={servers} graph={graph} onApply={apply} onClose={vi.fn()} />),
+  );
+  expect(host.querySelector('#resolver-0-tag')).toBeNull();
+  await fillDraft(host.querySelector<HTMLInputElement>('#resolver-0-address')!, '8.8.8.8');
+  await act(() => editorButton('Apply DNS settings').click());
+  expect(JSON.parse(apply.mock.calls[0][1].settings.json).servers).toEqual([
+    { address: '8.8.8.8', tag: 'custom-server-source' },
+  ]);
+  const handler = graph.nodes.find((node) => node.data.kind === 'xray-dns')!;
+  await act(() =>
+    root.render(
+      <NativeDnsEditor
+        key="handler"
+        node={handler}
+        graph={graph}
+        onApply={apply}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  expect(host.querySelector('#native-dns-tag')).toBeNull();
+  await fillDraft(host.querySelector<HTMLInputElement>('#native-dns-clientIp')!, '192.0.2.1');
+  await act(() => editorButton('Apply DNS settings').click());
+  expect(JSON.parse(apply.mock.calls[1][1].settings.json)).toMatchObject({
+    tag: 'custom-query-source',
+    clientIp: '192.0.2.1',
+  });
+  const options = graph.nodes.find((node) => node.data.kind === 'xray-options')!;
+  await act(() =>
+    root.render(<CoreOptionsEditor node={options} onApply={apply} onClose={vi.fn()} />),
+  );
+  await act(() => editorButton('Statistics & metrics').click());
+  expect(host.querySelector('#native-metrics-tag')).toBeNull();
+  await fillDraft(
+    host.querySelector<HTMLInputElement>('#native-metrics-listen')!,
+    '127.0.0.1:18591',
+  );
+  await act(() => editorButton('Apply core settings').click());
+  expect(JSON.parse(apply.mock.calls[2][1].settings.json).metrics).toEqual({
+    tag: 'custom-metrics',
+    listen: '127.0.0.1:18591',
+  });
+});

@@ -32,7 +32,9 @@ Wayrill and Aquifer share pure configuration behavior through `packages/core`:
 native JSON/projections and field-name correction, routing predicates and aliases,
 IP ranges, process selectors, listener validation/import, subscription link parsing,
 outbound-settings mapping/validation, default omission, transport tuning and
-outbound dependency checks. App wrappers supply their own resource budgets,
+outbound dependency checks. A shared schema-aware outbound reference walk owns
+transport precedence and separates references from payload data; validation,
+copying, chain expansion and isolated testing reuse it. App wrappers supply their own resource budgets,
 defaults and pinned schemas. The shared package
 must not import either app's graph model, service client or platform integration.
 Stash persistence and subscription maintenance remain app-owned; sharing a

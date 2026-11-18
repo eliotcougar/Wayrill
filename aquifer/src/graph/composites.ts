@@ -1,13 +1,8 @@
 import { makeNode, getDefinition, validateSettings } from './catalog';
 import { resolveNodeData, bindingsFor } from './defaults';
 import { allOutboundNodes } from './nativePool';
-import {
-  isOutboundKind,
-  isExecutableOutboundKind,
-  outboundBundle,
-  outboundPreview,
-} from './outbounds';
-import { xrayOutboundConfig } from './xrayCompiler';
+import { isOutboundKind, outboundPreview } from './outbounds';
+import { runtimeOutboundBundle, xrayOutboundConfig } from './xrayCompiler';
 import { xrayOutbound, type Profile, type StashEntry } from '../profiles/import';
 import {
   readPolicySources,
@@ -20,7 +15,8 @@ import {
 } from './policySources';
 import { policyNeedsObservation } from './policies';
 import { fragmentFields } from './trafficTuning';
-import { jsonRecord, checkJson, jsonText, jsonArray, parseJson, parseJsonObject } from './xrayJson';
+import { jsonRecord, checkJson, parseJson, parseJsonObject } from './xrayJson';
+import { copyOutboundBundle, attachChainUnderlay } from '@wayrill/core/outboundReferences';
 import { fieldProblem } from './settingValidation';
 import { outboundProblems } from './outbounds';
 import { LIMITS } from '../limits';
@@ -440,9 +436,7 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
       built.set(key, result);
       return result;
     }
-    const bundle = isExecutableOutboundKind(node.data.kind)
-      ? outboundBundle(node.data)
-      : [xrayOutboundConfig(node.data)];
+    const bundle = runtimeOutboundBundle(node.data);
     const originalTag = String(node.data.settings.tag);
     const rename = new Map(
       bundle.map((o) => [
@@ -450,41 +444,15 @@ export function expandCompositeOutbounds(source: GraphState): CompositeExpansion
         o.tag === originalTag ? allocated.tag : allocate(owner.id).tag,
       ]),
     );
-    const rewrite = (value: unknown): unknown =>
-      jsonArray(value)
-        ? value.map(rewrite)
-        : jsonRecord(value)
-          ? Object.fromEntries(
-              Object.entries(value).map(([k, v]) => [
-                k,
-                (k === 'tag' || k === 'dialerProxy') && typeof v === 'string'
-                  ? (rename.get(v) ?? v)
-                  : rewrite(v),
-              ]),
-            )
-          : value;
+    const internal = new Set(rename.values());
     let result: RuleNode | undefined;
-    for (const outbound of bundle) {
-      const config = rewrite(outbound) as Record<string, unknown>;
-      if (underlay) {
-        const stream = jsonRecord(config.streamSettings) ? config.streamSettings : {};
-        const sock = jsonRecord(stream.sockopt) ? stream.sockopt : {};
-        const dependency =
-          sock.dialerProxy ||
-          (jsonRecord(config.proxySettings) ? config.proxySettings.tag : undefined);
-        if (dependency && ![...rename.values()].includes(jsonText(dependency)))
-          throw new Error(
-            node.data.label +
-              ': remove its existing external dial-through setting before using it as a chain hop.',
-          );
-        if (!dependency)
-          config.streamSettings = { ...stream, sockopt: { ...sock, dialerProxy: underlay } };
-      }
-      const id = outbound.tag === originalTag ? allocated.id : allocate(owner.id).id;
+    for (const config of copyOutboundBundle(bundle, rename)) {
+      if (underlay) attachChainUnderlay(config, internal, underlay, node.data.label);
+      const id = config.tag === allocated.tag ? allocated.id : allocate(owner.id).id;
       const rendered = materialize(config, id, node.data.label);
       nodes.push(rendered);
       byId.set(id, rendered);
-      if (outbound.tag === originalTag) result = rendered;
+      if (config.tag === allocated.tag) result = rendered;
     }
     if (!result) throw new Error(node.data.label + ': no executable outbound was generated.');
     built.set(key, result);

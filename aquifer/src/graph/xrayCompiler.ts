@@ -118,6 +118,11 @@ export function projectObserver(data: RuleNodeData, subjects: string[]): Record<
         ...extras(data, 'extra'),
       };
 }
+export function runtimeOutboundBundle(data: RuleNodeData): Record<string, unknown>[] {
+  return data.kind === 'xray-outbound' || data.native
+    ? [xrayOutboundConfig(data)]
+    : outboundBundle(data);
+}
 export function xrayOutboundConfig(data: RuleNodeData): Record<string, unknown> {
   if (isProtocolKind(data.kind)) return protocolConfig(data);
   if (data.kind === 'xray-outbound') return nativeConfig(data);

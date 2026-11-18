@@ -4,7 +4,8 @@ import { isNativeXrayKind, nativeOutputs, nativeSummary, xrayDefinitions } from 
 import type { NodeDefinition, NodeKind, RuleNode, RuleNodeData, SettingValue } from './types';
 import { policyDefinitions, policyPorts } from './policies';
 import { fakeDnsDefinition, fakeDnsPools } from './fakeDns';
-import { readPolicySources } from './policySources';
+import { blockPolicyFallback, emptyPolicySources, readPolicySources } from './policySources';
+import { nodeTag, GENERATED_DNS_TAG } from './tags';
 import { outboundDefinitions, isOutboundKind } from './outbounds';
 import {
   captureDefinition,
@@ -139,12 +140,32 @@ export function makeNode(
   };
 }
 
+/** Initial setup choices apply when creating a card, independently of imported settings. */
+export function makeEditorNode(
+  kind: NodeKind,
+  position: RuleNode['position'],
+  id?: string,
+): RuleNode {
+  const node = makeNode(kind, position, id);
+  if (typeof node.data.settings.tag === 'string')
+    node.data.settings.tag = nodeTag(node.data, node.id);
+  if (kind === 'xray-dns') node.data.settings.json = JSON.stringify({ tag: GENERATED_DNS_TAG });
+  if (kind === 'policy-group') {
+    Object.assign(node.data.settings, {
+      strategy: 'leastPing',
+      fallbackEnabled: true,
+      sources: JSON.stringify({ ...emptyPolicySources(), fallback: blockPolicyFallback() }),
+    });
+  }
+  return node;
+}
+
 export function makeProxyInbound(
   mode: ProxyMode,
   position: RuleNode['position'],
   id?: string,
 ): RuleNode {
-  const node = makeNode('proxy-inbound', position, id);
+  const node = makeEditorNode('proxy-inbound', position, id);
   node.data.settings.mode = mode;
   return node;
 }
@@ -200,7 +221,14 @@ export function summarizeNode(data: RuleNodeData): [string, string][] {
     case 'observatory':
       return [
         ['Probes', settings.mode === 'burst' ? 'Burst health sampling' : 'Standard latency'],
-        ['Subjects', settings.subjects === 'groups' ? 'Connected groups' : 'Tag prefixes'],
+        [
+          'Subjects',
+          settings.subjects === 'groups'
+            ? 'Connected groups'
+            : settings.subjects === 'all'
+              ? 'All outbounds'
+              : 'Selected outbounds',
+        ],
       ];
     case 'dns-servers': {
       try {

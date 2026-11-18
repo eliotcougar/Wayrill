@@ -9,7 +9,7 @@ import {
   type NodeChange,
   type Viewport,
 } from '@xyflow/react';
-import { makeNode, uniqueInboundTag, uniqueOutboundTag } from './graph/catalog';
+import { makeEditorNode, uniqueInboundTag, uniqueOutboundTag } from './graph/catalog';
 import { syncXrayConnections } from './graph/xrayCompiler';
 import { updateImportedCoreDefaults } from './graph/nativeCore';
 import { refreshPolicyGraph } from './graph/policySources';
@@ -243,7 +243,7 @@ export default function useGraphEditor(
       throw new Error(
         `The graph supports at most ${MAX_GRAPH_NODES} nodes. Keep other configurations in the stash.`,
       );
-    const node = { ...makeNode(kind, position), selected: true };
+    const node = { ...makeEditorNode(kind, position), selected: true };
     change((graph) => {
       node.position = clearNodePosition(graph.nodes, position);
       if (kind === 'fakedns')

@@ -1,5 +1,6 @@
 import { jsonArray, jsonRecord, jsonText } from './xrayJson';
 import { nativeValue } from './nativeProperties';
+import { outboundReferences } from './outboundReferences';
 
 export function outboundDependencyProblems(
   config: Record<string, unknown>,
@@ -17,35 +18,11 @@ export function outboundDependencyProblems(
     jsonText(nativeValue(outputs[index], 'tag') ?? '') || `Outbound ${index + 1}`;
   const dependents = outputs.map(() => [] as number[]);
   const remaining = outputs.map((output, index) => {
-    const proxy = nativeValue(output, 'proxySettings');
-    const targets: unknown[] = [jsonRecord(proxy) ? nativeValue(proxy, 'tag') : undefined];
-    const stream = nativeValue(output, 'streamSettings');
-    const streams = jsonRecord(stream) ? [stream] : [];
-    for (const stream of streams) {
-      const sock = nativeValue(stream, 'sockopt');
-      if (jsonRecord(sock)) targets.push(nativeValue(sock, 'dialerProxy'));
-      if (
-        !['xhttp', 'splithttp'].includes(
-          jsonText(nativeValue(stream, 'method') ?? nativeValue(stream, 'network')).toLowerCase(),
-        )
-      )
-        continue;
-      const xhttp =
-        nativeValue(stream, 'xhttpSettings') ?? nativeValue(stream, 'splithttpSettings');
-      if (!jsonRecord(xhttp)) continue;
-      // Xray replaces legacy settings with xhttpSettings, and extra replaces
-      // the outer download settings rather than merging into them.
-      const extra = nativeValue(xhttp, 'extra');
-      const effective = extra === undefined ? xhttp : extra;
-      const download = jsonRecord(effective)
-        ? nativeValue(effective, 'downloadSettings')
-        : undefined;
-      if (jsonRecord(download)) streams.push(download);
-    }
+    const targets = outboundReferences(output)
+      .filter((ref) => ref.namespace === 'outbound')
+      .map((ref) => ref.tag);
     let count = 0;
-    for (const target of new Set(
-      targets.filter((t): t is string => typeof t === 'string' && !!t),
-    )) {
+    for (const target of new Set(targets)) {
       const dependency = byTag.get(target);
       if (dependency !== undefined) {
         dependents[dependency].push(index);

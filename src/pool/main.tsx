@@ -4,6 +4,7 @@ import '../styles.css';
 import { initializeTheme } from '../theme';
 import PoolWorkspace from './PoolWorkspace';
 import './workspace.css';
+import './pool.css';
 
 document.documentElement.dataset.app = 'pool';
 initializeTheme();

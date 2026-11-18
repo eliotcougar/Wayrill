@@ -8,6 +8,8 @@ import { nativeConfig } from './xrayNodes';
 import { xrayInboundConfig, xrayOutboundConfig } from './xrayCompiler';
 import { forceProjectionFields } from './xrayProjection';
 import type { GraphState, RuleNode } from './types';
+import { nodeTag, ensureNodeTags } from './tags';
+import { remapNodeTagReferences } from './tagRemap';
 
 export const MAX_GRAPH_NODES = 500;
 
@@ -21,13 +23,15 @@ export function canDuplicateNode(node: RuleNode, graph: GraphState): boolean {
 }
 
 export function duplicateSelection(graph: GraphState): GraphState {
-  const selected = graph.nodes.filter((node) => node.selected && canDuplicateNode(node, graph));
+  let selected = graph.nodes.filter((node) => node.selected && canDuplicateNode(node, graph));
   if (!selected.length) return graph;
   if (graph.nodes.length + selected.length > MAX_GRAPH_NODES) {
     throw new Error(
       `The graph supports at most ${MAX_GRAPH_NODES} nodes. Keep other configurations in the stash.`,
     );
   }
+  graph = ensureNodeTags(graph);
+  selected = selected.map((node) => graph.nodes.find((candidate) => candidate.id === node.id)!);
   const mapping = new Map(selected.map((node) => [node.id, crypto.randomUUID()]));
   const remap = (ref: PolicyReference): PolicyReference =>
     ref.type === 'node' ? { ...ref, nodeId: mapping.get(ref.nodeId) ?? ref.nodeId } : ref;
@@ -43,13 +47,13 @@ export function duplicateSelection(graph: GraphState): GraphState {
     delete copy.data.stashLink;
     const kind = copy.data.kind;
     if (isOutboundKind(kind)) {
-      copy.data.settings.tag = uniqueOutboundTag(String(copy.data.settings.tag || 'outbound'), [
+      copy.data.settings.tag = uniqueOutboundTag(nodeTag(copy.data, copy.id), [
         ...graph.nodes,
         ...copies,
       ]);
     }
     if (isInboundKind(kind) || kind === 'xray-inbound') {
-      copy.data.settings.tag = uniqueInboundTag(String(copy.data.settings.tag || 'inbound'), [
+      copy.data.settings.tag = uniqueInboundTag(nodeTag(copy.data, copy.id), [
         ...graph.nodes,
         ...copies,
       ]);
@@ -93,6 +97,22 @@ export function duplicateSelection(graph: GraphState): GraphState {
     }
     copies.push(copy);
   }
+  const inboundTags = new Map<string, string>(),
+    outboundTags = new Map<string, string>(),
+    balancerTags = new Map<string, string>();
+  selected.forEach((node, index) => {
+    const tag = node.data.settings.tag;
+    if (typeof tag !== 'string' || !tag) return;
+    const target =
+      isInboundKind(node.data.kind) || node.data.kind === 'xray-inbound'
+        ? inboundTags
+        : node.data.kind === 'policy-group'
+          ? balancerTags
+          : outboundTags;
+    target.set(tag, String(copies[index].data.settings.tag));
+  });
+  for (const copy of copies)
+    remapNodeTagReferences(copy.data, inboundTags, outboundTags, balancerTags);
   const connections = graph.edges
     .filter((edge) => mapping.has(edge.source) && mapping.has(edge.target))
     .map((edge) => ({

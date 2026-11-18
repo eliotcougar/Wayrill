@@ -76,16 +76,18 @@ pub(super) struct Measurement {
     pub error: Option<String>,
 }
 
-pub(super) fn add_inbound(config: &mut Value, port: u16, password: &str, tag: &str) {
+pub(super) fn add_inbound(config: &mut Value, port: u16, password: &str, tag: &str) -> Result<()> {
+    let inbound_tag = crate::tun::random_id()?;
     config["inbounds"].as_array_mut().unwrap().push(json!({
-        "tag":"wtu", "listen":"127.0.0.1", "port":port,
+        "tag":inbound_tag, "listen":"127.0.0.1", "port":port,
         "protocol":"socks", "settings":{"auth":"password", "udp":true,
             "accounts":[{"user":"wayrill-test","pass":password}]}
     }));
     config["routing"]["rules"].as_array_mut().unwrap().insert(
         0,
-        json!({"type":"field","inboundTag":["wtu"],"outboundTag":tag}),
+        json!({"type":"field","inboundTag":[inbound_tag],"outboundTag":tag}),
     );
+    Ok(())
 }
 
 fn cancelled(stop: &AtomicBool, deadline: Instant) -> Result<()> {

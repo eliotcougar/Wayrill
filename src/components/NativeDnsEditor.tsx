@@ -131,7 +131,7 @@ export default function NativeDnsEditor({
           <>
             <NativeObjectFields
               object={draft}
-              fields={dnsHandlerFields}
+              fields={dnsHandlerFields.filter((field) => field.key !== 'tag')}
               structure="DNSConfig"
               idPrefix="native-dns"
               onChange={change}
@@ -283,7 +283,7 @@ export default function NativeDnsEditor({
               <NativeObjectFields
                 key={selected}
                 object={object}
-                fields={dnsServerFields}
+                fields={dnsServerFields.filter((field) => field.key !== 'tag')}
                 structure="NameServerConfig"
                 parent={parent}
                 idPrefix={`resolver-${selected}`}

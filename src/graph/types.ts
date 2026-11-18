@@ -58,7 +58,10 @@ export interface GlobalDefaults {
   version: 1;
   settings: Record<string, SettingValue>;
 }
+export type PoolGraphLink = { id: string; target?: string };
 export interface GraphState {
+  /** Pool editor history only. The Pool stores these links beside its graph document. */
+  poolLayerLinks?: PoolGraphLink[];
   /** Identifies the enrollment that supplied the managed routing graph. */
   poolId?: string;
   /** Published settings for this revision. Local defaults remain editable and intact. */

@@ -40,7 +40,21 @@ function EndpointFields({
   );
 }
 
-export function EditAccountEndpoint({
+function StashNameField({ value, onChange }: { value: string; onChange: (name: string) => void }) {
+  return (
+    <label className="editor-field">
+      <span>Stash entry name</span>
+      <input
+        value={value}
+        maxLength={128}
+        placeholder="Use the generated name"
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    </label>
+  );
+}
+
+export function EditAccount({
   refValue,
   onSave,
   onClose,
@@ -51,28 +65,34 @@ export function EditAccountEndpoint({
 }) {
   const [host, setHost] = useState(refValue.host ?? '');
   const [port, setPort] = useState(refValue.port?.toString() ?? '');
+  const [name, setName] = useState(refValue.stashName ?? '');
   const [problem, setProblem] = useState('');
   return (
     <div className="pool-assignment">
+      <StashNameField value={name} onChange={setName} />
       <EndpointFields host={host} port={port} setHost={setHost} setPort={setPort} />
       <small className="field-help">
         Leave a field empty to use the endpoint observed by Aquifer.
       </small>
       <div className="pool-row-actions">
         <button className="secondary-button" onClick={onClose}>
-          Cancel endpoint edit
+          Cancel edit
         </button>
         <button
           className="secondary-button"
           onClick={() => {
             try {
-              onSave({ ...refValue, ...endpointValues(host, port) });
+              onSave({
+                ...refValue,
+                ...endpointValues(host, port),
+                stashName: name.trim() || undefined,
+              });
             } catch (reason) {
               setProblem(errorText(reason));
             }
           }}
         >
-          Save endpoint
+          Save entry settings
         </button>
       </div>
       {problem && (
@@ -100,12 +120,14 @@ export default function PoolAccountPicker({
   const [account, setAccount] = useState('');
   const [host, setHost] = useState(replacement?.host ?? '');
   const [port, setPort] = useState(replacement?.port?.toString() ?? '');
+  const [name, setName] = useState(replacement?.stashName ?? '');
   const [problem, setProblem] = useState('');
   const choose = (id: string) => {
     setAccount(id);
     setProblem('');
     setHost(replacement?.host ?? '');
     setPort(replacement?.port?.toString() ?? '');
+    setName(replacement?.stashName ?? '');
   };
   const server = servers.find((item) => item.id === serverId);
   const existing = new Set(assigned.map(accountKey));
@@ -178,10 +200,13 @@ export default function PoolAccountPicker({
             </p>
           )}
           {selected && (
-            <details>
-              <summary>Use a different public endpoint</summary>
-              <EndpointFields host={host} port={port} setHost={setHost} setPort={setPort} />
-            </details>
+            <>
+              <StashNameField value={name} onChange={setName} />
+              <details>
+                <summary>Use a different public endpoint</summary>
+                <EndpointFields host={host} port={port} setHost={setHost} setPort={setPort} />
+              </details>
+            </>
           )}
           <button
             className="secondary-button"
@@ -189,7 +214,12 @@ export default function PoolAccountPicker({
             onClick={() => {
               if (!selected) return;
               try {
-                onAdd({ server: server.id, account: selected.id, ...endpointValues(host, port) });
+                onAdd({
+                  server: server.id,
+                  account: selected.id,
+                  ...endpointValues(host, port),
+                  stashName: name.trim() || undefined,
+                });
                 choose('');
               } catch (reason) {
                 setProblem(errorText(reason));

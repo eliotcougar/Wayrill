@@ -31,10 +31,11 @@ import { isNativeDnsHandler } from './dns';
 import { compileDnsGraph } from './dnsCompilation';
 import { inboundPreview, isInboundKind, listenerEndpointKeys, inboundPreFilters } from './inbounds';
 import { diagnoseGraph, parseGraph, serializeGraph } from './model';
-import { xrayOutboundConfig } from './xrayCompiler';
+import { runtimeOutboundBundle } from './xrayCompiler';
+import { isXrayOutbound } from './xrayNodes';
 import { expandCompositeOutbounds, compositeDiagnostics } from './composites';
 import { compileNatRouting } from './natRouting';
-import { isExecutableOutboundKind, outboundBundle } from './outbounds';
+import { isExecutableOutboundKind } from './outbounds';
 import { captureRuleVariants, hasCaptureOnlyApplications, type TableRule } from './rules';
 import { effectiveDefaults, factoryDefaults } from './defaults';
 import { udpListenerEnvironment } from './udpListeners';
@@ -182,27 +183,16 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
     protocol: 'blackhole',
     settings: { response: { type: 'none' } },
   });
-  for (const node of graph.nodes.filter(
-    (n) => isExecutableOutboundKind(n.data.kind) || n.data.kind === 'xray-outbound',
-  )) {
+  for (const node of graph.nodes.filter(isXrayOutbound)) {
     const tag = String(node.data.settings.tag);
     if (handlers.some((h) => h.data.settings.tag === tag))
       throw new Error(
         `${node.data.label}: outbound tags must be unique, including the DNS handler.`,
       );
-    for (const outbound of node.data.kind === 'xray-outbound' || node.data.native
-      ? [xrayOutboundConfig(node.data)]
-      : outboundBundle(node.data))
+    for (const outbound of runtimeOutboundBundle(node.data))
       outbounds.set(String(outbound.tag), outbound);
     const via = String(node.data.settings.dialerProxy ?? '');
-    if (
-      via &&
-      !graph.nodes.some(
-        (n) =>
-          (isExecutableOutboundKind(n.data.kind) || n.data.kind === 'xray-outbound') &&
-          n.data.settings.tag === via,
-      )
-    )
+    if (via && !graph.nodes.some((n) => isXrayOutbound(n) && n.data.settings.tag === via))
       throw new Error(`${node.data.label}: define the dial-through outbound before compiling.`);
   }
   for (const outbound of dns?.outbounds ?? [])

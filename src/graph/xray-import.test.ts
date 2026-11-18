@@ -112,6 +112,18 @@ const output = (graph: ReturnType<typeof graphOf>, tag: string) =>
 const compiled = (graph: ReturnType<typeof graphOf>) => compileXrayGraph(graph).config;
 
 describe('Complete native Xray graph conversion', () => {
+  it('preserves native observation of all outbounds through import and graph saves', () => {
+    const source = nativeFixture();
+    source.observatory = {
+      ...(source.observatory as Record<string, unknown>),
+      subjectSelector: [''],
+    };
+    const graph = parseGraph(serializeGraph(graphOf(source)));
+    expect(
+      graph.nodes.find((node) => node.data.kind === 'observatory')!.data.settings.subjects,
+    ).toBe('all');
+    expect(jsonDifferences(source, compiled(graph))).toEqual([]);
+  });
   it('preserves every JSON field, ordered array, omission, false and zero across save/open and repeated imports', () => {
     const original = nativeFixture();
     let graph = graphOf(original);

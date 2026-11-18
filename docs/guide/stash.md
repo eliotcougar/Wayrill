@@ -93,7 +93,10 @@ a filtered subscription, manually selected outbounds, or both. Preview the
 resulting candidates before saving. A name filter that is too narrow can leave
 an apparently configured group with no servers.
 
-Choose a strategy and fallback. Lowest latency needs observed health/delay data;
+Choose the selection mode beside the name. Wayrill generates the internal tag.
+New groups start with **Lowest
+latency** and a **Block** fallback. The fallback dropdown can select another
+graph or Stash outbound. Lowest latency needs observed health/delay data;
 least-load selection uses its configured observations and qualifications, not a
 live bandwidth meter. Random and round-robin serve different selection needs.
 
@@ -118,6 +121,11 @@ The first hop carries the connection to the next; the last hop is the exit.
 Select working profiles and verify that the required protocols support the path.
 A chain is a sequence, not a set of alternative servers. Test the assembled
 chain, not just its members independently.
+
+Give the chain a name. Wayrill manages its internal tag, as it does for other
+outbounds and inbounds. Renaming a card preserves its routing references.
+Where a setting refers to another node, search for its name. Advanced native
+references remain available for imported configurations.
 
 ## Switch from the tray
 

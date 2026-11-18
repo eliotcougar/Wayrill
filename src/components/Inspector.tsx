@@ -201,20 +201,19 @@ export default function Inspector({
       ? definition.fields.filter(
           (field) =>
             isFieldVisible(field, node.data.settings) &&
+            field.key !== 'tag' &&
             !(autoFakeRecovery && field.key === 'sniffFakeDns') &&
             (node.data.kind === 'windivert-inbound'
-              ? ['tag', 'port', 'capturePriority'].includes(field.key) ||
+              ? ['port', 'capturePriority'].includes(field.key) ||
                 !!field.section?.startsWith('sniffing') ||
                 field.section === 'dnsClassification'
-              : isProtocolKind(node.data.kind)
-                ? field.key === 'tag'
-                : isNativeConfigEditor(node.data.kind)
-                  ? false
-                  : isPolicyKind(node.data.kind) || node.data.kind === 'proxy-chain'
-                    ? field.key === 'tag'
-                    : isDnsEditor(node.data)
-                      ? field.key === 'tag'
-                      : node.data.kind !== 'fakedns' && !isRuleTableKind(node.data.kind)),
+              : !isProtocolKind(node.data.kind) &&
+                !isNativeConfigEditor(node.data.kind) &&
+                !isPolicyKind(node.data.kind) &&
+                node.data.kind !== 'proxy-chain' &&
+                !isDnsEditor(node.data) &&
+                node.data.kind !== 'fakedns' &&
+                !isRuleTableKind(node.data.kind)),
         )
       : [];
   const renderField = (field: SettingDefinition) => {

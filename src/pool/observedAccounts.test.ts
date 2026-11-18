@@ -38,7 +38,7 @@ it('uses the latest observed server and sends only assigned accounts', async () 
   const latest = await observedPoolAccounts(server, snapshot(8443, true));
   expect(latest.id).toBe(old.id);
   expect(latest.accounts).toHaveLength(2);
-  const ref = { server: old.id, account: old.accounts[0].id };
+  const ref = { server: old.id, account: old.accounts[0].id, stashName: 'Primary server' };
   expect(accountRevision([old], [ref])).not.toBe(accountRevision([latest], [ref]));
   const extra = { ...latest, id: 'second-server', name: 'Second endpoint' };
   const secondRef = {
@@ -46,6 +46,7 @@ it('uses the latest observed server and sends only assigned accounts', async () 
     account: latest.accounts.find((item) => item.name === 'Alice')!.id,
     host: 'public.example.test',
     port: 9443,
+    stashName: 'Backup server',
   };
   const delivered = withObservedAccounts(
     bundle,
@@ -60,10 +61,10 @@ it('uses the latest observed server and sends only assigned accounts', async () 
   ).toBe(8443);
   const users = parseStash(delivered.stash).groups.flatMap((group) => group.entries);
   expect(
-    users.map((item) => [item.profile?.settings.address, item.profile?.settings.port]),
+    users.map((item) => [item.name, item.profile?.settings.address, item.profile?.settings.port]),
   ).toEqual([
-    ['server.example.test', 8443],
-    ['public.example.test', 9443],
+    ['Primary server', 'server.example.test', 8443],
+    ['Backup server', 'public.example.test', 9443],
   ]);
   expect(JSON.stringify(delivered)).not.toContain('bob-fixture-id');
   expect(() =>
@@ -82,11 +83,13 @@ it('preserves legacy route roles as editable Pool placeholders', () => {
     const editor = openGraphLayer({ ...capture, routes });
     const saved = capturePoolGraph('Edited', editor.graph, editor.stash, []);
     const graph = parseGraph(saved.graph);
-    expect(saved.version).toBe(2);
+    expect(saved.version).toBe(3);
     expect(graph.nodes.filter((node) => node.data.kind === 'inbound-placeholder')).toHaveLength(
-      routes.sharing ? 2 : 1,
+      routes.sharing ? 4 : 3,
     );
-    expect(graph.edges).toHaveLength(Object.keys(routes).length);
+    expect(graph.edges.filter(({ source }) => source.startsWith('pool-legacy-'))).toHaveLength(
+      Object.keys(routes).length,
+    );
     expect(graph.edges.every((edge) => edge.target === direct)).toBe(true);
   }
 });

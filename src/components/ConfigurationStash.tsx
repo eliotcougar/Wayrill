@@ -45,6 +45,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import {
   Archive,
@@ -70,6 +71,9 @@ type Props = {
   onUse?: (entry: StashEntry, replace: boolean, link: StashLink) => void;
   onCommit?: () => Promise<void>;
   layerMode?: boolean;
+  title?: string;
+  extraActions?: (disabled: boolean) => ReactNode;
+  entryActions?: (entry: StashEntry, link: StashLink, disabled: boolean) => ReactNode;
   onClose: () => void;
 };
 const PAGE = 60;
@@ -84,6 +88,9 @@ export default function ConfigurationStash({
   onUse,
   onCommit,
   layerMode,
+  title,
+  extraActions,
+  entryActions,
   onClose,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null),
@@ -489,11 +496,12 @@ export default function ConfigurationStash({
         <div>
           <h2 id="stash-title">
             <Archive size={19} />{' '}
-            {replaceLabel
-              ? 'Replace outbound'
-              : onCommit
-                ? 'Edit Stash layer'
-                : 'Configuration stash'}
+            {title ??
+              (replaceLabel
+                ? 'Replace outbound'
+                : onCommit
+                  ? 'Edit Stash layer'
+                  : 'Configuration stash')}
           </h2>
         </div>
         <button
@@ -507,6 +515,7 @@ export default function ConfigurationStash({
       </div>
       <EditorTabs tabs={tabs} label="Stash sections" disabled={busy} />
       <div className="action-row stash-toolbar">
+        {extraActions?.(busy || !store.ready || !!editor)}
         {tab === 'outbounds' && (
           <button
             className="secondary-button"
@@ -840,6 +849,11 @@ export default function ConfigurationStash({
                         {entry.problem && <small className="stash-problem">{entry.problem}</small>}
                       </div>
                       <div className="stash-entry-actions" role="cell">
+                        {entryActions?.(
+                          entry,
+                          { groupId: group.id, entryId: entry.id },
+                          busy || pending || !store.ready,
+                        )}
                         {(entry.profile?.kind ?? entry.draft?.kind) !== 'block-outbound' && (
                           <OutboundTestButtons
                             entries={[entry]}

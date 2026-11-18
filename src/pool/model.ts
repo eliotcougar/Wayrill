@@ -1,6 +1,10 @@
 import { graphDependencies } from '../profiles/workspaceDependencies';
 import { getDefinition, getOutputPorts, makeNode } from '../graph/catalog';
-import { placeholderKind } from '../graph/inboundPlaceholder';
+import {
+  capturePlaceholder,
+  placeholderKind,
+  type CapturePlaceholder,
+} from '../graph/inboundPlaceholder';
 import { remapPreparedSubscriptions } from '../graph/composites';
 import { bindingsFor, factoryDefaults } from '../graph/defaults';
 import { parsePoolSettings, type PoolSettings } from '../graph/poolSettings';
@@ -12,7 +16,7 @@ import { parseGraph, toDocument } from '../graph/model';
 import { refreshPolicyGraph, refreshStashComposites } from '../graph/policySources';
 import { readRuleTable, tableSettings, type TableRule } from '../graph/rules';
 import { detachTrafficSource } from '../graph/trafficRuleSource';
-import type { GraphState, NodeKind, RuleEdge, RuleNode } from '../graph/types';
+import type { GraphState, NodeKind, PoolGraphLink, RuleEdge, RuleNode } from '../graph/types';
 import { generatedTag } from '../graph/tags';
 import { jsonRecord } from '../graph/xrayJson';
 import {
@@ -31,10 +35,17 @@ export type PoolEntries = {
   name: string;
   settings?: PoolSettings;
   placeholders: { id: string; name: string; ports: string[]; destination?: string }[];
-  inbounds: { id: string; name: string; kind: string; endpoint?: string; enabled: boolean }[];
+  inbounds: {
+    id: string;
+    name: string;
+    kind: string;
+    endpoint?: string;
+    enabled: boolean;
+    targets: string[];
+  }[];
   bindings: PoolBindings;
 };
-export type PoolCapture = 'current' | 'proxy' | 'tun';
+export type PoolCapture = 'current' | 'proxy' | 'tun' | 'both';
 type PoolBundleContent = {
   format: 'wayrill.pool';
   name: string;
@@ -43,7 +54,8 @@ type PoolBundleContent = {
   settings?: PoolSettings;
 };
 type LegacyPoolBundle = PoolBundleContent & { version: 1; routes: Routes };
-export type PoolBundle = LegacyPoolBundle | (PoolBundleContent & { version: 2 });
+export type PoolBundle =
+  LegacyPoolBundle | (PoolBundleContent & { version: 2 | 3; linkedLayers?: PoolGraphLink[] });
 
 const poolGroupPrefix = (recipient: string) => `pool-${recipient}-`;
 export const poolGroupId = (recipient: string, groupId: string) =>
@@ -51,6 +63,12 @@ export const poolGroupId = (recipient: string, groupId: string) =>
 const dataPort = (kind: NodeKind) => (getOutputPorts(kind).includes('data') ? 'data' : 'traffic');
 const sourceNode = (node: RuleNode) =>
   isGraphInbound(node.data.kind) && node.data.kind !== 'ics-tun';
+const captureKinds = ['proxy', 'tun'] as const;
+const inputCapture = (kind: NodeKind): CapturePlaceholder | undefined =>
+  kind === 'proxy-inbound' ? 'proxy' : kind === 'tun-inbound' ? 'tun' : undefined;
+const allowsBinding = (placeholder: RuleNode, input: RuleNode) =>
+  !capturePlaceholder(placeholder.data) ||
+  capturePlaceholder(placeholder.data) === inputCapture(input.data.kind);
 
 export function poolInputs(graph: GraphState) {
   return graph.nodes.filter(
@@ -184,12 +202,17 @@ export function capturePoolGraph(
   inboundIds: readonly string[] = [],
 ): PoolBundle {
   const chosen = new Set(inboundIds);
+  const converted = new Set(workspace.nodes.flatMap((node) => capturePlaceholder(node.data) ?? []));
   const nodes = workspace.nodes.map((node) => {
     if (!chosen.has(node.id) || !isGraphInbound(node.data.kind)) return node;
     const ports = getOutputPorts(node.data.kind, node.data);
     const placeholder = makeNode(placeholderKind, node.position, node.id);
-    placeholder.data.label = node.data.label;
+    const captureKind = inputCapture(node.data.kind);
+    const distinct = captureKind && !converted.has(captureKind) ? captureKind : undefined;
+    if (distinct) converted.add(distinct);
+    placeholder.data.label = distinct ? captureLabel(distinct) : node.data.label;
     placeholder.data.settings = {
+      captureKind: distinct ?? 'any',
       dns: ports.includes('dns'),
       encryptedDns: ports.includes('encrypted-dns'),
       nat: ports.includes('nat-data'),
@@ -201,15 +224,69 @@ export function capturePoolGraph(
       ? { ...edge, sourceHandle: 'data' }
       : edge,
   );
-  const bundle = {
-    ...capturePoolContent(name, { ...workspace, nodes, edges }, stash, groupIds),
-    version: 2 as const,
-  };
-  readPortableGraph(bundle.graph);
+  const draft = { ...workspace, nodes, edges };
+  const graph = inboundIds.length ? ensurePoolCapture(draft) : draft;
+  const bundle = { ...capturePoolContent(name, graph, stash, groupIds), version: 3 as const };
+  readPortableGraph(bundle.graph, undefined, true);
   return bundle;
 }
 
-export function readPortableGraph(document: string, roles?: Record<string, unknown>) {
+const captureLabel = (kind: CapturePlaceholder) =>
+  kind === 'proxy' ? 'Proxy capture' : 'TUN capture';
+
+// Keep existing IDs and paths when editing older templates. Newly generated
+// entries get stable IDs so a later publication does not reset assignments.
+export function ensurePoolCapture(graph: GraphState): GraphState {
+  const placeholders = graph.nodes.filter((node) => node.data.kind === placeholderKind);
+  const dataSources = new Set(
+    graph.edges.filter((edge) => edge.sourceHandle === 'data').map((edge) => edge.source),
+  );
+  const original = placeholders.find((node) => dataSources.has(node.id));
+  if (!original) return graph;
+  const used = new Set(graph.nodes.map((node) => node.id));
+  const missing = captureKinds.filter(
+    (kind) => !placeholders.some((node) => capturePlaceholder(node.data) === kind),
+  );
+  const additions = missing.map((kind, index) => {
+    const stableId = `pool-${kind}-capture`;
+    let id = stableId;
+    for (let suffix = 2; used.has(id); suffix++) id = `${stableId}-${suffix}`;
+    used.add(id);
+    const node = makeNode(
+      placeholderKind,
+      {
+        x: original.position.x,
+        y: Math.max(...placeholders.map(({ position }) => position.y)) + 260 * (index + 1),
+      },
+      id,
+    );
+    node.data.label = captureLabel(kind);
+    node.data.settings.captureKind = kind;
+    node.data.settings.dns = !!original.data.settings.dns;
+    return node;
+  });
+  if (!additions.length) return graph;
+  return {
+    ...graph,
+    nodes: [...graph.nodes, ...additions],
+    edges: [
+      ...graph.edges,
+      ...additions.flatMap((node) =>
+        graph.edges
+          .filter(
+            (edge) => edge.source === original.id && ['data', 'dns'].includes(edge.sourceHandle!),
+          )
+          .map((edge) => ({ ...edge, id: crypto.randomUUID(), source: node.id })),
+      ),
+    ],
+  };
+}
+
+export function readPortableGraph(
+  document: string,
+  roles?: Record<string, unknown>,
+  dedicatedCapture = false,
+) {
   const graph = parseGraph(document);
   const ids = new Set(graph.nodes.map((node) => node.id));
   if (
@@ -227,12 +304,21 @@ export function readPortableGraph(document: string, roles?: Record<string, unkno
   )
     throw new Error('Pool graphs must contain portable routing and a valid entry path.');
   if (!roles) {
-    if (graph.nodes.some((node) => node.data.kind === placeholderKind && !node.data.label.trim()))
+    const placeholders = graph.nodes.filter((node) => node.data.kind === placeholderKind);
+    if (
+      dedicatedCapture &&
+      captureKinds.some(
+        (kind) =>
+          placeholders.filter((node) => capturePlaceholder(node.data) === kind).length !== 1,
+      )
+    )
+      throw new Error('Include exactly one Proxy and one TUN Inbound Placeholder.');
+    if (placeholders.some((node) => !node.data.label.trim()))
       throw new Error('Name every Inbound Placeholder before publishing.');
     const wired = new Set(
       graph.edges.filter((edge) => edge.sourceHandle === 'data').map((edge) => edge.source),
     );
-    if (graph.nodes.some((node) => node.data.kind === placeholderKind && !wired.has(node.id)))
+    if (placeholders.some((node) => !wired.has(node.id)))
       throw new Error('Connect the Data output of every Inbound Placeholder.');
   }
   return { graph, ids };
@@ -242,8 +328,12 @@ const legacyHostId = 'pool-legacy-inbound';
 const legacySharingId = 'pool-legacy-sharing';
 
 export function editablePoolGraph(bundle: PoolBundle) {
-  const result = readPortableGraph(bundle.graph, bundle.version === 1 ? bundle.routes : undefined);
-  if (bundle.version === 2) return result;
+  const result = readPortableGraph(
+    bundle.graph,
+    bundle.version === 1 ? bundle.routes : undefined,
+    bundle.version === 3,
+  );
+  if (bundle.version !== 1) return result;
   const { graph, ids } = result;
   const x = Math.max(-100000, Math.min(0, ...graph.nodes.map((node) => node.position.x)) - 290);
   const host = makeNode(placeholderKind, { x, y: 30 }, legacyHostId);
@@ -279,12 +369,13 @@ export function editablePoolGraph(bundle: PoolBundle) {
 }
 
 function localPoolInputs(local: GraphState | undefined, capture: PoolCapture) {
-  const device =
-    capture === 'tun'
-      ? bundledExamples.find((item) => item.id === 'tun')!.create()
-      : capture === 'proxy' || !local
-        ? createProxyStarter()
-        : local;
+  const proxy = () => createProxyStarter();
+  const tun = () => bundledExamples.find((item) => item.id === 'tun')!.create();
+  const device = capture === 'tun' ? tun() : capture === 'current' && local ? local : proxy();
+  if (capture === 'both') {
+    const input = tun().nodes.find((node) => node.data.kind === 'tun-inbound')!;
+    device.nodes.push({ ...input, position: { x: input.position.x, y: input.position.y + 260 } });
+  }
   const inputs = device.nodes.filter((node) => isGraphInbound(node.data.kind));
   if (
     !inputs.some((node) => sourceNode(node) && !isDisabledInbound(node.data)) ||
@@ -298,6 +389,7 @@ function defaultPoolBindings(
   graph: GraphState,
   inputs: RuleNode[],
   allowSingle = false,
+  preferLegacy = false,
 ): PoolBindings {
   const placeholders = graph.nodes.filter((node) => node.data.kind === placeholderKind);
   const host =
@@ -306,7 +398,11 @@ function defaultPoolBindings(
   const sharing = placeholders.find((node) => node.id === legacySharingId)?.id ?? host;
   return Object.fromEntries(
     inputs.flatMap((node) => {
-      const id = node.data.kind === 'ics-tun' ? sharing : host;
+      const capture = inputCapture(node.data.kind);
+      const dedicated =
+        capture && placeholders.find((item) => capturePlaceholder(item.data) === capture);
+      const previous = node.data.kind === 'ics-tun' ? sharing : host;
+      const id = preferLegacy && previous ? previous : dedicated ? dedicated.id : previous;
       return id ? [[node.id, id]] : [];
     }),
   );
@@ -321,21 +417,20 @@ export function inspectPoolEntries(
   const { graph } = editablePoolGraph(bundle);
   const { inputs } = localPoolInputs(local, capture);
   const labels = new Map(graph.nodes.map(({ id, data }) => [id, data.label]));
+  const placeholders = graph.nodes.filter((node) => node.data.kind === placeholderKind);
   return {
     name: bundle.name,
     settings: bundle.settings,
-    placeholders: graph.nodes
-      .filter((node) => node.data.kind === placeholderKind)
-      .map((node) => {
-        const paths = graph.edges.filter((edge) => edge.source === node.id);
-        const data = paths.find((edge) => edge.sourceHandle === 'data');
-        return {
-          id: node.id,
-          name: node.data.label,
-          ports: paths.map((edge) => edge.sourceHandle!),
-          destination: data && labels.get(data.target),
-        };
-      }),
+    placeholders: placeholders.map((node) => {
+      const paths = graph.edges.filter((edge) => edge.source === node.id);
+      const data = paths.find((edge) => edge.sourceHandle === 'data');
+      return {
+        id: node.id,
+        name: node.data.label,
+        ports: paths.map((edge) => edge.sourceHandle!),
+        destination: data && labels.get(data.target),
+      };
+    }),
     inbounds: inputs.map((node) => ({
       id: node.id,
       name: node.data.label,
@@ -345,6 +440,9 @@ export function inspectPoolEntries(
         ? { endpoint: `${node.data.settings.listen} · port ${node.data.settings.port}` }
         : {}),
       enabled: !isDisabledInbound(node.data),
+      targets: placeholders
+        .filter((placeholder) => allowsBinding(placeholder, node))
+        .map(({ id }) => id),
     })),
     bindings: bindings ?? defaultPoolBindings(graph, inputs, true),
   };
@@ -362,7 +460,7 @@ function resolvePoolBindings(graph: GraphState, inputs: RuleNode[], bindings: Po
   );
   return inputs.flatMap((node): RuleEdge[] => {
     const placeholder = placeholders.get(Object.hasOwn(bindings, node.id) ? bindings[node.id] : '');
-    if (!placeholder) {
+    if (!placeholder || !allowsBinding(placeholder, node)) {
       if (!isDisabledInbound(node.data) || Object.hasOwn(bindings, node.id))
         throw new Error(
           `Choose an Inbound Placeholder for ${node.data.label}. Edit inbound assignments in Connect to Pool.`,
@@ -390,13 +488,22 @@ export function parsePoolBundle(value: unknown): PoolBundle {
   if (
     !jsonRecord(value) ||
     value.format !== 'wayrill.pool' ||
-    (value.version !== 1 && value.version !== 2) ||
+    (value.version !== 1 && value.version !== 2 && value.version !== 3) ||
     typeof value.name !== 'string' ||
     !value.name.trim() ||
     value.name.length > 128 ||
     typeof value.graph !== 'string' ||
     typeof value.stash !== 'string' ||
-    (value.version === 1 && !jsonRecord(value.routes))
+    (value.version === 1 && !jsonRecord(value.routes)) ||
+    (value.linkedLayers !== undefined &&
+      (value.version === 1 ||
+        !Array.isArray(value.linkedLayers) ||
+        !value.linkedLayers.every(
+          (link: unknown) =>
+            jsonRecord(link) &&
+            typeof link.id === 'string' &&
+            (link.target === undefined || typeof link.target === 'string'),
+        )))
   )
     throw new Error('Invalid Wayrill Pool configuration.');
   const settings = parsePoolSettings(value.settings);
@@ -523,8 +630,13 @@ export function preparePoolWorkspace(
     throw new Error('A Pool node conflicts with a local capture node.');
   const assigned =
     bindings ??
-    (bundle.version === 1 || local?.poolId === recipient
-      ? defaultPoolBindings(shared, inputs)
+    (bundle.version !== 2 || local?.poolId === recipient
+      ? defaultPoolBindings(
+          shared,
+          inputs,
+          false,
+          capture === 'current' && local?.poolId === recipient,
+        )
       : {});
   const localEdges = resolvePoolBindings(shared, inputs, assigned);
   const prefix = poolGroupPrefix(recipient);

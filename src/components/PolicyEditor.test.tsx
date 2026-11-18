@@ -4,6 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PolicyEditor from './PolicyEditor';
 import PolicySourcesEditor from './PolicySourcesEditor';
+import { makeEditorNode } from '../graph/catalog';
+import { compileRuntimeGraph } from '../graph/runtime';
+import { generatedTag } from '../graph/tags';
 import { createPolicyExample } from '../graph/policyExample';
 import {
   emptyPolicySources,
@@ -100,11 +103,11 @@ it('previews filtering, all candidate origins, exclusions and fallback across ta
   expect(container.querySelector('[aria-label="Draft policy summary"]')!.textContent).toContain(
     '1 candidate',
   );
-  await act(async () => button('Strategy').click());
+  await act(async () => button('Health checks').click());
   expect(container.querySelector('[aria-label="Draft policy summary"]')!.textContent).toContain(
     'Fallback · Block',
   );
-  await act(async () => button('Outbound set').click());
+  await act(async () => button('Members').click());
   expect(filter.value).toBe('No match');
   expect(filter.getAttribute('aria-label')).toBe('Include names · Public subscription');
   expect(container.querySelector('[aria-label="Add subscription group"]')).not.toBeNull();
@@ -118,6 +121,97 @@ afterEach(async () => {
 });
 const button = (text: string) =>
   [...container.querySelectorAll('button')].find((b) => b.textContent === text)!;
+
+it('creates a lowest-latency group from a name with a working Block fallback', async () => {
+  const graph = createPolicyExample();
+  const original = graph.nodes.find((node) => node.data.kind === 'policy-group')!;
+  const node = makeEditorNode('policy-group', original.position, original.id);
+  const sources = readPolicySources(node.data);
+  sources.manual = readPolicySources(original.data).manual;
+  node.data.settings.sources = JSON.stringify(sources);
+  graph.nodes = graph.nodes.map((item) => (item.id === node.id ? node : item));
+  const before = JSON.stringify(graph);
+  const apply = vi.fn();
+  await act(async () =>
+    root.render(
+      <PolicyEditor
+        node={node}
+        graph={graph}
+        stash={emptyStash}
+        onApply={apply}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  expect(container.querySelector<HTMLSelectElement>('[aria-label="Selection mode"]')!.value).toBe(
+    'leastPing',
+  );
+  expect(
+    container.querySelector<HTMLSelectElement>('[aria-label="Fallback from graph"]')!.value,
+  ).toBe('preset:block');
+  await act(async () => {
+    const input = container.querySelector<HTMLInputElement>('.policy-name-field input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'Europe · Fastest',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button('Apply changes').click());
+  const saved = apply.mock.calls[0][0];
+  const edited = saved.nodes.find((item: typeof node) => item.id === node.id)!;
+  expect(edited.data.label).toBe('Europe · Fastest');
+  expect(edited.data.settings.tag).toBe(node.data.settings.tag);
+  const compiled = compileRuntimeGraph(saved).config;
+  const balancer = (
+    compiled.routing as { balancers: { strategy: { type: string }; fallbackTag: string }[] }
+  ).balancers[0];
+  expect(balancer.strategy.type).toBe('leastPing');
+  expect(
+    (compiled.outbounds as { tag: string; protocol: string }[]).find(
+      ({ tag }) => tag === balancer.fallbackTag,
+    )?.protocol,
+  ).toBe('blackhole');
+  expect(JSON.stringify(graph)).toBe(before);
+});
+
+it('keeps saved automatic tags stable when a Stash editor uses a temporary node identity', async () => {
+  const graph = createPolicyExample();
+  const node = graph.nodes.find((item) => item.data.kind === 'policy-group')!;
+  node.data.label = 'Saved group';
+  node.data.settings.tag = generatedTag('pg', node.data.label, 'previous-stash-editor');
+  const tag = node.data.settings.tag;
+  const apply = vi.fn();
+  await act(async () =>
+    root.render(
+      <PolicyEditor
+        node={node}
+        graph={graph}
+        stash={emptyStash}
+        onApply={apply}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  await act(async () => {
+    const input = container.querySelector<HTMLInputElement>('.policy-name-field input')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    setter.call(input, 'Temporary rename');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => {
+    const input = container.querySelector<HTMLInputElement>('.policy-name-field input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'Saved group',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button('Apply changes').click());
+  expect(
+    apply.mock.calls[0][0].nodes.find((item: typeof node) => item.id === node.id).data.settings.tag,
+  ).toBe(tag);
+});
 
 describe('policy group editor', () => {
   it('retains a missing subscription snapshot and relinks its filters to a replacement group', async () => {

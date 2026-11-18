@@ -8,6 +8,7 @@ import { bindingsFor } from '../graph/defaults';
 import { isOutboundKind } from '../graph/outbounds';
 import type { GraphState, StashLink } from '../graph/types';
 import type { StashEntry } from './import';
+import { nodeTag, ensureNodeTags } from '../graph/tags';
 // Graph instances retain identity and tags while sharing their Stash configuration.
 export function applyStashedProfile(
   graph: GraphState,
@@ -18,6 +19,7 @@ export function applyStashedProfile(
 ): GraphState {
   if (!entry.profile)
     throw new Error(entry.problem || 'This configuration has no executable node yet.');
+  graph = ensureNodeTags(graph);
   const previous = replaceId ? graph.nodes.find((n) => n.id === replaceId) : undefined;
   if (replaceId && (!previous || !isOutboundKind(previous.data.kind)))
     throw new Error('Select a configured outbound node to replace.');
@@ -41,10 +43,8 @@ export function applyStashedProfile(
   };
   if (link) node.data.stashLink = { groupId: link.groupId, entryId: link.entryId };
   if (entry.draft) node.data.description = entry.draft.description;
-  const base = String(
-    node.data.settings.tag || entry.profile.kind.replace('-outbound', ''),
-  ).replace(/^wayrill-(?:runtime|dns)-/, 'profile-');
-  node.data.settings.tag = previous?.data.settings.tag ?? uniqueOutboundTag(base, graph.nodes);
+  node.data.settings.tag =
+    previous?.data.settings.tag ?? uniqueOutboundTag(nodeTag(node.data, node.id), graph.nodes);
   if (entry.draft?.native) node.data.native = nativeForInstance(entry.draft.native, previous, node);
   node.data.overrides = entry.draft?.overrides
     ? [...entry.draft.overrides]

@@ -9,11 +9,13 @@ export function graphDependencies(
   stash: Stash,
   wholeGroups = new Set<string>(),
   profiles: readonly Profile[] = [],
+  onReference?: (groupId: string, entryId?: string) => void,
 ): Stash {
   const groups = new Map(stash.groups.map((g) => [g.id, g]));
   const selected = new Map<string, Set<string>>();
   const visited = new Set<Profile>();
   const entry = (groupId: string, entryId?: string) => {
+    onReference?.(groupId, entryId);
     const group = groups.get(groupId);
     if (!group) return;
     if (entryId === undefined) wholeGroups.add(groupId);

@@ -54,6 +54,10 @@ export const emptyPolicySources = (): PolicySources => ({
   manual: [],
   subscriptions: [],
 });
+export function blockPolicyFallback(): PolicyProfile {
+  const profile: Profile = { kind: 'block-outbound', settings: { response: 'none' } };
+  return { type: 'profile', name: 'Block', id: policyProfileId(profile), profile };
+}
 export const emptyPolicyFilter = (): PolicyFilter => ({
   name: '',
   exclude: '',
@@ -400,13 +404,14 @@ export function refreshPreparedReference(
   cache?.set(ref, next);
   return next;
 }
-export function refreshStashComposites(stash: Stash): Stash {
+/** Explicit edits propagate through locked snapshots only for the edited source groups. */
+export function refreshStashComposites(stash: Stash, editedGroups?: ReadonlySet<string>): Stash {
   let changed = false;
   const groups = stash.groups.map((group) => {
     let groupChanged = false;
     const entries = group.entries.map((entry) => {
       if (
-        entry.locked ||
+        (entry.locked && !editedGroups) ||
         !entry.profile ||
         !['policy-group', 'proxy-chain'].includes(entry.profile.kind)
       )
@@ -416,7 +421,7 @@ export function refreshStashComposites(stash: Stash): Stash {
         before = policyProfile(entry);
         compositeSnapshots.set(entry, before);
       }
-      const after = refreshPreparedReference(before, stash);
+      const after = refreshPreparedReference(before, stash, 0, editedGroups);
       if (after === before || after.type !== 'profile') return entry;
       groupChanged = changed = true;
       return {
@@ -510,6 +515,8 @@ export function policyRuntimeId(reference: PolicyProfile): string {
     ? stableProfileKey(JSON.stringify([reference.source.groupId, reference.source.entryId]))
     : reference.id;
 }
+export const policyProfileTag = (reference: PolicyProfile) =>
+  `wpp-${compactTagId(policyRuntimeId(reference))}`;
 export function resolvePolicyReference(
   graph: GraphState,
   reference: PolicyReference,
@@ -535,7 +542,7 @@ export function resolvePolicyReference(
     ...node.data.settings,
     ...reference.profile.settings,
   });
-  node.data.settings.tag = `wpp-${compactTagId(policyRuntimeId(reference))}`;
+  node.data.settings.tag = policyProfileTag(reference);
   node.data.overrides = bindingsFor(node.data.kind)
     .filter((b) => Object.hasOwn(reference.profile.settings, b.nodeKey))
     .map((b) => b.nodeKey);

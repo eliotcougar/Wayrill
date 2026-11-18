@@ -5,12 +5,13 @@ import ProtocolEditor from './ProtocolEditor';
 import useModalDialog from './useModalDialog';
 import { factoryDefaults, resolveGraph } from '../graph/defaults';
 import { editGraphNode } from '../graph/nodeEditing';
-import { makeNode } from '../graph/catalog';
+import { makeEditorNode } from '../graph/catalog';
 import { stashEditorNode, snapshotGraphEntry } from '../profiles/workspace';
 import { checkPrepared } from '../profiles/preparedPreviewClient';
 import { parseEntry, type StashEntry } from '../profiles/import';
 import type { GraphState, NodeKind, RuleNodeData } from '../graph/types';
 import { boundedText } from '../text';
+import { TagGraphContext } from './TagReferencePicker';
 
 export default function StashEntryEditor({
   entry,
@@ -34,7 +35,7 @@ export default function StashEntryEditor({
     };
     const id = 'stash-edit-' + crypto.randomUUID();
     const node = kind
-      ? makeNode(kind, { x: 0, y: 0 }, id)
+      ? makeEditorNode(kind, { x: 0, y: 0 }, id)
       : entry?.profile || entry?.draft
         ? stashEditorNode(entry, context, id)
         : undefined;
@@ -91,79 +92,83 @@ export default function StashEntryEditor({
     }
   }
   return (
-    <dialog
-      ref={dialog}
-      className="rule-editor-window stash-entry-editor"
-      aria-labelledby="stash-entry-title"
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
-      }}
-      onClose={close}
+    <TagGraphContext.Provider
+      value={draft ? { graph: draft, ownerId: draft.editingId } : undefined}
     >
-      <div className="rule-editor-titlebar">
-        <h2 id="stash-entry-title">{entry ? 'Edit outbound' : 'New outbound'}</h2>
-        <button className="icon-button" aria-label="Close outbound editor" onClick={close}>
-          <X size={17} />
-        </button>
-      </div>
-      <div className="stash-entry-editor-body" inert={busy || undefined}>
-        {node && draft ? (
-          <Inspector
-            libraryEdit
-            graph={draft}
-            node={node}
-            diagnostics={[]}
-            selectedCount={1}
-            onUpdate={update}
-            onEdit={() => setProtocolOpen(true)}
-            onClose={close}
-            onDelete={() => {}}
-            onSelect={() => {}}
-            onConnect={() => {}}
-            onSelectConnection={() => {}}
-            onEditConnection={() => {}}
-            onShowConnection={() => {}}
-          />
-        ) : (
-          <>
-            <label className="editor-field">
-              <span>Name</span>
-              <input value={name} onChange={(e) => setName(boundedText(e.target.value, 128))} />
-            </label>
-            <label className="editor-field">
-              <span>Source configuration</span>
-              <textarea rows={12} value={raw} onChange={(e) => setRaw(e.target.value)} />
-            </label>
-          </>
-        )}
-      </div>
-      {error && (
-        <div role="alert" className="notice notice--error">
-          {error}
+      <dialog
+        ref={dialog}
+        className="rule-editor-window stash-entry-editor"
+        aria-labelledby="stash-entry-title"
+        onCancel={(e) => {
+          e.preventDefault();
+          close();
+        }}
+        onClose={close}
+      >
+        <div className="rule-editor-titlebar">
+          <h2 id="stash-entry-title">{entry ? 'Edit outbound' : 'New outbound'}</h2>
+          <button className="icon-button" aria-label="Close outbound editor" onClick={close}>
+            <X size={17} />
+          </button>
         </div>
-      )}
-      <div className="rule-editor-footer">
-        <span>{busy ? 'Checking…' : ''}</span>
-        <button className="secondary-button" onClick={close}>
-          Cancel
-        </button>
-        <button
-          className="primary-button"
-          disabled={busy || !(node?.data.label.trim() ?? name.trim())}
-          onClick={() => void save()}
-        >
-          Save to Stash
-        </button>
-      </div>
-      {protocolOpen && node && (
-        <ProtocolEditor
-          node={node}
-          defaults={draft?.defaults}
-          onApply={update}
-          onClose={() => setProtocolOpen(false)}
-        />
-      )}
-    </dialog>
+        <div className="stash-entry-editor-body" inert={busy || undefined}>
+          {node && draft ? (
+            <Inspector
+              libraryEdit
+              graph={draft}
+              node={node}
+              diagnostics={[]}
+              selectedCount={1}
+              onUpdate={update}
+              onEdit={() => setProtocolOpen(true)}
+              onClose={close}
+              onDelete={() => {}}
+              onSelect={() => {}}
+              onConnect={() => {}}
+              onSelectConnection={() => {}}
+              onEditConnection={() => {}}
+              onShowConnection={() => {}}
+            />
+          ) : (
+            <>
+              <label className="editor-field">
+                <span>Name</span>
+                <input value={name} onChange={(e) => setName(boundedText(e.target.value, 128))} />
+              </label>
+              <label className="editor-field">
+                <span>Source configuration</span>
+                <textarea rows={12} value={raw} onChange={(e) => setRaw(e.target.value)} />
+              </label>
+            </>
+          )}
+        </div>
+        {error && (
+          <div role="alert" className="notice notice--error">
+            {error}
+          </div>
+        )}
+        <div className="rule-editor-footer">
+          <span>{busy ? 'Checking…' : ''}</span>
+          <button className="secondary-button" onClick={close}>
+            Cancel
+          </button>
+          <button
+            className="primary-button"
+            disabled={busy || !(node?.data.label.trim() ?? name.trim())}
+            onClick={() => void save()}
+          >
+            Save to Stash
+          </button>
+        </div>
+        {protocolOpen && node && (
+          <ProtocolEditor
+            node={node}
+            defaults={draft?.defaults}
+            onApply={update}
+            onClose={() => setProtocolOpen(false)}
+          />
+        )}
+      </dialog>
+    </TagGraphContext.Provider>
   );
 }

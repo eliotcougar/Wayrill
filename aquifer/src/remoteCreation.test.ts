@@ -27,6 +27,28 @@ it('allocates independent tags and unused listen ports', () => {
   ]);
 });
 
+it('creates lowest-latency groups with a Block fallback and preserves existing server observation', () => {
+  const base = remoteView(
+    JSON.stringify({
+      outbounds: [
+        { tag: 'direct', protocol: 'freedom' },
+        { tag: 'blocked', protocol: 'blackhole' },
+      ],
+      observatory: { subjectSelector: ['relay-'], probeURL: 'https://example.test/probe' },
+    }),
+  );
+  const result = createRemoteNode(base, 'balancer');
+  expect(result.view.normalized.outbounds).toEqual(base.normalized.outbounds);
+  expect(result.view.normalized.observatory).toEqual(base.normalized.observatory);
+  expect(result.view.normalized.routing).toMatchObject({
+    balancers: [{ strategy: { type: 'leastPing' }, fallbackTag: 'blocked' }],
+  });
+  const empty = createRemoteNode(remoteView('{}'), 'balancer').view.normalized;
+  expect(empty.outbounds).toMatchObject([{ protocol: 'blackhole' }]);
+  expect(empty.observatory).toMatchObject({ subjectSelector: [''] });
+  expect(base.normalized).not.toHaveProperty('routing');
+});
+
 it('opens existing singleton nodes without replacing their settings', () => {
   const view = remoteView(
     JSON.stringify({

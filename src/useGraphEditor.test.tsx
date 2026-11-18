@@ -161,30 +161,33 @@ it('routes through two newly added proxy chains independently and rejects duplic
     }
   });
   const { config } = compileRuntimeGraph(editor.graph);
+  const chains = editor.graph.nodes.filter((node) => node.data.kind === 'proxy-chain');
+  const [firstTag, secondTag] = chains.map((node) => String(node.data.settings.tag));
+  expect(firstTag).not.toBe(secondTag);
   expect(config.routing).toMatchObject({
     rules: expect.arrayContaining([
-      expect.objectContaining({ inboundTag: ['input-0'], outboundTag: 'proxy-chain' }),
-      expect.objectContaining({ inboundTag: ['input-1'], outboundTag: 'proxy-chain-2' }),
+      expect.objectContaining({ inboundTag: ['input-0'], outboundTag: firstTag }),
+      expect.objectContaining({ inboundTag: ['input-1'], outboundTag: secondTag }),
     ]),
   });
   expect(config.outbounds).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        tag: 'proxy-chain',
+        tag: firstTag,
         settings: expect.objectContaining({ port: 16002 }),
       }),
       expect.objectContaining({
-        tag: 'proxy-chain-2',
+        tag: secondTag,
         settings: expect.objectContaining({ port: 16001 }),
       }),
     ]),
   );
-  const second = editor.graph.nodes.find((node) => node.data.settings.tag === 'proxy-chain-2')!;
+  const second = chains[1];
   await act(() =>
-    editor.updateNode(second.id, { settings: { ...second.data.settings, tag: 'proxy-chain' } }),
+    editor.updateNode(second.id, { settings: { ...second.data.settings, tag: firstTag } }),
   );
   expect(() => compileRuntimeGraph(parseGraph(editor.serialize()))).toThrow(
-    'outbound tag proxy-chain is already used',
+    `outbound tag ${firstTag} is already used`,
   );
 });
 

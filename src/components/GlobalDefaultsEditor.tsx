@@ -150,96 +150,98 @@ export default function GlobalDefaultsEditor({
   );
   const renderFields = (fields: typeof globalFields) => (
     <div className="field-grid defaults-field-grid">
-      {fields.map((f) => (
-        <div
-          className={
-            'default-option' +
-            (f.type === 'json' || f.type === 'textarea' || f.key === 'userAgent'
-              ? ' wide-option'
-              : '')
-          }
-          key={f.key}
-          hidden={!visibleKeys.includes(f.key)}
-        >
-          <div className="default-scope">
-            <span
-              className={
-                Object.hasOwn(draft.settings, f.key) ? 'override-badge' : 'inherited-badge'
+      {fields
+        .filter((f) => f.key !== 'metricsTag')
+        .map((f) => (
+          <div
+            className={
+              'default-option' +
+              (f.type === 'json' || f.type === 'textarea' || f.key === 'userAgent'
+                ? ' wide-option'
+                : '')
+            }
+            key={f.key}
+            hidden={!visibleKeys.includes(f.key)}
+          >
+            <div className="default-scope">
+              <span
+                className={
+                  Object.hasOwn(draft.settings, f.key) ? 'override-badge' : 'inherited-badge'
+                }
+              >
+                {Object.hasOwn(draft.settings, f.key)
+                  ? draft.settings[f.key] === ''
+                    ? 'App setting · blank'
+                    : 'App setting'
+                  : 'Xray default'}
+              </span>
+              <button
+                type="button"
+                className="secondary-button button--small"
+                disabled={!Object.hasOwn(draft.settings, f.key)}
+                aria-label={'Use Xray default for ' + f.label}
+                onClick={() => {
+                  setDraft((d) => resetCoreDefault(d, f.key));
+                  resetPolicyDraft(f.key);
+                }}
+              >
+                Use Xray default
+              </button>
+              <button
+                type="button"
+                className="secondary-button button--small"
+                title={'Restore factory value for ' + f.label}
+                aria-label={'Restore factory ' + f.label}
+                disabled={draft.settings[f.key] === f.defaultValue}
+                onClick={() => {
+                  setDraft((d) => ({
+                    ...d,
+                    settings: { ...d.settings, [f.key]: f.defaultValue! },
+                  }));
+                  resetPolicyDraft(f.key);
+                }}
+              >
+                <Undo2 size={11} /> Factory
+              </button>
+            </div>
+            <SettingField
+              hint={coreDefaultHint(coreDefaultField(f.key))}
+              effectiveText={
+                draft.settings[f.key] === 0 && configuredDefaultHint(f.key, 0) !== '0'
+                  ? configuredDefaultHint(f.key, 0)
+                  : undefined
               }
-            >
-              {Object.hasOwn(draft.settings, f.key)
-                ? draft.settings[f.key] === ''
-                  ? 'App setting · blank'
-                  : 'App setting'
-                : 'Xray default'}
-            </span>
-            <button
-              type="button"
-              className="secondary-button button--small"
-              disabled={!Object.hasOwn(draft.settings, f.key)}
-              aria-label={'Use Xray default for ' + f.label}
-              onClick={() => {
+              inherited={!Object.hasOwn(draft.settings, f.key)}
+              onValidity={policyValidity}
+              onInherit={() => {
                 setDraft((d) => resetCoreDefault(d, f.key));
                 resetPolicyDraft(f.key);
               }}
-            >
-              Use Xray default
-            </button>
-            <button
-              type="button"
-              className="secondary-button button--small"
-              title={'Restore factory value for ' + f.label}
-              aria-label={'Restore factory ' + f.label}
-              disabled={draft.settings[f.key] === f.defaultValue}
-              onClick={() => {
-                setDraft((d) => ({
-                  ...d,
-                  settings: { ...d.settings, [f.key]: f.defaultValue! },
-                }));
+              field={{ ...f, key: 'global-' + f.key }}
+              value={draft.settings[f.key]}
+              issues={issues.filter((i) => i.fieldKey === f.key && !i.controlId)}
+              messagePrefix="Global defaults: "
+              onChange={(value) => {
+                set(f.key, value);
                 resetPolicyDraft(f.key);
               }}
-            >
-              <Undo2 size={11} /> Factory
-            </button>
-          </div>
-          <SettingField
-            hint={coreDefaultHint(coreDefaultField(f.key))}
-            effectiveText={
-              draft.settings[f.key] === 0 && configuredDefaultHint(f.key, 0) !== '0'
-                ? configuredDefaultHint(f.key, 0)
-                : undefined
-            }
-            inherited={!Object.hasOwn(draft.settings, f.key)}
-            onValidity={policyValidity}
-            onInherit={() => {
-              setDraft((d) => resetCoreDefault(d, f.key));
-              resetPolicyDraft(f.key);
-            }}
-            field={{ ...f, key: 'global-' + f.key }}
-            value={draft.settings[f.key]}
-            issues={issues.filter((i) => i.fieldKey === f.key && !i.controlId)}
-            messagePrefix="Global defaults: "
-            onChange={(value) => {
-              set(f.key, value);
-              resetPolicyDraft(f.key);
-            }}
-          />
-          {poolHints.has(f.key) && (
-            <p className="resolved-default-hint">
-              Pool override · {poolHints.get(f.key)}. The value above is your local default.
-            </p>
-          )}
-          {f.key === 'policy' && policy && (
-            <PolicyFields
-              key={policyRevision}
-              policy={policy}
-              idPrefix="global-policy"
-              onValidity={policyValidity}
-              onChange={(value) => set('policy', JSON.stringify(value, null, 2))}
             />
-          )}
-        </div>
-      ))}
+            {poolHints.has(f.key) && (
+              <p className="resolved-default-hint">
+                Pool override · {poolHints.get(f.key)}. The value above is your local default.
+              </p>
+            )}
+            {f.key === 'policy' && policy && (
+              <PolicyFields
+                key={policyRevision}
+                policy={policy}
+                idPrefix="global-policy"
+                onValidity={policyValidity}
+                onChange={(value) => set('policy', JSON.stringify(value, null, 2))}
+              />
+            )}
+          </div>
+        ))}
     </div>
   );
   useModalDialog(dialog);

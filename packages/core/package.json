@@ -9,6 +9,7 @@
     "./omitCoreDefaults": "./src/omitCoreDefaults.ts",
     "./proxyInbound": "./src/proxyInbound.ts",
     "./outboundDependencies": "./src/outboundDependencies.ts",
+    "./outboundReferences": "./src/outboundReferences.ts",
     "./trafficTuning": "./src/trafficTuning.ts",
     "./protocolLinks": "./src/protocolLinks.ts",
     "./profileImport": "./src/profileImport.ts",

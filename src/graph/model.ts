@@ -486,8 +486,7 @@ export function diagnoseGraph(graph: GraphState): Diagnostic[] {
           }
           visited.add(next);
           const target = graph.nodes.find(
-            (other) =>
-              isExecutableOutboundKind(other.data.kind) && other.data.settings.tag === next,
+            (other) => isXrayOutbound(other) && other.data.settings.tag === next,
           );
           if (!target) {
             issues.push({

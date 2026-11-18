@@ -1,7 +1,7 @@
 import { preparedEntry, expandCompositeOutbounds } from '../graph/composites';
 import { makeNode } from '../graph/catalog';
 import { compilePolicies } from '../graph/policyCompilation';
-import { xrayOutboundConfig } from '../graph/xrayCompiler';
+import { runtimeOutboundBundle } from '../graph/xrayCompiler';
 import type { GraphState, RuleNode } from '../graph/types';
 import { LIMITS } from '../limits';
 
@@ -29,7 +29,7 @@ export function preparedPreview(graph: GraphState, node: RuleNode) {
   const expansion = expandCompositeOutbounds(isolated);
   const outbounds = expansion.graph.nodes
     .filter((n) => n.data.kind !== 'policy-group' && n.data.kind !== 'observatory')
-    .map((n) => xrayOutboundConfig(n.data));
+    .flatMap((n) => runtimeOutboundBundle(n.data));
   const policy = compilePolicies(expansion.graph, outbounds);
   const config = {
     outbounds: [...outbounds, ...policy.outbounds],

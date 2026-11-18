@@ -378,7 +378,7 @@ it('edits policy strategy and fallback without adding defaults to an unchanged p
   expect(host.querySelectorAll('.policy-preview li')).toHaveLength(2);
   await act(async () => button('Apply changes').click());
   expect(onSave).toHaveBeenLastCalledWith(value);
-  await change('Selection strategy', 'roundrobin');
+  await change('Selection mode', 'roundRobin');
   await change('Fallback outbound', 'relay-eu');
   await act(async () => button('Apply changes').click());
   expect(onSave).toHaveBeenLastCalledWith({

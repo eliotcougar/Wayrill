@@ -268,15 +268,15 @@ export function importXrayConfig(
     if (
       subjects !== undefined &&
       (!jsonArray(subjects) ||
-        subjects.some((p) => typeof p !== 'string' || !p || p.trim() !== p || /[\r\n]/.test(p)))
+        subjects.some((p) => typeof p !== 'string' || p.trim() !== p || /[\r\n]/.test(p)))
     )
       throw new Error(
-        'Observation prefixes must be nonempty single-line tags without surrounding whitespace.',
+        'Observation prefixes must be single-line tags without surrounding whitespace.',
       );
     observer = makeNode('observatory', { x: 710, y: -270 }, 'native-observatory');
     const s = observer.data.settings;
     s.mode = observerKey === 'burstObservatory' ? 'burst' : 'standard';
-    s.subjects = 'prefixes';
+    s.subjects = jsonArray(subjects) && subjects.includes('') ? 'all' : 'prefixes';
     s.selectorPrefixes = lines(field(raw, 'subjectSelector'));
     for (const key of ['probeURL', 'probeInterval', 'enableConcurrency'])
       if (field(raw, key) !== undefined)

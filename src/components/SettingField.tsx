@@ -2,6 +2,8 @@ import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import EditableSelect from './EditableSelect';
 import InterfaceSelect from './InterfaceSelect';
+import TagReferencePicker from './TagReferencePicker';
+import { tagReferenceKind, tagReferenceLabel } from '../graph/tagReferences';
 import { defaultSourceLabel, type DefaultHint } from '../graph/coreDefaults';
 import type { Diagnostic, SettingDefinition, SettingValue } from '../graph/types';
 
@@ -167,6 +169,9 @@ export function SettingField({
     shown = inherited ? '' : String(value ?? ''),
     placeholder = hint?.text ?? field.placeholder;
   const invalid = issues.some((i) => i.severity === 'error');
+  const referenceKey = field.key.replace(/^global-/, '');
+  const referenceKind = tagReferenceKind(referenceKey);
+  const label = tagReferenceLabel(referenceKey, field.label);
   const describedBy =
     [
       field.help && `${id}-help`,
@@ -185,11 +190,23 @@ export function SettingField({
     <div className="field" data-setting-key={field.key}>
       {(field.type !== 'boolean' || onInherit) && (
         <label htmlFor={id}>
-          {field.label}
+          {label}
           {field.required && <span>required</span>}
         </label>
       )}
-      {field.key === 'interface' ? (
+      {referenceKind ? (
+        <TagReferencePicker
+          id={id}
+          label={label}
+          kind={referenceKind}
+          multiple={field.key === 'selectorPrefixes'}
+          prefixes={field.key === 'selectorPrefixes'}
+          value={shown}
+          onChange={onChange}
+          aria-invalid={invalid}
+          aria-describedby={describedBy}
+        />
+      ) : field.key === 'interface' ? (
         <InterfaceSelect
           id={id}
           value={shown}

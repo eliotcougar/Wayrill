@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./PolicyGroupBasics": "./src/PolicyGroupBasics.tsx",
     "./OutputList": "./src/OutputList.tsx",
     "./OrderedEntries": "./src/OrderedEntries.tsx",
     "./usePointerDrag": "./src/usePointerDrag.ts",

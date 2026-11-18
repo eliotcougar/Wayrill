@@ -1,5 +1,6 @@
 import { jsonText, jsonArray, parseJson } from './xrayJson';
-import { generatedTag, generatedTagPrefixes, observedTag } from './tags';
+import { copyOutboundBundle, ProfileDialerTags } from '@wayrill/core/outboundReferences';
+import { generatedTag, generatedTagPrefixes, observedTag, ensureNodeTags } from './tags';
 import { LIMITS } from '../limits';
 import { compactSelectors, prefixMatches } from './prefixSelectors';
 import { nativeConfig } from './xrayNodes';
@@ -67,14 +68,14 @@ const groupFields: SettingDefinition[] = [
   },
   {
     key: 'selection',
-    label: 'Candidate selection',
+    label: 'Members from',
     type: 'select',
     options: ['manual', 'subscription', 'combined', 'prefixes'],
     defaultValue: 'manual',
     optionLabels: {
-      manual: 'Manual outbound set',
-      subscription: 'Filtered subscription groups',
-      combined: 'Subscriptions + manual set',
+      manual: 'Selected outbounds',
+      subscription: 'Subscription groups',
+      combined: 'Subscriptions and selected outbounds',
       prefixes: 'Native tag prefixes (advanced)',
     },
   },
@@ -162,9 +163,13 @@ const observerFields: SettingDefinition[] = [
     key: 'subjects',
     label: 'Observed destinations',
     type: 'select',
-    options: ['groups', 'prefixes'],
+    options: ['groups', 'prefixes', 'all'],
     defaultValue: 'groups',
-    optionLabels: { groups: 'Connected policy groups', prefixes: 'Native tag prefixes' },
+    optionLabels: {
+      groups: 'Connected policy groups',
+      prefixes: 'Selected outbounds',
+      all: 'All outbounds',
+    },
   },
   {
     key: 'selectorPrefixes',
@@ -442,7 +447,7 @@ export function editPolicyGraph(
       targetHandle: 'in',
     });
   }
-  return { ...graph, nodes, edges };
+  return ensureNodeTags({ ...graph, nodes, edges });
 }
 
 export function policyGraphProblems(graph: GraphState): Diagnostic[] {
@@ -506,7 +511,7 @@ export function compilePolicies(
   const availableByTag = new Map(available.map((o) => [o.tag, o]));
   const profileNodes = new Map<string, RuleNode>();
   const identities = new Map<string, string>(),
-    originalTags = new Map<string, Set<string>>();
+    originalTags = new ProfileDialerTags();
   const addProfile = (node: RuleNode, profile: import('../profiles/import').Profile) => {
     if (graph.nodes.some((n) => n.id === node.id))
       throw new Error('A graph node ID conflicts with an internal policy profile.');
@@ -516,12 +521,7 @@ export function compilePolicies(
       throw new Error('Policy profile identity collision; the outbound set was not changed.');
     identities.set(node.id, identity);
     profileNodes.set(node.id, node);
-    const original = String(profile.settings.tag ?? '');
-    if (original) {
-      const tags = originalTags.get(original) ?? new Set<string>();
-      tags.add(String(node.data.settings.tag));
-      originalTags.set(original, tags);
-    }
+    originalTags.add(String(profile.settings.tag ?? ''), String(node.data.settings.tag));
   };
   for (const group of groups) {
     const sources = readPolicySources(group.data);
@@ -532,19 +532,10 @@ export function compilePolicies(
       addProfile(node, sources.fallback.profile);
     }
   }
-  const dependencyTag = (tag: string, node: RuleNode) => {
-    const targets = new Set(originalTags.get(tag));
-    if (usedTags.has(tag)) targets.add(tag);
-    if (targets.size > 1)
-      throw new Error(
-        `${node.data.label}: dial-through tag ${tag} matches multiple selected configurations. Use distinct source tags.`,
-      );
-    if (!targets.size && !usedTags.has(tag))
-      throw new Error(
-        `${node.data.label}: dial-through destination ${tag} is missing from the outbound set and graph.`,
-      );
-    return [...targets][0] ?? tag;
-  };
+  const exactTags = new Set([
+    ...usedTags,
+    ...Array.from(profileNodes.values(), (n) => String(n.data.settings.tag)),
+  ]);
   const rewriteBundle = (node: RuleNode, tag: string) => {
     const native = node.data.native && availableByTag.get(node.data.settings.tag);
     const bundle = native
@@ -560,36 +551,10 @@ export function compilePolicies(
           generatedTag(tag.startsWith('wob-') ? 'woi' : 'wpi', node.id, i),
         ]),
     );
-    const rewrite = (v: unknown): unknown =>
-      jsonArray(v)
-        ? v.map(rewrite)
-        : jsonRecord(v)
-          ? Object.fromEntries(
-              Object.entries(v).map(([k, x]) => [
-                k,
-                (k === 'tag' || k === 'dialerProxy') && typeof x === 'string'
-                  ? (rename.get(x) ?? x)
-                  : typeof x === 'object'
-                    ? rewrite(x)
-                    : x,
-              ]),
-            )
-          : v;
-    for (const item of bundle.map((o) => rewrite(o) as Record<string, unknown>)) {
-      if (profileNodes.has(node.id)) {
-        const stream = item.streamSettings,
-          sock = jsonRecord(stream) ? stream.sockopt : undefined,
-          proxy = item.proxySettings;
-        if (
-          jsonRecord(sock) &&
-          typeof sock.dialerProxy === 'string' &&
-          !rename.has(sock.dialerProxy) &&
-          ![...rename.values()].includes(sock.dialerProxy)
-        )
-          sock.dialerProxy = dependencyTag(sock.dialerProxy, node);
-        if (jsonRecord(proxy) && typeof proxy.tag === 'string')
-          proxy.tag = dependencyTag(proxy.tag, node);
-      }
+    const resolve = profileNodes.has(node.id)
+      ? (tag: string) => originalTags.resolve(tag, exactTags.has(tag), node.data.label)
+      : undefined;
+    for (const item of copyOutboundBundle(bundle, rename, resolve)) {
       if (usedTags.has(String(item.tag)))
         throw new Error('Generated policy destination conflicts with an existing tag.');
       usedTags.add(String(item.tag));
@@ -779,7 +744,7 @@ export function compilePolicies(
     const data = observer.data,
       s = data.settings;
     const observerSubjects = subjectsByObserver.get(observer.id)!;
-    if (s.subjects !== 'prefixes' && !observerSubjects.length) {
+    if (s.subjects === 'groups' && !observerSubjects.length) {
       warnings.push(`${data.label}: no observed outbounds are connected; observation is inactive.`);
       continue;
     }
@@ -787,7 +752,11 @@ export function compilePolicies(
     if (problems.length)
       throw new Error(`${data.label}: ${problems.map((p) => p.message).join(' ')}`);
     const subjects =
-      s.subjects === 'prefixes' ? lines(s.selectorPrefixes) : [...new Set(observerSubjects)];
+      s.subjects === 'all'
+        ? ['']
+        : s.subjects === 'prefixes'
+          ? lines(s.selectorPrefixes)
+          : [...new Set(observerSubjects)];
     // Exact-path monitoring aliases are also required in native-prefix mode.
     // Prefixes continue to control native candidates; drawn paths stay observable.
     subjects.push(...observerSubjects.filter((tag) => tag.startsWith('wob-')));

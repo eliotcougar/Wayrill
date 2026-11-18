@@ -12,7 +12,8 @@ import { jsonArray, jsonRecord, parseJson } from '../graph/xrayJson';
 import { parsePoolBundle, type PoolBundle } from './model';
 import { resolvePoolDelivery, type PoolDelivery } from './delivery';
 import { validatePublishedGraph } from './validation';
-import type { PoolSource } from './PoolConnection';
+import { resolveGraphLinks } from './graphLinks';
+import { formatPoolInvitation, invitePattern, type PoolSource } from './invitation';
 import { parseGraph, toDocument } from '../graph/model';
 import { parseStash } from '../profiles/import';
 import { withPoolUser, type PoolUser } from './exports';
@@ -48,12 +49,12 @@ export type Publisher = {
   name: string;
   folder: string;
   url?: string;
+  subscriberFolder?: string;
   layers?: PoolLayer[];
   configurations: Configuration[];
   members: Member[];
 };
 const text = (value: unknown): value is string => typeof value === 'string';
-const invitePattern = /^wp1\.([0-9a-f]{32})\.([0-9a-f]{64})$/;
 export const memberGraphs = (member: Member) => [
   ...new Set([member.configurationId, ...(member.graphIds ?? [])].filter(Boolean)),
 ];
@@ -66,6 +67,7 @@ function isPublisher(value: unknown): value is Publisher {
     jsonRecord(value) &&
     [value.id, value.name, value.folder].every(text) &&
     (value.url === undefined || text(value.url)) &&
+    (value.subscriberFolder === undefined || text(value.subscriberFolder)) &&
     (value.layers === undefined ||
       (jsonArray(value.layers) &&
         value.layers.every(
@@ -124,7 +126,7 @@ export async function readPublishers(): Promise<Publisher[]> {
   )
     throw new Error('The protected Pool settings could not be read.');
   for (const pool of value.pools) {
-    for (const { bundle } of pool.configurations) parsePoolSettings(bundle.settings);
+    for (const { bundle } of pool.configurations) parsePoolBundle(bundle);
     for (const member of pool.members) parsePoolSettings(member.settings);
   }
   return value.pools;
@@ -196,7 +198,7 @@ export function prepareDelivery(
   const graphs = chosenGraphs.map((id) => {
     const graph = pool.configurations.find((item) => item.id === id);
     if (!graph) throw new Error('An assigned graph was removed.');
-    const base = parsePoolBundle(graph.bundle);
+    const base = resolveGraphLinks(parsePoolBundle(graph.bundle), pool.layers ?? []);
     return {
       id,
       bundle: personalize(
@@ -284,24 +286,27 @@ export async function publishMember(
   await invoke('pool_publish', { folder: pool.folder, recipient, text: output });
 }
 
-function invitationSource(pool: Publisher, member: Member): PoolSource {
+export function invitationDestination(pool: Publisher): Omit<PoolSource, 'invite'> {
   return {
     kind: pool.url ? 'url' : 'folder',
-    address: pool.url || pool.folder,
-    invite: member.invite,
+    address: pool.url || pool.subscriberFolder || pool.folder,
   };
 }
 
 export function copyPoolInvitation(pool: Publisher, member: Member) {
-  const { address, invite } = invitationSource(pool, member);
-  return navigator.clipboard.writeText(['Wayrill Pool invitation', address, invite].join('\n'));
+  return navigator.clipboard.writeText(
+    formatPoolInvitation({
+      ...invitationDestination(pool),
+      invite: member.invite,
+    }),
+  );
 }
 
 export function simulatePoolInvitation(pool: Publisher, member: Member) {
   return invoke<void>('pool_simulation_open', {
     setup: {
       user: member.name,
-      source: invitationSource(pool, member),
+      source: { ...invitationDestination(pool), invite: member.invite },
     },
   });
 }

@@ -18,7 +18,14 @@ import {
   setLayerUsers,
 } from './management';
 import { exportFile } from '../exportFile';
-import { NewLayer, DeleteLayer, DeliveryAction, DeliveryPreview } from './PoolManagementDialogs';
+import {
+  NewLayer,
+  DeleteLayer,
+  DeliveryAction,
+  DeliveryPreview,
+  InvitationReady,
+  DuplicateLayer,
+} from './PoolManagementDialogs';
 import PoolViews, { userCount, type PoolView } from './PoolViews';
 import PoolLayerAssignments from './PoolLayerAssignments';
 import PoolInbox from './PoolInbox';
@@ -37,7 +44,11 @@ import {
 import PoolUserDialog from './PoolUserDialog';
 import PoolFilterEditor from './PoolFilterEditor';
 import { PoolGraphEditor, PoolStashEditor } from './PoolLayerEditors';
-import type { PoolGraphStarter } from './graphLayer';
+import { openGraphLayer, type PoolGraphStarter } from './graphLayer';
+import { capturePoolGraph } from './model';
+import { resolveGraphLinks } from './graphLinks';
+import { isPoolShare } from './invitation';
+import { copyLayer, withPrivateStashes } from './copy';
 
 export type PoolModal =
   | { kind: 'settings'; pool?: Publisher }
@@ -50,11 +61,13 @@ export type PoolModal =
   | { kind: 'assign-layer'; id: string }
   | { kind: 'graph-settings'; id: string }
   | { kind: 'delete-layer'; id: string }
+  | { kind: 'duplicate-layer'; id: string }
   | { kind: 'delete-pool' }
   | { kind: 'withdraw'; member?: Member }
   | { kind: 'resume' }
   | { kind: 'rotate'; member: Member }
   | { kind: 'preview'; member: Member; allowPublish?: boolean }
+  | { kind: 'invitation'; memberId: string }
   | { kind: 'edit-graph'; id: string; name?: string; starter?: PoolGraphStarter }
   | { kind: 'edit-stash'; id: string; name?: string }
   | { kind: 'revoke'; member: Member }
@@ -95,6 +108,10 @@ export default function PoolWorkspace() {
   const firstDelivery = pool?.members.find(
     (member) => !!member.configurationId && !member.withdrawn,
   );
+  const invitation =
+    modal?.kind === 'invitation'
+      ? pool?.members.find(({ id }) => id === modal.memberId)
+      : undefined;
   const setup =
     pool && !pool.members.some((member) => !!member.publishedAt)
       ? !pool.configurations.length
@@ -313,6 +330,7 @@ export default function PoolWorkspace() {
         bundle={pool.configurations.find((item) => item.id === modal.id)?.bundle}
         name={modal.name}
         starter={modal.starter}
+        layers={pool.layers ?? []}
         onClose={close}
         onSave={async (bundle) => {
           const settings = pool.configurations.find((item) => item.id === id)?.bundle.settings;
@@ -335,13 +353,15 @@ export default function PoolWorkspace() {
       <header className="pool-top">
         <Waves size={21} aria-hidden="true" />
         <strong>Wayrill Pool</strong>
-        <button
-          className="secondary-button"
-          disabled={!pools || busy}
-          onClick={() => setModal({ kind: 'settings' })}
-        >
-          <Plus size={15} /> Create Pool
-        </button>
+        {!!pools?.length && (
+          <button
+            className="secondary-button"
+            disabled={!pools || busy}
+            onClick={() => setModal({ kind: 'settings' })}
+          >
+            <Plus size={15} /> Create Pool
+          </button>
+        )}
       </header>
       <aside className="pool-sidebar" aria-label="Pools">
         <h2>Pools</h2>
@@ -401,8 +421,8 @@ export default function PoolWorkspace() {
             {setup && (
               <section className="pool-setup notice" aria-label="First delivery setup">
                 <ol className="pool-setup-steps" aria-label="Setup steps">
-                  <li aria-current={setup === 'graph' ? 'step' : undefined}>Graph</li>
-                  <li aria-current={setup === 'user' ? 'step' : undefined}>User and access</li>
+                  <li aria-current={setup === 'graph' ? 'step' : undefined}>Routing graph</li>
+                  <li aria-current={setup === 'user' ? 'step' : undefined}>First user</li>
                   <li aria-current={setup === 'publish' ? 'step' : undefined}>
                     Publish and invite
                   </li>
@@ -411,17 +431,17 @@ export default function PoolWorkspace() {
                   <div>
                     <h2>
                       {setup === 'graph'
-                        ? 'Create the first graph'
+                        ? 'Choose a starting graph'
                         : setup === 'user'
                           ? 'Set up the first user'
                           : 'Publish the first delivery'}
                     </h2>
                     <p>
                       {setup === 'graph'
-                        ? 'Start with a wired graph, or bring in a graph exported to Pool from Wayrill.'
+                        ? 'The starter routes Proxy and TUN traffic directly. Design or import a graph if you want a server or rules in place first.'
                         : setup === 'user'
-                          ? 'Choose what this user receives. Add Stash or filter layers if their setup needs them.'
-                          : 'Review the first user’s delivery, then publish it and copy their invitation.'}
+                          ? 'Give the first user access to a graph. You can add more graphs, layers and server accounts later.'
+                          : 'Check what the first user will receive, then publish their invitation.'}
                     </p>
                   </div>
                   <div className="action-row">
@@ -432,14 +452,35 @@ export default function PoolWorkspace() {
                           disabled={busy}
                           onClick={() => fileInput.current?.click()}
                         >
-                          Import layer file…
+                          Import graph file…
+                        </button>
+                        <button
+                          className="secondary-button"
+                          disabled={busy}
+                          onClick={() => setModal({ kind: 'new-layer', firstGraph: true })}
+                        >
+                          Design graph…
                         </button>
                         <button
                           className="primary-button"
                           disabled={busy}
-                          onClick={() => setModal({ kind: 'new-layer', firstGraph: true })}
+                          onClick={() =>
+                            void run(async () => {
+                              const { graph, stash } = openGraphLayer(undefined, 'traffic');
+                              const bundle = capturePoolGraph('Main routing', graph, stash, []);
+                              await save(
+                                putLayer(pool, crypto.randomUUID(), {
+                                  kind: 'graph',
+                                  name: bundle.name,
+                                  bundle,
+                                }),
+                              );
+                              setView('users');
+                              setModal({ kind: 'user', firstDelivery: true });
+                            })
+                          }
                         >
-                          Create graph…
+                          Use starter graph
                         </button>
                       </>
                     ) : setup === 'user' ? (
@@ -454,7 +495,7 @@ export default function PoolWorkspace() {
                       >
                         {pool.members.some((item) => !item.withdrawn)
                           ? 'Choose a graph for the user…'
-                          : 'Set up user…'}
+                          : 'Add first user…'}
                       </button>
                     ) : (
                       firstDelivery && (
@@ -502,47 +543,49 @@ export default function PoolWorkspace() {
                 {failure}
               </p>
             )}
-            <PoolViews
-              key={pool.id + ':' + view}
-              view={view}
-              pool={pool}
-              busy={busy}
-              accountError={accountError}
-              open={setModal}
-              go={setView}
-              assignedLayer={
-                assignedLayer && assignedLayerId
-                  ? { id: assignedLayerId, name: assignedLayer.name }
-                  : undefined
-              }
-              showLayerUsers={(id) => {
-                setAssignedLayerId(id);
-                setView('users');
-              }}
-              clearLayerUsers={() => setAssignedLayerId(undefined)}
-              importFile={() => fileInput.current?.click()}
-              refresh={() =>
-                void run(async () => {
-                  const items = await readObservedServers();
-                  setServers(items);
-                  setAccountError('');
-                  setMessage(
-                    items.length
-                      ? 'Aquifer accounts refreshed.'
-                      : 'Read a server configuration in Aquifer to make its accounts available.',
-                  );
-                })
-              }
-              pending={pending}
-              publish={(members) => void run(() => publish(members))}
-              simulate={(member) => void run(() => simulatePoolInvitation(pool, member))}
-              copy={(member) =>
-                void run(async () => {
-                  await copyPoolInvitation(pool, member);
-                  setMessage(`Invitation for ${member.name} copied.`);
-                })
-              }
-            />
+            {!(setup === 'graph' && view === 'layers' && !pool.layers?.length) && (
+              <PoolViews
+                key={pool.id + ':' + view}
+                view={view}
+                pool={pool}
+                busy={busy}
+                accountError={accountError}
+                open={setModal}
+                go={setView}
+                assignedLayer={
+                  assignedLayer && assignedLayerId
+                    ? { id: assignedLayerId, name: assignedLayer.name }
+                    : undefined
+                }
+                showLayerUsers={(id) => {
+                  setAssignedLayerId(id);
+                  setView('users');
+                }}
+                clearLayerUsers={() => setAssignedLayerId(undefined)}
+                importFile={() => fileInput.current?.click()}
+                refresh={() =>
+                  void run(async () => {
+                    const items = await readObservedServers();
+                    setServers(items);
+                    setAccountError('');
+                    setMessage(
+                      items.length
+                        ? 'Aquifer accounts refreshed.'
+                        : 'Read a server configuration in Aquifer to make its accounts available.',
+                    );
+                  })
+                }
+                pending={pending}
+                publish={(members) => void run(() => publish(members))}
+                simulate={(member) => void run(() => simulatePoolInvitation(pool, member))}
+                copy={(member) =>
+                  void run(async () => {
+                    await copyPoolInvitation(pool, member);
+                    setMessage(`Invitation for ${member.name} copied.`);
+                  })
+                }
+              />
+            )}
           </>
         ) : (
           <section className="pool-empty">
@@ -550,7 +593,7 @@ export default function PoolWorkspace() {
             <h1>{pools ? 'Create your first Pool' : 'Wayrill Pool'}</h1>
             <p>
               {pools
-                ? 'Choose where to publish, then add layers and assign them to users.'
+                ? 'Choose where to publish, set up routing for one user, and give them an invitation.'
                 : failure
                   ? 'Could not open saved Pool settings.'
                   : 'Opening saved Pools…'}
@@ -668,17 +711,59 @@ export default function PoolWorkspace() {
           busy={busy}
           saveError={failure}
           onClose={close}
-          onSave={(member) =>
+          onSave={(member, privateStashes) =>
             void run(async () => {
+              const prepared = privateStashes ? withPrivateStashes(pool, member) : { pool, member };
+              member = prepared.member;
               await save({
-                ...pool,
+                ...prepared.pool,
                 members: modal.member
                   ? pool.members.map((item) => (item.id === member.id ? member : item))
                   : [...pool.members, member],
               });
-              setModal(undefined);
-              setMessage('User delivery saved.');
-              if (modal.firstDelivery) setView('publish');
+              if (modal.firstDelivery) {
+                setView('publish');
+                setModal({ kind: 'preview', member, allowPublish: true });
+              } else {
+                const copied = privateStashes
+                  ? prepared.pool.layers?.find(
+                      (layer) =>
+                        !pool.layers?.some(({ id }) => id === layer.id) &&
+                        layer.data.kind === 'stash',
+                    )
+                  : undefined;
+                setModal(copied ? { kind: 'edit-stash', id: copied.id } : undefined);
+                setMessage(
+                  copied
+                    ? 'User saved. Edit their copied Stash credentials, then save the Stash.'
+                    : 'User delivery saved.',
+                );
+              }
+            })
+          }
+        />
+      )}
+      {pool && managedLayer && modal?.kind === 'duplicate-layer' && (
+        <DuplicateLayer
+          pool={pool}
+          layer={managedLayer}
+          busy={busy}
+          failure={failure}
+          onClose={close}
+          onDuplicate={(name) =>
+            void run(async () => {
+              const copied = copyLayer(pool, modal.id, name);
+              await save(copied.pool);
+              setView('layers');
+              setModal({
+                kind:
+                  managedLayer.kind === 'graph'
+                    ? 'edit-graph'
+                    : managedLayer.kind === 'stash'
+                      ? 'edit-stash'
+                      : 'edit-filter',
+                id: copied.id,
+              });
             })
           }
         />
@@ -704,30 +789,65 @@ export default function PoolWorkspace() {
           pool={pool}
           member={modal.member}
           servers={servers}
+          busy={busy}
+          failure={failure}
           onClose={close}
-          onEdit={() => setModal({ kind: 'user', member: modal.member })}
+          onEdit={() => {
+            setFailure('');
+            setModal({ kind: 'user', member: modal.member, firstDelivery: !!setup });
+          }}
           onPublish={
             modal.allowPublish
-              ? () => {
-                  close();
-                  setView('publish');
-                  void run(() => publish([modal.member]));
-                }
+              ? () =>
+                  void run(async () => {
+                    await publish([modal.member]);
+                    setView('publish');
+                    setModal({ kind: 'invitation', memberId: modal.member.id });
+                  })
               : undefined
           }
         />
       )}
+      {pool && invitation && (
+        <InvitationReady
+          pool={pool}
+          member={invitation}
+          busy={busy}
+          failure={failure}
+          onClose={close}
+          onCopy={() =>
+            void run(async () => {
+              await copyPoolInvitation(pool, invitation);
+              setMessage(`Invitation for ${invitation.name} copied.`);
+            })
+          }
+          copied={message === `Invitation for ${invitation.name} copied.`}
+          onTest={() => void run(() => simulatePoolInvitation(pool, invitation))}
+        />
+      )}
       {pool && modal?.kind === 'edit-stash' && (
         <PoolStashEditor
+          key={modal.id}
+          name={
+            modal.name ?? pool.layers?.find((layer) => layer.id === modal.id)?.name ?? 'New Stash'
+          }
+          layers={(pool.layers ?? []).filter((layer) => layer.id !== modal.id)}
+          servers={servers}
           stash={(() => {
             const data = pool.layers?.find((item) => item.id === modal.id)?.data;
             return data?.kind === 'stash' ? data.stash : undefined;
           })()}
           onClose={close}
-          onSave={async (stash) => {
+          onSave={async (stash, moved) => {
             const name = modal.name ?? pool.layers?.find((item) => item.id === modal.id)?.name;
             if (!name) throw new Error('Choose a Stash layer name.');
-            await save(putLayer(pool, modal.id, { kind: 'stash', name, stash }));
+            let next = putLayer(pool, modal.id, { kind: 'stash', name, stash });
+            for (const [id, source] of moved) {
+              const layer = getLayer(pool, id);
+              if (!layer || layer.kind !== 'stash') throw new Error('A source Stash was removed.');
+              next = putLayer(next, id, { ...layer, stash: source });
+            }
+            await save(next);
             setModal(undefined);
             setMessage('Stash layer saved.');
           }}
@@ -767,26 +887,17 @@ export default function PoolWorkspace() {
               setMessage('Layer renamed.');
             })
           }
-          onDuplicate={() =>
-            void run(async () => {
-              const layer = getLayer(pool, modal.id);
-              if (!layer) return;
-              await save(
-                putLayer(pool, crypto.randomUUID(), {
-                  ...layer,
-                  name: layer.name.slice(0, 123) + ' copy',
-                }),
-              );
-              setModal(undefined);
-              setMessage('Layer duplicated.');
-            })
-          }
+          onDuplicate={() => setModal({ kind: 'duplicate-layer', id: modal.id })}
           onExport={() =>
             void run(async () => {
               const layer = getLayer(pool, modal.id);
+              const transfer =
+                layer?.kind === 'graph'
+                  ? { ...layer, bundle: resolveGraphLinks(layer.bundle, pool.layers ?? []) }
+                  : layer;
               if (
-                layer &&
-                (await exportFile('wayrill-pool-layer.json', JSON.stringify(layer, null, 2)))
+                transfer &&
+                (await exportFile('wayrill-pool-layer.json', JSON.stringify(transfer, null, 2)))
               ) {
                 setModal(undefined);
                 setMessage('Layer file exported.');
@@ -1058,17 +1169,25 @@ function PoolSettings({
 }: FormProps & {
   pool?: Publisher;
   onDelete?: () => void;
-  onSave: (value: Pick<Publisher, 'name' | 'folder' | 'url'>) => void;
+  onSave: (value: Pick<Publisher, 'name' | 'folder' | 'url' | 'subscriberFolder'>) => void;
 }) {
   const [name, setName] = useState(pool?.name ?? '');
   const [folder, setFolder] = useState(pool?.folder ?? '');
   const [url, setUrl] = useState(pool?.url ?? '');
+  const [share, setShare] = useState(pool?.subscriberFolder ?? '');
+  const [access, setAccess] = useState(
+    pool?.url ? 'https' : pool?.subscriberFolder ? 'share' : 'local',
+  );
   const [error, setError] = useState('');
   const [choosing, setChoosing] = useState(false);
   const locked = pool?.members.some(mayHaveDelivery);
   const save = () => {
     setError('');
-    if (url.trim()) {
+    if (access === 'share' && !isPoolShare(share.trim())) {
+      setError('Enter the network path of the Windows share.');
+      return;
+    }
+    if (access === 'https') {
       try {
         const value = new URL(url.trim());
         if (
@@ -1084,7 +1203,12 @@ function PoolSettings({
         return;
       }
     }
-    onSave({ name: name.trim(), folder: folder.trim(), url: url.trim() });
+    onSave({
+      name: name.trim(),
+      folder: folder.trim(),
+      url: access === 'https' ? url.trim() : undefined,
+      subscriberFolder: access === 'share' ? share.trim() : undefined,
+    });
   };
   return (
     <Dialog
@@ -1124,19 +1248,38 @@ function PoolSettings({
           onChange={(event) => setName(event.currentTarget.value)}
         />
       </label>
-      <label className="editor-field">
-        <span>Publishing folder</span>
-        <input
-          value={folder}
-          readOnly={!!locked}
-          maxLength={2048}
-          onChange={(event) => setFolder(event.currentTarget.value)}
-        />
-      </label>
+      <div className="pool-path-row">
+        <label className="editor-field">
+          <span>Publishing folder</span>
+          <input
+            value={folder}
+            readOnly={!!locked}
+            maxLength={2048}
+            onChange={(event) => setFolder(event.currentTarget.value)}
+          />
+        </label>
+        {!locked && (
+          <button
+            className="secondary-button"
+            disabled={busy || choosing}
+            onClick={() => {
+              setChoosing(true);
+              setError('');
+              void invoke<string | null>('pool_folder')
+                .then((value) => {
+                  if (value) setFolder(value);
+                })
+                .catch((reason: unknown) => setError(errorText(reason)))
+                .finally(() => setChoosing(false));
+            }}
+          >
+            Choose folder…
+          </button>
+        )}
+      </div>
       {!pool && (
         <p className="field-help">
-          Wayrill writes a separate encrypted delivery for each user here. Subscribers need read
-          access to the folder or its HTTPS URL.
+          Choose a local folder where Wayrill can write the encrypted deliveries.
         </p>
       )}
       {locked && (
@@ -1145,37 +1288,56 @@ function PoolSettings({
           invitations if their access address changes.
         </p>
       )}
-      {!locked && (
-        <button
-          className="secondary-button"
-          disabled={busy || choosing}
-          onClick={() => {
-            setChoosing(true);
+      <label className="editor-field">
+        <span>How will subscribers reach this Pool?</span>
+        <select
+          value={access}
+          onChange={(event) => {
+            setAccess(event.currentTarget.value);
             setError('');
-            void invoke<string | null>('pool_folder')
-              .then((value) => {
-                if (value) setFolder(value);
-              })
-              .catch((reason: unknown) => setError(errorText(reason)))
-              .finally(() => setChoosing(false));
           }}
         >
-          Choose folder…
-        </button>
-      )}
-      <label className="editor-field">
-        <span>Subscriber URL (optional)</span>
-        <input
-          value={url}
-          placeholder="https://example.com/pool/"
-          maxLength={2048}
-          onChange={(event) => setUrl(event.currentTarget.value)}
-        />
+          <option value="local">On this computer</option>
+          <option value="share">Through a Windows share</option>
+          <option value="https">Through HTTPS</option>
+        </select>
       </label>
-      <p className="field-help">
-        Invitations use this URL if the publishing folder is served over HTTPS. Otherwise they use
-        the folder path.
-      </p>
+      {access === 'share' && (
+        <>
+          <label className="editor-field">
+            <span>Network share address</span>
+            <input
+              value={share}
+              placeholder={'\\\\server\\WayrillPool'}
+              maxLength={2048}
+              onChange={(event) => {
+                setShare(event.currentTarget.value);
+                setError('');
+              }}
+            />
+          </label>
+          <p className="field-help">
+            Use the network path to the publishing folder. Subscribers need read access.
+          </p>
+        </>
+      )}
+      {access === 'https' && (
+        <>
+          <label className="editor-field">
+            <span>Subscriber URL</span>
+            <input
+              value={url}
+              placeholder="https://example.com/pool/"
+              maxLength={2048}
+              onChange={(event) => {
+                setUrl(event.currentTarget.value);
+                setError('');
+              }}
+            />
+          </label>
+          <p className="field-help">Use the HTTPS address that serves the publishing folder.</p>
+        </>
+      )}
       <Failure text={error || failure} />
     </Dialog>
   );

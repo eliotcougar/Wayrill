@@ -933,8 +933,8 @@ export default function ProtocolEditor({
           />
         </label>
         <p className="runtime-scope">
-          Unknown fields, aliases and ordered arrays are preserved. Keep the node tag in Properties.
-          Configurations and previews include credentials.
+          Unknown fields, aliases and ordered arrays are preserved. Node tags are managed
+          automatically. Configurations and previews include credentials.
         </p>
       </EditorTabPanel>
       <InvalidSettings

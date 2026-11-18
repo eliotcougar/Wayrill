@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { outboundDependencyProblems } from './outboundDependencies';
+import { remapOutboundReferences } from './outboundReferences';
 
 it.each(['xhttpSettings', 'splithttpSettings'])(
   'checks active %s download dependencies while preserving unused transport settings',
@@ -82,4 +83,34 @@ it('uses method in preference to network when selecting XHTTP download dependenc
   ]);
   Object.assign(streamSettings, { method: 'ws', network: 'xhttp' });
   expect(outboundDependencyProblems(config)).toEqual([]);
+});
+
+it('uses inherited socket settings for penetrated XHTTP downloads but renames dormant references', () => {
+  const downloadSettings = { sockopt: { dialerProxy: 'outer' } };
+  const headers = { tag: 'underlay', dialerProxy: 'outer' };
+  const outer = {
+    tag: 'outer',
+    protocol: 'vless',
+    streamSettings: {
+      network: 'xhttp',
+      sockopt: { penetrate: true, dialerProxy: 'underlay' },
+      xhttpSettings: { extra: { downloadSettings, headers } },
+    },
+  };
+  const config = { outbounds: [outer, { tag: 'underlay', protocol: 'freedom' }] };
+  expect(outboundDependencyProblems(config)).toEqual([]);
+  outer.streamSettings.sockopt.penetrate = false;
+  expect(outboundDependencyProblems(config)).toEqual([
+    { tag: 'outer', message: 'Dial-through settings lead to an outbound loop.' },
+  ]);
+  remapOutboundReferences(
+    outer,
+    new Map([
+      ['outer', 'copy'],
+      ['underlay', 'copy-underlay'],
+    ]),
+  );
+  expect(downloadSettings.sockopt.dialerProxy).toBe('copy');
+  expect(outer.streamSettings.sockopt.dialerProxy).toBe('copy-underlay');
+  expect(headers).toEqual({ tag: 'underlay', dialerProxy: 'outer' });
 });

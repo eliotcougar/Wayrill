@@ -48,10 +48,13 @@ import {
 } from '../graph/rules';
 import type { GraphState, RuleNode, RuleNodeData } from '../graph/types';
 import { jsonEqual } from '../graph/xrayJson';
+import TagReferencePicker from './TagReferencePicker';
+import { ensureNodeTags } from '../graph/tags';
+import { graphTagChoices } from '../graph/tagReferences';
 
 export default function RuleTableEditor({
   node,
-  graph,
+  graph: sourceGraph,
   resourceWarnings,
   onApply,
   onClose,
@@ -74,6 +77,11 @@ export default function RuleTableEditor({
   ) => void | Promise<void>;
   onClose: () => void;
 }) {
+  const graph = useMemo(() => ensureNodeTags(sourceGraph), [sourceGraph]);
+  const inboundNames = useMemo(
+    () => new Map(graphTagChoices(graph, 'inbound').map((choice) => [choice.tag, choice.name])),
+    [graph],
+  );
   const { save, saveError } = useEditorSave(onClose);
   const [expanded, setExpanded] = useState<{ key: string; label: string; value: string } | null>(
     null,
@@ -251,6 +259,23 @@ export default function RuleTableEditor({
     </option>
   ));
   const conditionField = (key: string, label: string, hint: string, list?: boolean) => {
+    if (key === 'inboundTag')
+      return (
+        <div className="editor-field" key={key} data-diagnostic-field={key}>
+          <label htmlFor="rule-condition-inboundTag">Inbound sources</label>
+          <TagReferencePicker
+            id="rule-condition-inboundTag"
+            label="Inbound sources"
+            kind="inbound"
+            graph={graph}
+            multiple
+            value={selectedRule?.conditions[key] ?? ''}
+            onChange={(value) =>
+              setRule({ conditions: { ...selectedRule!.conditions, [key]: value } })
+            }
+          />
+        </div>
+      );
     if (key === 'protocol') {
       const selectedProtocols = listEntries(selectedRule?.conditions.protocol ?? '');
       const options = [
@@ -516,7 +541,7 @@ export default function RuleTableEditor({
                             : poolManaged
                               ? 'Pool'
                               : '',
-                        ruleConditionSummary(rule),
+                        ruleConditionSummary(rule, inboundNames),
                       ]
                         .filter(Boolean)
                         .join(' · '),

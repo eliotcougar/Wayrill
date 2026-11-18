@@ -3,9 +3,13 @@ import { layerTargets, type LayerAssignment, type PoolTransfer } from './layers'
 import type { PoolBundle } from './model';
 import type { Member, Publisher } from './publisher';
 import { memberGraphs, memberLayers } from './publisher';
+import { graphLinks } from './graphLinks';
 
 export const usesLayer = (member: Member, id: string) =>
   memberGraphs(member).includes(id) || memberLayers(member).includes(id);
+
+export const graphsUsingLayer = (pool: Publisher, id: string) =>
+  pool.configurations.filter(({ bundle }) => graphLinks(bundle).some((link) => link.id === id));
 
 export const markDeliveryChanged = (member: Member): Member => ({
   ...member,
@@ -118,6 +122,7 @@ export function setLayerUsers(
 
 export function putLayer(pool: Publisher, id: string, layer: PoolTransfer): Publisher {
   const { name, ...data } = layer;
+  const dependentGraphs = new Set(graphsUsingLayer(pool, id).map((graph) => graph.id));
   const next: Publisher =
     data.kind === 'graph'
       ? {
@@ -131,12 +136,19 @@ export function putLayer(pool: Publisher, id: string, layer: PoolTransfer): Publ
   return {
     ...next,
     members: pool.members.map((member) =>
-      usesLayer(member, id) ? markDeliveryChanged(member) : member,
+      usesLayer(member, id) || memberGraphs(member).some((graph) => dependentGraphs.has(graph))
+        ? markDeliveryChanged(member)
+        : member,
     ),
   };
 }
 
 export function removeLayer(pool: Publisher, id: string, graphReplacement = ''): Publisher {
+  const linked = graphsUsingLayer(pool, id);
+  if (linked.length)
+    throw new Error(
+      `Unlink this layer from ${linked.map(({ bundle }) => bundle.name).join(', ')} before deleting it.`,
+    );
   if (
     graphReplacement === id ||
     (graphReplacement && !pool.configurations.some((item) => item.id === graphReplacement))

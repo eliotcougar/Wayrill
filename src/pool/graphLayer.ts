@@ -4,7 +4,13 @@ import { tableSettings } from '../graph/rules';
 import type { GraphState } from '../graph/types';
 import { parseStash, type Stash } from '../profiles/import';
 import { defaultGroup } from '../profiles/stashModel';
-import { capturePoolGraph, editablePoolGraph, poolInputs, type PoolBundle } from './model';
+import {
+  capturePoolGraph,
+  editablePoolGraph,
+  ensurePoolCapture,
+  poolInputs,
+  type PoolBundle,
+} from './model';
 
 export type GraphLayer = { graph: GraphState; stash: Stash };
 export type PoolGraphStarter = 'direct' | 'traffic';
@@ -69,5 +75,8 @@ export function openGraphLayer(
     );
   }
   const { graph } = editablePoolGraph(bundle);
-  return { graph: { ...graph, name: bundle.name }, stash: parseStash(bundle.stash) };
+  return {
+    graph: { ...(bundle.version === 3 ? graph : ensurePoolCapture(graph)), name: bundle.name },
+    stash: parseStash(bundle.stash),
+  };
 }

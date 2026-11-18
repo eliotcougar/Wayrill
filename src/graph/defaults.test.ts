@@ -16,6 +16,7 @@ import { inboundPreview } from './inbounds';
 import { outboundPreview } from './outbounds';
 import { compileDnsGraph } from './dnsCompilation';
 import { compileRuntimeGraph } from './runtime';
+import { preparedPreview } from '../profiles/preparedPreview';
 import { parseGraph, serializeGraph, toDocument, updateGraphNode } from './model';
 import {
   commitWorkspaceHistory,
@@ -149,6 +150,17 @@ describe('global defaults and explicit overrides', () => {
       streamSettings: { tlsSettings: { fingerprint: 'firefox' } },
     });
     expect(dns.outbounds.find((o) => o.tag === 'preferred')).toMatchObject({ protocol: 'freedom' });
+    const preview = preparedPreview(
+      g,
+      g.nodes.find((n) => n.id === 'preferred')!,
+    ).config;
+    const fragment = preview.outbounds.find((o) => o.protocol === 'freedom')!;
+    expect(preview.outbounds).toContainEqual(
+      expect.objectContaining({
+        protocol: 'vless',
+        tag: (fragment.streamSettings as { sockopt: { dialerProxy: string } }).sockopt.dialerProxy,
+      }),
+    );
     expect(outbounds.filter((o) => o.tag === 'preferred')).toHaveLength(1);
     expect(outbounds.filter((o) => o.tag === generatedTag('wri', 'preferred'))).toHaveLength(1);
   });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generatedTag } from './tags';
 import { createPolicyExample } from './policyExample';
 import { compileRuntimeGraph } from './runtime';
+import { createTestPlan } from '../outboundTestPlan';
 import { parseGraph, serializeGraph } from './model';
 import { makeNode } from './catalog';
 import { importProfiles } from '../profiles/import';
@@ -50,6 +51,65 @@ const selectors = (config: Record<string, unknown>) =>
   (config.routing as { balancers: { selector: string[] }[] }).balancers[0].selector;
 
 describe('internal outbound sources', () => {
+  it('links a subscription member’s separate XHTTP download to the selected profile in either order', () => {
+    const [outer, underlay] = subscription().entries;
+    const headers = { tag: 'underlay', dialerProxy: 'underlay' };
+    outer.profile = {
+      kind: 'xray-outbound',
+      settings: {
+        tag: 'outer',
+        json: JSON.stringify({
+          protocol: 'socks',
+          settings: { address: '192.0.2.1', port: 1080 },
+          streamSettings: {
+            network: 'xhttp',
+            xhttpSettings: {
+              extra: { headers, downloadSettings: { sockopt: { dialerProxy: 'underlay' } } },
+            },
+          },
+        }),
+      },
+    };
+    underlay.profile!.settings.tag = 'underlay';
+    for (const entries of [
+      [outer, underlay],
+      [underlay, outer],
+    ]) {
+      const graph = configure(
+        createPolicyExample(),
+        {
+          ...emptyPolicySources(),
+          manual: entries.map((entry) => policyProfile(entry)),
+          fallback: { type: 'node', nodeId: 'test-block' },
+        },
+        'manual',
+      );
+      const { config } = compileRuntimeGraph(graph);
+      const tags = selectors(config);
+      const [owner, via] = entries[0] === outer ? tags : [...tags].reverse();
+      expect(config.outbounds).toContainEqual(
+        expect.objectContaining({
+          tag: owner,
+          streamSettings: {
+            network: 'xhttp',
+            xhttpSettings: {
+              extra: { headers, downloadSettings: { sockopt: { dialerProxy: via } } },
+            },
+          },
+        }),
+      );
+      const job = createTestPlan({ graph, stash: stash([]), nodeIds: [groupNode(graph).id] });
+      expect(job.plan.rows[0].error).toBeUndefined();
+      const tested = job
+        .batch(job.plan.rows[0].targets)
+        .find((target) => target.outboundTag === owner)!;
+      expect(tested.config.outbounds).toEqual(
+        [owner, via].map((tag) =>
+          (config.outbounds as { tag: string }[]).find((o) => o.tag === tag),
+        ),
+      );
+    }
+  });
   it('preserves policy weights for imported node IDs that coincide with object property names', () => {
     const graph = createPolicyExample('leastLoad', 'burst'),
       group = groupNode(graph),

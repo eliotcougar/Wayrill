@@ -4,8 +4,9 @@ import useFieldValidity from '../components/useFieldValidity';
 import { poolSettingKeys, type PoolSettings } from '../graph/poolSettings';
 import { PoolSettingFields } from './PoolSettingFields';
 import { accountKey, observedAccount, type AccountRef, type ObservedServer } from './accounts';
-import PoolAccountPicker, { EditAccountEndpoint } from './PoolAccountPicker';
+import PoolAccountPicker, { EditAccount } from './PoolAccountPicker';
 import { retargetAssignments } from './management';
+import { graphLinks } from './graphLinks';
 import { layerNames, layerTargets, type LayerAssignment } from './layers';
 import {
   createPoolInvite,
@@ -34,7 +35,7 @@ export default function PoolUserDialog({
   busy: boolean;
   saveError: string;
   onClose: () => void;
-  onSave: (member: Member) => void;
+  onSave: (member: Member, privateStashes: boolean) => void;
 }) {
   const [name, setName] = useState(member?.name ?? '');
   const initialAccess = member ?? template;
@@ -52,13 +53,23 @@ export default function PoolUserDialog({
     initialAccess ? memberLayers(initialAccess) : [],
   );
   const [accounts, setAccounts] = useState<AccountRef[]>(member?.accounts ?? []);
-  const [settings, setSettings] = useState<PoolSettings>(member?.settings ?? {});
+  const [settings, setSettings] = useState<PoolSettings>(initialAccess?.settings ?? {});
+  const [privateStashes, setPrivateStashes] = useState(false);
   const settingsValidity = useFieldValidity();
   const [main, setMain] = useState(member?.mainAccount ?? '');
   const [keepLegacy, setKeepLegacy] = useState(!!member?.aquifer);
   const [endpoint, setEndpoint] = useState('');
   const [replacing, setReplacing] = useState<AccountRef>();
   const graph = pool.configurations.find((item) => item.id === configurationId);
+  const stashIds = new Set([
+    ...layerIds,
+    ...pool.configurations
+      .filter(({ id }) => graphIds.includes(id))
+      .flatMap(({ bundle }) => graphLinks(bundle).map(({ id }) => id)),
+  ]);
+  const hasStashes = pool.layers?.some(
+    (layer) => layer.data.kind === 'stash' && stashIds.has(layer.id),
+  );
   const targetsByLayer = useMemo(
     () =>
       new Map(
@@ -94,11 +105,11 @@ export default function PoolUserDialog({
         main !== (member?.mainAccount ?? '') ||
         keepLegacy !== !!member?.aquifer,
     };
-    onSave(next);
+    onSave(next, privateStashes && !!hasStashes);
   }
   return (
     <Dialog
-      title={member ? 'Edit user delivery' : 'Add user'}
+      title={firstDelivery ? 'Set up the first user' : member ? 'Edit user delivery' : 'Add user'}
       busy={busy}
       onClose={onClose}
       footer={
@@ -118,7 +129,7 @@ export default function PoolUserDialog({
               (firstDelivery && !configurationId)
             }
           >
-            {firstDelivery ? 'Save and continue to publishing' : 'Save user'}
+            {firstDelivery ? 'Review delivery' : 'Save user'}
           </button>
         </>
       }
@@ -134,8 +145,8 @@ export default function PoolUserDialog({
       </label>
       {template && (
         <p className="field-help">
-          Started with {template.name}’s graph and layer choices. This user gets a new invitation.
-          Assign their private server account below if needed.
+          Started with {template.name}’s graph, layer choices and app settings. This user gets a new
+          invitation. Assign their private server account below if needed.
         </p>
       )}
       {!!pool.members.some((item) => item.id !== member?.id) && (
@@ -167,59 +178,66 @@ export default function PoolUserDialog({
           </small>
         </label>
       )}
-      <fieldset className="pool-assignments" disabled={busy}>
-        <legend>Graphs this user can access</legend>
-        <p className="field-help">
-          Only selected graphs are delivered. The default is selected when the user connects.
-        </p>
-        {pool.configurations.map(({ id, bundle }) => (
-          <label key={id} className="check-control">
-            <input
-              type="checkbox"
-              checked={graphIds.includes(id)}
+      {firstDelivery && graph && pool.configurations.length === 1 ? (
+        <dl className="pool-summary">
+          <dt>Routing graph</dt>
+          <dd>{graph.bundle.name}</dd>
+        </dl>
+      ) : (
+        <fieldset className="pool-assignments" disabled={busy}>
+          <legend>Graphs this user can access</legend>
+          <p className="field-help">
+            Only selected graphs are delivered. The default is selected when the user connects.
+          </p>
+          {pool.configurations.map(({ id, bundle }) => (
+            <label key={id} className="check-control">
+              <input
+                type="checkbox"
+                checked={graphIds.includes(id)}
+                onChange={(event) => {
+                  const next = event.currentTarget.checked
+                    ? [...graphIds, id]
+                    : graphIds.filter((value) => value !== id);
+                  setGraphIds(next);
+                  if (!next.includes(configurationId)) {
+                    const defaultId = next[0] ?? '';
+                    setGraph(defaultId);
+                    setAssignments(
+                      retargetAssignments(
+                        pool,
+                        pool.configurations.find((item) => item.id === defaultId)?.bundle,
+                        assignments,
+                      ),
+                    );
+                  }
+                }}
+              />
+              {bundle.name}
+            </label>
+          ))}
+          <label className="editor-field">
+            <span>Default graph</span>
+            <select
+              value={configurationId}
               onChange={(event) => {
-                const next = event.currentTarget.checked
-                  ? [...graphIds, id]
-                  : graphIds.filter((value) => value !== id);
-                setGraphIds(next);
-                if (!next.includes(configurationId)) {
-                  const defaultId = next[0] ?? '';
-                  setGraph(defaultId);
-                  setAssignments(
-                    retargetAssignments(
-                      pool,
-                      pool.configurations.find((item) => item.id === defaultId)?.bundle,
-                      assignments,
-                    ),
-                  );
-                }
+                const id = event.currentTarget.value;
+                const next = pool.configurations.find((item) => item.id === id);
+                setGraph(id);
+                setAssignments((current) => retargetAssignments(pool, next?.bundle, current));
               }}
-            />
-            {bundle.name}
+            >
+              {!graphIds.length && <option value="">Select a graph above</option>}
+              {pool.configurations
+                .filter(({ id }) => graphIds.includes(id))
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.bundle.name}
+                  </option>
+                ))}
+            </select>
           </label>
-        ))}
-        <label className="editor-field">
-          <span>Default graph</span>
-          <select
-            value={configurationId}
-            onChange={(event) => {
-              const id = event.currentTarget.value;
-              const next = pool.configurations.find((item) => item.id === id);
-              setGraph(id);
-              setAssignments((current) => retargetAssignments(pool, next?.bundle, current));
-            }}
-          >
-            {!graphIds.length && <option value="">Select a graph above</option>}
-            {pool.configurations
-              .filter(({ id }) => graphIds.includes(id))
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.bundle.name}
-                </option>
-              ))}
-          </select>
-        </label>
-      </fieldset>
+        </fieldset>
+      )}
       {!graph && (
         <p className="field-help">
           {firstDelivery
@@ -228,87 +246,102 @@ export default function PoolUserDialog({
         </p>
       )}
       {!!pool.layers?.length && (
-        <fieldset className="pool-assignments">
-          <legend>Optional Stashes and filters</legend>
-          <p className="field-help">
-            Select which layers the subscriber can use. Set defaults for the layers that should be
-            active at enrollment.
-          </p>
-          {pool.layers.map((layer) => {
-            const assignment = assignments.find((item) => item.id === layer.id);
-            const isFilter = layer.data.kind !== 'stash';
-            const targets = targetsByLayer.get(layer.id) ?? [];
-            return (
-              <div key={layer.id} className="pool-assignment">
-                <label className="check-control">
-                  <input
-                    type="checkbox"
-                    checked={layerIds.includes(layer.id)}
-                    disabled={busy}
-                    onChange={(event) => {
-                      const checked = event.currentTarget.checked;
-                      setLayerIds((current) =>
-                        checked ? [...current, layer.id] : current.filter((id) => id !== layer.id),
-                      );
-                      if (!checked)
-                        setAssignments((current) => current.filter(({ id }) => id !== layer.id));
-                    }}
-                  />
-                  <span>
-                    {layer.name} <small>{layerNames[layer.data.kind]}</small>
-                  </span>
-                </label>
-                {layerIds.includes(layer.id) && !isFilter && (
+        <details className="editor-advanced" open={layerIds.length > 0 || undefined}>
+          <summary>Optional Stashes and filters</summary>
+          <fieldset className="pool-assignments" disabled={busy}>
+            <p className="field-help">
+              Select which layers the subscriber can use. Set defaults for the layers that should be
+              active at enrollment.
+            </p>
+            {pool.layers.map((layer) => {
+              const assignment = assignments.find((item) => item.id === layer.id);
+              const isFilter = layer.data.kind !== 'stash';
+              const targets = targetsByLayer.get(layer.id) ?? [];
+              return (
+                <div key={layer.id} className="pool-assignment">
                   <label className="check-control">
                     <input
                       type="checkbox"
-                      checked={!!assignment}
+                      checked={layerIds.includes(layer.id)}
+                      disabled={busy}
                       onChange={(event) => {
                         const checked = event.currentTarget.checked;
-                        setAssignments((current) =>
+                        setLayerIds((current) =>
                           checked
-                            ? [...current, { id: layer.id }]
-                            : current.filter(({ id }) => id !== layer.id),
+                            ? [...current, layer.id]
+                            : current.filter((id) => id !== layer.id),
                         );
+                        if (!checked)
+                          setAssignments((current) => current.filter(({ id }) => id !== layer.id));
                       }}
                     />
-                    Include by default
+                    <span>
+                      {layer.name} <small>{layerNames[layer.data.kind]}</small>
+                    </span>
                   </label>
-                )}
-                {isFilter && layerIds.includes(layer.id) && !!targets.length && (
-                  <select
-                    className="text-control"
-                    aria-label={`Destination for ${layer.name}`}
-                    value={
-                      targets.some((node) => node.id === assignment?.target)
-                        ? assignment?.target
-                        : ''
-                    }
-                    onChange={(event) => {
-                      const target = event.currentTarget.value;
-                      setAssignments((current) => [
-                        ...current.filter(
-                          (item) => item.id !== layer.id && (!target || item.target !== target),
-                        ),
-                        ...(target ? [{ id: layer.id, target }] : []),
-                      ]);
-                    }}
-                  >
-                    <option value="">Subscriber choice only</option>
-                    {targets.map((node) => (
-                      <option key={node.id} value={node.id}>
-                        {node.data.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {isFilter && layerIds.includes(layer.id) && graph && !targets.length && (
-                  <small className="field-help">No compatible filter in the default graph.</small>
-                )}
-              </div>
-            );
-          })}
-        </fieldset>
+                  {layerIds.includes(layer.id) && !isFilter && (
+                    <label className="check-control">
+                      <input
+                        type="checkbox"
+                        checked={!!assignment}
+                        onChange={(event) => {
+                          const checked = event.currentTarget.checked;
+                          setAssignments((current) =>
+                            checked
+                              ? [...current, { id: layer.id }]
+                              : current.filter(({ id }) => id !== layer.id),
+                          );
+                        }}
+                      />
+                      Include by default
+                    </label>
+                  )}
+                  {isFilter && layerIds.includes(layer.id) && !!targets.length && (
+                    <select
+                      className="text-control"
+                      aria-label={`Destination for ${layer.name}`}
+                      value={
+                        targets.some((node) => node.id === assignment?.target)
+                          ? assignment?.target
+                          : ''
+                      }
+                      onChange={(event) => {
+                        const target = event.currentTarget.value;
+                        setAssignments((current) => [
+                          ...current.filter(
+                            (item) => item.id !== layer.id && (!target || item.target !== target),
+                          ),
+                          ...(target ? [{ id: layer.id, target }] : []),
+                        ]);
+                      }}
+                    >
+                      <option value="">Subscriber choice only</option>
+                      {targets.map((node) => (
+                        <option key={node.id} value={node.id}>
+                          {node.data.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {isFilter && layerIds.includes(layer.id) && graph && !targets.length && (
+                    <small className="field-help">No compatible filter in the default graph.</small>
+                  )}
+                </div>
+              );
+            })}
+          </fieldset>
+        </details>
+      )}
+      {hasStashes && (
+        <label className="check-control">
+          <input
+            type="checkbox"
+            checked={privateStashes}
+            disabled={busy}
+            onChange={(event) => setPrivateStashes(event.currentTarget.checked)}
+          />
+          Make separate copies of this user’s Stashes to change their credentials
+        </label>
       )}
       <details
         className="editor-advanced"
@@ -344,6 +377,7 @@ export default function PoolUserDialog({
               <div className="pool-assignment" key={key}>
                 <div className="item-row">
                   <span className="item-content">
+                    {ref.stashName && <strong>{ref.stashName}</strong>}
                     {match
                       ? `${match.server.name} · ${match.account.inbound} · ${match.account.name}`
                       : (server?.name ?? 'Aquifer server') +
@@ -355,15 +389,13 @@ export default function PoolUserDialog({
                       </small>
                     )}
                   </span>
-                  {match && (
-                    <button
-                      className="secondary-button"
-                      aria-expanded={endpoint === key}
-                      onClick={() => setEndpoint(endpoint === key ? '' : key)}
-                    >
-                      Edit endpoint
-                    </button>
-                  )}
+                  <button
+                    className="secondary-button"
+                    aria-expanded={endpoint === key}
+                    onClick={() => setEndpoint(endpoint === key ? '' : key)}
+                  >
+                    Edit entry settings
+                  </button>
                   <button
                     className="secondary-button"
                     onClick={() => {
@@ -385,8 +417,8 @@ export default function PoolUserDialog({
                     Remove
                   </button>
                 </div>
-                {endpoint === key && match && (
-                  <EditAccountEndpoint
+                {endpoint === key && (
+                  <EditAccount
                     refValue={ref}
                     onClose={() => setEndpoint('')}
                     onSave={(updated) => {
@@ -440,9 +472,10 @@ export default function PoolUserDialog({
                   const match = observedAccount(servers, ref);
                   return (
                     <option key={accountKey(ref)} value={accountKey(ref)} disabled={!match}>
-                      {match
-                        ? `${match.server.name} · ${match.account.inbound} · ${match.account.name}`
-                        : 'Missing account'}
+                      {ref.stashName ??
+                        (match
+                          ? `${match.server.name} · ${match.account.inbound} · ${match.account.name}`
+                          : 'Missing account')}
                     </option>
                   );
                 })}

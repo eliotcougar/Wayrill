@@ -16,10 +16,11 @@ import { clearNodePosition } from '../graph/placement';
 import { editPolicyGraph } from '../graph/policies';
 import type { GraphState, RuleNode } from '../graph/types';
 import type { Stash } from '../profiles/import';
+import { nodeTag, ensureNodeTags } from '../graph/tags';
 
 export default function ProxyChainEditor({
-  node,
-  graph,
+  node: sourceNode,
+  graph: sourceGraph,
   stash,
   onApply,
   onClose,
@@ -32,10 +33,12 @@ export default function ProxyChainEditor({
   onClose: () => void;
   applyLabel?: string;
 }) {
+  const graph = useMemo(() => ensureNodeTags(sourceGraph), [sourceGraph]);
+  const node = graph.nodes.find((node) => node.id === sourceNode.id) ?? sourceNode;
   const dialog = useRef<HTMLDialogElement>(null);
   useModalDialog(dialog);
-  const [name, setName] = useState(node.data.label),
-    [tag, setTag] = useState(String(node.data.settings.tag));
+  const [name, setName] = useState(node.data.label);
+  const [tag] = useState(() => String(node.data.settings.tag || nodeTag(node.data, node.id)));
   const [chain, setChain] = useState(() => {
     try {
       return readProxyChain(node.data);
@@ -204,7 +207,7 @@ export default function ProxyChainEditor({
           <X size={18} />
         </button>
       </div>
-      <label className="editor-field policy-name-field">
+      <label className="editor-field policy-name-field policy-group-basics">
         <span>Name</span>
         <input
           autoComplete="off"
@@ -218,15 +221,6 @@ export default function ProxyChainEditor({
       <EditorTabPanels tabs={tabs} className="rule-editor-body policy-editor-body" inert={saving}>
         {tab === 'hops' && (
           <section className="policy-section">
-            <label className="editor-field">
-              <span>Outbound tag</span>
-              <input
-                autoComplete="off"
-                value={tag}
-                maxLength={128}
-                onChange={(e) => setTag(e.target.value)}
-              />
-            </label>
             <p className="field-help">
               This PC → first hop → last hop → destination. Drag to reorder, or use Alt + ↑ / ↓.
             </p>

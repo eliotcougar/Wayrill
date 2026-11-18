@@ -65,6 +65,41 @@ function addGroup(graph: GraphState, refs: string[], id = 'group') {
   return group;
 }
 describe('Interchangeable prepared outbounds', () => {
+  it('keeps XHTTP header data intact and puts the separate download socket through the chain', () => {
+    const { graph, b } = setup();
+    const downloadSettings = { network: 'raw', sockopt: { tcpNoDelay: true } };
+    b.data.kind = 'xray-outbound';
+    const config = {
+      protocol: 'socks',
+      settings: { address: '192.0.2.1', port: 1080 },
+      streamSettings: {
+        network: 'xhttp',
+        xhttpSettings: {
+          extra: {
+            headers: { tag: 'b', dialerProxy: 'b' },
+            downloadSettings,
+          },
+        },
+      },
+    };
+    b.data.settings = { tag: 'b', json: JSON.stringify(config) };
+    const before = JSON.stringify(graph);
+    const compiled = compileRuntimeGraph(graph).config;
+    const exit = outbound(compiled, 'exit');
+    const stream = exit.streamSettings as {
+      xhttpSettings: { extra: { headers: unknown; downloadSettings: { sockopt: unknown } } };
+    };
+    expect(stream.xhttpSettings.extra.headers).toEqual({ tag: 'b', dialerProxy: 'b' });
+    expect(stream.xhttpSettings.extra.downloadSettings.sockopt).toEqual({
+      tcpNoDelay: true,
+      dialerProxy: via(exit),
+    });
+    expect(via(exit)).toBeTruthy();
+    expect(JSON.stringify(graph)).toBe(before);
+    Object.assign(downloadSettings.sockopt, { dialerProxy: 'a' });
+    b.data.settings.json = JSON.stringify(config);
+    expect(() => compileRuntimeGraph(graph)).toThrow(/external dial-through/);
+  });
   it('flattens first-to-last hops without mutating source nodes or losing the public exit tag', () => {
     const { graph, chain, a, b } = setup();
     const before = JSON.stringify(graph);

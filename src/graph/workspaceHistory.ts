@@ -27,6 +27,7 @@ export function commitWorkspaceHistory(
     present = { ...present, viewportKey: history.present.viewportKey };
   if (
     history.present.stash === present.stash &&
+    jsonEqual(history.present.graph.poolLayerLinks, present.graph.poolLayerLinks) &&
     jsonEqual(toDocument(history.present.graph), toDocument(present.graph))
   )
     return { ...history, present };

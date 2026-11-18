@@ -10,10 +10,11 @@ import { errorText } from '../serviceClient';
 import type { ObservedServer } from './accounts';
 import { layerNames, type PoolTransfer } from './layers';
 import { usesLayer } from './management';
-import { prepareDelivery, type Member, type Publisher } from './publisher';
+import { invitationDestination, prepareDelivery, type Member, type Publisher } from './publisher';
 import { resolvePoolDelivery } from './delivery';
 import { PoolSettingSummary } from './PoolSettingFields';
 import type { PoolGraphStarter } from './graphLayer';
+import { availableLayerName } from './copy';
 
 type Form = { busy: boolean; failure: string; onClose: () => void };
 type LayerKind = keyof typeof layerNames;
@@ -22,6 +23,67 @@ export type NewLayerDraft =
   | { kind: 'graph'; name: string; starter: PoolGraphStarter }
   | { kind: 'stash'; name: string }
   | FilterLayer;
+
+export function DuplicateLayer({
+  pool,
+  layer,
+  busy,
+  failure,
+  onClose,
+  onDuplicate,
+}: Form & {
+  pool: Publisher;
+  layer: PoolTransfer;
+  onDuplicate: (name: string) => void;
+}) {
+  const [name, setName] = useState(() =>
+    availableLayerName(layer.name.slice(0, 123) + ' copy', [
+      ...pool.configurations.map(({ bundle }) => bundle.name),
+      ...(pool.layers ?? []).map((item) => item.name),
+    ]),
+  );
+  return (
+    <Dialog
+      title={'Duplicate ' + layer.name}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button className="secondary-button" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="primary-button"
+            disabled={busy || !name.trim()}
+            onClick={() => onDuplicate(name.trim())}
+          >
+            Create copy and edit
+          </button>
+        </>
+      }
+    >
+      <label className="editor-field">
+        <span>Layer name</span>
+        <input
+          autoFocus
+          value={name}
+          maxLength={128}
+          onChange={(event) => setName(event.currentTarget.value)}
+        />
+      </label>
+      <p className="field-help">
+        {layer.kind === 'stash'
+          ? 'The copy keeps the same servers, policy groups and chains. Edit its credentials, then assign it to the users who need them.'
+          : 'Edit the copy independently, then assign it to users or link it to a graph.'}
+      </p>
+      {failure && (
+        <p className="notice notice--error" role="alert">
+          {failure}
+        </p>
+      )}
+    </Dialog>
+  );
+}
 
 export function NewLayer({
   pool,
@@ -309,6 +371,8 @@ export function DeliveryPreview({
   pool,
   member,
   servers,
+  busy,
+  failure,
   onClose,
   onEdit,
   onPublish,
@@ -316,6 +380,8 @@ export function DeliveryPreview({
   pool: Publisher;
   member: Member;
   servers: readonly ObservedServer[];
+  busy: boolean;
+  failure: string;
   onClose: () => void;
   onEdit: () => void;
   onPublish?: () => void;
@@ -351,12 +417,13 @@ export function DeliveryPreview({
           };
         }),
         main: main?.data.label,
-        nodes: graph.nodes.length,
-        groups: parseStash(bundle.stash).groups.map(({ id, name, entries }) => ({
-          id,
-          name,
-          count: entries.length,
-        })),
+        groups: parseStash(bundle.stash)
+          .groups.filter(({ entries }) => entries.length)
+          .map(({ id, name, entries }) => ({
+            id,
+            name,
+            count: entries.length,
+          })),
       };
     } catch (reason) {
       return errorText(reason);
@@ -365,21 +432,23 @@ export function DeliveryPreview({
   return (
     <Dialog
       title={`Delivery for ${member.name}`}
+      busy={busy}
       onClose={onClose}
       footer={
         <>
-          <button className="secondary-button" onClick={onClose}>
-            Done
+          <button className="secondary-button" disabled={busy} onClick={onClose}>
+            {onPublish ? 'Cancel' : 'Done'}
           </button>
           <button
             className={typeof summary === 'string' ? 'primary-button' : 'secondary-button'}
+            disabled={busy}
             onClick={onEdit}
           >
             Edit delivery
           </button>
           {onPublish && typeof summary !== 'string' && (
-            <button className="primary-button" onClick={onPublish}>
-              Publish delivery
+            <button className="primary-button" disabled={busy} onClick={onPublish}>
+              {busy ? 'Publishing…' : 'Publish delivery'}
             </button>
           )}
         </>
@@ -393,25 +462,27 @@ export function DeliveryPreview({
         <>
           <dl className="pool-summary">
             <dt>Default graph</dt>
-            <dd>
-              {summary.name} · {summary.nodes} nodes
-            </dd>
+            <dd>{summary.name}</dd>
             <dt>Main outbound</dt>
             <dd>{summary.main || 'No Main outbound selected'}</dd>
           </dl>
-          <h3>Available graphs and layers</h3>
-          <ul>
-            {summary.graphs.map(({ id, name, byDefault }) => (
-              <li key={id}>
-                {name} · {byDefault ? 'Default graph' : 'Subscriber choice'}
-              </li>
-            ))}
-            {summary.layers.map(({ id, name, kind, usage }) => (
-              <li key={id}>
-                {name} · {kind} · {usage}
-              </li>
-            ))}
-          </ul>
+          {(summary.graphs.length > 1 || summary.layers.length > 0) && (
+            <>
+              <h3>Available graphs and layers</h3>
+              <ul>
+                {summary.graphs.map(({ id, name, byDefault }) => (
+                  <li key={id}>
+                    {name} · {byDefault ? 'Default graph' : 'Subscriber choice'}
+                  </li>
+                ))}
+                {summary.layers.map(({ id, name, kind, usage }) => (
+                  <li key={id}>
+                    {name} · {kind} · {usage}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {summary.graphs.some(({ settings }) => settings) && (
             <>
               <h3>Published app settings</h3>
@@ -425,19 +496,90 @@ export function DeliveryPreview({
                 ))}
             </>
           )}
-          <h3>Stash with defaults</h3>
-          {summary.groups.length ? (
-            <ul>
-              {summary.groups.map((group) => (
-                <li key={group.id}>
-                  {group.name} · {group.count} entries
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No Stash entries.</p>
+          {!!summary.groups.length && (
+            <>
+              <h3>Stash included by default</h3>
+              <ul>
+                {summary.groups.map((group) => (
+                  <li key={group.id}>
+                    {group.name} · {group.count} entries
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </>
+      )}
+      {failure && (
+        <p className="notice notice--error pool-operation-error" role="alert">
+          {failure}
+        </p>
+      )}
+    </Dialog>
+  );
+}
+
+export function InvitationReady({
+  pool,
+  member,
+  busy,
+  failure,
+  copied,
+  onClose,
+  onCopy,
+  onTest,
+}: Form & {
+  pool: Publisher;
+  member: Member;
+  copied: boolean;
+  onCopy: () => void;
+  onTest: () => void;
+}) {
+  const { kind, address } = invitationDestination(pool);
+  return (
+    <Dialog
+      title={`Invitation ready for ${member.name}`}
+      className="pool-dialog"
+      busy={busy}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="secondary-button" disabled={busy} onClick={onClose}>
+            Done
+          </button>
+          <button className="secondary-button" disabled={busy} onClick={onTest}>
+            Test as subscriber
+          </button>
+          <button className="primary-button" disabled={busy} onClick={onCopy}>
+            Copy invitation
+          </button>
+        </>
+      }
+    >
+      <p>
+        Send this invitation privately. {member.name} can paste it into{' '}
+        <strong>Tools → Connect to Pool</strong> in Wayrill.
+      </p>
+      <dl className="pool-summary">
+        <dt>{kind === 'url' ? 'Subscriber URL' : 'Subscriber folder'}</dt>
+        <dd>{address}</dd>
+      </dl>
+      {kind === 'folder' && (
+        <p className="field-help">
+          {pool.subscriberFolder
+            ? 'The subscriber needs read access to this network share.'
+            : 'This invitation uses a local path. For another computer, set a network share or HTTPS address in Pool settings.'}
+        </p>
+      )}
+      {copied && (
+        <p className="notice" role="status">
+          Invitation copied.
+        </p>
+      )}
+      {failure && (
+        <p className="notice notice--error" role="alert">
+          {failure}
+        </p>
       )}
     </Dialog>
   );

@@ -92,6 +92,18 @@ export function createRemoteNode(view: RemoteView, entryId: string) {
       },
     ];
   } else if (entryId === 'balancer') {
+    const block = outbounds.find(
+      (outbound) =>
+        jsonRecord(outbound) &&
+        typeof outbound.tag === 'string' &&
+        !!outbound.tag &&
+        ['blackhole', 'block'].includes(jsonText(outbound.protocol)),
+    );
+    const fallbackTag = jsonRecord(block) ? String(block.tag) : uniqueTag('block', tags);
+    if (!block)
+      config.outbounds = [...outbounds, { tag: fallbackTag, protocol: 'blackhole', settings: {} }];
+    if (!config.observatory && !config.burstObservatory)
+      config.observatory = { subjectSelector: [''] };
     id = `native-balancer-${groups.length}`;
     config.routing = {
       ...routing,
@@ -100,7 +112,8 @@ export function createRemoteNode(view: RemoteView, entryId: string) {
         {
           tag: uniqueTag('group', tags),
           selector: [],
-          strategy: { type: 'random' },
+          strategy: { type: 'leastPing' },
+          fallbackTag,
         },
       ],
     };

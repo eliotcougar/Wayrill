@@ -1,0 +1,43 @@
+.tag-reference {
+  min-width: 0;
+}
+
+.tag-reference-toggle {
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-reference-panel {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.tag-reference-list {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.tag-reference-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.tag-reference-choice > span {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tag-reference-choice small {
+  color: var(--text-muted);
+}

@@ -1,4 +1,4 @@
-import { FlaskConical, Plus, RefreshCw, Send } from 'lucide-react';
+import { Copy, FlaskConical, Plus, RefreshCw, Send } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { layerNames } from './layers';
 import { mayHaveDelivery, usesLayer } from './management';
@@ -165,6 +165,13 @@ export default function PoolViews({
                               : kind === 'stash'
                                 ? 'Edit Stash'
                                 : 'Edit rules'}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => open({ kind: 'duplicate-layer', id })}
+                          >
+                            <Copy size={15} /> Duplicate…
                           </button>
                           {(assignedCounts.get(id) ?? 0) > 0 && (
                             <button

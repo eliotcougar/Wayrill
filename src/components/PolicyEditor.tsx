@@ -1,4 +1,5 @@
 import AdvancedSettings from './AdvancedSettings';
+import PolicyGroupBasics from '@wayrill/ui/PolicyGroupBasics';
 import { testUrlSuggestions } from '../testUrlSuggestions';
 import { clearNodePosition } from '../graph/placement';
 import { policyDiagnosticTab } from '../graph/editorNavigation';
@@ -30,10 +31,12 @@ import {
   cachePolicyPreview,
   readPolicySources,
   emptyPolicySources,
-  policyProfileId,
+  blockPolicyFallback,
   type PolicySources,
 } from '../graph/policySources';
-import type { Stash, Profile } from '../profiles/import';
+import type { Stash } from '../profiles/import';
+import { generatedTag, ensureNodeTags } from '../graph/tags';
+import TagReferencePicker from './TagReferencePicker';
 import PolicySourcesEditor from './PolicySourcesEditor';
 import { referenceSummary } from './editorSummaries';
 import PolicyOutboundPicker from './PolicyOutboundPicker';
@@ -41,8 +44,8 @@ import { SettingField } from './SettingField';
 import { settingDefaultHint } from '../graph/defaults';
 
 export default function PolicyEditor({
-  node,
-  graph,
+  node: sourceNode,
+  graph: sourceGraph,
   stash,
   onApply,
   onClose,
@@ -55,12 +58,15 @@ export default function PolicyEditor({
   applyLabel?: string;
   onClose: () => void;
 }) {
+  const graph = useMemo(() => ensureNodeTags(sourceGraph), [sourceGraph]);
+  const node = graph.nodes.find((node) => node.id === sourceNode.id) ?? sourceNode;
   const requested = useRequestedDiagnostic();
   const [name, setName] = useState(node.data.label),
     [saveError, setSaveError] = useState(''),
     [saving, setSaving] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null),
     isGroup = node.data.kind === 'policy-group';
+  const needsTag = isGroup && !node.data.native && !node.data.settings.tag;
   const connected = graph.edges.find(
     (e) => e.source === node.id && e.sourceHandle === 'observation',
   );
@@ -69,6 +75,7 @@ export default function PolicyEditor({
     graph.nodes.find((n) => n.data.kind === 'observatory');
   const [settings, setSettings] = useState<RuleNodeData['settings']>(() => ({
     ...node.data.settings,
+    ...(needsTag ? { tag: generatedTag('pg', node.data.label.trim(), node.id) } : {}),
     ...(isGroup && graph.edges.some((e) => e.source === node.id && e.sourceHandle === 'observation')
       ? { observe: true }
       : {}),
@@ -92,7 +99,7 @@ export default function PolicyEditor({
     if (saved) result.data.settings = saved;
     return result;
   });
-  const [tab, setTab] = useState<'candidates' | 'strategy' | 'observation' | 'preview'>(
+  const [tab, setTab] = useState<'candidates' | 'observation' | 'preview'>(
     policyDiagnosticTab(node.data, requested),
   );
   const [sources, setSources] = useState<PolicySources>(() =>
@@ -181,6 +188,24 @@ export default function PolicyEditor({
       f = (
         observation ? policyDefinitions.find((n) => n.kind === 'observatory')! : definitions
       ).fields.find((n) => n.key === key)!;
+    if (key === 'selectorPrefixes')
+      return (
+        <div className="editor-field" key={key}>
+          <label htmlFor={`policy-${node.id}-${observation}-destinations`}>
+            {observation || !isGroup ? 'Observed outbounds' : 'Candidate outbounds'}
+          </label>
+          <TagReferencePicker
+            id={`policy-${node.id}-${observation}-destinations`}
+            label={observation || !isGroup ? 'Observed outbounds' : 'Candidate outbounds'}
+            kind="outbound"
+            graph={graph}
+            multiple
+            prefixes
+            value={String(d.settings[key] ?? '')}
+            onChange={(value) => (observation ? setObserverSetting(key, value) : set(key, value))}
+          />
+        </div>
+      );
     return (
       <SettingField
         key={key}
@@ -268,30 +293,19 @@ export default function PolicyEditor({
   useModalDialog(dialog);
   const tabs = useEditorTabs(
     (isGroup
-      ? (['candidates', 'strategy', 'observation', 'preview'] as const)
+      ? (['candidates', 'observation', 'preview'] as const)
       : (['observation', 'preview'] as const)
     ).map((key) => ({
       key,
       label: {
-        candidates: 'Outbound set',
-        strategy: 'Strategy',
-        observation: 'Observatory',
+        candidates: 'Members',
+        observation: isGroup ? 'Health checks' : 'Observatory',
         preview: 'Core preview',
       }[key],
     })),
     tab,
     setTab,
   );
-  const strategyDescription: Record<string, string> = {
-    random:
-      'Choose a candidate at random for each connection. With a fallback, Xray excludes candidates reported unhealthy; candidates without a report are initially eligible. Without a fallback, observations do not affect selection.',
-    roundRobin:
-      'Cycle through candidates for new connections. With a fallback, Xray excludes candidates reported unhealthy; candidates without a report are initially eligible. Without a fallback, observations do not affect selection.',
-    leastPing:
-      'Choose the alive candidate with the lowest observed latency. A shared observatory is required.',
-    leastLoad:
-      'Choose from candidates qualified by observed latency, deviation and optional failure-ratio limits. Burst sampling supplies failure statistics; this is not a live bandwidth meter.',
-  };
   return (
     <dialog
       ref={dialog}
@@ -318,16 +332,15 @@ export default function PolicyEditor({
         </button>
       </div>
       {isGroup && (
-        <label className="editor-field policy-name-field">
-          <span>Name</span>
-          <input
-            autoComplete="off"
-            value={name}
-            disabled={saving}
-            maxLength={128}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
+        <PolicyGroupBasics
+          name={name}
+          strategy={String(settings.strategy)}
+          disabled={saving}
+          onNameChange={(value) => {
+            setName(value);
+          }}
+          onStrategyChange={(mode) => set('strategy', mode)}
+        />
       )}
       <EditorTabs tabs={tabs} label="Policy editor sections" disabled={saving} />
       {isGroup && (
@@ -337,12 +350,6 @@ export default function PolicyEditor({
           aria-busy={preparation.pending}
         >
           <strong>{pool}</strong>
-          <span>
-            Strategy:{' '}
-            {definitions.fields.find((field) => field.key === 'strategy')?.optionLabels?.[
-              String(settings.strategy)
-            ] ?? String(settings.strategy)}
-          </span>
           <span>
             Fallback:{' '}
             {settings.fallbackEnabled
@@ -372,7 +379,34 @@ export default function PolicyEditor({
                   pristineEmpty={untouchedEmpty}
                   controls={
                     <>
-                      {field('tag')}
+                      <section
+                        className="policy-fallback"
+                        aria-label="Fallback selection"
+                        data-setting-key="fallbackEnabled"
+                        data-diagnostic-field="fallback"
+                      >
+                        <PolicyOutboundPicker
+                          single
+                          label="Fallback"
+                          fieldLabel="Fallback"
+                          excludeId={node.id}
+                          graph={graph}
+                          stash={stash}
+                          selected={settings.fallbackEnabled ? resolvedSources.fallback : undefined}
+                          presets={[
+                            { id: 'block', label: 'Block', reference: blockPolicyFallback() },
+                            { id: 'none', label: 'No fallback' },
+                          ]}
+                          onClear={() => set('fallbackEnabled', false)}
+                          onSelect={(fallback) => {
+                            set('fallbackEnabled', true);
+                            setSources((current) => ({ ...current, fallback }));
+                          }}
+                        />
+                        <p className="field-help">
+                          Used when no member is available. Block stops the connection.
+                        </p>
+                      </section>
                       {field('selection')}
                       {settings.selection === 'prefixes' && field('selectorPrefixes')}
                     </>
@@ -382,62 +416,13 @@ export default function PolicyEditor({
                     preparation.setQuery((q) => ({ ...q, page: 0 }));
                   }}
                 />
-                <section className="policy-fallback" aria-label="Fallback selection">
-                  <div className="editor-section-heading">Fallback</div>
-                  {field('fallbackEnabled')}
-                  {settings.fallbackEnabled && (
-                    <PolicyOutboundPicker
-                      single
-                      label="Choose fallback"
-                      excludeId={node.id}
-                      graph={graph}
-                      stash={stash}
-                      selected={resolvedSources.fallback ?? sources.fallback}
-                      onSelect={(fallback) => setSources((s) => ({ ...s, fallback }))}
-                      actions={
-                        <button
-                          className="secondary-button"
-                          onClick={() => {
-                            const profile: Profile = {
-                              kind: 'block-outbound',
-                              settings: { response: 'none' },
-                            };
-                            setSources((s) => ({
-                              ...s,
-                              fallback: {
-                                type: 'profile',
-                                id: policyProfileId(profile),
-                                name: 'Block',
-                                profile,
-                              },
-                            }));
-                          }}
-                        >
-                          Use Block fallback
-                        </button>
-                      }
-                    />
-                  )}
-                  <p className="field-help">
-                    Used when no candidate can be selected; failed connections are not retried.
-                  </p>
-                </section>
-              </>
-            )}
-            {tab === 'strategy' && (
-              <>
-                {field('strategy')}
-                <p className="notice">{strategyDescription[String(settings.strategy)]}</p>
-                {['random', 'roundRobin'].includes(String(settings.strategy)) &&
-                  (settings.fallbackEnabled ? (
-                    <p className="field-help">
-                      The fallback requires an observatory for native health filtering.
-                    </p>
-                  ) : (
-                    field('observe')
-                  ))}
                 {settings.strategy === 'leastLoad' && (
-                  <>
+                  <AdvancedSettings
+                    title="Selection tuning"
+                    configured={['expected', 'maxRTT', 'baselines', 'costs', 'tolerance'].filter(
+                      (key) => settings[key] !== definitions.defaults[key],
+                    )}
+                  >
                     <div className="editor-two-fields">
                       {field('expected')}
                       {field('maxRTT')}
@@ -447,18 +432,9 @@ export default function PolicyEditor({
                       With baselines and expected count zero, Xray uses the fallback when no
                       candidate meets a baseline.
                     </p>
-                    <AdvancedSettings
-                      title="Selection tuning"
-                      configured={['costs', 'tolerance'].filter(
-                        (key) =>
-                          settings[key] !==
-                          policyDefinitions.find((d) => d.kind === 'policy-group')!.defaults[key],
-                      )}
-                    >
-                      {field('tolerance')}
-                      {field('costs')}
-                    </AdvancedSettings>
-                  </>
+                    {field('tolerance')}
+                    {field('costs')}
+                  </AdvancedSettings>
                 )}
                 <AdvancedSettings
                   title="Native options"
@@ -473,10 +449,13 @@ export default function PolicyEditor({
             )}
             {tab === 'observation' && (
               <>
+                {isGroup &&
+                  !settings.fallbackEnabled &&
+                  ['random', 'roundRobin'].includes(String(settings.strategy)) &&
+                  field('observe')}
                 {isGroup && !observed ? (
                   <div className="notice">
-                    This strategy does not require observations. Enable “Observe candidate health”
-                    in Strategy to configure probes.
+                    Enable “Observe candidate health” to configure availability checks.
                   </div>
                 ) : (
                   <>

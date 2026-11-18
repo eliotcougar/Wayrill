@@ -21,9 +21,9 @@ import { isNativeDnsHandler } from './dns';
 import { compileDnsGraph } from './dnsCompilation';
 import { inboundPreview, isInboundKind, listenerEndpointKeys, inboundPreFilters } from './inbounds';
 import { diagnoseGraph, parseGraph, serializeGraph } from './model';
-import { xrayOutboundConfig } from './xrayCompiler';
+import { runtimeOutboundBundle } from './xrayCompiler';
 import { expandCompositeOutbounds, compositeDiagnostics } from './composites';
-import { isExecutableOutboundKind, outboundBundle } from './outbounds';
+import { isExecutableOutboundKind } from './outbounds';
 import { captureRuleVariants, hasCaptureOnlyApplications, type TableRule } from './rules';
 import { effectiveDefaults, factoryDefaults } from './defaults';
 import type { GraphState, RuleNode } from './types';
@@ -144,9 +144,7 @@ export function compileResolvedRuntimeGraph(source: GraphState): RuntimeCompilat
       throw new Error(
         `${node.data.label}: outbound tags must be unique, including the DNS handler.`,
       );
-    for (const outbound of node.data.kind === 'xray-outbound' || node.data.native
-      ? [xrayOutboundConfig(node.data)]
-      : outboundBundle(node.data))
+    for (const outbound of runtimeOutboundBundle(node.data))
       outbounds.set(String(outbound.tag), outbound);
     const via = String(node.data.settings.dialerProxy ?? '');
     if (

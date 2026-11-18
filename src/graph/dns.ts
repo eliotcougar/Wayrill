@@ -7,8 +7,8 @@ import { validateRuleSource, type RuleSource } from './ruleSourceModel';
 import { validateDnsSourceRow, type DnsSourceRow } from './dnsRuleSourceModel';
 import { LIMITS } from '../limits';
 import { resourceCompilationGraph } from './resources';
-import { dnsIpLiteral as literal, dnsAddressProblem } from './addressValidation';
-export { dnsAddressProblem } from './addressValidation';
+import { dnsIpLiteral as literal, dnsAddressProblem, isLocalResolver } from './addressValidation';
+export { dnsAddressProblem, isLocalResolver } from './addressValidation';
 import {
   fakeDnsServers,
   fakeDnsNodeProblems,
@@ -18,8 +18,9 @@ import {
 } from './fakeDns';
 import { compilePolicies } from './policies';
 import { domainProblem, ipProblem, listEntries, portRangeProblem } from './rules';
-import { nativeConfig } from './xrayNodes';
-import { isExecutableOutboundKind, outboundBundle, outboundProblems } from './outbounds';
+import { outboundReferences } from '@wayrill/core/outboundReferences';
+import { runtimeOutboundBundle } from './xrayCompiler';
+import { isExecutableOutboundKind, outboundProblems } from './outbounds';
 import { resolveGraph } from './defaults';
 import type {
   Diagnostic,
@@ -385,8 +386,6 @@ export function dnsOutputs(data: RuleNodeData): { id: string; name: string }[] {
 export const dnsUsesForward = (data: RuleNodeData) =>
   data.settings.policyDefault === 'forward' ||
   readDnsPolicies(data.settings).some((r) => r.enabled && r.action === 'forward');
-export const isLocalResolver = (address: string) =>
-  address === 'localhost' || /^(tcp|https|quic)\+local:\/\//i.test(address);
 type DnsDiagnosticContext = { graph: GraphState; nodeId: string };
 
 function hasHostnameBootstrap(host: string, context: DnsDiagnosticContext | undefined): boolean {
@@ -676,14 +675,17 @@ export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = 
     )
       throw new Error(`Outbound tag ${tag} must be unique, including the DNS handler.`);
     if (!outbounds.has(tag)) {
-      const bundle = data.kind === 'xray-outbound' ? [nativeConfig(data)] : outboundBundle(data);
+      const bundle = runtimeOutboundBundle(data);
+      const privateTags = new Set(bundle.filter((o) => o.tag !== tag).map((o) => o.tag));
       for (const outbound of bundle) outbounds.set(String(outbound.tag), outbound);
-      const native = data.kind === 'xray-outbound' ? nativeConfig(data) : undefined;
-      const via =
-        data.settings.dialerProxy ||
-        (native?.streamSettings as { sockopt?: { dialerProxy?: string } })?.sockopt?.dialerProxy ||
-        (native?.proxySettings as { tag?: string })?.tag;
-      if (via) {
+      const dependencies = new Set(
+        bundle.flatMap((outbound) =>
+          outboundReferences(outbound)
+            .filter((ref) => ref.namespace === 'outbound' && !privateTags.has(ref.tag))
+            .map((ref) => ref.tag),
+        ),
+      );
+      for (const via of dependencies) {
         const target = graph.nodes.find(
           (n) =>
             (isExecutableOutboundKind(n.data.kind) || n.data.kind === 'xray-outbound') &&
@@ -747,7 +749,7 @@ export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = 
           : { outboundTag: addOutbound(target.data) };
     }
     for (const [index, entry] of active.entries()) {
-      if (capturedSystemDns && entry.address === 'localhost')
+      if (capturedSystemDns && entry.address.toLowerCase() === 'localhost')
         throw new Error(
           `${group.data.label}: localhost uses Windows DNS, which returns to this captured handler. Use a real DNS server, or a local service address such as 127.0.0.1.`,
         );

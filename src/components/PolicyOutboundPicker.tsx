@@ -9,6 +9,7 @@ import type { Stash } from '../profiles/import';
 import { libraryRows, libraryTerm, searchLibrary } from '../profiles/library';
 import ResultPager from './ResultPager';
 import { searchText } from '../text';
+import { nodeReferenceDetail } from '../graph/tagReferences';
 
 export default function PolicyOutboundPicker({
   graph,
@@ -19,6 +20,9 @@ export default function PolicyOutboundPicker({
   single = false,
   actions,
   excludeId,
+  fieldLabel,
+  presets = [],
+  onClear,
 }: {
   graph: GraphState;
   stash: Stash;
@@ -28,12 +32,17 @@ export default function PolicyOutboundPicker({
   single?: boolean;
   actions?: ReactNode;
   excludeId?: string;
+  fieldLabel?: string;
+  presets?: { id: string; label: string; reference?: PolicyReference }[];
+  onClear?: () => void;
 }) {
   const [open, setOpen] = useState(false),
     [poolOpen, setPoolOpen] = useState(false),
     [query, setQuery] = useState(''),
     [groupId, setGroupId] = useState(''),
     [page, setPage] = useState(0);
+  const [graphQuery, setGraphQuery] = useState('');
+  const graphTerm = searchText(graphQuery);
   const deferred = useDeferredValue(libraryTerm(query)),
     pending = deferred !== libraryTerm(query);
   const indexed = useMemo(() => (open ? libraryRows(stash.groups) : []), [open, stash]);
@@ -54,8 +63,9 @@ export default function PolicyOutboundPicker({
     );
   }, [graph, deferred, poolOpen]);
   const poolPage = Math.min(page, Math.max(0, Math.ceil(poolMatches.length / 30) - 1));
-  const select = (reference: PolicyReference) => {
-    onSelect(reference);
+  const select = (reference?: PolicyReference) => {
+    if (reference) onSelect(reference);
+    else onClear?.();
     if (single) {
       setOpen(false);
       setPoolOpen(false);
@@ -67,21 +77,47 @@ export default function PolicyOutboundPicker({
       ? selected.nodeId
       : '__current__'
     : '';
+  const preset = presets.find(({ reference }) =>
+    !reference
+      ? !selected
+      : reference.type === 'profile' &&
+        selected?.type === 'profile' &&
+        !selected.source &&
+        selected.name === reference.name &&
+        reference.id === selected.id,
+  );
   return (
     <div className="policy-picker">
       <div className="form-row policy-picker-actions">
         <label className="editor-field">
-          <span>{label} from graph</span>
+          <span>{fieldLabel ?? label + ' from graph'}</span>
+          <input
+            type="search"
+            aria-label={`Search ${label.toLowerCase()} in graph`}
+            placeholder="Search graph outbounds…"
+            value={graphQuery}
+            onChange={(e) => setGraphQuery(e.target.value)}
+          />
           <select
-            value={selectionValue}
+            value={preset ? 'preset:' + preset.id : selectionValue}
             aria-label={`${label} from graph`}
             onChange={(e) => {
+              const preset = presets.find(({ id }) => 'preset:' + id === e.target.value);
+              if (preset) {
+                select(preset.reference);
+                return;
+              }
               if (e.target.value && e.target.value !== '__current__')
                 select({ type: 'node', nodeId: e.target.value });
             }}
           >
-            <option value="">Choose an outbound…</option>
-            {selectionValue === '__current__' && selected && (
+            {presets.map(({ id, label }) => (
+              <option key={id} value={'preset:' + id}>
+                {label}
+              </option>
+            ))}
+            {!presets.length && <option value="">Choose an outbound…</option>}
+            {selectionValue === '__current__' && !preset && selected && (
               <option value="__current__">
                 {selected.type === 'profile'
                   ? selected.name
@@ -91,10 +127,24 @@ export default function PolicyOutboundPicker({
               </option>
             )}
             {graph.nodes
-              .filter((n) => n.id !== excludeId && isXrayOutbound(n))
+              .filter(
+                (n) =>
+                  n.id !== excludeId &&
+                  isXrayOutbound(n) &&
+                  (n.id === selectionValue ||
+                    !graphTerm ||
+                    searchText(n.data.label + ' ' + nodeReferenceDetail(n, graph)).includes(
+                      graphTerm,
+                    )),
+              )
               .map((node) => (
                 <option value={node.id} key={node.id}>
-                  {node.data.label} · {String(node.data.settings.tag)}
+                  {node.data.label}
+                  {graph.nodes.some(
+                    (other) => other.id !== node.id && other.data.label === node.data.label,
+                  )
+                    ? ' · ' + nodeReferenceDetail(node, graph)
+                    : ''}
                 </option>
               ))}
           </select>

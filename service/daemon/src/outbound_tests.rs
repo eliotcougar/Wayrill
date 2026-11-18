@@ -657,8 +657,11 @@ fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
             "Only outbound, routing, DNS, policy and observation settings are accepted for tests.",
         ));
     }
+    // The private probe rule precedes imported DNS and loopback routes.
+    // Give this listener its own identity so those routes can still use theirs.
+    let inbound_tag = crate::tun::random_id()?;
     config["log"] = json!({"loglevel":"none","access":"none"});
-    config["inbounds"] = json!([{"tag":"wti","listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
+    config["inbounds"] = json!([{"tag":inbound_tag,"listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
     config = normalize_config(config)?;
     let outputs = config["outbounds"]
         .as_array()
@@ -673,7 +676,6 @@ fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
         return Err(invalid("TUN outbounds cannot be tested in isolation."));
     }
     config["log"] = json!({"loglevel":"none","access":"none"});
-    config["inbounds"] = json!([{"tag":"wti","listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
     if config["routing"].is_null() {
         config["routing"] = json!({});
     }
@@ -685,7 +687,7 @@ fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
         .ok_or_else(|| invalid("Invalid test routing rules."))?
         .insert(
             0,
-            json!({"type":"field","inboundTag":["wti"],"outboundTag":target.outbound_tag}),
+            json!({"type":"field","inboundTag":[inbound_tag],"outboundTag":target.outbound_tag}),
         );
     normalize_config(config)
 }
@@ -767,7 +769,7 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
         })
         .transpose()?;
     if let Some(udp_port) = udp_port {
-        udp::add_inbound(&mut config, udp_port, &password, &target.outbound_tag);
+        udp::add_inbound(&mut config, udp_port, &password, &target.outbound_tag)?;
     }
     let policy_source = (mode != Mode::Latency).then(|| config.clone());
     bind_probe(&mut config, egress)?;
@@ -1139,16 +1141,28 @@ mod tests {
         let target = Target {
             id: "a".into(),
             outbound_tag: "direct".into(),
-            config: json!({"outbounds":[{"tag":"direct","protocol":"freedom","settings":{}}],"routing":{"rules":[{"type":"field","inboundTag":["hop"],"outboundTag":"direct"}]}}),
+            config: json!({"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"deny","protocol":"blackhole"}],"routing":{"rules":[{"type":"field","inboundTag":["wti","wtu"],"outboundTag":"deny"}]}}),
         };
-        let config = test_config(&target, 18777, "private").unwrap();
+        let mut config = test_config(&target, 18777, "private").unwrap();
+        udp::add_inbound(&mut config, 18778, "private", "direct").unwrap();
         assert_eq!(config["inbounds"][0]["listen"], "127.0.0.1");
         assert_eq!(
             config["inbounds"][0]["settings"]["accounts"][0]["pass"],
             "private"
         );
-        assert_eq!(config["routing"]["rules"][1]["inboundTag"][0], "hop");
-        assert_eq!(config["routing"]["rules"][0]["outboundTag"], "direct");
+        let rules = config["routing"]["rules"].as_array().unwrap();
+        assert_eq!(rules[2]["inboundTag"], json!(["wti", "wtu"]));
+        for (rule, listener) in rules
+            .iter()
+            .zip(config["inbounds"].as_array().unwrap().iter().rev())
+        {
+            assert_eq!(rule["inboundTag"][0], listener["tag"]);
+            assert_eq!(rule["outboundTag"], "direct");
+            assert!(!rules[2]["inboundTag"]
+                .as_array()
+                .unwrap()
+                .contains(&listener["tag"]));
+        }
         let target = Target {
             config: json!({"inbounds":[],"outbounds":[]}),
             ..target

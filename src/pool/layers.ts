@@ -9,8 +9,8 @@ import { poolFilterTargets, poolOutputMap, withPoolFilter, type FilterExport } f
 import { remapSourceOutputs } from '../graph/ruleSourceRemap';
 import {
   parsePoolBundle,
+  editablePoolGraph,
   publishedTrafficTable,
-  readPortableGraph,
   type PoolBundle,
 } from './model';
 import { readRuleTable, tableSettings } from '../graph/rules';
@@ -34,11 +34,11 @@ export function isBundle(value: unknown): value is PoolBundle {
   return (
     jsonRecord(value) &&
     value.format === 'wayrill.pool' &&
-    (value.version === 1 || value.version === 2) &&
+    (value.version === 1 || value.version === 2 || value.version === 3) &&
     typeof value.name === 'string' &&
     typeof value.graph === 'string' &&
     typeof value.stash === 'string' &&
-    (value.version === 2 || jsonRecord(value.routes))
+    (value.version !== 1 || jsonRecord(value.routes))
   );
 }
 
@@ -74,7 +74,7 @@ export function parseTransfer(text: string): PoolTransfer {
   const { name } = value;
   if (value.kind === 'graph' && isBundle(value.bundle)) {
     const bundle = parsePoolBundle(value.bundle);
-    readPortableGraph(bundle.graph, bundle.version === 1 ? bundle.routes : undefined);
+    editablePoolGraph(bundle);
     parseStash(bundle.stash);
     return { name, kind: 'graph', bundle };
   }

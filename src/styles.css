@@ -25,4 +25,5 @@
 @import url('./connections.css');
 @import url('./stash.css');
 @import url('./components/TunAdapterSettings.css');
+@import url('./components/TagReferencePicker.css');
 @import url('./accessibility.css');

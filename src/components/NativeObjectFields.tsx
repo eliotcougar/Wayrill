@@ -1,5 +1,7 @@
 import AdvancedSettings from './AdvancedSettings';
 import InterfaceSelect from './InterfaceSelect';
+import TagReferencePicker from './TagReferencePicker';
+import { tagReferenceKind, tagReferenceLabel } from '../graph/tagReferences';
 import { configuredFieldLabels, isBasicSetting } from '../graph/settingsLayout';
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
@@ -55,10 +57,23 @@ function NativeControl({
     [!draft && `${id}-default`, field.help && `${id}-help`, error && `${id}-error`]
       .filter(Boolean)
       .join(' ') || undefined;
+  const label = tagReferenceLabel(field.key, field.label);
   return (
-    <label className="editor-field" htmlFor={id}>
-      <span id={`${id}-label`}>{field.label}</span>
-      {field.key === 'interface' ? (
+    <div className="editor-field">
+      <label htmlFor={id} id={`${id}-label`}>
+        {label}
+      </label>
+      {tagReferenceKind(field.key) ? (
+        <TagReferencePicker
+          id={id}
+          label={label}
+          kind={tagReferenceKind(field.key)!}
+          value={draft}
+          onChange={change}
+          aria-invalid={!!error}
+          aria-describedby={describedBy}
+        />
+      ) : field.key === 'interface' ? (
         <InterfaceSelect
           id={id}
           value={draft}
@@ -157,7 +172,7 @@ function NativeControl({
           {error}
         </small>
       )}
-    </label>
+    </div>
   );
 }
 export default function NativeObjectFields({

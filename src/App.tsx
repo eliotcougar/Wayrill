@@ -86,6 +86,7 @@ import XrayImportDialog from './components/XrayImportDialog';
 import CaptureEditor from './components/CaptureEditor';
 import SystemCaptureSettings from './components/SystemCaptureSettings';
 import Inspector from './components/Inspector';
+import { TagGraphContext } from './components/TagReferencePicker';
 import MenuBar, { type Menu } from './components/MenuBar';
 import NodePalette from './components/NodePalette';
 import RuleNode from './components/RuleNode';
@@ -186,6 +187,11 @@ type LayerWorkspace = {
   stash: import('./profiles/import').Stash;
   onSave: (graph: GraphState, stash: import('./profiles/import').Stash) => Promise<void>;
   onClose: () => void;
+  onEditLayers?: (
+    graph: GraphState,
+    stash: Stash,
+    apply: (graph: GraphState, stash: Stash) => void,
+  ) => void;
 };
 
 type SimulationWorkspace = Pick<LayerWorkspace, 'graph' | 'stash'> & {
@@ -309,7 +315,7 @@ export default function App({
   const [tunAdaptersOpen, setTunAdaptersOpen] = useState(false);
   const [defaultsOpen, setDefaultsOpen] = useState(false);
   const [defaultsSection, setDefaultsSection] = useState<string | undefined>();
-  const [windowsCaptureOpen, setWindowsCaptureOpen] = useState(false);
+  const [windowsCaptureOpen, setWindowsCaptureOpen] = useState<boolean | 'applied'>(false);
   const [connectionRequest, setConnectionRequest] = useState<ConnectionRequest | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingGraph, setEditingGraph] = useState<GraphState | null>(null);
@@ -1413,6 +1419,7 @@ export default function App({
                               ? runtime.snapshot?.config.revision
                               : undefined,
                             testsBusy: outboundTests.busy || outboundTests.open || !!poolTest,
+                            canReuseInbounds: !!runtime.snapshot?.config.present,
                             onTestGraph: (graph) => {
                               setPoolOpen(null);
                               setPoolTest({ graph, stash: stash.get() });
@@ -1420,6 +1427,10 @@ export default function App({
                             onOpenGraph: (graph) => {
                               editor.restoreWorkspace(graph, stash.get(), true);
                               setPoolOpen(null);
+                            },
+                            onOpenCaptureSettings: () => {
+                              setPoolOpen(null);
+                              setWindowsCaptureOpen('applied');
                             },
                             hasDifferentDraft: (graph) =>
                               !jsonEqual(toDocument(editor.getGraph()), toDocument(graph)),
@@ -1610,6 +1621,21 @@ export default function App({
                           </>
                         ) : layer ? (
                           <>
+                            {layer.onEditLayers && (
+                              <button
+                                className="secondary-button"
+                                disabled={savingLayer}
+                                onClick={() =>
+                                  layer.onEditLayers?.(
+                                    editor.getGraph(),
+                                    stash.get(),
+                                    editor.restoreWorkspace,
+                                  )
+                                }
+                              >
+                                Linked layers…
+                              </button>
+                            )}
                             <button
                               className="secondary-button"
                               disabled={savingLayer}
@@ -2371,18 +2397,20 @@ export default function App({
                         </Dialog>
                       )}
                       {defaultsOpen && (
-                        <GlobalDefaultsEditor
-                          initialSection={defaultsSection}
-                          graph={editor.graph}
-                          onApply={(defaults) => {
-                            requireGraphSave(editor.updateDefaults(defaults));
-                          }}
-                          onClose={() => {
-                            setDefaultsOpen(false);
-                            setDefaultsSection(undefined);
-                            setDiagnosticFocus(null);
-                          }}
-                        />
+                        <TagGraphContext.Provider value={{ graph: editor.graph }}>
+                          <GlobalDefaultsEditor
+                            initialSection={defaultsSection}
+                            graph={editor.graph}
+                            onApply={(defaults) => {
+                              requireGraphSave(editor.updateDefaults(defaults));
+                            }}
+                            onClose={() => {
+                              setDefaultsOpen(false);
+                              setDefaultsSection(undefined);
+                              setDiagnosticFocus(null);
+                            }}
+                          />
+                        </TagGraphContext.Provider>
                       )}
                       {logsOpen && (
                         <DiagnosticsDialog
@@ -2566,7 +2594,7 @@ export default function App({
                       {windowsCaptureOpen && (
                         <SystemCaptureSettings
                           graph={editor.graph}
-                          compiled={graphCompilation}
+                          compiled={windowsCaptureOpen === 'applied' ? null : graphCompilation}
                           onRuntimeRefresh={runtime.refresh}
                           onApply={(next) =>
                             requireGraphSave(
@@ -2599,14 +2627,18 @@ export default function App({
                           />
                         ) : isProtocolKind(editingNode.data.kind) ||
                           ['xray-inbound', 'xray-outbound'].includes(editingNode.data.kind) ? (
-                          <ProtocolEditor
-                            key={editingNode.id}
-                            node={editingNode}
-                            automaticFakeDnsRecovery={automaticFakeDns(editor.graph)}
-                            defaults={editor.graph.defaults}
-                            onApply={saveNodeData}
-                            onClose={closeNodeEditor}
-                          />
+                          <TagGraphContext.Provider
+                            value={{ graph: editor.graph, ownerId: editingNode.id }}
+                          >
+                            <ProtocolEditor
+                              key={editingNode.id}
+                              node={editingNode}
+                              automaticFakeDnsRecovery={automaticFakeDns(editor.graph)}
+                              defaults={editor.graph.defaults}
+                              onApply={saveNodeData}
+                              onClose={closeNodeEditor}
+                            />
+                          </TagGraphContext.Provider>
                         ) : isNativeConfigEditor(editingNode.data.kind) ? (
                           editingNode.data.kind === 'xray-options' ? (
                             <CoreOptionsEditor

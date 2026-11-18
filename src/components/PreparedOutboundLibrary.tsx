@@ -6,7 +6,7 @@ import { stashEditorNode, snapshotGraphEntry } from '../profiles/workspace';
 import { useDeferredValue, useMemo, useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Copy, Pencil, LockKeyhole, LockKeyholeOpen } from 'lucide-react';
 import { libraryTerm } from '../profiles/library';
-import { makeNode } from '../graph/catalog';
+import { makeEditorNode } from '../graph/catalog';
 import { checkPrepared } from '../profiles/preparedPreviewClient';
 import { boundedText } from '../text';
 import type { GraphState, RuleNode, StashLink } from '../graph/types';
@@ -72,7 +72,7 @@ export default function PreparedOutboundLibrary({
     const node =
       entry && (entry.profile || entry.draft)
         ? stashEditorNode(entry, context, id)
-        : makeNode(kind, { x: 0, y: 0 }, id);
+        : makeEditorNode(kind, { x: 0, y: 0 }, id);
     setEditing({
       node,
       graph: { ...context, nodes: [...context.nodes, node] },

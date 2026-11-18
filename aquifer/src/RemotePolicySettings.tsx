@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import PolicyGroupBasics, { policyGroupModes } from '@wayrill/ui/PolicyGroupBasics';
 import { jsonArray, jsonText } from './graph/xrayJson';
 import { get, objectAt, setProperty } from './nativeProperties';
 import type { RouteDestination, Settings } from './routingEditor';
@@ -74,58 +75,40 @@ export default function RemotePolicySettings({
     fallback = jsonText(get(value, 'fallbackTag') ?? '');
   return (
     <div className="server-inbound-editor">
-      <div className="field-grid server-fields-grid">
-        <label className="editor-field" data-setting-path="tag">
-          Group tag
-          <input
-            className="text-control"
-            aria-label="Group tag"
-            value={jsonText(get(value, 'tag') ?? '')}
-            onChange={(event) =>
-              onChange(setProperty(value, 'tag', event.target.value || undefined))
-            }
-          />
-        </label>
-        <label className="editor-field">
-          Selection strategy
-          <select
-            className="text-control"
-            aria-label="Selection strategy"
-            value={type}
-            onChange={(event) =>
-              onChange(
-                setProperty(
-                  value,
-                  'strategy',
-                  setProperty(strategy, 'type', event.target.value || undefined),
-                ),
-              )
-            }
-          >
-            <option value="">Random (default)</option>
-            {[
-              ...new Set([
-                'random',
-                'roundrobin',
-                'leastping',
-                'leastload',
-                ...(type ? [type] : []),
-              ]),
-            ].map((name) => (
-              <option key={name} value={name}>
-                {(
-                  {
-                    random: 'Random',
-                    roundrobin: 'Round robin',
-                    leastping: 'Least ping',
-                    leastload: 'Least load',
-                  } as Record<string, string>
-                )[name] ?? name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <PolicyGroupBasics
+        name={jsonText(get(value, 'tag') ?? '')}
+        strategy={
+          policyGroupModes.find(({ value }) => value.toLowerCase() === type)?.value ??
+          (type || 'random')
+        }
+        onNameChange={(name) => onChange(setProperty(value, 'tag', name || undefined))}
+        onStrategyChange={(mode) =>
+          onChange(
+            setProperty(value, 'strategy', setProperty(strategy, 'type', mode.toLowerCase())),
+          )
+        }
+      />
+      <label className="editor-field" data-setting-path="fallbackTag">
+        Fallback outbound
+        <select
+          className="text-control"
+          aria-label="Fallback outbound"
+          value={fallback}
+          onChange={(event) =>
+            onChange(setProperty(value, 'fallbackTag', event.target.value || undefined))
+          }
+        >
+          <option value="">No fallback</option>
+          {fallback && !options.some(({ tag }) => tag === fallback) && (
+            <option value={fallback}>Unavailable: {fallback}</option>
+          )}
+          {options.map(({ tag }) => (
+            <option key={tag} value={tag}>
+              {tag}
+            </option>
+          ))}
+        </select>
+      </label>
       <label className="editor-field">
         Candidate selection
         <select
@@ -209,27 +192,6 @@ export default function RemotePolicySettings({
           Uses the server’s observatory results. Configure observation on the Observatory node.
         </p>
       )}
-      <label className="editor-field" data-setting-path="fallbackTag">
-        Fallback outbound
-        <select
-          className="text-control"
-          aria-label="Fallback outbound"
-          value={fallback}
-          onChange={(event) =>
-            onChange(setProperty(value, 'fallbackTag', event.target.value || undefined))
-          }
-        >
-          <option value="">No explicit fallback</option>
-          {fallback && !options.some(({ tag }) => tag === fallback) && (
-            <option value={fallback}>Unavailable: {fallback}</option>
-          )}
-          {options.map(({ tag }) => (
-            <option key={tag} value={tag}>
-              {tag}
-            </option>
-          ))}
-        </select>
-      </label>
       {type === 'leastload' && (
         <details className="editor-advanced server-advanced">
           <summary>Least-load tuning</summary>

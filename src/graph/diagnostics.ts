@@ -11,8 +11,9 @@ import { diagnoseGraph } from './model';
 import { getOutputPorts, portLabel } from './catalog';
 import { isInboundKind } from './inbounds';
 import { isExecutableOutboundKind } from './outbounds';
+import { isXrayOutbound } from './xrayNodes';
 import { isNativeDnsHandler } from './dns';
-import { readRuleTable } from './rules';
+import { listEntries, readRuleTable } from './rules';
 import { selectorKey } from './applications';
 import { resolveGraph } from './defaults';
 import type { Diagnostic, GraphState, RuleNode } from './types';
@@ -166,12 +167,7 @@ function checkRuntimeGraph(
     }
     if (isExecutableOutboundKind(node.data.kind)) {
       const via = String(node.data.settings.dialerProxy ?? '');
-      if (
-        via &&
-        !graph.nodes.some(
-          (n) => isExecutableOutboundKind(n.data.kind) && n.data.settings.tag === via,
-        )
-      )
+      if (via && !graph.nodes.some((n) => isXrayOutbound(n) && n.data.settings.tag === via))
         add(node, 'Define the dial-through outbound before running.', 'dialerProxy');
       if (graph.nodes.some((n) => isNativeDnsHandler(n.data) && n.data.settings.tag === tag))
         add(node, 'Outbound tag is also used by the DNS handler.', 'tag');
@@ -212,7 +208,7 @@ function checkRuntimeGraph(
               )
               .map((e) => byId.get(e.source))
               .filter((n): n is RuleNode => !!n && isInboundKind(n.data.kind));
-            const tags = inbound.split(/[\n,]/).map((s) => s.trim());
+            const tags = listEntries(inbound);
             if (
               incoming.length &&
               !incoming.some((n) => tags.includes(String(n.data.settings.tag)))
