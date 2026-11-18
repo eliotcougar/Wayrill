@@ -97,11 +97,17 @@ The worker asks for attribution in bounded UDP batches. The companion shares
 verified local socket ownership and process ancestry within each fresh native
 snapshot. A new batch requires a new observation. Forwarded flows still need
 an exact NAT tuple, and each destination still runs through Xray's dispatcher.
+The helper returns unresolved tuples after the first fresh observation. A
+separate bounded batch queue retries those tuples within the caller's original
+deadline, so waiting for NAT or ancestry does not occupy initial lookup workers.
 
 Additional destinations use a separate FIFO cache of up to 16,384 aliases,
 each valid for one minute. An expired or evicted alias goes through attribution
 and routing again. It can rejoin the same open socket if its new decision is
 compatible. Aliases do not consume slots for new flows.
+Forwarded replies require a live alias for their peer. Expiry and eviction
+have the same effect even when the client sends no more packets. Ordinary
+local FullCone sockets can still receive unsolicited replies.
 
 Attributed destinations refresh their Windows socket ownership or NAT proof
 within a two-second lease. Sends and replies both require a current proof. A
@@ -113,6 +119,11 @@ Each stack limits queued UDP buffer storage to 64 MiB across pending and
 established flows. Rule generation changes reject stale queued packets and
 retired reply writers. Closing the stack cancels pending ownership checks and
 releases its queues.
+TUN downlink UDP bytes are counted after the complete datagram reaches the
+packet sink. A full Wintun ring drops that datagram and preserves the
+association. With inbound downlink statistics enabled, per-inbound
+`udp-drop>>>ring-full` and `udp-drop>>>ownership` counters count discarded
+datagrams. Adapter shutdown and other write errors still terminate the flow.
 WinDivert already routes each UDP datagram before choosing a relay.
 
 ### X17 — XUDP resumption and Direct UDP replies

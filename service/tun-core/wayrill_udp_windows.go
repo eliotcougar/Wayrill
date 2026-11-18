@@ -3,6 +3,7 @@ package tun
 import (
 	"container/list"
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -11,6 +12,8 @@ import (
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/features/stats"
+	"golang.org/x/sys/windows"
 )
 
 type udpFlowKey struct {
@@ -40,6 +43,11 @@ type wayrillUDPFlow struct {
 	epoch   uint64
 	retired atomic.Bool
 	created time.Time
+	replies *wayrillUDPReplyStats
+}
+
+type wayrillUDPReplyStats struct {
+	downlink, ownership, ringFull stats.Counter
 }
 
 type wayrillUDPAlias struct {
@@ -265,14 +273,15 @@ func (f *wayrillUDPFlow) active() bool {
 }
 
 func (u *wayrillUDPFlows) reply(c *udpConn, p []byte, peer net.Destination) error {
-	if written, err := u.tryReply(c, p, peer); written || err != nil {
+	if done, err := u.tryReply(c, p, peer); done || err != nil {
 		return err
 	}
 	u.mu.Lock()
 	var refresh *wayrillUDPRefresh
 	if u.activeLocked(c) {
-		key, binding := u.replyBindingLocked(c, peer)
-		if binding != nil && !binding.valid(time.Now()) {
+		now := time.Now()
+		key, binding := u.replyBindingLocked(c, peer, now)
+		if binding != nil && !binding.valid(now) {
 			refresh = u.refreshLocked(c, key, binding)
 		}
 	}
@@ -282,20 +291,26 @@ func (u *wayrillUDPFlows) reply(c *udpConn, p []byte, peer net.Destination) erro
 		// verify again because the lookup may have retired the whole flow.
 		<-refresh.done
 	}
-	_, err := u.tryReply(c, p, peer)
+	done, err := u.tryReply(c, p, peer)
+	if !done && err == nil {
+		c.wayrill.replies.dropOwnership()
+	}
 	return err
 }
 
-func (u *wayrillUDPFlows) replyBindingLocked(c *udpConn, peer net.Destination) (udpFlowKey, *wayrillUDPBinding) {
+func (s *wayrillUDPReplyStats) dropOwnership() {
+	if s != nil && s.ownership != nil {
+		s.ownership.Add(1)
+	}
+}
+
+func (u *wayrillUDPFlows) replyBindingLocked(c *udpConn, peer net.Destination, now time.Time) (udpFlowKey, *wayrillUDPBinding) {
 	key := udpFlowKey{c.src, peer}
 	if key == c.wayrill.key {
 		return key, &c.wayrill.binding
 	}
-	if entry := u.aliases[key]; entry != nil {
-		alias := entry.Value.(*wayrillUDPAlias)
-		if alias.conn == c {
-			return key, &alias.binding
-		}
+	if found, binding := u.lookupLocked(key, now); found == c {
+		return key, binding
 	}
 	if c.wayrill.binding.user == "wr-nat" {
 		// Proof for one translated destination does not authorize a reply from
@@ -315,15 +330,31 @@ func (u *wayrillUDPFlows) tryReply(c *udpConn, p []byte, peer net.Destination) (
 	if !u.activeLocked(c) {
 		return false, context.Canceled
 	}
-	_, binding := u.replyBindingLocked(c, peer)
+	now := time.Now()
+	_, binding := u.replyBindingLocked(c, peer, now)
 	if binding == nil {
+		c.wayrill.replies.dropOwnership()
 		return true, nil
 	}
-	if !binding.valid(time.Now()) {
+	if !binding.valid(now) {
 		return false, nil
 	}
 	return true, session.WithWayrillUDPReply(u.epoch, func() error {
-		return c.handler.writePacket(p, peer, c.src)
+		err := c.handler.writePacket(p, peer, c.src)
+		counters := c.wayrill.replies
+		if err != nil {
+			if errors.Is(err, windows.ERROR_BUFFER_OVERFLOW) {
+				if counters != nil && counters.ringFull != nil {
+					counters.ringFull.Add(1)
+				}
+				return nil
+			}
+			return err
+		}
+		if counters != nil && counters.downlink != nil {
+			counters.downlink.Add(int64(len(p)))
+		}
+		return nil
 	})
 }
 

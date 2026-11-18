@@ -224,10 +224,28 @@ index 0000000..e3b5290
 +	return write()
 +}
 diff --git a/proxy/tun/handler.go b/proxy/tun/handler.go
-index d318d23..79822f3 100644
 --- a/proxy/tun/handler.go
 +++ b/proxy/tun/handler.go
-@@ -217,6 +217,19 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
+@@ -35,6 +35,7 @@ type Handler struct {
+ 	sniffingRequest session.SniffingRequest
+ 	uplinkCounter   stats.Counter
+ 	downlinkCounter stats.Counter
++	udpReplies      wayrillUDPReplyStats
+ }
+ 
+ type tunUDPStatsWriter struct {
+@@ -114,6 +115,10 @@ func (t *Handler) Init(ctx context.Context, pm policy.Manager, dispatcher routin
+ 		c, _ := statsManager.GetOrRegisterCounter(name)
+ 		if c != nil {
+ 			t.downlinkCounter = c
++			t.udpReplies.downlink = c
++			prefix := "inbound>>>" + t.tag + ">>>udp-drop>>>"
++			t.udpReplies.ownership, _ = statsManager.GetOrRegisterCounter(prefix + "ownership")
++			t.udpReplies.ringFull, _ = statsManager.GetOrRegisterCounter(prefix + "ring-full")
+ 		}
+ 	}
+ 
+@@ -217,6 +222,19 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
  
  	ctx, cancel := context.WithCancel(t.ctx)
  	defer cancel()
@@ -247,6 +265,15 @@ index d318d23..79822f3 100644
  	ctx = c.ContextWithID(ctx, session.NewID())
  
  	source := net.DestinationFromAddr(conn.RemoteAddr())
+@@ -257,6 +275,8 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
+ 	writer := buf.NewWriter(conn)
+ 	if destination.Network != net.Network_UDP {
+ 		writer = &TCPWriter{Writer: writer, Counter: t.downlinkCounter}
++	} else if udp, ok := conn.(*udpConn); ok && udp.wayrill != nil {
++		udp.wayrill.replies = &t.udpReplies
+ 	} else if t.downlinkCounter != nil {
+ 		writer = &tunUDPStatsWriter{writer: writer, counter: t.downlinkCounter}
+ 	}
 diff --git a/proxy/tun/stack.go b/proxy/tun/stack.go
 index b6314bf..f6aa31c 100644
 --- a/proxy/tun/stack.go

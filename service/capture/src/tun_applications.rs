@@ -332,7 +332,12 @@ impl State {
         Ok(None)
     }
 
-    async fn serve_udp(&self, mut flows: Vec<(usize, Flow)>, stream: &mut TcpStream) -> Result<()> {
+    async fn serve_udp(
+        &self,
+        mut flows: Vec<(usize, Flow)>,
+        stream: &mut TcpStream,
+        first_pass: bool,
+    ) -> Result<()> {
         let arrived = clock::milliseconds();
         let mut encoded = Vec::new();
         let mut pending = Vec::with_capacity(flows.len());
@@ -392,6 +397,12 @@ impl State {
                                 },
                             )?;
                         }
+                        encoded.push(b'\n');
+                    } else if first_pass {
+                        serde_json::to_writer(
+                            &mut encoded,
+                            &serde_json::json!({ "index": index, "pending": true }),
+                        )?;
                         encoded.push(b'\n');
                     } else {
                         pending.push((index, flow));
@@ -691,6 +702,8 @@ struct Query {
 struct UdpBatch {
     auth: String,
     udp: Vec<(String, u16, String, u16)>,
+    #[serde(default, rename = "firstPass")]
+    first_pass: bool,
 }
 
 #[derive(Deserialize)]
@@ -799,7 +812,7 @@ async fn serve(mut stream: TcpStream, state: Arc<State>, mut stopping: watch::Re
                             .map(|flow| (index, flow))
                     })
                     .collect();
-                return state.serve_udp(flows, &mut stream).await;
+                return state.serve_udp(flows, &mut stream, batch.first_pass).await;
             }
         };
         if !auth(&query.auth, &state.secret) {
@@ -1180,6 +1193,12 @@ mod tests {
 
     #[tokio::test]
     async fn udp_batch_uses_fresh_bindings_and_sends_verified_peers_ahead_of_an_unresolved_one() {
+        for first_pass in [true, false] {
+            check_mixed_udp_batch(first_pass).await;
+        }
+    }
+
+    async fn check_mixed_udp_batch(first_pass: bool) {
         use crate::attribution::OwnerRow;
         let state = lifecycle_state();
         let local = address("127.0.0.1").unwrap();
@@ -1219,6 +1238,7 @@ mod tests {
         let mut reader = BufReader::new(client);
         let request = serde_json::json!({
             "auth": "0".repeat(64),
+            "firstPass": first_pass,
             "udp": [
                 ["127.0.0.1", 0, "192.0.2.1", 53],
                 ["127.0.0.1", 12001, "192.0.2.1", 53],
@@ -1237,6 +1257,14 @@ mod tests {
         state.published.write().unwrap().snapshot =
             Some(snapshot(12002, clock::milliseconds() + 1));
         state.snapshot_ready.notify_waiters();
+        if first_pass {
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&line).unwrap(),
+                serde_json::json!({"index":1, "pending":true})
+            );
+        }
         for index in [2, 3] {
             let mut line = String::new();
             tokio::time::timeout(Duration::from_millis(500), reader.read_line(&mut line))
@@ -1248,7 +1276,12 @@ mod tests {
             assert_eq!(reply["identity"]["udpOwner"]["pid"], key.pid);
             assert_eq!(reply["identity"]["udpOwner"]["started"], key.started);
         }
-        stop.send(true).unwrap();
+        if first_pass {
+            let mut line = String::new();
+            assert_eq!(reader.read_line(&mut line).await.unwrap(), 0);
+        } else {
+            stop.send(true).unwrap();
+        }
         server.await.unwrap();
     }
     #[tokio::test]

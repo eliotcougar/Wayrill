@@ -3,6 +3,7 @@ package tun
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	stdnet "net"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"github.com/xtls/xray-core/app/proxyman"
 	_ "github.com/xtls/xray-core/app/proxyman/outbound"
 	"github.com/xtls/xray-core/app/router"
+	"github.com/xtls/xray-core/app/stats"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/geodata"
 	"github.com/xtls/xray-core/common/net"
@@ -30,6 +32,7 @@ import (
 	vlessoutbound "github.com/xtls/xray-core/proxy/vless/outbound"
 	"github.com/xtls/xray-core/transport"
 	_ "github.com/xtls/xray-core/transport/internet/tcp"
+	"golang.org/x/sys/windows"
 )
 
 type udpTestOutbounds struct {
@@ -104,8 +107,14 @@ func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
 			handler := newUDPTestHandler(t, context.Background(), &core.OutboundHandlerConfig{
 				Tag: "egress", ProxySettings: serial.ToTypedMessage(config),
 			})
+			downlink, full := new(stats.Counter), new(stats.Counter)
+			handler.udpReplies = wayrillUDPReplyStats{downlink: downlink, ringFull: full}
+			handler.downlinkCounter = downlink
 			replies := make(chan udpFlowKey, 1)
 			flowHandler := newUdpConnectionHandler(handler.HandleConnection, func(payload []byte, src, dst net.Destination) error {
+				if string(payload) == "full" {
+					return windows.ERROR_BUFFER_OVERFLOW
+				}
 				if string(payload) == "reply" {
 					replies <- udpFlowKey{src, dst}
 				}
@@ -152,6 +161,21 @@ func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
 			if remote := exchange(src, alias, second); remote.Port != initial.Port {
 				t.Fatalf("second destination used %v, want shared socket %v", remote, initial)
 			}
+			// UDP from one peer is ordered on the same loopback socket. Its second
+			// reply must be delivered even when the first hit a full TUN ring.
+			for _, payload := range []string{"full", "reply"} {
+				if _, err := second.WriteToUDP([]byte(payload), initial); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-replies:
+			case <-time.After(3 * time.Second):
+				t.Fatal("one full ring retired the shared UDP socket")
+			}
+			if remote := exchange(src, primary, first); remote.Port != initial.Port || full.Value() != 1 {
+				t.Fatalf("ring drop changed the association: port=%d drops=%d", remote.Port, full.Value())
+			}
 
 			// Saturate the alias cache without opening thousands of real sockets.
 			flows.mu.Lock()
@@ -195,6 +219,117 @@ func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
 }
 
 type udpTestErrors chan error
+
+func TestWayrillUDPForwardedReplyExpiryAndAccounting(t *testing.T) {
+	flows := newWayrillUDPFlows()
+	t.Cleanup(flows.close)
+	src := net.UDPDestination(net.ParseAddress("192.0.2.1"), 5555)
+	primary := net.UDPDestination(net.ParseAddress("198.51.100.1"), 9000)
+	peer := primary
+	peer.Port++
+	writes := 0
+	var sinkErr error
+	h := newUdpConnectionHandler(nil, func([]byte, net.Destination, net.Destination) error {
+		if sinkErr == nil {
+			writes++
+		}
+		return sinkErr
+	})
+	h.wayrill = flows
+	downlink, unverified, full := new(stats.Counter), new(stats.Counter), new(stats.Counter)
+	flow := &wayrillUDPFlow{key: udpFlowKey{src, primary}, epoch: flows.epoch, binding: wayrillUDPBinding{user: "wr-nat", until: time.Now().Add(time.Minute)},
+		replies: &wayrillUDPReplyStats{downlink, unverified, full}}
+	conn := &udpConn{handler: h, src: src, dst: primary, queue: newPacketQueue(10), wayrill: flow}
+	flows.flows[flow.key] = conn
+	key := udpFlowKey{src, peer}
+	flows.addAliasLocked(key, conn, flow.binding)
+	entry := flows.aliases[key]
+	reply := func() error {
+		p := buf.FromBytes([]byte("reply"))
+		p.UDP = &peer
+		return conn.WriteMultiBuffer(buf.MultiBuffer{p})
+	}
+	if err := reply(); err != nil {
+		t.Fatal(err)
+	}
+	sinkErr = windows.ERROR_HANDLE_EOF
+	if err := reply(); !errors.Is(err, sinkErr) {
+		t.Fatalf("fatal sink error: %v", err)
+	}
+	sinkErr = nil
+	entry.Value.(*wayrillUDPAlias).expires = time.Now()
+	if err := reply(); err != nil {
+		t.Fatal(err)
+	}
+	flows.removeAliasLocked(entry)
+	if err := reply(); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 || downlink.Value() != 5 || unverified.Value() != 2 || full.Value() != 0 {
+		t.Fatalf("writes=%d bytes=%d ownership drops=%d ring drops=%d", writes, downlink.Value(), unverified.Value(), full.Value())
+	}
+}
+
+func TestWayrillUDPFirstObservationWhileRetriesWait(t *testing.T) {
+	listener, err := stdnet.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	release := make(chan struct{})
+	defer close(release)
+	waiting := make(chan struct{}, 4)
+	batcher := newWayrillUDPBatcher()
+	t.Cleanup(batcher.close)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				var req struct {
+					FirstPass bool
+					UDP       [][4]json.RawMessage
+				}
+				if json.NewDecoder(conn).Decode(&req) != nil {
+					return
+				}
+				for i, tuple := range req.UDP {
+					var port uint16
+					if json.Unmarshal(tuple[3], &port) != nil {
+						return
+					}
+					if port == 53 && req.FirstPass {
+						_ = json.NewEncoder(conn).Encode(map[string]any{"index": i, "pending": true})
+						continue
+					}
+					if !req.FirstPass {
+						waiting <- struct{}{}
+						<-release
+					}
+					_ = json.NewEncoder(conn).Encode(map[string]any{"index": i, "identity": wayrillIdentity{Mask: "01"}})
+				}
+			}()
+		}
+	}()
+	lookup := func(port uint16) (wayrillIdentity, error) {
+		return batcher.lookup(context.Background(), listener.Addr().String(), wayrillQuery{DestinationPort: port})
+	}
+	for range 4 {
+		go func() { _, _ = lookup(53) }()
+		select {
+		case <-waiting:
+		case <-time.After(time.Second):
+			t.Fatal("retry never reached the helper")
+		}
+	}
+	identity, err := lookup(443)
+	if err != nil || identity.Mask != "01" {
+		t.Fatalf("ready socket waited behind unresolved peers: %v %v", identity, err)
+	}
+}
 
 func (e udpTestErrors) SubmitError(err error) {
 	select {
