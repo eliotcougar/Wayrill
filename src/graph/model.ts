@@ -143,6 +143,9 @@ export function toDocument(graph: GraphState): GraphDocument {
           defaults: {
             version: 1,
             settings: { ...graph.defaults.settings },
+            ...(graph.defaults.localPoolSettings?.length && {
+              localPoolSettings: [...graph.defaults.localPoolSettings],
+            }),
             ...(graph.defaults.resources ? { resources: graph.defaults.resources } : {}),
           },
         }

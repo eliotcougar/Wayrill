@@ -3,7 +3,7 @@ import AdvancedSettings from './AdvancedSettings';
 import { basicGlobalSettings } from '../graph/settingsLayout';
 import TrafficUnitSettings from './TrafficUnitSettings';
 import ResourceFields from './ResourceFields';
-import { factoryResources } from '../graph/resources';
+import { factoryResources, poolResourceKinds } from '../graph/resources';
 import DiagnosticList, {
   useRequestedDiagnostic,
   useLocalDiagnosticFocus,
@@ -39,8 +39,10 @@ import { jsonRecord, parseJson } from '../graph/xrayJson';
 import {
   formatPoolSetting,
   isPoolResourceKey,
+  isPoolSettingKey,
   poolResourceLabel,
   poolSettingKeys,
+  type PoolSettingKey,
 } from '../graph/poolSettings';
 import { graphMetricsTag, updateImportedCoreDefaults } from '../graph/nativeCore';
 import { DEFAULT_METRICS_TAG, occupiedTags, tagOverrideProblem } from '../graph/nodeTags';
@@ -109,6 +111,10 @@ export default function GlobalDefaultsEditor({
   ];
   const errors = issues.filter((i) => i.severity === 'error');
   const changed =
+    (JSON.stringify(draft.localPoolSettings ?? []) !==
+    JSON.stringify(graph.defaults?.localPoolSettings ?? [])
+      ? 1
+      : 0) +
     globalFields.filter(
       (f) => draft.settings[f.key] !== (graph.defaults ?? factoryDefaults()).settings[f.key],
     ).length +
@@ -171,18 +177,49 @@ export default function GlobalDefaultsEditor({
     );
     focusIssue(issue);
   };
-  const set = (key: string, value: SettingValue) =>
-    setDraft((current) =>
-      value === ''
-        ? resetCoreDefault(current, key)
-        : { ...current, settings: { ...current.settings, [key]: value } },
-    );
+  function withPreference(defaults: GlobalDefaults, key: PoolSettingKey, own: boolean) {
+    return {
+      ...defaults,
+      localPoolSettings: poolSettingKeys.filter((k) =>
+        k === key ? own : defaults.localPoolSettings?.includes(k),
+      ),
+    };
+  }
+  const set = (key: string, value?: SettingValue) =>
+    setDraft((current) => {
+      const next =
+        value === undefined
+          ? resetCoreDefault(current, key)
+          : { ...current, settings: { ...current.settings, [key]: value } };
+      return graph.poolId && isPoolSettingKey(key) ? withPreference(next, key, true) : next;
+    });
   const poolHints = new Map<string, string>(
     poolSettingKeys.flatMap((key) => {
       const value = graph.poolSettings?.[key];
       return value === undefined ? [] : [[key, formatPoolSetting(key, value)]];
     }),
   );
+  function poolPreference(key: PoolSettingKey) {
+    const own = !!draft.localPoolSettings?.includes(key);
+    const published = poolHints.get(key);
+    if (!graph.poolId) return null;
+    return (
+      <label className="check-control">
+        <input
+          type="checkbox"
+          checked={own}
+          onChange={(event) => {
+            const checked = event.currentTarget.checked;
+            setDraft((current) => withPreference(current, key, checked));
+          }}
+        />
+        <span>
+          Use my {isPoolResourceKey(key) ? poolResourceLabel(key).toLowerCase() : 'value'} on this
+          computer{published && <small className="field-help">Pool value · {published}</small>}
+        </span>
+      </label>
+    );
+  }
   const renderFields = (fields: typeof globalFields) => (
     <div className="field-grid defaults-field-grid">
       {fields
@@ -216,7 +253,7 @@ export default function GlobalDefaultsEditor({
                 disabled={!Object.hasOwn(draft.settings, f.key)}
                 aria-label={'Use Xray default for ' + f.label}
                 onClick={() => {
-                  setDraft((d) => resetCoreDefault(d, f.key));
+                  set(f.key);
                   resetPolicyDraft(f.key);
                 }}
               >
@@ -229,10 +266,7 @@ export default function GlobalDefaultsEditor({
                 aria-label={'Restore factory ' + f.label}
                 disabled={draft.settings[f.key] === f.defaultValue}
                 onClick={() => {
-                  setDraft((d) => ({
-                    ...d,
-                    settings: { ...d.settings, [f.key]: f.defaultValue! },
-                  }));
+                  set(f.key, f.defaultValue);
                   resetPolicyDraft(f.key);
                 }}
               >
@@ -249,7 +283,7 @@ export default function GlobalDefaultsEditor({
               inherited={!Object.hasOwn(draft.settings, f.key)}
               onValidity={policyValidity}
               onInherit={() => {
-                setDraft((d) => resetCoreDefault(d, f.key));
+                set(f.key);
                 resetPolicyDraft(f.key);
               }}
               field={{ ...f, key: 'global-' + f.key }}
@@ -257,15 +291,12 @@ export default function GlobalDefaultsEditor({
               issues={issues.filter((i) => i.fieldKey === f.key && !i.controlId)}
               messagePrefix="Global defaults: "
               onChange={(value) => {
-                set(f.key, value);
+                set(f.key, value === '' ? undefined : value);
                 resetPolicyDraft(f.key);
               }}
             />
-            {poolHints.has(f.key) && (
-              <p className="resolved-default-hint">
-                Pool override · {poolHints.get(f.key)}. The value above is your local default.
-              </p>
-            )}
+            {poolSettingKeys.includes(f.key as PoolSettingKey) &&
+              poolPreference(f.key as PoolSettingKey)}
             {f.key === 'policy' && policy && (
               <PolicyFields
                 key={policyRevision}
@@ -349,17 +380,28 @@ export default function GlobalDefaultsEditor({
             ? 'resources geoip geosite files sources updates'.includes(search.trim().toLowerCase())
             : section === 'resources') && (
             <>
-              {poolSettingKeys.filter(isPoolResourceKey).map((key) =>
-                graph.poolSettings?.[key] === undefined ? null : (
-                  <p className="field-help" key={key}>
-                    This graph uses {graph.poolSettings[key]} as its{' '}
-                    {poolResourceLabel(key).toLowerCase()} from Pool.
-                  </p>
-                ),
-              )}
+              {poolSettingKeys.filter(isPoolResourceKey).map((key) => (
+                <div key={key}>{poolPreference(key)}</div>
+              ))}
               <ResourceFields
                 value={draft.resources ?? factoryResources()}
-                onChange={(resources) => setDraft((d) => ({ ...d, resources }))}
+                onChange={(resources) =>
+                  setDraft((current) => {
+                    let next: GlobalDefaults = { ...current, resources };
+                    if (graph.poolId) {
+                      const original = current.resources ?? factoryResources();
+                      for (const key of poolSettingKeys.filter(isPoolResourceKey)) {
+                        const primary = (file: (typeof resources.files)[number]) =>
+                          file.kind === poolResourceKinds[key] && file.enabled;
+                        if (
+                          original.files.find(primary)?.name !== resources.files.find(primary)?.name
+                        )
+                          next = withPreference(next, key, true);
+                      }
+                    }
+                    return next;
+                  })
+                }
               />
             </>
           )}

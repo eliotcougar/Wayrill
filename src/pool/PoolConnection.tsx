@@ -2,6 +2,8 @@ import { useId, useRef, useState } from 'react';
 import Dialog from '../components/Dialog';
 import './pool.css';
 import { parseGraph } from '../graph/model';
+import { exportFile } from '../exportFile';
+import { protectedRead } from '../protectedStorage';
 import type { GraphState } from '../graph/types';
 import {
   refreshServiceStash,
@@ -16,14 +18,17 @@ import type { Stash } from '../profiles/import';
 import { portLabel } from '../graph/catalog';
 import type { PoolOptions, PoolSelection } from './delivery';
 import PoolOutboundChoice from './PoolOutboundChoice';
+import type { PoolPreferenceResets } from './preferences';
 import { PoolSettingSummary } from './PoolSettingFields';
 import type usePoolStatus from './usePoolStatus';
 import { inviteLength, invitePattern, parsePoolInvitation, type PoolSource } from './invitation';
 export type { PoolSource } from './invitation';
 
 export type PoolPreview = PoolEntries & {
+  personalSettings?: { nodeId: string; node: string; key: string; field: string }[];
   digest: string;
   revision: number;
+  sourceHash?: string;
   selection?: PoolSelection;
   options?: PoolOptions;
 };
@@ -47,9 +52,12 @@ type LiveConnection = {
   revision: number | undefined;
   testsBusy: boolean;
   canReuseInbounds: boolean;
-  onOpenGraph: (graph: GraphState) => void;
+  onShowGraph: () => void;
+  onChoicesApplied: () => void;
+  showingApplied: boolean;
+  hasPrevious: boolean;
+  editorError: string;
   onTestGraph: (graph: GraphState) => void;
-  hasDifferentDraft: (graph: GraphState) => boolean;
   onOpenCaptureSettings: () => void;
 };
 
@@ -84,10 +92,10 @@ export default function PoolConnection({
   const [activity, setActivity] = useState('');
   const busy = !!activity;
   const [failure, setFailure] = useState('');
+  const [resets, setResets] = useState<PoolPreferenceResets>({});
   const [justConnected, setJustConnected] = useState<{ proxy: string[] }>();
   const [disconnect, setDisconnect] = useState(false);
   const [keepStash, setKeepStash] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [checkResult, setCheckResult] = useState<{ at?: number | null; message: string }>();
   const pending = useRef(false);
   const [intervalDraft, setIntervalDraft] = useState<string>();
@@ -123,17 +131,13 @@ export default function PoolConnection({
       setActivity('');
     }
   }
-  async function openGraph(test = false, confirmed = false) {
+  async function testAppliedGraph() {
     if (!live) return;
     const result = await readSubscriptionDocument('applied');
     const graph = result.text && parseGraph(result.text);
     if (!graph || !graph.poolId) throw new Error('There is no applied Pool graph to open.');
-    if (!test && !confirmed && live.hasDifferentDraft(graph)) {
-      setConfirmOpen(true);
-      return;
-    }
     await refreshServiceStash();
-    (test ? live.onTestGraph : live.onOpenGraph)(graph);
+    live.onTestGraph(graph);
   }
   const source = () => ({ kind, address: address.trim(), invite: invite.trim() });
   function pasteInvitation(text: string) {
@@ -150,13 +154,15 @@ export default function PoolConnection({
     choice?: PoolSelection,
     keepBindings = true,
     mode = preview?.capture ?? (connected ? 'current' : capture),
+    latest = false,
+    useDefaults = false,
   ) {
     if (simulation) {
       const next = await simulation.inspect({
         source: source(),
         capture: mode,
         selection: choice,
-        expectedDigest: choice ? preview?.digest : undefined,
+        expectedDigest: choice && !latest ? preview?.digest : undefined,
         bindings: choice && keepBindings ? assignments : undefined,
       });
       setPreview({ ...next, capture: mode });
@@ -168,19 +174,22 @@ export default function PoolConnection({
     const { job } = await serviceCall<{ job: number }>('pool.preview', {
       ...(connected ? {} : { source: source() }),
       capture: mode,
-      expectedRevision: revision,
+      expectedRevision: !latest && preview ? preview.revision : revision,
+      expectedSourceHash: latest ? undefined : preview?.sourceHash,
       ...(preview
         ? {
             selection: choice,
-            expectedDigest: preview.digest,
+            expectedDigest: latest ? undefined : preview.digest,
             ...(keepBindings ? { bindings: assignments } : {}),
           }
         : {}),
       ...(!keepBindings && { resetBindings: true }),
+      ...(useDefaults && { useDefaults: true }),
     });
     await waitSubscriptionJob(job);
     const next = await serviceCall<PoolPreview>('pool.previewResult', { job });
     setPreview({ ...next, capture: mode });
+    if (!preview || preview.selection?.graph !== next.selection?.graph || latest) setResets({});
     if (!connected) setCapture(mode);
     setSelection(next.selection);
     if (!choice) setCustomize(connected);
@@ -218,17 +227,33 @@ export default function PoolConnection({
     ({ id, enabled }) => !enabled || Object.hasOwn(assignments, id),
   );
   const options = preview?.options;
+  // Older enrollments selected entire lists. Keep their explicit choices until
+  // the subscriber chooses which entries should follow future defaults.
+  const legacyStashes = selection?.stashes && new Set(selection.stashes);
+  const stashPreferences = legacyStashes
+    ? Object.fromEntries((options?.stashes ?? []).map(({ id }) => [id, legacyStashes.has(id)]))
+    : (selection?.stashOverrides ?? {});
+  const filterPreferences = selection?.filters
+    ? Object.fromEntries(
+        (options?.filters ?? []).map(({ id }) => [
+          id,
+          Object.hasOwn(selection.filters!, id) ? selection.filters![id] : null,
+        ]),
+      )
+    : (selection?.filterOverrides ?? {});
   const customizationAvailable =
     !!options &&
     (options.stashes.length > 0 ||
-      options.filters.some(({ choices }) => choices.length > 0) ||
+      options.filters.some(({ choices, defaultLayer }) => choices.length > 0 || !!defaultLayer) ||
       options.outbounds.some(({ accepts }) => accepts.length > 0));
   const connected = !!status?.connection;
   const defaultChoice =
     selection?.graph === options?.defaultGraph &&
     !selection?.stashes &&
     !selection?.filters &&
-    !selection?.outbounds;
+    !Object.keys(selection?.outbounds ?? {}).length &&
+    !Object.keys(selection?.stashOverrides ?? {}).length &&
+    !Object.keys(selection?.filterOverrides ?? {}).length;
   const blocked = busy || !!status?.busy;
   const readyToReview =
     !!address.trim() &&
@@ -241,18 +266,19 @@ export default function PoolConnection({
       capture: preview.capture,
       bindings: assignments,
       expectedRevision: preview.revision,
+      expectedSourceHash: preview.sourceHash,
       expectedDigest: preview.digest,
-      selection: selection && {
-        ...selection,
-        ...(!connected && defaultChoice && { followDefault: true }),
-      },
+      selection,
     } as const;
     if (simulation) {
       simulation.onPrepare(await simulation.prepare({ ...changes, source: source() }));
       return;
     }
     if (connected) {
-      await command('pool.bind', changes);
+      await command('pool.bind', {
+        ...changes,
+        ...(Object.keys(resets).length && { resetPreferences: resets }),
+      });
       setJustConnected(undefined);
     } else {
       if (!intervalValid) return;
@@ -263,7 +289,9 @@ export default function PoolConnection({
         ),
       });
     }
+    live?.onChoicesApplied();
     setPreview(undefined);
+    setCapture('current');
     setInvite('');
     setIntervalDraft(undefined);
   }
@@ -271,23 +299,21 @@ export default function PoolConnection({
   return (
     <Dialog
       title={
-        confirmOpen
-          ? 'Replace the open draft?'
-          : disconnect
-            ? 'Disconnect from Pool'
-            : preview
-              ? 'Review Pool configuration'
-              : status?.connection
-                ? 'Pool connection'
-                : simulation
-                  ? 'Test Pool invitation'
-                  : 'Connect to Pool'
+        disconnect
+          ? 'Disconnect from Pool'
+          : preview
+            ? 'Review Pool configuration'
+            : status?.connection
+              ? 'Pool connection'
+              : simulation
+                ? 'Test Pool invitation'
+                : 'Connect to Pool'
       }
       onClose={onClose}
       busy={busy}
       className="pool-dialog"
       footer={
-        confirmOpen || disconnect ? (
+        disconnect ? (
           <></>
         ) : preview ? (
           <>
@@ -339,23 +365,7 @@ export default function PoolConnection({
         )
       }
     >
-      {confirmOpen ? (
-        <fieldset disabled={busy}>
-          <legend>Open applied graph</legend>
-          <p>This replaces the graph in the editor. Undo restores your current draft.</p>
-          <div className="pool-dialog-actions">
-            <button className="secondary-button" onClick={() => setConfirmOpen(false)}>
-              Keep draft
-            </button>
-            <button
-              className="primary-button"
-              onClick={() => void run(() => openGraph(false, true))}
-            >
-              Replace draft
-            </button>
-          </div>
-        </fieldset>
-      ) : disconnect ? (
+      {disconnect ? (
         <fieldset disabled={busy || status?.busy}>
           <legend>{status?.connection?.poolName ?? status?.connection?.name}</legend>
           <p>
@@ -383,6 +393,7 @@ export default function PoolConnection({
                   setJustConnected(undefined);
                   setAddress('');
                   setInvite('');
+                  setCapture('proxy');
                   setIntervalDraft(undefined);
                 })
               }
@@ -394,20 +405,38 @@ export default function PoolConnection({
       ) : preview ? (
         <fieldset disabled={busy || status?.busy}>
           <legend>Routing setup</legend>
-          {options && selection && options.graphs.length > 1 ? (
+          {options && selection ? (
             <label className="editor-field">
               <span>Graph for this computer</span>
               <select
-                value={selection.graph}
+                value={selection.followDefault ? '@default' : selection.graph}
                 onChange={(event) => {
                   const graph = event.currentTarget.value;
-                  void run(() => inspect(connected, { graph }, false), 'Loading graph…');
+                  const followDefault = graph === '@default';
+                  const target = followDefault ? options.defaultGraph : graph;
+                  const choice = {
+                    ...(target === selection.graph && !followDefault
+                      ? selection
+                      : {
+                          stashes: selection.stashes,
+                          stashOverrides: selection.stashOverrides,
+                        }),
+                    graph: target,
+                    followDefault,
+                  };
+                  void run(
+                    () => inspect(connected, choice, choice.graph === selection.graph),
+                    'Loading graph…',
+                  );
                 }}
               >
+                <option value="@default">
+                  Follow Pool default ·{' '}
+                  {options.graphs.find((g) => g.id === options.defaultGraph)?.name}
+                </option>
                 {options.graphs.map(({ id, name }) => (
                   <option key={id} value={id}>
                     {name}
-                    {id === options.defaultGraph ? ' (Pool default)' : ''}
                   </option>
                 ))}
               </select>
@@ -487,6 +516,14 @@ export default function PoolConnection({
                       ))}
                     </ul>
                   )}
+                  <button
+                    className="secondary-button"
+                    onClick={() =>
+                      void run(() => inspect(connected, selection), 'Reviewing remaining choices…')
+                    }
+                  >
+                    Review with available choices
+                  </button>
                 </div>
               )}
               {customizationAvailable && (
@@ -504,53 +541,78 @@ export default function PoolConnection({
                     <fieldset>
                       <legend>Stash layers</legend>
                       {options.stashes.map(({ id, name }) => (
-                        <label key={id} className="check-control">
-                          <input
-                            type="checkbox"
-                            checked={options.activeStashes.includes(id)}
+                        <label key={id} className="editor-field">
+                          <span>{name}</span>
+                          <select
+                            value={
+                              Object.hasOwn(stashPreferences, id)
+                                ? stashPreferences[id]
+                                  ? 'include'
+                                  : 'exclude'
+                                : ''
+                            }
                             onChange={(event) => {
-                              const stashes = event.currentTarget.checked
-                                ? [...options.activeStashes, id]
-                                : options.activeStashes.filter((item) => item !== id);
+                              const value = event.currentTarget.value;
+                              const next = { ...stashPreferences, [id]: value === 'include' };
+                              if (!value) delete next[id];
                               void run(() =>
-                                inspect(connected, { ...selection, stashes, followDefault: false }),
+                                inspect(connected, {
+                                  ...selection,
+                                  stashes: undefined,
+                                  stashOverrides: next,
+                                }),
                               );
                             }}
-                          />
-                          {name}
+                          >
+                            <option value="">
+                              Follow Pool ·{' '}
+                              {(options.defaultStashes ?? options.activeStashes).includes(id)
+                                ? 'included'
+                                : 'optional'}
+                            </option>
+                            <option value="include">Include on this computer</option>
+                            <option value="exclude">Exclude on this computer</option>
+                          </select>
                         </label>
                       ))}
                     </fieldset>
                   )}
                   {options.filters
-                    .filter(({ choices }) => choices.length)
-                    .map(({ id, name, choices, active }) => (
+                    .filter(({ choices, defaultLayer }) => choices.length || defaultLayer)
+                    .map(({ id, name, choices, defaultLayer }) => (
                       <label className="editor-field" key={id}>
                         <span>{name}</span>
                         <select
-                          value={selection.filters ? (selection.filters[id] ?? '') : (active ?? '')}
+                          value={
+                            Object.hasOwn(filterPreferences, id)
+                              ? (filterPreferences[id] ?? '@rules')
+                              : ''
+                          }
                           onChange={(event) => {
-                            const filters =
-                              selection.filters ??
-                              Object.fromEntries(
-                                options.filters.flatMap(({ id, active }) =>
-                                  active ? [[id, active]] : [],
-                                ),
-                              );
                             const value = event.currentTarget.value;
-                            const next = { ...filters };
-                            if (value) next[id] = value;
-                            else delete next[id];
+                            const next = {
+                              ...filterPreferences,
+                              [id]: value === '@rules' ? null : value,
+                            };
+                            if (!value) delete next[id];
                             void run(() =>
                               inspect(connected, {
                                 ...selection,
-                                filters: next,
+                                filters: undefined,
+                                filterOverrides: next,
                                 followDefault: false,
                               }),
                             );
                           }}
                         >
-                          <option value="">Use graph rules</option>
+                          <option value="">
+                            Follow Pool ·{' '}
+                            {defaultLayer
+                              ? (choices.find((c) => c.id === defaultLayer)?.name ??
+                                'unavailable filter')
+                              : 'graph rules'}
+                          </option>
+                          <option value="@rules">Always use graph rules</option>
                           {choices.map(({ id, name }) => (
                             <option key={id} value={id}>
                               {name}
@@ -599,6 +661,34 @@ export default function PoolConnection({
                 </button>
               )}
             </>
+          )}
+          {!!preview.personalSettings?.length && (
+            <details className="editor-advanced">
+              <summary>Personal node settings ({preview.personalSettings.length})</summary>
+              <p className="field-help">
+                Checked settings keep your value as this graph updates. Clear a setting and apply
+                your choices to use the Pool value again.
+              </p>
+              {preview.personalSettings.map(({ nodeId, node, key, field }) => (
+                <label key={JSON.stringify([nodeId, key])} className="check-control">
+                  <input
+                    type="checkbox"
+                    checked={!Object.hasOwn(resets, nodeId) || !resets[nodeId].includes(key)}
+                    onChange={(event) => {
+                      const keep = event.currentTarget.checked;
+                      setResets((current) => {
+                        const keys = Object.hasOwn(current, nodeId) ? current[nodeId] : [];
+                        return {
+                          ...current,
+                          [nodeId]: keep ? keys.filter((k) => k !== key) : [...keys, key],
+                        };
+                      });
+                    }}
+                  />
+                  {node} · {field}
+                </label>
+              ))}
+            </details>
           )}
           {(!complete ||
             preview.inbounds.some(
@@ -716,13 +806,15 @@ export default function PoolConnection({
             <button
               className={justConnected ? 'primary-button' : 'secondary-button'}
               disabled={live?.testsBusy}
-              onClick={() => void run(() => openGraph(true), 'Opening outbound tests…')}
+              onClick={() => void run(testAppliedGraph, 'Opening outbound tests…')}
             >
               Test outbounds
             </button>
-            <button className="secondary-button" onClick={() => void run(() => openGraph())}>
-              Open applied graph
-            </button>
+            {!live?.showingApplied && (
+              <button className="secondary-button" onClick={live?.onShowGraph}>
+                Show applied Pool graph
+              </button>
+            )}
             <button
               className={status.error ? 'primary-button' : 'secondary-button'}
               disabled={revision === undefined}
@@ -737,11 +829,33 @@ export default function PoolConnection({
               Check for updates
             </button>
           </div>
+          {status.connection.personalSettings && (
+            <p className="field-help">
+              You can change local capture, Global defaults, DNS and probe settings, and add
+              personal Before or After traffic rules while continuing to receive Pool updates. Use
+              Edit configuration choices to change your graph, filters or outbounds.
+            </p>
+          )}
           <details className="editor-advanced">
             <summary>Connection settings</summary>
             <p className="field-help">{status.connection.address}</p>
+            <p className="field-help">Pool updates keep existing inbounds and their assignments.</p>
             {intervalField}
             <div className="pool-dialog-actions">
+              {live?.hasPrevious && (
+                <button
+                  className="secondary-button"
+                  onClick={() =>
+                    void run(async () => {
+                      const text = await protectedRead('pool-previous');
+                      if (!text) throw new Error('The previous local graph is unavailable.');
+                      await exportFile('previous-local-graph.wayrill.json', text);
+                    }, 'Opening previous local graph…')
+                  }
+                >
+                  Export previous local graph…
+                </button>
+              )}
               <button
                 className="secondary-button"
                 disabled={!intervalValid || refreshMinutes === status.connection.refreshMinutes}
@@ -883,13 +997,60 @@ export default function PoolConnection({
       )}
       {busy || status?.busy ? (
         <p role="status" className="field-help">
-          {activity || 'Applying a Pool update…'}
+          {activity || (status?.applying ? 'Applying Pool configuration…' : 'Checking Pool…')}
         </p>
       ) : null}
-      {(failure || statusError || status?.error) && (
+      {(failure || statusError || (!preview && status?.error) || live?.editorError) && (
         <p role="alert" className="notice notice--error">
-          {failure || statusError || status?.error?.message}
+          {failure || statusError || (!preview && status?.error?.message) || live?.editorError}
         </p>
+      )}
+      {preview && (failure || (revision !== undefined && revision !== preview.revision)) && (
+        <button
+          className="secondary-button"
+          disabled={blocked}
+          onClick={() =>
+            void run(
+              () => inspect(connected, selection, true, preview.capture, true),
+              'Reading the latest delivery…',
+            )
+          }
+        >
+          Review latest delivery
+        </button>
+      )}
+      {connected && !preview && !disconnect && failure && (
+        <div className="pool-dialog-actions">
+          <button
+            className="secondary-button"
+            disabled={blocked}
+            onClick={() =>
+              void run(
+                () => inspect(true, undefined, false, 'current', true, true),
+                'Reading Pool defaults…',
+              )
+            }
+          >
+            Review Pool defaults with existing inbounds
+          </button>
+          {captureChoices
+            .filter(({ id }) => id === 'proxy' || id === 'tun')
+            .map(({ id, name }) => (
+              <button
+                key={id}
+                className="secondary-button"
+                disabled={blocked}
+                onClick={() =>
+                  void run(
+                    () => inspect(true, undefined, false, id, true, true),
+                    'Reviewing capture…',
+                  )
+                }
+              >
+                Review with {name}
+              </button>
+            ))}
+        </div>
       )}
     </Dialog>
   );

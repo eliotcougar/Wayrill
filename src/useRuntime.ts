@@ -37,7 +37,9 @@ export default function useRuntime() {
     run: session.run,
     setError: (error: string) => session.update({ error }),
     setNotice: (notice: string) => session.update({ notice }),
-    clearEvents: () => session.update({ events: [] }),
+    getEvents: session.getEvents,
+    subscribeEvents: session.subscribeEvents,
+    clearEvents: session.clearEvents,
   };
 }
 

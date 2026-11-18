@@ -85,7 +85,7 @@ describe('runtime synchronization', () => {
     };
     env.session.message(receipt);
     expect(env.session.getSnapshot().snapshot).toBe(before);
-    expect(env.session.getSnapshot().events).toContain(receipt);
+    expect(env.session.getEvents()).toContain(receipt);
   });
 
   it('updates live snapshots without evicting diagnostic events or duplicating replay', async () => {
@@ -101,7 +101,7 @@ describe('runtime synchronization', () => {
       payload: { message: 'Connection failed.' },
     };
     env.session.message(failure);
-    const history = env.session.getSnapshot().events;
+    const history = env.session.getEvents();
     for (let sequence = 2; sequence <= 202; sequence++)
       env.session.message({
         ...failure,
@@ -114,10 +114,37 @@ describe('runtime synchronization', () => {
       uptimeSeconds: 202,
       core: { state: 'running' },
     });
-    expect(env.session.getSnapshot().events).toBe(history);
+    expect(env.session.getEvents()).toBe(history);
     expect(history).toEqual([failure]);
     expect(env.request).toHaveBeenCalledTimes(1);
   });
+  it('keeps core log bursts out of live runtime updates while retaining recent events', async () => {
+    const { session } = service();
+    await session.refresh();
+    const onRuntime = vi.fn();
+    const onEvents = vi.fn();
+    session.subscribe(onRuntime);
+    session.subscribeEvents(onEvents);
+    for (let sequence = 1; sequence <= 300; sequence++)
+      session.message({
+        type: 'event',
+        apiVersion: 1,
+        instanceId: 'service-a',
+        sequence,
+        timestampMs: sequence,
+        kind: 'core.log',
+        payload: { message: 'Connection failed.' },
+      });
+    expect(session.getEvents()).toHaveLength(150);
+    expect(session.getEvents()[0]?.sequence).toBe(151);
+    expect(session.getEvents().at(-1)?.sequence).toBe(300);
+    expect(onEvents).toHaveBeenCalledTimes(300);
+    session.clearEvents();
+    expect(session.getEvents()).toEqual([]);
+    expect(onEvents).toHaveBeenCalledTimes(301);
+    expect(onRuntime).not.toHaveBeenCalled();
+  });
+
   it('keeps a newer live snapshot when an older status reply finishes afterward', async () => {
     const env = service(),
       old = deferred<ServiceView>();

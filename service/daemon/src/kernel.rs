@@ -1712,7 +1712,35 @@ impl Kernel {
         self.retry_routing();
     }
     fn retry_routing(&mut self) {
-        if self.shutting_down || self.protection.upgrading() || !self.recovery.due(Instant::now()) {
+        let now = Instant::now();
+        if self.shutting_down || self.protection.upgrading() || !self.recovery.due(now) {
+            return;
+        }
+        let checkpoint = self.profile_path.with_file_name("activation-rollback.json");
+        // Recheck a blocked native uplink without touching the profile, TUN
+        // adapters or Windows settings. A pending inverse takes precedence.
+        let uplink_error = self.recovery.recheck_uplink(now, || {
+            if self.profile_recovery.is_some()
+                || checkpoint.exists()
+                || self.tun.retirement_pending()
+            {
+                return Ok(());
+            }
+            self.profile.as_ref().map_or(Ok(()), |profile| {
+                self.tun
+                    .check_uplinks(&profile.config, profile.capture.as_ref())
+            })
+        });
+        if let Some(error) = uplink_error {
+            let changed = self.core_state != CoreState::Failed
+                || self.last_error.as_ref().is_none_or(|previous| {
+                    previous.code != error.code || previous.message != error.message
+                });
+            self.core_state = CoreState::Failed;
+            self.last_error = Some(error);
+            if changed {
+                self.changed("recovery.waiting");
+            }
             return;
         }
         if self
@@ -1752,11 +1780,7 @@ impl Kernel {
                     return Err(error.clone());
                 }
             }
-            if self
-                .profile_path
-                .with_file_name("activation-rollback.json")
-                .exists()
-            {
+            if checkpoint.exists() {
                 // Keep a healthy capture barrier while replacing an uncertain
                 // main-core table/handler update. A failed retention proof still
                 // requires the existing ownership-guarded retirement path.
@@ -2142,7 +2166,8 @@ impl Kernel {
         }
         bridge.config = control.config.clone();
         let listeners = tcp_listeners(&bridge.config);
-        for endpoint in listener_endpoints(&bridge.config) {
+        let endpoints = listener_endpoints(&bridge.config);
+        for &endpoint in &endpoints {
             check_endpoint(endpoint)?;
         }
         self.generation += 1;
@@ -2161,7 +2186,7 @@ impl Kernel {
             )?;
             self.progress(crate::lifecycle::Stage::WaitCore);
             let now = Instant::now();
-            let until = now + Duration::from_secs(8);
+            let until = now + crate::native::XRAY_CONFIG_LOAD_TIMEOUT;
             let ready_after = now + Duration::from_millis(300);
             loop {
                 if let Some(code) = core.exit_code()? {
@@ -2183,7 +2208,7 @@ impl Kernel {
                         .all(|a| TcpStream::connect_timeout(a, Duration::from_millis(100)).is_ok())
                     && {
                         let owned = crate::sockets::listeners()?;
-                        listener_endpoints(&bridge.config).iter().all(|endpoint| {
+                        endpoints.iter().all(|endpoint| {
                             owned
                                 .iter()
                                 .any(|row| row.pid == core.pid && row.endpoint.overlaps(*endpoint))

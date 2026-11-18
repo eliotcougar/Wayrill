@@ -12,7 +12,8 @@ type RuntimeViewState = Pick<
 export function runtimePresentation(
   runtime: RuntimeViewState,
   draft: RuntimeCompilation | null,
-  personalRulesChanged = false,
+  poolDocumentMatches?: boolean,
+  syncingPool = false,
 ) {
   const { snapshot, desktop } = runtime;
   const current = desktop && runtime.connected && !!snapshot;
@@ -20,16 +21,17 @@ export function runtimePresentation(
   const resourcesChanged = current && !!snapshot.resources?.restartRequired;
   const appliedMatch =
     profileCurrent &&
-    !personalRulesChanged &&
+    !syncingPool &&
     snapshot.config.present &&
-    matchesApplied(draft?.config ?? null, runtime.savedConfig, !!draft?.resolverActivity) &&
-    matchesCapture(draft?.capture, runtime.savedCapture) &&
-    (!runtime.capabilities?.includes('xray.routingLog') ||
-      (matchesCapture(draft?.displayNames?.routing, runtime.savedDisplayNames?.routing) &&
-        matchesCapture(
-          draft?.displayNames?.routingDefault,
-          runtime.savedDisplayNames?.routingDefault,
-        )));
+    (poolDocumentMatches ??
+      (matchesApplied(draft?.config ?? null, runtime.savedConfig, !!draft?.resolverActivity) &&
+        matchesCapture(draft?.capture, runtime.savedCapture) &&
+        (!runtime.capabilities?.includes('xray.routingLog') ||
+          (matchesCapture(draft?.displayNames?.routing, runtime.savedDisplayNames?.routing) &&
+            matchesCapture(
+              draft?.displayNames?.routingDefault,
+              runtime.savedDisplayNames?.routingDefault,
+            )))));
   const unavailable = desktop ? 'Service offline' : 'Desktop app required';
   const core = {
     value: current ? snapshot.core.state : 'Unknown',
@@ -39,17 +41,27 @@ export function runtimePresentation(
         ? `Service offline · last known: ${snapshot.core.state}`
         : unavailable,
   };
-  const draftState = !current
-    ? 'Draft comparison unavailable'
-    : !snapshot.config.present
-      ? 'Draft has not been applied'
-      : !profileCurrent
-        ? 'Refreshing draft comparison'
-        : !draft
-          ? 'Fix graph errors to compare the draft'
-          : appliedMatch
-            ? `Draft matches applied revision ${snapshot.config.revision}`
-            : 'Draft has unapplied changes';
+  function comparison(): [string, string] {
+    if (!current) return ['Offline', 'Draft comparison unavailable'];
+    if (syncingPool) return ['Syncing Pool graph…', 'Loading the applied Pool graph…'];
+    if (!snapshot.config.present) return ['Draft not applied', 'Draft has not been applied'];
+    if (!profileCurrent) return ['Comparing draft…', 'Refreshing draft comparison'];
+    if (poolDocumentMatches)
+      return [
+        'Pool graph up to date',
+        `Showing the applied Pool graph · revision ${snapshot.config.revision}`,
+      ];
+    if (!draft) return ['Graph errors', 'Fix graph errors to compare the draft'];
+    if (poolDocumentMatches === false)
+      return [
+        'Unapplied local edits',
+        'Local edits are pending. Routing uses the applied Pool graph.',
+      ];
+    return appliedMatch
+      ? ['Draft matches', `Draft matches applied revision ${snapshot.config.revision}`]
+      : ['Draft changed', 'Draft has unapplied changes'];
+  }
+  const [shortState, draftState] = comparison();
   const resourceState = !resourcesChanged
     ? ''
     : snapshot.resources?.reloadPending
@@ -94,7 +106,7 @@ export function runtimePresentation(
     ? 'Draft only · browser session'
     : !current
       ? 'Runtime unknown · service offline'
-      : `Xray ${core.value}${snapshot.config.present ? ` · r${snapshot.config.revision}` : ''} · ${appliedMatch ? 'Draft matches' : !snapshot.config.present ? 'Draft not applied' : !profileCurrent ? 'Comparing draft…' : !draft ? 'Graph errors' : 'Draft changed'}${resourceState ? ` · ${resourceState}` : ''}`;
+      : `Xray ${core.value}${snapshot.config.present ? ` · r${snapshot.config.revision}` : ''} · ${shortState}${resourceState ? ` · ${resourceState}` : ''}`;
   return {
     current,
     profileCurrent,

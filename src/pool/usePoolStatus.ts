@@ -8,8 +8,10 @@ export type PoolStatus = {
     address: string;
     appliedAt: number;
     refreshMinutes: number;
+    personalSettings?: boolean;
   } | null;
   busy: boolean;
+  applying?: boolean;
   error: ServiceError | null;
   lastCheckAt?: number | null;
 };

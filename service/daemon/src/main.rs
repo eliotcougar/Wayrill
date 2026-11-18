@@ -91,8 +91,10 @@ fn main() {
                     .map_err(|e| ApiError::io("Decode subscription task", e))?;
                 if input["operation"] == "poolDownload" {
                     wayrill_protocol::params(input["source"].clone())
-                        .and_then(|source| pool_access::download(&source))
-                        .map(serde_json::Value::String)
+                        .and_then(|source| {
+                            pool_access::download_if_changed(&source, input["etag"].as_str())
+                        })
+                        .map(|result| serde_json::json!(result))
                 } else if input["operation"] == "download" {
                     #[derive(Deserialize)]
                     #[serde(rename_all = "camelCase", deny_unknown_fields)]

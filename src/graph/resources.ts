@@ -262,7 +262,7 @@ export function readGraphResources({
     ResourceKind,
   ][]) {
     const name = poolSettings?.[key];
-    if (typeof name !== 'string') continue;
+    if (typeof name !== 'string' || defaults?.localPoolSettings?.includes(key)) continue;
     const index = set.files.findIndex((file) => file.name.toLowerCase() === name.toLowerCase());
     let file = set.files[index];
     if (file?.kind !== kind) {

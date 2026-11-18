@@ -32,6 +32,10 @@ pub(super) struct Connection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pool_name: Option<String>,
     digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    verified_source: Option<String>,
     checked_at: u64,
     #[serde(default = "default_minutes")]
     pub(super) refresh_minutes: u64,
@@ -45,6 +49,8 @@ pub(super) struct Connection {
     choice_names: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     routing_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    preference_base: Value,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -66,6 +72,10 @@ struct Selection {
     stashes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     filters: Option<BTreeMap<String, String>>,
+    #[serde(rename = "stashOverrides", skip_serializing_if = "Option::is_none")]
+    stash_overrides: Option<BTreeMap<String, bool>>,
+    #[serde(rename = "filterOverrides", skip_serializing_if = "Option::is_none")]
+    filter_overrides: Option<BTreeMap<String, Option<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbounds: Option<BTreeMap<String, OutboundChoice>>,
 }
@@ -87,6 +97,7 @@ pub(super) struct Enrollment {
     capture: String,
     start: bool,
     expected_revision: u64,
+    expected_source_hash: Option<String>,
     bindings: Option<BTreeMap<String, String>>,
     expected_digest: Option<String>,
     selection: Option<Selection>,
@@ -111,11 +122,14 @@ pub(super) struct PreviewRequest {
     source: Option<Source>,
     capture: String,
     expected_revision: u64,
+    expected_source_hash: Option<String>,
     selection: Option<Selection>,
     bindings: Option<BTreeMap<String, String>>,
     expected_digest: Option<String>,
     #[serde(default)]
     reset_bindings: bool,
+    #[serde(default)]
+    use_defaults: bool,
 }
 impl PreviewRequest {
     pub(super) fn validate(&self) -> Result<()> {
@@ -135,12 +149,24 @@ impl PreviewRequest {
 pub(super) struct BindingChange {
     capture: String,
     expected_revision: u64,
+    expected_source_hash: Option<String>,
     expected_digest: String,
     bindings: BTreeMap<String, String>,
     selection: Option<Selection>,
+    #[serde(default)]
+    reset_preferences: BTreeMap<String, Vec<String>>,
 }
 impl BindingChange {
     pub(super) fn validate(&self) -> Result<()> {
+        if self.reset_preferences.len() > 500
+            || self.reset_preferences.iter().any(|(id, keys)| {
+                id.len() > 128
+                    || keys.len() > 50_000
+                    || keys.iter().any(|key| key.len() > 131_072 + 5)
+            })
+        {
+            return Err(error("Invalid selection of personal settings."));
+        }
         validate_selection(&self.capture, Some(&self.bindings), self.selection.as_ref())
     }
 }
@@ -183,6 +209,18 @@ fn validate_selection(
                 .as_ref()
                 .is_some_and(|ids| ids.len() > 500 || !ids.iter().all(|id| valid_id(id)))
             || choice.filters.as_ref().is_some_and(|map| !map_valid(map))
+            || (choice.filters.is_some() && choice.filter_overrides.is_some())
+            || (choice.stashes.is_some() && choice.stash_overrides.is_some())
+            || choice
+                .stash_overrides
+                .as_ref()
+                .is_some_and(|map| map.len() > 500 || !map.keys().all(|key| valid_id(key)))
+            || choice.filter_overrides.as_ref().is_some_and(|map| {
+                map.len() > 500
+                    || !map.iter().all(|(key, value)| {
+                        valid_id(key) && value.as_ref().is_none_or(|id| valid_id(id))
+                    })
+            })
             || choice.outbounds.as_ref().is_some_and(|map| {
                 map.len() > 500
                     || map.iter().any(|(node, entry)| {
@@ -212,30 +250,37 @@ pub(super) fn view(state: &State) -> Value {
         json!({
             "name": connection.name, "poolName": connection.pool_name, "kind": connection.source.kind,
             "address": connection.source.address, "appliedAt": connection.checked_at, "refreshMinutes": connection.refresh_minutes,
+            "personalSettings": !connection.preference_base.is_null(),
         })
     });
     json!({"connection":connection,"error":state.pool_error,"lastCheckAt":state.pool_last_check,
+        "applying":state.library.pool_pending.is_some(),
         "busy":state.pool_busy || state.library.pool_pending.is_some() || state.queue.iter().any(|work| matches!(work, Work::Pool { .. }))})
 }
 
 fn verify_routing(
     connection: &Connection,
     graph: Option<&str>,
+    accepted_bundle: Option<&Value>,
     stop: &AtomicBool,
     shutdown: &AtomicBool,
-) -> Result<()> {
-    let baseline = connection.routing_digest.as_deref().ok_or_else(|| {
-        ApiError::new("POOL_REVIEW_REQUIRED", "A new Pool delivery is available. Review and apply your choices once to resume automatic updates.")
-    })?;
+) -> Result<Value> {
+    if connection.routing_digest.is_none() && accepted_bundle.is_none() {
+        return Err(ApiError::new("POOL_REVIEW_REQUIRED", "A new Pool delivery is available. Review and apply your choices once to resume automatic updates."));
+    }
     let routing = worker::helper(
-        &json!({"operation":"poolRoutingState","appliedGraph":graph}),
+        &json!({"operation":"poolRoutingState","appliedGraph":graph,"layeredRouting":!connection.preference_base.is_null(),
+          "bundle":accepted_bundle,"recipient":connection.source.parts()?.0,"poolSelection":connection.selection,"bindings":connection.bindings}),
         stop,
         shutdown,
     )?;
-    if digest(&routing["poolRoutingState"].to_string()) != baseline {
+    if routing["matchesPublication"] != true
+        && connection.routing_digest.as_ref()
+            != Some(&digest(&routing["poolRoutingState"].to_string()))
+    {
         return Err(ApiError::new("POOL_LOCAL_ROUTING", "Pool updates are paused because you applied personal routing changes. Open Edit configuration choices to resume managed routing."));
     }
-    Ok(())
+    Ok(routing)
 }
 
 pub(super) fn perform(
@@ -323,6 +368,10 @@ pub(super) fn perform(
         .and_then(|input| input.expected_digest.as_deref())
         .or_else(|| rebind.map(|input| input.expected_digest.as_str()))
         .or_else(|| preview.and_then(|input| input.expected_digest.as_deref()));
+    let expected_source_hash = initial
+        .and_then(|i| i.expected_source_hash.as_deref())
+        .or_else(|| preview.and_then(|i| i.expected_source_hash.as_deref()))
+        .or_else(|| rebind.and_then(|i| i.expected_source_hash.as_deref()));
     let saved_selection = current
         .pool
         .as_ref()
@@ -331,7 +380,7 @@ pub(super) fn perform(
         .and_then(|input| input.selection.as_ref())
         .or_else(|| rebind.and_then(|input| input.selection.as_ref()))
         .or_else(|| preview.and_then(|input| input.selection.as_ref()))
-        .or(saved_selection)
+        .or_else(|| saved_selection.filter(|_| !preview.is_some_and(|p| p.use_defaults)))
         .cloned();
     let bindings = initial
         .and_then(|input| input.bindings.as_ref())
@@ -351,7 +400,10 @@ pub(super) fn perform(
             .map_err(|_| error("Routing controller unavailable."))?;
         let proof = routing.subscription_profile();
         if let Some(expected) = expected_revision {
-            if expected != proof.revision {
+            if expected != proof.revision
+                || expected_source_hash
+                    .is_some_and(|h| h != proof.source_hash.as_deref().unwrap_or_default())
+            {
                 return Err(error(
                     "The applied graph changed. Review the capture choice and try again.",
                 ));
@@ -374,26 +426,38 @@ pub(super) fn perform(
     } else {
         crate::native::CoreIdentity::LocalService
     };
-    let request = json!({"operation":"poolDownload","source":source});
+    let connection = current.pool.as_ref().filter(|_| initial.is_none());
+    let refresh = matches!(task, Task::Refresh);
+    let validator = connection
+        .filter(|c| refresh && !c.preference_base.is_null())
+        .and_then(|p| p.etag.as_ref());
+    let request = json!({"operation":"poolDownload","source":source,"etag":validator});
     let response = match worker::helper_as(&request, identity, stop, shutdown) {
         Err(error) if source.kind == "folder" && error.code == "OWNER_NOT_LOGGED_ON" => {
             worker::helper(&request, stop, shutdown)
         }
         result => result,
     }?;
-    let text = response
-        .as_str()
-        .ok_or_else(|| error("Invalid Pool download response."))?;
-    let (bundle, published_version, content_digest) = crate::pool_access::publication(text)?;
+    let fetched: crate::subscription_http::Fetched =
+        serde_json::from_value(response).map_err(|_| error("Invalid Pool download response."))?;
+    let (bundle, published_version, content_digest) = match fetched.text {
+        Some(text) => crate::pool_access::publication(&text)?,
+        None => {
+            let saved = connection
+                .filter(|_| validator.is_some() && fetched.etag.as_ref() == validator)
+                .ok_or_else(|| error("The Pool server returned no publication."))?;
+            (Value::Null, saved.published_version, saved.digest.clone())
+        }
+    };
     let pool_name = bundle["poolName"].as_str().map(str::to_owned);
-    if matches!(task, Task::Refresh) {
+    if refresh || preview.is_some() {
         if let Some(choice) = selection.as_mut().filter(|choice| choice.follow_default) {
             if let Some(default) = bundle["defaultGraph"].as_str() {
                 choice.graph = default.into();
             }
         }
     }
-    let connection = current.pool.as_ref().filter(|_| initial.is_none());
+    let mut migrated = None;
     if let Some(connection) = connection {
         if connection.published_version > published_version
             || (published_version != 0
@@ -404,20 +468,41 @@ pub(super) fn perform(
                 "The source returned an older or conflicting Pool publication.",
             ));
         }
-        if matches!(task, Task::Refresh)
-            && (connection.routing_digest.is_some() || connection.digest != content_digest)
-        {
-            verify_routing(
+        let verified =
+            proof.source_hash.is_some() && connection.verified_source == proof.source_hash;
+        if refresh && (!verified || connection.preference_base.is_null()) {
+            let state = verify_routing(
                 connection,
                 applied.as_ref().map(|value| value.0.as_str()),
+                (connection.preference_base.is_null() && connection.digest == content_digest)
+                    .then_some(&bundle),
                 stop,
                 shutdown,
             )?;
+            if connection.preference_base.is_null() {
+                migrated = Some((
+                    state["poolPreferenceBase"].clone(),
+                    digest(&state["managedRoutingState"].to_string()),
+                ));
+            }
         }
-        if matches!(task, Task::Refresh) && connection.digest == content_digest {
-            if connection.published_version < published_version {
+        if refresh && connection.digest == content_digest {
+            if connection.published_version < published_version
+                || connection.etag != fetched.etag
+                || migrated.is_some()
+                || (!verified && connection.routing_digest.is_some())
+            {
                 let mut next = (*current).clone();
-                next.pool.as_mut().unwrap().published_version = published_version;
+                let saved = next.pool.as_mut().unwrap();
+                saved.published_version = published_version;
+                saved.etag = fetched.etag;
+                if let Some((base, hash)) = migrated {
+                    saved.preference_base = base;
+                    saved.routing_digest = Some(hash);
+                }
+                if saved.routing_digest.is_some() {
+                    saved.verified_source = proof.source_hash;
+                }
                 return manager.commit(next);
             }
             return Ok(());
@@ -429,10 +514,20 @@ pub(super) fn perform(
         ));
     }
     let choice_names = connection.map(|pool| &pool.choice_names);
+    let same_graph = saved_selection.map(|s| &s.graph) == selection.as_ref().map(|s| &s.graph);
+    let preference_base = same_graph
+        .then(|| {
+            migrated
+                .as_ref()
+                .map(|m| &m.0)
+                .or_else(|| connection.map(|c| &c.preference_base))
+        })
+        .flatten();
     if preview.is_some() {
         let mut response = worker::helper(
-            &json!({"operation":"poolInspect","appliedGraph":applied.as_ref().map(|value| &value.0),
-            "bundle":bundle,"capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names}),
+            &json!({"operation":"poolInspect","recipient":recipient,"appliedGraph":applied.as_ref().map(|value| &value.0),
+            "bundle":bundle,"capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names,
+            "poolPreferenceBase":preference_base}),
             stop,
             shutdown,
         )?;
@@ -442,6 +537,10 @@ pub(super) fn perform(
             .ok_or_else(|| error("Invalid Pool preview."))?;
         entries.insert("digest".into(), json!(content_digest));
         entries.insert("revision".into(), json!(proof.revision));
+        entries.insert(
+            "sourceHash".into(),
+            json!(proof.source_hash.unwrap_or_default()),
+        );
         let id = job.ok_or_else(|| error("Missing Pool preview job."))?;
         manager.state.lock().unwrap().pool_preview = Some((id, preview));
         return Ok(());
@@ -449,7 +548,9 @@ pub(super) fn perform(
     let candidate = worker::helper(
         &json!({"operation":"poolPrepare","stash":current.stash.as_deref().unwrap_or(""),
         "appliedGraph":applied.as_ref().map(|value| &value.0),"bundle":bundle,"recipient":recipient,
-        "capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names}),
+        "capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names,
+        "poolPreferenceBase":preference_base,"resetPreferences":rebind.map(|r| &r.reset_preferences),
+        "reconcileBindings":refresh}),
         stop,
         shutdown,
     )?;
@@ -482,6 +583,8 @@ pub(super) fn perform(
             name: name.into(),
             pool_name,
             digest: content_digest,
+            etag: fetched.etag,
+            verified_source: None,
             checked_at: now(),
             refresh_minutes: initial.map_or_else(
                 || {
@@ -493,11 +596,15 @@ pub(super) fn perform(
                 |input| input.refresh_minutes,
             ),
             published_version,
-            bindings: bindings.cloned(),
+            bindings: Some(
+                serde_json::from_value(candidate["bindings"].clone())
+                    .map_err(|_| error("Invalid prepared Pool inbound assignments."))?,
+            ),
             selection: serde_json::from_value(candidate["poolSelection"].clone())
                 .map_err(|_| error("Invalid prepared Pool selection."))?,
             choice_names: candidate["poolChoiceNames"].clone(),
             routing_digest: Some(digest(&candidate["poolRoutingState"].to_string())),
+            preference_base: candidate["poolPreferenceBase"].clone(),
         },
         source_digest: digest(graph),
         config_hash: Kernel::subscription_candidate_hash(&candidate)?,
@@ -531,8 +638,17 @@ pub(super) fn perform(
     }
     let mut next = (*current).clone();
     routing.install_pool_resources(&candidate["config"], files, stop)?;
+    // A publication can change an unselected graph or Stash without changing
+    // this computer's routing. Commit its delivery without invoking activation.
+    let already_applied = refresh
+        && applied
+            .as_ref()
+            .is_some_and(|(source, _, hash, _)| source == graph && hash == &pending.config_hash);
     next.pool_pending = Some(pending);
     manager.commit(next)?;
+    if already_applied {
+        return finish_pending(&routing, manager);
+    }
     let activate =
         observed.wants_running || observed.running || initial.is_some_and(|input| input.start);
     let result = routing.handle(if activate { "config.applyAndStart" } else { "config.apply" }, json!({
@@ -558,7 +674,9 @@ pub(super) fn finish_pending(routing: &Kernel, manager: &Manager) -> Result<()> 
     let mut next = (*current).clone();
     if let Some((graph, revision, hash, source_hash)) = routing.pool_source()? {
         if hash == pending.config_hash && digest(&graph) == pending.source_digest {
-            next.pool = Some(pending.connection.clone());
+            let mut connection = pending.connection.clone();
+            connection.verified_source = Some(source_hash.clone());
+            next.pool = Some(connection);
             next.stash = Some(pending.stash.clone());
             next.catalog = pending.catalog.clone();
             next.applied = Some(Applied {

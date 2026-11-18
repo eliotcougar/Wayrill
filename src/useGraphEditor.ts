@@ -30,7 +30,8 @@ import { rebaseGraphDraft, syncGraphEdits, syncStashEdits } from './profiles/wor
 import { removeStashEntries } from './profiles/stashModel';
 import { serializeStash } from './profiles/import';
 import type useStash from './profiles/useStash';
-import { parseGraph, serializeGraph } from './graph/model';
+import { parseGraph, serializeGraph, toDocument } from './graph/model';
+import { jsonRecord } from './graph/xrayJson';
 import {
   applyConnectionEdit,
   connectionEditProblem,
@@ -49,6 +50,26 @@ import type {
 import useProtectedSlot from './useProtectedSlot';
 import { canDuplicateNode, duplicateSelection, MAX_GRAPH_NODES } from './graph/editing';
 
+function workspaceText(graph: GraphState, hash?: string) {
+  return hash
+    ? JSON.stringify({ ...toDocument(graph), poolBaseHash: hash })
+    : serializeGraph(graph);
+}
+
+// The applied graph and its Pool Stash arrive on independent service channels.
+// Only the applied document can change a published route on the canvas.
+function refreshFromLibrary(graph: GraphState, previous: Stash | undefined, latest: Stash) {
+  const scope = graph.poolId
+    ? new Set(
+        [...(previous?.groups ?? []), ...latest.groups]
+          .map(({ id }) => id)
+          .filter((id) => !id.startsWith(`pool-${graph.poolId}-`)),
+      )
+    : undefined;
+  const linked = syncStashEdits(graph, previous, latest, scope);
+  return syncXrayConnections(resolveGraph(refreshPolicyGraph(linked, latest, scope)));
+}
+
 export default function useGraphEditor(
   stash?: Stash,
   store?: Pick<ReturnType<typeof useStash>, 'get' | 'update'>,
@@ -59,6 +80,7 @@ export default function useGraphEditor(
     initialWorkspaceHistory(initial ?? createProxyStarter()),
   );
   const [loadVersion, setLoadVersion] = useState(0);
+  const poolBase = useRef<{ id: string; hash: string } | undefined>(undefined);
   const viewportKey = useRef(0);
   const [libraryError, setLibraryError] = useState('');
   const current = useRef(history);
@@ -69,13 +91,24 @@ export default function useGraphEditor(
   const dragStart = useRef<WorkspaceRevision | null>(null);
   const editStart = useRef<WorkspaceRevision | null>(null);
   // Serialize only when saving or exporting; pooled profiles must not block drag frames.
-  const serialize = useMemo(() => {
+  const serialize = useCallback(
+    () => serializeGraph(history.present.graph),
+    [history.present.graph],
+  );
+  const poolBaseHash =
+    poolBase.current?.id === history.present.graph.poolId ? poolBase.current?.hash : undefined;
+  const serializeWorkspace = useMemo(() => {
     let text: string | undefined;
-    return () => (text ??= serializeGraph(history.present.graph));
-  }, [history.present.graph]);
-  const storage = useProtectedSlot('workspace', serialize, (text) => {
+    return () => (text ??= workspaceText(history.present.graph, poolBaseHash));
+  }, [history.present.graph, poolBaseHash]);
+  const storage = useProtectedSlot('workspace', serializeWorkspace, (text) => {
     if (text !== null) {
       const next = initialWorkspaceHistory(parseGraph(text));
+      if (next.present.graph.poolId) {
+        const metadata: unknown = JSON.parse(text);
+        if (jsonRecord(metadata) && typeof metadata.poolBaseHash === 'string')
+          poolBase.current = { id: next.present.graph.poolId, hash: metadata.poolBaseHash };
+      }
       current.current = next;
       setHistory(next);
     }
@@ -101,9 +134,8 @@ export default function useGraphEditor(
     const library =
       editStart.current || dragStart.current ? previous.present.stash : (store?.get() ?? stash);
     if (library && library !== previous.present.stash && previous.present.stash) {
-      const linked = syncStashEdits(previous.present.graph, previous.present.stash, library);
       previous = commitWorkspaceHistory(previous, {
-        graph: syncXrayConnections(resolveGraph(refreshPolicyGraph(linked, library))),
+        graph: refreshFromLibrary(previous.present.graph, previous.present.stash, library),
         stash: library,
       });
     }
@@ -143,10 +175,9 @@ export default function useGraphEditor(
       const library = store?.get() ?? stash;
       const previous = current.current;
       if (previous.present.stash === library) return;
-      const linked = syncStashEdits(previous.present.graph, previous.present.stash, library);
-      const refreshed = refreshPolicyGraph(linked, library);
+      const refreshed = refreshFromLibrary(previous.present.graph, previous.present.stash, library);
       const synced =
-        store && !previous.present.stash
+        store && !previous.present.stash && !previous.present.graph.poolId
           ? syncGraphEdits(refreshed, refreshed, library, true)
           : { graph: refreshed, stash: library };
       const present = {
@@ -188,10 +219,9 @@ export default function useGraphEditor(
       const latest = libraryStore.current?.get();
       const previous = current.current;
       if (latest && latest !== previous.present.stash) {
-        const linked = syncStashEdits(previous.present.graph, previous.present.stash, latest);
         publish(
           commitWorkspaceHistory(previous, {
-            graph: syncXrayConnections(resolveGraph(refreshPolicyGraph(linked, latest))),
+            graph: refreshFromLibrary(previous.present.graph, previous.present.stash, latest),
             stash: latest,
           }),
           false,
@@ -205,16 +235,14 @@ export default function useGraphEditor(
     if (latest && before.stash && latest !== before.stash && latest !== present.stash) {
       // A subscription refresh can finish during a field edit or node drag.
       // Record that change first, then apply the user's edit to the current library.
-      const refreshed = syncStashEdits(before.graph, before.stash, latest);
       previous = commitWorkspaceHistory(previous, {
-        graph: syncXrayConnections(resolveGraph(refreshPolicyGraph(refreshed, latest))),
+        graph: refreshFromLibrary(before.graph, before.stash, latest),
         stash: latest,
       });
       const draft = rebaseGraphDraft(before.graph, present.graph, previous.present.graph);
       const merged = syncGraphEdits(previous.present.graph, draft, latest);
-      const linked = syncStashEdits(merged.graph, present.stash, merged.stash);
       present = {
-        graph: syncXrayConnections(resolveGraph(refreshPolicyGraph(linked, merged.stash))),
+        graph: refreshFromLibrary(merged.graph, present.stash, merged.stash),
         stash: merged.stash,
       };
     }
@@ -380,6 +408,32 @@ export default function useGraphEditor(
     );
     if (resetViewport) setLoadVersion((version) => version + 1);
   }
+  const canFollowPool = () =>
+    storage.ready && !locked.current && !dragStart.current && !editStart.current;
+  function showPoolGraph(graph: GraphState, hash: string, applied = graph) {
+    if (!graph.poolId || !canFollowPool()) return false;
+    const previous = current.current;
+    const changedGraph = previous.present.graph.poolId !== graph.poolId;
+    poolBase.current = { id: graph.poolId, hash };
+    const library = libraryStore.current?.get() ?? previous.present.stash;
+    // Undo may remove pending local edits, but cannot roll back an external
+    // delivery or publish the previous delivery's credentials to the Stash.
+    const history = initialWorkspaceHistory(resolveGraph(applied), library);
+    history.present.viewportKey = changedGraph
+      ? ++viewportKey.current
+      : previous.present.viewportKey;
+    publish(
+      graph === applied
+        ? history
+        : commitWorkspaceHistory(history, {
+            graph: resolveGraph(graph),
+            stash: library,
+          }),
+      false,
+    );
+    if (changedGraph) setLoadVersion((version) => version + 1);
+    return true;
+  }
   const finishForClose = () => {
     if (dragStart.current) endDrag();
     endFieldEdit();
@@ -390,7 +444,11 @@ export default function useGraphEditor(
     () => ({
       workspace: () => {
         closeActions.current.finish();
-        return serializeGraph(current.current.present.graph);
+        const graph = current.current.present.graph;
+        return workspaceText(
+          graph,
+          poolBase.current?.id === graph.poolId ? poolBase.current?.hash : undefined,
+        );
       },
       stash: () =>
         serializeStash(closeActions.current.library?.get() ?? current.current.present.stash!),
@@ -450,6 +508,9 @@ export default function useGraphEditor(
     duplicateSelected,
     loadGraph,
     restoreWorkspace,
+    showPoolGraph,
+    canFollowPool,
+    poolBaseHash,
     setViewport: (viewport: Viewport) => change((graph) => ({ ...graph, viewport }), false),
   };
 }

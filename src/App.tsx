@@ -129,7 +129,6 @@ import {
 } from './graph/connectionEditing';
 import ConnectionEditor, { type ConnectionRequest } from './components/ConnectionEditor';
 import useGraphAnalysis from './useGraphAnalysis';
-import { runtimePresentation } from './runtimePresentation';
 import useRuntime from './useRuntime';
 import useClosePersistence from './useClosePersistence';
 import useStash from './profiles/useStash';
@@ -160,7 +159,8 @@ import PoolExport from './pool/PoolExport';
 import { openPool, sendPoolExport } from './pool/handoff';
 import PoolConnection from './pool/PoolConnection';
 import usePoolStatus from './pool/usePoolStatus';
-import { personalRoutingState } from './pool/model';
+import { samePoolDocument } from './pool/model';
+import useManagedPoolGraph from './pool/useManagedPoolGraph';
 
 import CompanionSettings from './components/CompanionSettings';
 import TimezoneSettings from './components/TimezoneSettings';
@@ -225,13 +225,15 @@ export default function App({
   const poolLabel =
     !runtime.connected || poolStatus.error
       ? 'Pool offline'
-      : poolStatus.status?.busy
-        ? 'Checking Pool…'
-        : poolIssue?.code === 'POOL_LOCAL_ROUTING' || poolIssue?.code === 'POOL_REVIEW_REQUIRED'
-          ? 'Pool updates paused'
-          : poolIssue
-            ? 'Pool update issue'
-            : 'Pool connected';
+      : poolStatus.status?.applying
+        ? 'Applying Pool update…'
+        : poolStatus.status?.busy
+          ? 'Checking Pool…'
+          : poolIssue?.code === 'POOL_LOCAL_ROUTING' || poolIssue?.code === 'POOL_REVIEW_REQUIRED'
+            ? 'Pool updates paused'
+            : poolIssue
+              ? 'Pool update issue'
+              : 'Pool connected';
   const progress = runtimeProgress(runtime);
   const [switchingOutbound, setSwitchingOutbound] = useState(false);
   const switching = useRef(false);
@@ -549,19 +551,28 @@ export default function App({
     subscriptionMaintenance.appliedRevision,
     subscriptionMaintenance.appliedSourceHash,
   );
-  const personalRulesChanged = useMemo(() => {
-    if (!executionGraph.poolId || executionGraph.poolId !== appliedGraph?.poolId) return false;
-    try {
-      return !jsonEqual(personalRoutingState(executionGraph), personalRoutingState(appliedGraph));
-    } catch {
-      return false; // Invalid draft rules are already diagnosed by graph analysis.
-    }
-  }, [executionGraph, appliedGraph]);
+  const managed = !!poolConnection && !layer && !simulation;
+  const poolEditor = useManagedPoolGraph(
+    editor,
+    appliedGraph,
+    subscriptionMaintenance.appliedSourceHash,
+    managed && stash.ready,
+    notify,
+  );
+  const poolDocumentMatches = useMemo(
+    () =>
+      managed && appliedGraph?.poolId && executionGraph.poolId === appliedGraph.poolId
+        ? samePoolDocument(executionGraph, appliedGraph)
+        : undefined,
+    [managed, executionGraph, appliedGraph],
+  );
   const graphActions = createGraphRuntimeActions(
     executionGraph,
     analysis,
     runtime,
-    personalRulesChanged,
+    poolDocumentMatches,
+    poolEditor.syncing,
+    !!poolConnection?.personalSettings,
   );
   const compatibleObservations = useMemo(
     () =>
@@ -581,7 +592,7 @@ export default function App({
       ),
     [runtime.connected, runtime.snapshot, compatibleObservations, runtime.savedRevision],
   );
-  const runtimeView = runtimePresentation(runtime, graphCompilation, personalRulesChanged);
+  const runtimeView = graphActions.view;
   if (analysis.pending) {
     runtimeView.draftState = 'Checking the current draft…';
     runtimeView.footer = runtimeView.footer.replace('Graph errors', 'Checking graph…');
@@ -1424,16 +1435,20 @@ export default function App({
                               setPoolOpen(null);
                               setPoolTest({ graph, stash: stash.get() });
                             },
-                            onOpenGraph: (graph) => {
-                              editor.restoreWorkspace(graph, stash.get(), true);
+                            onShowGraph: () => {
+                              poolEditor.show();
                               setPoolOpen(null);
                             },
+                            showingApplied: poolDocumentMatches === true,
+                            onChoicesApplied: () => {
+                              if (!editor.getGraph().poolId) poolEditor.show();
+                            },
+                            hasPrevious: poolEditor.hasPrevious,
+                            editorError: poolEditor.error,
                             onOpenCaptureSettings: () => {
                               setPoolOpen(null);
                               setWindowsCaptureOpen('applied');
                             },
-                            hasDifferentDraft: (graph) =>
-                              !jsonEqual(toDocument(editor.getGraph()), toDocument(graph)),
                           }}
                           onClose={() => setPoolOpen(null)}
                         />
@@ -2048,18 +2063,15 @@ export default function App({
                             {runtimeView.footer}
                           </button>
                         )}
-                        {editor.graph.poolId &&
-                          runtimeView.profileCurrent &&
-                          !runtimeView.appliedMatch &&
-                          !analysis.pending && (
-                            <button
-                              className="graph-status has-warnings"
-                              title="The graph in the editor differs from the applied routing. Review the current Pool configuration."
-                              onClick={() => setPoolOpen('connect')}
-                            >
-                              Pool draft differs
-                            </button>
-                          )}
+                        {poolEditor.error && managed && (
+                          <button
+                            className="graph-status has-warnings"
+                            title={poolEditor.error}
+                            onClick={poolEditor.retry}
+                          >
+                            Retry Pool graph sync
+                          </button>
+                        )}
                         {runtime.connected &&
                           runtime.snapshot?.capture?.availability &&
                           runtime.snapshot.capture.availability.state !== 'available' && (

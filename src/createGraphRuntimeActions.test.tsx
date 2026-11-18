@@ -31,8 +31,9 @@ function fixture(): RuntimeController {
     winDivert: { available: true, mode: 'sniffOnly', state: 'stopped', packets: 0, bytes: 0 },
     systemProxy: { managed: false, conflict: false, recoveryPending: false },
   };
+  const session = new RuntimeSession(async <T,>() => ({}) as T);
   return {
-    ...new RuntimeSession(async <T,>() => ({}) as T).getSnapshot(),
+    ...session.getSnapshot(),
     desktop: true,
     connected: true,
     snapshot,
@@ -49,7 +50,9 @@ function fixture(): RuntimeController {
     run: vi.fn(async () => ({})),
     setError: vi.fn(),
     setNotice: vi.fn(),
-    clearEvents: vi.fn(),
+    getEvents: session.getEvents,
+    subscribeEvents: session.subscribeEvents,
+    clearEvents: session.clearEvents,
   };
 }
 let root: Root, host: HTMLDivElement;

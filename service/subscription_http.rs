@@ -96,7 +96,39 @@ pub fn fetch(
     headers: &BTreeMap<String, String>,
     proxy_port: Option<u16>,
 ) -> Result<String, String> {
-    fetch_with_policy(text, allow_http, agent, headers, proxy_port, false)
+    fetch_with_policy(text, allow_http, agent, headers, proxy_port, false)?
+        .text
+        .ok_or_else(|| "Subscription server returned no document.".into())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Fetched {
+    pub text: Option<String>,
+    pub etag: Option<String>,
+}
+
+fn response_etag(request: &Handle) -> Option<String> {
+    let mut buf = [0u16; 256];
+    let mut size = std::mem::size_of_val(&buf) as u32;
+    if unsafe {
+        WinHttpQueryHeaders(
+            request.0,
+            WINHTTP_QUERY_ETAG,
+            ptr::null(),
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            ptr::null_mut(),
+        )
+    } == 0
+    {
+        return None;
+    }
+    let tag = String::from_utf16(buf.get(..size as usize / 2)?).ok()?;
+    let opaque = tag.strip_prefix('"')?.strip_suffix('"')?;
+    opaque
+        .bytes()
+        .all(|b| b == b'!' || (0x23..=0x7e).contains(&b))
+        .then_some(tag)
 }
 
 pub fn fetch_with_policy(
@@ -106,7 +138,7 @@ pub fn fetch_with_policy(
     headers: &BTreeMap<String, String>,
     proxy_port: Option<u16>,
     pool: bool,
-) -> Result<String, String> {
+) -> Result<Fetched, String> {
     let url = validate_url(text, allow_http)?;
     validate_headers(headers, agent)?;
     let proxy = proxy_port.map(|p| wide(&format!("127.0.0.1:{p}")));
@@ -235,6 +267,12 @@ pub fn fetch_with_policy(
     {
         return Err("Cannot read subscription response status.".into());
     }
+    if pool && status == 304 && headers.contains_key("If-None-Match") {
+        return Ok(Fetched {
+            text: None,
+            etag: headers.get("If-None-Match").cloned(),
+        });
+    }
     if !(200..300).contains(&status) {
         let hint = if (300..400).contains(&status) {
             " Redirects are not followed; use the final subscription URL."
@@ -275,7 +313,10 @@ pub fn fetch_with_policy(
         }
         bytes.extend_from_slice(&chunk[..read as usize]);
     }
-    String::from_utf8(bytes).map_err(|_| "Subscription is not UTF-8 text.".into())
+    Ok(Fetched {
+        etag: pool.then(|| response_etag(&request)).flatten(),
+        text: Some(String::from_utf8(bytes).map_err(|_| "Subscription is not UTF-8 text.")?),
+    })
 }
 #[cfg(test)]
 mod tests {

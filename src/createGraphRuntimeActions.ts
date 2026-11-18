@@ -14,15 +14,21 @@ export default function createGraphRuntimeActions(
   graph: GraphState,
   checks: ReturnType<typeof useGraphAnalysis>,
   runtime: RuntimeController,
-  personalRulesChanged = false,
+  poolDocumentMatches?: boolean,
+  syncingPool = false,
+  layerPreferences = false,
 ) {
   const { snapshot, connected, busy, desktop } = runtime;
-  const canCall = desktop && connected && !!snapshot && !busy && !runtimeProgress(runtime);
+  const serviceReady = desktop && connected && !!snapshot && !busy;
+  const progress = runtimeProgress(runtime);
+  const canCall = serviceReady && !progress;
   const compiled = checks.compilation,
     issues = checks.issues;
   const errors = issues.filter((i) => i.severity === 'error');
   const canStop =
-    canCall &&
+    serviceReady &&
+    (!progress ||
+      (snapshot.lifecycle?.recovering && snapshot.recovery?.desiredState === 'running')) &&
     (snapshot.recovery?.desiredState === 'running' ||
       snapshot.recovery?.state === 'waiting' ||
       snapshot.core.state !== 'stopped' ||
@@ -42,7 +48,7 @@ export default function createGraphRuntimeActions(
   const captureOwnership = snapshot?.capture?.availability;
   const ownershipUnavailable = !!captureOwnership && captureOwnership.state !== 'available';
   const captureBlocked = !!winCapture && ownershipUnavailable;
-  const view = runtimePresentation(runtime, compiled, personalRulesChanged);
+  const view = runtimePresentation(runtime, compiled, poolDocumentMatches, syncingPool);
   const mode = view.appliedMatch
     ? snapshot?.core.state === 'stopped'
       ? 'start'
@@ -115,11 +121,12 @@ export default function createGraphRuntimeActions(
     ? 'Requires the Windows app.'
     : !connected || !snapshot
       ? 'Service offline.'
-      : busy || runtimeProgress(runtime)
+      : busy || progress
         ? 'Wait for the current operation.'
         : '';
   const validateReason = serviceUnavailable || draftUnavailable;
   const applyReason =
+    (syncingPool && 'Loading the applied Pool graph…') ||
     validateReason ||
     (!activationAvailable
       ? 'Update the service to enable this action.'
@@ -161,9 +168,13 @@ export default function createGraphRuntimeActions(
     if (graph.poolId) {
       const { text } = await readSubscriptionDocument('applied');
       if (
-        (!text || !jsonEqual(poolRoutingState(parseGraph(text)), poolRoutingState(graph))) &&
+        (!text ||
+          !jsonEqual(
+            poolRoutingState(parseGraph(text), layerPreferences),
+            poolRoutingState(graph, layerPreferences),
+          )) &&
         !window.confirm(
-          'Apply personal routing changes? Pool updates will pause. To resume updates, open Connect to Pool and apply your configuration choices again.',
+          'Apply changes to Pool-managed routes? This will pause automatic routing updates. To keep updates, use personal Before or After traffic rules, or edit your choices in Pool connection.',
         )
       )
         return false;
@@ -196,6 +207,7 @@ export default function createGraphRuntimeActions(
     return true;
   }
   return {
+    view,
     checks,
     compiled,
     errors,

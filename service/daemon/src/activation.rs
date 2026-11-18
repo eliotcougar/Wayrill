@@ -53,9 +53,17 @@ pub fn execute(a: &mut impl Activation) -> Result<()> {
         Phase::Settings,
         Phase::Commit,
     ] {
-        if let Err(original) = phase.run(a) {
+        if let Err(mut original) = phase.run(a) {
             return match a.restore() {
-                Ok(()) => Err(ApiError::new("ACTIVATION_ROLLED_BACK", format!("{} failed ({}) during {}. Previous configuration and runtime state were restored. {}", a.action(), original.code, phase.name(), original.message))),
+                Ok(()) => {
+                    original.message = format!(
+                        "{} failed during {}. Previous configuration was restored. {}",
+                        a.action(),
+                        phase.name(),
+                        original.message,
+                    );
+                    Err(original)
+                }
                 Err(recovery) => Err(ApiError::new("ACTIVATION_RECOVERY_FAILED", format!("{} failed ({}) during {}: {} Recovery needs attention ({}): {} The protected recovery checkpoint was retained.", a.action(), original.code, phase.name(), original.message, recovery.code, recovery.message))),
             };
         }
@@ -156,7 +164,11 @@ mod tests {
                 fail,
                 ..Default::default()
             };
-            assert_eq!(execute(&mut a).unwrap_err().code, "ACTIVATION_ROLLED_BACK");
+            let error = execute(&mut a).unwrap_err();
+            assert_eq!(error.code, "TEST_FAILURE");
+            assert!(error
+                .message
+                .contains("Previous configuration was restored."));
             assert_eq!(a.calls.last(), Some(&"restore"));
         }
     }

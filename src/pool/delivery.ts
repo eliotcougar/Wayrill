@@ -20,6 +20,8 @@ export type PoolSelection = {
   followDefault?: boolean;
   stashes?: string[];
   filters?: Record<string, string>;
+  stashOverrides?: Record<string, boolean>;
+  filterOverrides?: Record<string, string | null>;
   outbounds?: Record<string, StashLink>;
 };
 
@@ -45,11 +47,13 @@ export type PoolOptions = {
   graphs: { id: string; name: string }[];
   stashes: { id: string; name: string }[];
   activeStashes: string[];
+  defaultStashes: string[];
   filters: {
     id: string;
     name: string;
     choices: { id: string; name: string }[];
     active?: string;
+    defaultLayer?: string;
   }[];
   outbounds: { id: string; name: string; accepts: NodeKind[] }[];
   entries: (StashLink & { name: string; kind: NodeKind })[];
@@ -122,8 +126,24 @@ export function resolvePoolDelivery(
     const layer = layerById.get(id);
     return layer?.data.kind === 'stash' || (choice.id === delivery.defaultGraph && !!target);
   });
-  const stashes = selected && requested?.stashes;
-  const filters = selected && requested?.filters;
+  const stashOverrides = selected && requested?.stashOverrides;
+  const filterOverrides = selected && requested?.filterOverrides;
+  const defaultStashes = defaults.filter(({ target }) => !target).map(({ id }) => id);
+  const defaultFilters = Object.fromEntries(
+    defaults.flatMap(({ id, target }) => (target ? [[target, id]] : [])),
+  );
+  const stashes = stashOverrides
+    ? [...new Set([...defaultStashes, ...Object.keys(stashOverrides)])].filter(
+        (id) => !Object.hasOwn(stashOverrides, id) || stashOverrides[id],
+      )
+    : selected && requested?.stashes;
+  const filters = filterOverrides
+    ? Object.fromEntries(
+        Object.entries({ ...defaultFilters, ...filterOverrides }).filter(
+          (item): item is [string, string] => item[1] !== null,
+        ),
+      )
+    : selected && requested?.filters;
   const outbounds = (selected && requested?.outbounds) || {};
   const choiceNames: PoolChoiceNames = {
     graph: base.name,
@@ -148,6 +168,9 @@ export function resolvePoolDelivery(
       ? stashes.flatMap((id) => {
           const layer = layerById.get(id);
           if (layer?.data.kind !== 'stash') {
+            // A withdrawn optional Stash cannot be delivered. Outbound assignments
+            // below independently require every explicitly selected connection.
+            if (stashOverrides) return [];
             const name = previous?.stashes?.[id];
             missing(`A selected Stash${name ? ` “${name}”` : ''} is no longer available.`);
             return [];
@@ -169,7 +192,14 @@ export function resolvePoolDelivery(
           choiceNames.filters![target] = { target: targetName!, layer: name! };
           return [{ id, target }];
         })
-      : defaults.filter(({ id, target }) => target && (!inspect || compatible(target, id)))),
+      : defaults.filter(({ id, target }) => {
+          if (!target) return false;
+          if (compatible(target, id)) return true;
+          missing(
+            `The Pool’s default filter for “${nodeMap.get(target)?.label ?? target}” is unavailable or incompatible.`,
+          );
+          return false;
+        })),
   ];
   const effective = composePoolLayers(base, delivery.layers, assignments, true);
   const placeholders = graph.nodes.filter((node) => node.data.poolOutbound);
@@ -229,13 +259,29 @@ export function resolvePoolDelivery(
     } satisfies PoolBundle,
     selection: {
       graph: choice.id,
-      ...(requested?.followDefault && { followDefault: true }),
-      ...(stashes && { stashes: assignments.filter(({ target }) => !target).map(({ id }) => id) }),
-      ...(filters && {
-        filters: Object.fromEntries(
-          assignments.flatMap(({ id, target }) => (target ? [[target, id]] : [])),
-        ),
-      }),
+      ...((!requested || requested.followDefault) && { followDefault: true }),
+      ...(stashOverrides
+        ? {
+            stashOverrides: Object.fromEntries(
+              Object.entries(stashOverrides).filter(
+                ([id]) => layerById.get(id)?.data.kind === 'stash',
+              ),
+            ),
+          }
+        : stashes && { stashes: assignments.filter(({ target }) => !target).map(({ id }) => id) }),
+      ...(filterOverrides
+        ? {
+            filterOverrides: Object.fromEntries(
+              Object.entries(filterOverrides).filter(([target, id]) =>
+                id === null ? nodeMap.has(target) : compatible(target, id),
+              ),
+            ),
+          }
+        : filters && {
+            filters: Object.fromEntries(
+              assignments.flatMap(({ id, target }) => (target ? [[target, id]] : [])),
+            ),
+          }),
       ...(requested?.outbounds && { outbounds: Object.fromEntries(resolved) }),
     } satisfies PoolSelection,
     choiceNames,
@@ -247,12 +293,21 @@ export function resolvePoolDelivery(
           .filter((layer) => layer.data.kind === 'stash')
           .map(({ id, name }) => ({ id, name })),
         activeStashes: assignments.filter(({ target }) => !target).map(({ id }) => id),
+        defaultStashes,
         filters: graph.nodes.flatMap((node) => {
           if (node.data.kind !== 'routing-filter' && node.data.kind !== 'dns-routing-filter')
             return [];
           const choices = byTarget.get(node.id) ?? [];
           const active = assignments.find(({ target }) => target === node.id)?.id;
-          return [{ id: node.id, name: node.data.label, choices, active }];
+          return [
+            {
+              id: node.id,
+              name: node.data.label,
+              choices,
+              active,
+              defaultLayer: defaultFilters[node.id],
+            },
+          ];
         }),
         outbounds: placeholders.map(({ id, data }) => ({
           id,

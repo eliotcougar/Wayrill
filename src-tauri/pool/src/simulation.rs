@@ -92,7 +92,9 @@ pub async fn pool_simulation_download(
     simulation_only(&window).map_err(|error| ApiError::new("POOL", error))?;
     tauri::async_runtime::spawn_blocking(move || {
         let recipient = source.parts()?.0;
-        let text = pool_access::download(&source)?;
+        let text = pool_access::download_if_changed(&source, None)?
+            .text
+            .ok_or_else(|| ApiError::new("POOL", "No Pool publication was returned."))?;
         let (bundle, _, digest) = pool_access::publication(&text)?;
         Ok(json!({ "bundle": bundle, "digest": digest, "recipient": recipient }))
     })

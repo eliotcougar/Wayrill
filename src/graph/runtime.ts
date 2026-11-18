@@ -283,7 +283,17 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
   warnings.push(...paths.warnings);
   const localDefaults = graph.defaults ?? factoryDefaults();
   const defaultSource = graph.poolSettings
-    ? { ...localDefaults, settings: { ...localDefaults.settings, ...graph.poolSettings } }
+    ? {
+        ...localDefaults,
+        settings: {
+          ...localDefaults.settings,
+          ...Object.fromEntries(
+            Object.entries(graph.poolSettings).filter(
+              ([key]) => !localDefaults.localPoolSettings?.some((local) => local === key),
+            ),
+          ),
+        },
+      }
     : localDefaults;
   const defaults = effectiveDefaults(defaultSource);
   const configured = (key: string) => Object.hasOwn(defaultSource.settings, key);

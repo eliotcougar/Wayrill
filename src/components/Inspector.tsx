@@ -334,7 +334,7 @@ export default function Inspector({
             </small>
           )}
           <NodeDescription
-            key={node.id}
+            key={`description:${node.id}`}
             value={node.data.description}
             onChange={(description) => onUpdate(node.id, { description })}
           />
@@ -398,7 +398,13 @@ export default function Inspector({
             </button>
           )}
           {tag && (
-            <NodeTagEditor key={node.id} graph={graph} node={node} tag={tag} onUpdate={onUpdate} />
+            <NodeTagEditor
+              key={`tag:${node.id}`}
+              graph={graph}
+              node={node}
+              tag={tag}
+              onUpdate={onUpdate}
+            />
           )}
           {definition.sections
             ? nodeSettingGroups(definition, visibleFields).map((section) => {

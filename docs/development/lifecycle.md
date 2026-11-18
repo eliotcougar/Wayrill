@@ -80,7 +80,12 @@ or `network`); it is null after a successful start or explicit retirement.
 Health evaluation handles one fault per tick, preserving its cause across
 cleanup. Desired routing and recovery phase are separate: faults schedule the
 single service-owned recovery supervisor, with capped backoff and no total retry
-expiry. A successful spawn does not reset backoff until sustained health. A failed
+expiry. An unavailable or unsafe TUN uplink is rechecked without editing
+Windows settings or starting another activation. Routing resumes automatically
+once its configured or automatically selected uplink passes the checks. Stop
+can be requested while recovery is in progress and runs after the current
+lifecycle transaction finishes. A successful spawn does not reset backoff
+until sustained health. A failed
 main core retains healthy workers, so those workers continue to be monitored.
 A subsequent fault retires that scope and is appended to the original error.
 Failure retirement emits its terminal failure after cleanup; it does not briefly

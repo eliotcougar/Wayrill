@@ -523,8 +523,9 @@ export default function RuleTableEditor({
                   )}
                   {poolManaged && (
                     <p className="field-help">
-                      Before rules can override Pool rules. After rules handle traffic the Pool
-                      rules leave unmatched.
+                      Personal rules survive Pool updates. Use Before to override a published rule
+                      or After for traffic the Pool leaves unmatched. Applying edits to published
+                      rules pauses Pool routing updates.
                     </p>
                   )}
                   <p className="rule-order-help">↑/↓ select · Alt+↑/↓ reorder</p>

@@ -102,7 +102,7 @@ impl Status {
             && s["config"]["present"] == true
             && s["config"]["recoveryError"].is_null()
             && matches!(core, "stopped" | "failed");
-        view.stop = !transition
+        view.stop = (!transition || recovering && progress["recovering"] == true)
             && (core != "stopped"
                 || recovering
                 || s["capture"]["state"] == "running"
@@ -299,9 +299,16 @@ mod tests {
         assert_eq!(m.view().label, "Recovering routing");
         assert!(m.view().stop);
         assert!(!m.view().start);
+        let mut s = snapshot("starting");
+        s["lifecycle"] = json!({"operation":"start","recovering":true});
+        s["recovery"] = json!({"desiredState":"running","state":"waiting"});
+        event(&mut m, "a", 3, s);
+        assert_eq!(m.view().label, "Restoring routing");
+        assert!(m.view().stop);
+        assert!(!m.view().start);
         let mut s = snapshot("running");
         s["network"] = json!({"state":"waiting"});
-        event(&mut m, "a", 3, s);
+        event(&mut m, "a", 4, s);
         assert_eq!(m.view().label, "Waiting for network");
     }
     #[test]

@@ -67,6 +67,7 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
           totalBytes: number;
           version: number;
           initialized: boolean;
+          appliedSourceHash?: string | null;
         }>('subscriptions.read', {
           kind,
           offset,
@@ -75,7 +76,12 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
         revision = part.version;
         if (!part.initialized) return { text: null, version: revision };
         text += part.text;
-        if (part.nextOffset === part.totalBytes) return { text, version: revision };
+        if (part.nextOffset === part.totalBytes)
+          return {
+            text,
+            version: revision,
+            appliedSourceHash: part.appliedSourceHash ?? undefined,
+          };
         if (part.nextOffset <= offset || part.totalBytes > 64 * 1024 * 1024)
           throw new Error('Invalid subscription document response.');
         offset = part.nextOffset;

@@ -38,6 +38,8 @@ impl Drop for TemporaryFile {
 pub fn slot(key: &str) -> Result<(&'static str, usize), String> {
     match key {
         "workspace" => Ok(("workspace.dpapi", MAX)),
+        "pool-base" => Ok(("pool-base.dpapi", MAX)),
+        "pool-previous" => Ok(("pool-previous.dpapi", MAX)),
         "stash" => Ok(("stash.dpapi", MAX)),
         "pools" => Ok(("pools.dpapi", MAX)),
         _ => Err("Unknown protected storage slot.".into()),

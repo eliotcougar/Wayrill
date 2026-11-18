@@ -481,9 +481,11 @@ export default function DnsEditor({
             <p>
               {group
                 ? 'Query traffic follows this group’s outgoing path.'
-                : handler
-                  ? 'Control DNS request handling and the shared Xray resolver.'
-                  : 'Matching groups are tried in order, then eligible fallback servers. Answer IP checks follow resolution.'}
+                : graph.poolId && !layerMode && !handler
+                  ? 'This filter comes from your Pool. Applying edits to its published preferences pauses Pool routing updates.'
+                  : handler
+                    ? 'Control DNS request handling and the shared Xray resolver.'
+                    : 'Matching groups are tried in order, then eligible fallback servers. Answer IP checks follow resolution.'}
             </p>
           </div>
           <button className="icon-button" aria-label="Close editor" onClick={onClose}>

@@ -1356,32 +1356,68 @@ fn preflight_shared_ipv6(host: Option<&Value>, options: Option<&sharing::Options
     }
     Ok(())
 }
+struct TunSources<'a> {
+    host: Option<(&'a Value, String)>,
+    shared: Option<(&'a Value, String)>,
+}
+
+fn checked_uplinks<'a>(
+    config: &'a Value,
+    capture: Option<&crate::capture::Plan>,
+    excluded_index: Option<u32>,
+) -> Result<TunSources<'a>> {
+    let options = capture.and_then(|p| p.tun_sharing.as_ref());
+    let inputs = config["inbounds"].as_array().into_iter().flatten();
+    let host = inputs
+        .clone()
+        .find(|i| i["protocol"] == "tun" && options.is_none_or(|o| i["tag"] != o.tag));
+    preflight_shared_ipv6(host, options)?;
+    let shared = if let Some(options) = options {
+        let input = inputs
+            .clone()
+            .find(|i| i["tag"] == options.tag)
+            .ok_or_else(|| invalid("ICS TUN is missing."))?;
+        let upstream = guid_uplink(&options.public_id)?;
+        network::require_ready(&upstream)?;
+        uplink_guard::Guard::preflight(&upstream, &input["settings"], true)?;
+        Some((input, upstream))
+    } else {
+        None
+    };
+    let host = if let Some(input) = host {
+        let settings = &input["settings"];
+        let upstream = uplink_except(settings, excluded_index)?;
+        network::require_ready(&upstream)?;
+        // Sharing handoff can clear forwarding only on its own public adapter.
+        let shared_uplink = shared
+            .as_ref()
+            .is_some_and(|(_, name)| name.eq_ignore_ascii_case(&upstream));
+        uplink_guard::Guard::preflight(&upstream, settings, shared_uplink)?;
+        Some((input, upstream))
+    } else {
+        None
+    };
+    Ok(TunSources { host, shared })
+}
+
 pub fn prepare_with_applications(
     config: &Value,
     capture: Option<&crate::capture::Plan>,
     excluded_index: Option<u32>,
 ) -> Result<Option<Plan>> {
     validate(config)?;
-    // The kernel validates saved capture templates before instrumentation. This
-    // config already contains service-owned relay authentication; validating it
-    // again as an authored noauth template would reject every WinDivert input.
+    // The kernel validates authored capture templates before instrumentation.
+    let sources = checked_uplinks(config, capture, excluded_index)?;
     let options = capture.and_then(|p| p.tun_sharing.as_ref());
     let mut runtime = config.clone();
-    let host = config["inbounds"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|i| i["protocol"] == "tun" && options.is_none_or(|o| i["tag"] != o.tag));
-    preflight_shared_ipv6(host, options)?;
-    let mut plan = if let Some(input) = host {
+    let mut plan = if let Some((input, upstream)) = &sources.host {
         Some(prepare_source(
             &runtime,
             input,
             capture,
-            uplink_except(&input["settings"], excluded_index)?,
+            upstream.clone(),
             false,
             true,
-            options.is_some(),
         )?)
     } else {
         None
@@ -1389,22 +1425,14 @@ pub fn prepare_with_applications(
     if let Some(primary) = &plan {
         runtime = primary.main.clone();
     }
-    if let Some(options) = options {
-        let input = config["inbounds"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|i| i["tag"] == options.tag)
-            .ok_or_else(|| invalid("ICS TUN is missing."))?;
-        let upstream = guid_uplink(&options.public_id)?;
+    if let (Some(options), Some((input, upstream))) = (options, sources.shared) {
         let mut shared = prepare_source(
             &runtime,
             input,
             capture,
             upstream.clone(),
             true,
-            host.is_none(),
-            true,
+            sources.host.is_none(),
         )?;
         for outbound in shared.main["outbounds"].as_array_mut().unwrap() {
             if options
@@ -1449,10 +1477,7 @@ fn prepare_source(
     uplink: String,
     shared_source: bool,
     bridge_dns: bool,
-    sharing: bool,
 ) -> Result<Plan> {
-    network::require_ready(&uplink)?;
-    uplink_guard::Guard::preflight(&uplink, &input["settings"], sharing)?;
     let reservation = crate::sockets::reserve_loopback(config)?;
     let port = reservation
         .local_addr()
@@ -2005,6 +2030,14 @@ impl Manager {
         Ok(())
     }
 
+    pub(crate) fn check_uplinks(
+        &self,
+        config: &Value,
+        capture: Option<&crate::capture::Plan>,
+    ) -> Result<()> {
+        checked_uplinks(config, capture, self.owned_host_index()).map(|_| ())
+    }
+
     pub(crate) fn outbound_egress(&self) -> Result<OutboundEgress> {
         let captured = self.core.is_some() || self.keeper.is_some();
         let name = if captured {
@@ -2380,6 +2413,9 @@ impl Manager {
         self.retirement_pending = Some(sharing);
         self.sharing.request_handback(sharing)
     }
+    pub(crate) fn retirement_pending(&self) -> bool {
+        self.retirement_pending.is_some()
+    }
     pub fn finish_retirement(&mut self) -> Result<()> {
         if let Some(sharing) = self.retirement_pending {
             if sharing != crate::lifecycle::SharingExit::Suspend {
@@ -2488,7 +2524,7 @@ impl Manager {
         }
         if let Some(guard) = &self.uplink_guard {
             guard.check().map_err(|mut error| {
-                error.message.push_str(" TUN capture has ended; affected applications may use native networking. Restart after resolving the uplink setting.");
+                error.message.push_str(" TUN capture has ended; affected applications may use native networking. Automatic recovery is pending; Stop cancels it.");
                 error
             })?;
         }

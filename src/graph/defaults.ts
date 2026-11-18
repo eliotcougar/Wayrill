@@ -1,4 +1,5 @@
 import { parseResources, factoryResources, renameResourceReferences } from './resources';
+import { parseLocalPoolSettings } from './poolSettings';
 import {
   coreDefaultField,
   coreDefaultHint,
@@ -330,7 +331,9 @@ export function parseDefaults(raw: unknown): GlobalDefaults {
   if (!record(raw) || raw.version !== 1 || !record(raw.settings))
     throw new Error('Invalid global defaults.');
   if (
-    Object.keys(raw).some((k) => !['version', 'settings', 'resources'].includes(k)) ||
+    Object.keys(raw).some(
+      (k) => !['version', 'settings', 'resources', 'localPoolSettings'].includes(k),
+    ) ||
     Object.keys(raw.settings).some((k) => !fields.some((f) => f.key === k))
   )
     throw new Error('Unknown global default.');
@@ -343,9 +346,11 @@ export function parseDefaults(raw: unknown): GlobalDefaults {
   }
   const errors = defaultsProblems({ version: 1, settings }).filter((i) => i.severity === 'error');
   if (errors.length) throw new Error(errors.map((i) => i.message).join('\n'));
+  const localPoolSettings = parseLocalPoolSettings(raw.localPoolSettings);
   return {
     version: 1,
     settings,
+    ...(localPoolSettings && { localPoolSettings }),
     ...(raw.resources === undefined ? {} : { resources: parseResources(raw.resources) }),
   };
 }

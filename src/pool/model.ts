@@ -1,4 +1,5 @@
 import { graphDependencies } from '../profiles/workspaceDependencies';
+import { withoutPreferences } from './preferences';
 import { getDefinition, getOutputPorts, makeNode } from '../graph/catalog';
 import {
   capturePlaceholder,
@@ -6,6 +7,7 @@ import {
   type CapturePlaceholder,
 } from '../graph/inboundPlaceholder';
 import { remapPreparedSubscriptions } from '../graph/composites';
+import { commitEditorDraft } from '../graph/editorDraft';
 import { bindingsFor, factoryDefaults } from '../graph/defaults';
 import { parsePoolSettings, type PoolSettings } from '../graph/poolSettings';
 import { dnsFilterSettings, readDnsFilter } from '../graph/dns';
@@ -18,7 +20,7 @@ import { readRuleTable, tableSettings, type TableRule } from '../graph/rules';
 import { detachTrafficSource } from '../graph/trafficRuleSource';
 import type { GraphState, NodeKind, PoolGraphLink, RuleEdge, RuleNode } from '../graph/types';
 import { generatedTag } from '../graph/tags';
-import { jsonRecord } from '../graph/xrayJson';
+import { jsonEqual, jsonRecord } from '../graph/xrayJson';
 import {
   parseStash,
   serializeStash,
@@ -369,6 +371,8 @@ export function editablePoolGraph(bundle: PoolBundle) {
 }
 
 function localPoolInputs(local: GraphState | undefined, capture: PoolCapture) {
+  if (capture === 'current' && !local)
+    throw new Error('There are no applied inbounds on this computer. Choose Proxy, TUN or Both.');
   const proxy = () => createProxyStarter();
   const tun = () => bundledExamples.find((item) => item.id === 'tun')!.create();
   const device = capture === 'tun' ? tun() : capture === 'current' && local ? local : proxy();
@@ -448,18 +452,57 @@ export function inspectPoolEntries(
   };
 }
 
-function resolvePoolBindings(graph: GraphState, inputs: RuleNode[], bindings: PoolBindings) {
+function resolvePoolBindings(
+  graph: GraphState,
+  inputs: RuleNode[],
+  bindings: PoolBindings,
+  previous?: GraphState,
+) {
   const placeholders = new Map(
     graph.nodes.filter((node) => node.data.kind === placeholderKind).map((node) => [node.id, node]),
   );
   const inboundIds = new Set(inputs.map((node) => node.id));
-  if (Object.keys(bindings).some((id) => !inboundIds.has(id)))
+  if (!previous && Object.keys(bindings).some((id) => !inboundIds.has(id)))
     throw new Error('A local inbound was removed. Edit inbound assignments in Connect to Pool.');
   const paths = new Map(
     graph.edges.map((edge) => [JSON.stringify([edge.source, edge.sourceHandle]), edge.target]),
   );
-  return inputs.flatMap((node): RuleEdge[] => {
-    const placeholder = placeholders.get(Object.hasOwn(bindings, node.id) ? bindings[node.id] : '');
+  const assigned: PoolBindings = Object.fromEntries(
+    Object.entries(bindings).filter(([id]) => inboundIds.has(id)),
+  );
+  const previousPaths = new Map(
+    previous?.edges.map((edge) => [JSON.stringify([edge.source, edge.sourceHandle]), edge.target]),
+  );
+  const destinationFor = (slot: string, kind: NodeKind, port: string) => {
+    const role = port === dataPort(kind) ? 'data' : port;
+    const target = (role: string) => paths.get(JSON.stringify([slot, role]));
+    return target(role) ?? (role === 'nat-dns' ? target('dns') : undefined) ?? target('data');
+  };
+  const edges = inputs.flatMap((node): RuleEdge[] => {
+    const assignedId = Object.hasOwn(assigned, node.id) ? assigned[node.id] : '';
+    let placeholder = placeholders.get(assignedId);
+    const ports = getOutputPorts(node.data.kind, node.data);
+    if (previous && assignedId && !placeholder) {
+      // Only repair an identity change if every port still reaches the same
+      // node of the same kind. Never guess between two plausible capture paths.
+      const equivalent = [...placeholders.values()].filter(
+        (slot) =>
+          allowsBinding(slot, node) &&
+          ports.every((port) => {
+            const old = previousPaths.get(JSON.stringify([node.id, port]));
+            return (
+              old &&
+              old === destinationFor(slot.id, node.data.kind, port) &&
+              previous.nodes.find((n) => n.id === old)?.data.kind ===
+                graph.nodes.find((n) => n.id === old)?.data.kind
+            );
+          }),
+      );
+      if (equivalent.length === 1) {
+        placeholder = equivalent[0];
+        assigned[node.id] = placeholder.id;
+      }
+    }
     if (!placeholder || !allowsBinding(placeholder, node)) {
       if (!isDisabledInbound(node.data) || Object.hasOwn(bindings, node.id))
         throw new Error(
@@ -467,12 +510,10 @@ function resolvePoolBindings(graph: GraphState, inputs: RuleNode[], bindings: Po
         );
       return [];
     }
-    const target = (port: string) => paths.get(JSON.stringify([placeholder.id, port]));
-    return getOutputPorts(node.data.kind, node.data).map((port) => {
-      const role = port === dataPort(node.data.kind) ? 'data' : port;
-      const destination =
-        target(role) ?? (role === 'nat-dns' ? target('dns') : undefined) ?? target('data');
-      if (!destination) throw new Error(`Connect the Data output of ${placeholder.data.label}.`);
+    const slot = placeholder;
+    return ports.map((port) => {
+      const destination = destinationFor(slot.id, node.data.kind, port);
+      if (!destination) throw new Error(`Connect the Data output of ${slot.data.label}.`);
       return {
         id: generatedTag('pool-edge', JSON.stringify([node.id, port])),
         source: node.id,
@@ -482,6 +523,7 @@ function resolvePoolBindings(graph: GraphState, inputs: RuleNode[], bindings: Po
       };
     });
   });
+  return { edges, assigned };
 }
 
 export function parsePoolBundle(value: unknown): PoolBundle {
@@ -524,7 +566,7 @@ export function personalRoutingState(graph: GraphState) {
   });
 }
 
-export function poolRoutingState(graph: GraphState) {
+export function poolRoutingState(graph: GraphState, layerPreferences = false) {
   // Device defaults, listener settings and canvas layout belong to the subscriber.
   // Connections remain managed, including the paths from local inbounds.
   const { nodes, edges, mainOutboundId } = toDocument({ ...graph, defaults: factoryDefaults() });
@@ -532,7 +574,8 @@ export function poolRoutingState(graph: GraphState) {
     mainOutboundId,
     nodes: nodes
       .filter(({ data }) => !isGraphInbound(data.kind))
-      .map(({ id, data }) => {
+      .map(({ id, data: original }) => {
+        const data = layerPreferences ? withoutPreferences(original) : original;
         if (data.kind !== 'routing-filter') return { id, data };
         const table = readRuleTable(data.settings);
         if (!table.rules.some((rule) => rule.poolPlacement)) return { id, data };
@@ -610,6 +653,60 @@ function mergePersonalRules(shared: GraphState, local: GraphState | undefined) {
   return { ...shared, nodes };
 }
 
+export function followPoolGraph(
+  applied: GraphState,
+  draft: GraphState,
+  previous?: GraphState,
+): GraphState {
+  if (draft.poolId !== applied.poolId) return applied;
+  if (!previous || previous.poolId !== applied.poolId) return withPoolLayout(applied, draft);
+  const base = previous;
+  const content = (graph: GraphState): GraphState => {
+    const document = toDocument(mergePersonalRules(graph, undefined));
+    delete document.viewport;
+    return {
+      ...document,
+      nodes: document.nodes.map((node) => ({ ...node, position: { x: 0, y: 0 } })),
+    };
+  };
+  const merged = commitEditorDraft(content(base), content(draft), content(applied));
+  const keepDraftRules = !jsonEqual(personalRoutingState(draft), personalRoutingState(base));
+  const graph = mergePersonalRules(merged, keepDraftRules ? draft : applied);
+  return withPoolLayout(graph, draft, applied);
+}
+
+function withPoolLayout(graph: GraphState, draft: GraphState, applied = graph): GraphState {
+  const localNodes = new Map(draft.nodes.map((node) => [node.id, node]));
+  const localEdges = new Map(draft.edges.map((edge) => [edge.id, edge]));
+  const appliedNodes = new Map(applied.nodes.map((node) => [node.id, node]));
+  return {
+    ...graph,
+    viewport: draft.viewport ?? applied.viewport,
+    nodes: graph.nodes.map((node) => {
+      const local = localNodes.get(node.id);
+      return {
+        ...node,
+        position: local?.position ?? appliedNodes.get(node.id)!.position,
+        selected: local?.selected,
+      };
+    }),
+    edges: graph.edges.map((edge) => ({ ...edge, selected: localEdges.get(edge.id)?.selected })),
+  };
+}
+
+/** Compare the authored graph, independent of viewport, selection and node positions. */
+export function samePoolDocument(left: GraphState, right: GraphState): boolean {
+  const contents = (graph: GraphState) => {
+    const document = toDocument(graph);
+    return {
+      ...document,
+      viewport: undefined,
+      nodes: document.nodes.map(({ id, data }) => ({ id, data })),
+    };
+  };
+  return left === right || jsonEqual(contents(left), contents(right));
+}
+
 export function preparePoolWorkspace(
   value: unknown,
   local: GraphState | undefined,
@@ -617,6 +714,7 @@ export function preparePoolWorkspace(
   recipient: string,
   capture: PoolCapture,
   bindings?: PoolBindings,
+  reconcileBindings = false,
 ) {
   const bundle = parsePoolBundle(value);
   const { graph: portable, ids: sharedIds } = editablePoolGraph(bundle);
@@ -638,7 +736,12 @@ export function preparePoolWorkspace(
           capture === 'current' && local?.poolId === recipient,
         )
       : {});
-  const localEdges = resolvePoolBindings(shared, inputs, assigned);
+  const resolved = resolvePoolBindings(
+    shared,
+    inputs,
+    assigned,
+    reconcileBindings && local?.poolId === recipient ? local : undefined,
+  );
   const prefix = poolGroupPrefix(recipient);
   // A policy can retain a source after its subscription has been removed. Its
   // cached candidates must never start following a similarly named local group.
@@ -688,18 +791,24 @@ export function preparePoolWorkspace(
         name: bundle.name,
         poolId: recipient,
         poolSettings: bundle.settings,
-        defaults: local?.defaults ?? device.defaults ?? factoryDefaults(),
+        defaults:
+          local?.poolId !== recipient && local?.defaults?.localPoolSettings
+            ? { ...local.defaults, localPoolSettings: undefined }
+            : (local?.defaults ?? device.defaults ?? factoryDefaults()),
         captureOptions: device.captureOptions,
         mainOutboundId: shared.mainOutboundId,
         nodes,
-        edges: [...shared.edges.filter((edge) => !placeholders.has(edge.source)), ...localEdges],
+        edges: [
+          ...shared.edges.filter((edge) => !placeholders.has(edge.source)),
+          ...resolved.edges,
+        ],
       }),
     ),
   );
   const managed = refreshStashComposites({ ...sharedStash, groups });
   return {
     name: bundle.name,
-    bindings: assigned,
+    bindings: resolved.assigned,
     graph: refreshPolicyGraph(graph, managed),
     stash: {
       ...stash,

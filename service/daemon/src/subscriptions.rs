@@ -459,8 +459,14 @@ impl Manager {
                 while !text.is_char_boundary(end) {
                     end -= 1;
                 }
+                let applied_source_hash = state
+                    .library
+                    .applied
+                    .as_ref()
+                    .filter(|_| p.kind == "applied")
+                    .map(|a| &a.source_hash);
                 Ok(
-                    json!({"version":version,"initialized":!text.is_empty(),"text":&text[p.offset..end],"nextOffset":end,"totalBytes":text.len()}),
+                    json!({"version":version,"initialized":!text.is_empty(),"text":&text[p.offset..end],"nextOffset":end,"totalBytes":text.len(),"appliedSourceHash":applied_source_hash}),
                 )
             }
             "subscriptions.uploadStart" => {

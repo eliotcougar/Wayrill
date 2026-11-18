@@ -27,6 +27,7 @@ pub(super) enum ActivationKind {
 /// candidate, including its FakeDNS mappings and resolved bootstrap hosts.
 struct PreviousRuntime {
     generation: u64,
+    revision: u64,
     profile: Option<Profile>,
     was_running: bool,
     wanted_running: bool,
@@ -60,6 +61,7 @@ impl<'a> KernelActivation<'a> {
     ) -> Self {
         let previous = PreviousRuntime {
             generation: kernel.generation,
+            revision: kernel.revision(),
             profile: kernel.profile.clone(),
             was_running: kernel.core.is_some(),
             wanted_running: kernel.recovery.wants_running(),
@@ -88,29 +90,33 @@ impl<'a> KernelActivation<'a> {
         }
     }
     fn restore_profile(&mut self) -> Result<()> {
-        let revision = advance_revision(self.kernel.revision())?;
-        if let Some(mut profile) = self.previous.profile.clone() {
-            profile.revision = revision;
-            storage::write(&self.kernel.profile_path, &profile)?;
-            self.kernel.profile = Some(profile);
-        } else {
-            storage::write(
-                &self
-                    .kernel
-                    .profile_path
-                    .with_file_name("revision-floor.json"),
-                &revision,
-            )?;
-            storage::remove(&self.kernel.profile_path)?;
-            self.kernel.empty_revision = revision;
-            self.kernel.profile = None;
+        // A runtime-only restart leaves the applied profile at its existing
+        // revision. Only replace a profile that this transaction published.
+        if self.kernel.revision() != self.previous.revision {
+            let revision = advance_revision(self.kernel.revision())?;
+            if let Some(mut profile) = self.previous.profile.clone() {
+                profile.revision = revision;
+                storage::write(&self.kernel.profile_path, &profile)?;
+                self.kernel.profile = Some(profile);
+            } else {
+                storage::write(
+                    &self
+                        .kernel
+                        .profile_path
+                        .with_file_name("revision-floor.json"),
+                    &revision,
+                )?;
+                storage::remove(&self.kernel.profile_path)?;
+                self.kernel.empty_revision = revision;
+                self.kernel.profile = None;
+            }
+            self.kernel.statistics.revision(revision);
+            self.kernel.changed("config.rolledBack");
         }
         if !self.previous.wanted_running {
             self.kernel.recovery.stop()?;
         }
         self.kernel.bootstrap_cache = self.previous.bootstrap.clone();
-        self.kernel.statistics.revision(revision);
-        self.kernel.changed("config.rolledBack");
         Ok(())
     }
     fn finish_restore(&mut self) -> Result<()> {

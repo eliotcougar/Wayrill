@@ -26,21 +26,40 @@ export default function useAppliedSubscriptionGraph(
     const stopped = runtime.snapshot?.recovery?.desiredState === 'stopped';
     if (stopped) current.current.store.setRuntimeGraph(undefined);
     let active = true;
-    void readSubscriptionDocument('applied')
-      .then(({ text }) => {
+    let timer: ReturnType<typeof setTimeout>;
+    let delay = 300;
+    const retry = () => {
+      timer = setTimeout(() => void read(), delay);
+      delay = Math.min(delay * 2, 8000);
+    };
+    async function read() {
+      try {
+        const { text, appliedSourceHash } = await readSubscriptionDocument('applied');
         if (!active) return;
+        if (appliedSourceHash !== undefined && appliedSourceHash !== sourceHash) {
+          retry();
+          return;
+        }
         const graph = text ? parseGraph(text) : undefined;
         setApplied({ revision: appliedRevision, sourceHash, graph });
         if (!stopped) current.current.store.setRuntimeGraph(graph);
-      })
-      .catch((error: unknown) => {
-        if (active)
-          current.current.runtime.setError(
-            'Could not read applied subscription links: ' + errorText(error),
-          );
-      });
+      } catch (error) {
+        if (!active) return;
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          (error.code === 'BUSY' || error.code === 'REVISION_CONFLICT')
+        )
+          retry();
+        else
+          current.current.runtime.setError('Could not read the applied graph: ' + errorText(error));
+      }
+    }
+    void read();
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [
     ready,

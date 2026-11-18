@@ -173,21 +173,36 @@ fn decode(text: &str, recipient: &str, key: &str) -> Result<String> {
     String::from_utf8(plaintext).map_err(|_| invalid())
 }
 
-pub fn download(source: &Source) -> Result<String> {
+pub fn download_if_changed(
+    source: &Source,
+    etag: Option<&str>,
+) -> Result<crate::subscription_http::Fetched> {
     let location = source.location()?;
-    let text = if source.kind == "folder" {
-        folder_file(&location)?
+    let mut result = if source.kind == "folder" {
+        crate::subscription_http::Fetched {
+            text: Some(folder_file(&location)?),
+            etag: None,
+        }
     } else {
+        let mut headers = BTreeMap::from([("Cache-Control".into(), "no-cache".into())]);
+        if let Some(etag) = etag {
+            headers.insert("If-None-Match".into(), etag.into());
+        }
         crate::subscription_http::fetch_with_policy(
             &location,
             location.starts_with("http://"),
             "",
-            &BTreeMap::from([("Cache-Control".into(), "no-cache".into())]),
+            &headers,
             None,
             true,
         )
         .map_err(|message| error(&format!("Pool download failed. {message}")))?
     };
     let (recipient, key) = source.parts()?;
-    decode(&text, recipient, key)
+    result.text = result
+        .text
+        .as_deref()
+        .map(|text| decode(text, recipient, key))
+        .transpose()?;
+    Ok(result)
 }

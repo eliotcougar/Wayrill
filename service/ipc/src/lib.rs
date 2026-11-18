@@ -7,6 +7,7 @@ fn request_timeout(method: &str) -> u64 {
         "config.applyAndStart" | "config.refreshOutbounds" => 480, // Includes ICS handoff, rollback and recovery.
         "core.start" | "core.restart" => 240, // Initial/inactive wait; native progress renews it.
         "core.stop" | "core.stopForUpgrade" | "tun.sharing.restore" | "tun.sharing.keep" => 180,
+        "config.validate" | "config.apply" | "startup.set" => 90, // Xray config load and native preflight.
         _ => 45,
     }
 }

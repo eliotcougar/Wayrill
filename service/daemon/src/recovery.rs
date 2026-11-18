@@ -144,6 +144,27 @@ impl Supervisor {
     pub fn wants_running(&self) -> bool {
         self.desired == Desired::Running
     }
+    /// Called at the scheduled retry, before beginning another activation.
+    pub fn recheck_uplink(
+        &mut self,
+        now: Instant,
+        probe: impl FnOnce() -> Result<()>,
+    ) -> Option<ApiError> {
+        let waiting = self.wants_running()
+            && matches!(
+                &self.state,
+                State::Waiting { error, .. } if matches!(
+                    error.code.as_str(),
+                    "TUN_UPLINK_ROUTING" | "TUN_UPLINK_UNAVAILABLE"
+                )
+            );
+        if !waiting {
+            return None;
+        }
+        let error = probe().err()?;
+        self.fail(error.clone(), now);
+        Some(error)
+    }
     pub fn boot_waiting(&self) -> bool {
         self.origin == Origin::Boot && matches!(self.state, State::Waiting { .. })
     }
@@ -296,6 +317,33 @@ mod tests {
         assert!(!s.due(Instant::now() + Duration::from_secs(86400)) && !s.wants_running());
         s.fail(ApiError::new("XRAY_EXITED", "stale fault"), Instant::now());
         assert!(!s.wants_running());
+    }
+    #[test]
+    fn unsafe_uplink_waits_for_native_readiness_and_explicit_stop_cancels_probes() {
+        let mut s = supervisor();
+        s.request(Origin::Manual).unwrap();
+        let now = Instant::now();
+        let unsafe_uplink = ApiError::new("TUN_UPLINK_ROUTING", "WeakHostSend is enabled");
+        s.fail(unsafe_uplink.clone(), now);
+        let first_check = now + Duration::from_secs(1);
+        assert!(s.due(first_check));
+        assert_eq!(
+            s.recheck_uplink(first_check, || Err(unsafe_uplink))
+                .unwrap()
+                .code,
+            "TUN_UPLINK_ROUTING"
+        );
+        assert!(s.wants_running());
+        assert!(!s.due(first_check + Duration::from_secs(1)));
+        let next_check = first_check + Duration::from_secs(2);
+        assert!(s.due(next_check));
+        assert!(s.recheck_uplink(next_check, || Ok(())).is_none());
+        s.healthy(next_check).unwrap();
+        assert_eq!(s.snapshot()["state"], "healthy");
+        s.stop().unwrap();
+        assert!(s
+            .recheck_uplink(next_check, || panic!("routing is stopped"))
+            .is_none());
     }
     #[test]
     fn explicit_intent_and_integrity_failures_do_not_restart_in_a_loop() {

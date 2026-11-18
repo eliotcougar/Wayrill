@@ -11,6 +11,7 @@ import type { Stash, StashGroup } from '../profiles/import';
 import {
   capturePoolBundle,
   capturePoolGraph,
+  followPoolGraph,
   poolGroupId,
   poolInputs,
   poolRoutingState,
@@ -21,6 +22,73 @@ import { compileRuntimeGraph } from '../graph/runtime';
 
 const recipient = '0123456789abcdef0123456789abcdef';
 const library = (groups: StashGroup[]): Stash => ({ format: 'wayrill.stash', version: 3, groups });
+
+it('follows a new Pool delivery while carrying local inputs, layout and draft personal rules', () => {
+  const provider = bundledExamples.find((item) => item.id === 'traffic')!.create();
+  const publish = (name: string) =>
+    capturePoolGraph(name, provider, library([]), [], [poolInputs(provider)[0].id]);
+  const initial = preparePoolWorkspace(
+    publish('Original graph'),
+    undefined,
+    library([]),
+    recipient,
+    'proxy',
+  );
+  const draft = structuredClone(initial.graph);
+  const localProxy = poolInputs(draft)[0];
+  localProxy.data.settings.port = 12345;
+  draft.viewport = { x: 50, y: 60, zoom: 0.9 };
+  const filter = draft.nodes.find(({ data }) => data.kind === 'routing-filter')!;
+  filter.position.x += 200;
+  const rules = readRuleTable(filter.data.settings);
+  rules.rules.push({
+    id: 'local',
+    name: 'Local rule',
+    enabled: true,
+    matchAll: false,
+    conditions: { domain: 'full:local.example' },
+    output: rules.defaultOutput,
+    poolPlacement: 'before',
+  });
+  Object.assign(filter.data.settings, tableSettings(rules));
+  const sharedFilter = provider.nodes.find(({ id }) => id === filter.id)!;
+  const sharedRules = readRuleTable(sharedFilter.data.settings);
+  sharedRules.rules.push({
+    id: 'updated',
+    name: 'Updated rule',
+    enabled: true,
+    matchAll: false,
+    conditions: { domain: 'full:new.example' },
+    output: sharedRules.defaultOutput,
+  });
+  Object.assign(sharedFilter.data.settings, tableSettings(sharedRules));
+  provider.nodes.push(makeNode('block-outbound', { x: 600, y: 400 }, 'new-block'));
+  const updated = preparePoolWorkspace(
+    publish('Updated graph'),
+    initial.graph,
+    initial.stash,
+    recipient,
+    'current',
+    initial.bindings,
+  );
+  {
+    const editor = followPoolGraph(updated.graph, draft, initial.graph);
+    expect(editor.name).toBe('Updated graph');
+    expect(editor.viewport).toEqual(draft.viewport);
+    expect(editor.nodes.find(({ id }) => id === 'new-block')?.position).toEqual({ x: 600, y: 400 });
+    expect(poolInputs(editor)[0].data.settings.port).toBe(12345);
+    const updatedFilter = editor.nodes.find(({ id }) => id === filter.id)!;
+    expect(updatedFilter.position).toEqual(filter.position);
+    const merged = readRuleTable(updatedFilter.data.settings).rules;
+    expect(merged[0].id).toBe('local');
+    expect(merged.at(-1)?.id).toBe('updated');
+  }
+  const cold = followPoolGraph(updated.graph, draft);
+  expect(poolInputs(cold)[0].data.settings.port).toBe(
+    poolInputs(updated.graph)[0].data.settings.port,
+  );
+  expect(cold.nodes.find(({ id }) => id === filter.id)?.position).toEqual(filter.position);
+});
 
 it('applies personal precedence around the updated Pool rules and rejects missing outputs', () => {
   const graph = bundledExamples.find((item) => item.id === 'traffic')!.create();
@@ -229,7 +297,7 @@ it('isolates policy and chain links from a local subscription with the same orig
     undefined,
     library([local, retired]),
     recipient,
-    'current',
+    'proxy',
   );
   const groupId = poolGroupId(recipient, published.id);
   const policyNode = prepared.graph.nodes.find((node) => node.id === policy.id)!;

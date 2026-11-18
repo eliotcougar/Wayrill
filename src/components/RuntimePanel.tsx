@@ -8,13 +8,12 @@ import GraphCheckDialog from './GraphCheckDialog';
 import ResourceWarnings from './ResourceWarnings';
 import ServiceEvents from './ServiceEvents';
 import type { Diagnostic } from '../graph/types';
-import { useRef, useState } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { Play, Square, RefreshCw, X, Server, ShieldCheck } from 'lucide-react';
 import { errorText } from '../serviceClient';
 import type { RuntimeController } from '../useRuntime';
 import useGraphAnalysis from '../useGraphAnalysis';
 import createGraphRuntimeActions, { type GraphRuntimeActions } from '../createGraphRuntimeActions';
-import { runtimePresentation } from '../runtimePresentation';
 import type { GraphState } from '../graph/types';
 type Props = {
   graph: GraphState;
@@ -49,7 +48,9 @@ function RuntimePanelView({
 }: Props & { actions: GraphRuntimeActions }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<'overview' | 'events'>('overview');
-  const { snapshot, connected, busy, error, notice, events, desktop } = runtime;
+  const { snapshot, connected, busy, error, notice, desktop } = runtime;
+  const events = useSyncExternalStore(runtime.subscribeEvents, runtime.getEvents);
+  const progress = runtimeProgress(runtime);
   const {
     checks,
     compiled,
@@ -68,8 +69,23 @@ function RuntimePanelView({
   } = actions;
   const issues = checks.issues;
   const [checkOpen, setCheckOpen] = useState(false);
-  const view = runtimePresentation(runtime, compiled);
+  const view = actions.view;
   const running = view.running;
+  const recovery = snapshot?.recovery;
+  const stopInFooter =
+    canStop && (progress || (recovery?.desiredState === 'running' && recovery.state === 'waiting'));
+  const uplinkError = recovery?.lastError;
+  const waitingForUplink =
+    uplinkError?.code === 'TUN_UPLINK_ROUTING' || uplinkError?.code === 'TUN_UPLINK_UNAVAILABLE';
+  const stopButton = (
+    <button
+      className="secondary-button"
+      disabled={!canStop}
+      onClick={() => void actions.stop().catch(() => {})}
+    >
+      <Square size={14} /> Stop
+    </button>
+  );
   const ownershipExplains = (message: string | null | undefined) =>
     ownershipUnavailable &&
     !!message &&
@@ -115,7 +131,7 @@ function RuntimePanelView({
                 : 'Desktop app required'}
           </span>
         </EditorTabs>
-        <RuntimeProgressOverlay progress={runtimeProgress(runtime)}>
+        <RuntimeProgressOverlay progress={progress}>
           <EditorTabPanels
             tabs={tabs}
             className={(key) =>
@@ -268,7 +284,9 @@ function RuntimePanelView({
                   {connected && snapshot?.recovery?.state === 'waiting' && (
                     <div className="notice" role="status">
                       {snapshot.recovery.desiredState === 'running'
-                        ? 'Recovering routing automatically…'
+                        ? waitingForUplink
+                          ? 'Waiting for a usable TUN uplink. Routing will resume automatically.'
+                          : 'Recovering routing automatically…'
                         : snapshot.recovery.desiredState === 'unknown'
                           ? 'Waiting for trusted recovery state…'
                           : 'Finishing system restoration automatically…'}
@@ -425,13 +443,7 @@ function RuntimePanelView({
                       )}{' '}
                       {actions.activationLabel}
                     </button>
-                    <button
-                      className="secondary-button"
-                      disabled={!canStop}
-                      onClick={() => void actions.stop().catch(() => {})}
-                    >
-                      <Square size={14} /> Stop
-                    </button>
+                    {!progress && !stopInFooter && stopButton}
                     <button
                       className="secondary-button"
                       disabled={!desktop || busy}
@@ -471,6 +483,7 @@ function RuntimePanelView({
         </RuntimeProgressOverlay>
         <div className="rule-editor-footer">
           <span role="status">{busy ? 'Waiting for service…' : ''}</span>
+          {stopInFooter && stopButton}
           <button className="secondary-button" onClick={onClose}>
             Close
           </button>

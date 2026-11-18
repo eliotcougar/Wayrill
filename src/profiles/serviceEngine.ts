@@ -5,6 +5,7 @@ import { prepareRefresh, materializeRefresh } from './refreshPreparation';
 import { parseGraph, serializeGraph } from '../graph/model';
 import { refreshAppliedSubscriptions } from './subscriptionRuntime';
 import { analyzeGraph } from '../graph/analysis';
+import { jsonEqual } from '../graph/xrayJson';
 import { createTestPlan, type TestSelection } from '../outboundTestPlan';
 import { applySubscriptionHealth } from './subscriptionHealth';
 import { refreshStashComposites } from '../graph/policySources';
@@ -25,6 +26,13 @@ import {
   type PoolCapture,
 } from '../pool/model';
 import { resolvePoolDelivery, type PoolChoiceNames, type PoolSelection } from '../pool/delivery';
+import {
+  applyPoolPreferences,
+  personalSettingChoices,
+  poolPreferenceBase,
+  type PoolPreferenceBase,
+  type PoolPreferenceResets,
+} from '../pool/preferences';
 import { preparePublications, readPublication } from './subscriptionPublication';
 
 interface Request {
@@ -47,6 +55,10 @@ interface Request {
   bindings?: PoolBindings;
   poolSelection?: PoolSelection;
   poolChoiceNames?: PoolChoiceNames;
+  poolPreferenceBase?: PoolPreferenceBase;
+  layeredRouting?: boolean;
+  resetPreferences?: PoolPreferenceResets;
+  reconcileBindings?: boolean;
   stash: string;
   base?: string;
   local?: string;
@@ -72,8 +84,31 @@ const emptyGraph = (): GraphState => ({ name: 'Subscriptions', nodes: [], edges:
 export function subscriptionEngine(request: Request) {
   const graph = request.graph ? parseGraph(request.graph) : emptyGraph();
   const applied = request.appliedGraph ? parseGraph(request.appliedGraph) : undefined;
-  if (request.operation === 'poolRoutingState')
-    return { poolRoutingState: poolRoutingState(applied!) };
+  if (request.operation === 'poolRoutingState') {
+    const managedRoutingState = poolRoutingState(applied!, true);
+    if (request.layeredRouting) return { poolRoutingState: managedRoutingState };
+    // An older receipt contains only a digest. If its exact authenticated delivery
+    // is still available, reconstruct the published values underneath local edits.
+    let published = applied!;
+    if (request.bundle) {
+      const { bundle } = resolvePoolDelivery(request.bundle, request.poolSelection);
+      published = preparePoolWorkspace(
+        bundle,
+        applied,
+        { format: 'wayrill.stash', version: 3, groups: [] },
+        request.recipient!,
+        'current',
+        request.bindings,
+      ).graph;
+    }
+    return {
+      poolRoutingState: poolRoutingState(applied!),
+      managedRoutingState,
+      matchesPublication:
+        !!request.bundle && jsonEqual(poolRoutingState(published, true), managedRoutingState),
+      poolPreferenceBase: poolPreferenceBase(published),
+    };
+  }
   if (request.operation === 'poolInspect') {
     const { bundle, selection, options } = resolvePoolDelivery(
       request.bundle,
@@ -84,6 +119,10 @@ export function subscriptionEngine(request: Request) {
     return {
       poolEntries: {
         ...inspectPoolEntries(bundle, applied, request.capture!, request.bindings),
+        personalSettings: personalSettingChoices(
+          applied?.poolId === request.recipient ? applied : undefined,
+          request.poolPreferenceBase,
+        ),
         selection,
         options,
       },
@@ -114,21 +153,29 @@ export function subscriptionEngine(request: Request) {
       request.recipient!,
       request.capture!,
       request.bindings,
+      request.reconcileBindings,
     );
-    const analysis = analyzeGraph(prepared.graph);
+    const preferences = applyPoolPreferences(
+      prepared.graph,
+      applied?.poolId === request.recipient ? applied : undefined,
+      request.poolPreferenceBase,
+      request.resetPreferences,
+    );
+    const analysis = analyzeGraph(preferences.graph);
     const problem = analysis.issues.find((issue) => issue.severity === 'error');
     if (problem || !analysis.compilation)
       throw new Error(
         `Cannot apply “${prepared.name}”. ${problem?.message ?? 'Check the published routing paths.'} Review your choices or ask your Pool administrator to check the graph.`,
       );
-    const preparedGraph = serializeGraph(prepared.graph);
+    const preparedGraph = serializeGraph(preferences.graph);
     return {
       ...analysis.compilation,
       name: prepared.name,
       bindings: prepared.bindings,
       poolSelection: selection,
       poolChoiceNames: choiceNames,
-      poolRoutingState: poolRoutingState(parseGraph(preparedGraph)),
+      poolRoutingState: poolRoutingState(parseGraph(preparedGraph), true),
+      poolPreferenceBase: preferences.base,
       graph: preparedGraph,
       stash: serializeStash(prepared.stash),
       catalog: libraryCatalog(prepared.stash),

@@ -12,7 +12,8 @@ import { readRuleTable, tableSettings } from '../graph/rules';
 import { readDnsFilter, dnsFilterSettings } from '../graph/dns';
 import { parseEntry, parseStash, serializeStash } from '../profiles/import';
 import { defaultGroup } from '../profiles/stashModel';
-import { capturePoolGraph, preparePoolWorkspace } from './model';
+import { capturePoolGraph, preparePoolWorkspace, poolRoutingState } from './model';
+import { applyPoolPreferences, personalSettingChoices } from './preferences';
 import { prepareDelivery, type Member, type Publisher } from './publisher';
 import { resolvePoolDelivery } from './delivery';
 import { subscriptionEngine } from '../profiles/serviceEngine';
@@ -93,6 +94,16 @@ it('applies published geofile defaults to traffic and DNS while retaining subscr
     ]),
   });
   expect(resourceDependencies(compiled.config)).toEqual(['ir-geoip.dat', 'ru-geosite.dat']);
+  const personal = parseGraph(
+    serializeGraph({
+      ...enrolled,
+      defaults: { ...enrolled.defaults!, localPoolSettings: ['geoSiteFile'] },
+    }),
+  );
+  expect(resourceDependencies(compileRuntimeGraph(personal).config)).toEqual([
+    'cn-geosite.dat',
+    'ir-geoip.dat',
+  ]);
   const inherited = preparePoolWorkspace(
     { ...exported, settings: undefined },
     enrolled,
@@ -314,6 +325,15 @@ it('applies graph and user settings without replacing subscriber defaults and re
   expect(compileRuntimeGraph(applied).config).toMatchObject({
     log: { loglevel: 'error', maskAddress: 'half' },
   });
+  applied.defaults!.localPoolSettings = ['logLevel'];
+  const personal = subscriptionEngine({
+    ...request,
+    bundle: delivery,
+    appliedGraph: serializeGraph(applied),
+  });
+  expect(personal).toMatchObject({
+    config: { log: { loglevel: 'info' }, env: { WAYRILL_UDP_LISTENER_RECEIVE_BYTES: '0' } },
+  });
 
   for (const { bundle } of pool.configurations) delete bundle.settings;
   const update = prepareDelivery(pool, member, servers);
@@ -342,6 +362,101 @@ it('rejects nonportable or invalid settings from a published graph before subscr
   expect(() => resolvePoolDelivery(supplied({ udpListenerSendKiB: -1 }))).toThrow(
     'UDP listener send buffer',
   );
+});
+
+it('carries only authored node preferences, including across a matching publication, until reset', () => {
+  const { pool, member, servers } = fixture();
+  const bundle = prepareDelivery(pool, member, servers);
+  const request = {
+    operation: 'poolPrepare' as const,
+    stash: '',
+    capture: 'proxy' as const,
+    recipient,
+    bundle,
+  };
+  const first = subscriptionEngine(request);
+  if (!('graph' in first) || !first.graph || !first.poolPreferenceBase)
+    throw new Error('Expected Pool enrollment');
+  const working = parseGraph(first.graph);
+  const edited = parseGraph(first.graph);
+  const handler = edited.nodes.find((n) => n.data.kind === 'dns-handler')!;
+  handler.data.settings.queryStrategy = 'UseIPv6';
+  handler.data.settings.hosts = JSON.stringify({ 'full:printer.home': '192.168.1.60' });
+  const legacy = subscriptionEngine({
+    ...request,
+    operation: 'poolRoutingState',
+    appliedGraph: serializeGraph(edited),
+  });
+  expect(legacy).toMatchObject({
+    matchesPublication: true,
+    poolPreferenceBase: first.poolPreferenceBase,
+  });
+  expect(poolRoutingState(edited, true)).toEqual(poolRoutingState(working, true));
+  const published = parseGraph(first.graph);
+  const newHandler = published.nodes.find((n) => n.id === handler.id)!;
+  newHandler.data.settings.disableCache = true;
+  newHandler.data.settings.hosts = JSON.stringify({ 'full:resolver.example': '192.0.2.53' });
+  newHandler.data.settings.queryStrategy = 'UseIPv6';
+  const same = applyPoolPreferences(published, edited, first.poolPreferenceBase);
+  newHandler.data.settings.queryStrategy = 'UseIPv4';
+  const next = applyPoolPreferences(published, same.graph, same.base);
+  const effective = next.graph.nodes.find((n) => n.id === handler.id)!;
+  expect(effective.data.settings).toMatchObject({ queryStrategy: 'UseIPv6', disableCache: true });
+  expect(JSON.parse(String(effective.data.settings.hosts))).toEqual({
+    'full:printer.home': '192.168.1.60',
+    'full:resolver.example': '192.0.2.53',
+  });
+  expect(
+    personalSettingChoices(next.graph, next.base)
+      .map((item) => item.key)
+      .sort(),
+  ).toEqual(['hosts/full:printer.home', 'queryStrategy']);
+  const reset = applyPoolPreferences(published, next.graph, next.base, {
+    [handler.id]: ['queryStrategy', 'hosts/full:printer.home'],
+  });
+  expect(reset.graph.nodes.find((n) => n.id === handler.id)?.data.settings.queryStrategy).toBe(
+    'UseIPv4',
+  );
+  expect(personalSettingChoices(reset.graph, reset.base)).toEqual([]);
+  handler.data.settings.rewriteAddress = '9.9.9.9';
+  expect(poolRoutingState(edited, true)).not.toEqual(poolRoutingState(working, true));
+  expect(
+    subscriptionEngine({
+      ...request,
+      operation: 'poolRoutingState',
+      appliedGraph: serializeGraph(edited),
+    }),
+  ).toMatchObject({ matchesPublication: false });
+});
+
+it('follows new default Stashes and DNS filters after customizing only a traffic filter', () => {
+  const { pool, member, servers, traffic, dns, outbound } = fixture();
+  const original = prepareDelivery(pool, member, servers);
+  const selection = {
+    graph: 'first',
+    stashOverrides: { one: true },
+    filterOverrides: { [traffic.id]: null },
+  };
+  const later = {
+    ...original,
+    defaultLayers: [
+      { id: 'two' },
+      { id: 'traffic', target: traffic.id },
+      { id: 'dns', target: dns.id },
+    ],
+  };
+  const choice = resolvePoolDelivery(later, selection, true);
+  expect(choice.options?.activeStashes).toEqual(['two', 'one']);
+  expect(choice.options?.filters.find((f) => f.id === traffic.id)?.active).toBeUndefined();
+  expect(choice.options?.filters.find((f) => f.id === dns.id)?.active).toBe('dns');
+  const withdrawn = { ...later, layers: later.layers.filter((l) => l.id !== 'one') };
+  expect(resolvePoolDelivery(withdrawn, selection, true).options?.activeStashes).toEqual(['two']);
+  expect(() =>
+    resolvePoolDelivery(withdrawn, {
+      ...selection,
+      outbounds: { [outbound.id]: { groupId: defaultGroup().id, entryId: 'one-entry' } },
+    }),
+  ).toThrow('selected outbound');
 });
 
 it('delivers only assigned choices and uses stable selections on each subscriber machine', () => {

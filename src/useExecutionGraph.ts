@@ -5,6 +5,10 @@ import type { GraphState } from './graph/types';
 // Keep those frequent renderer updates out of compiler and diagnostic work.
 export function sameExecutionGraph(a: GraphState, b: GraphState): boolean {
   return (
+    a.name === b.name &&
+    a.poolId === b.poolId &&
+    a.poolSettings === b.poolSettings &&
+    a.mainOutboundId === b.mainOutboundId &&
     a.defaults === b.defaults &&
     a.xray === b.xray &&
     a.captureOptions === b.captureOptions &&

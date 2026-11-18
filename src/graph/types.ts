@@ -54,6 +54,7 @@ export type RuleNodeData = {
 export type RuleNode = Node<RuleNodeData, 'rule'>;
 export type RuleEdge = Edge;
 export interface GlobalDefaults {
+  localPoolSettings?: import('./poolSettings').PoolSettingKey[];
   resources?: import('./resources').ResourceSet;
   version: 1;
   settings: Record<string, SettingValue>;

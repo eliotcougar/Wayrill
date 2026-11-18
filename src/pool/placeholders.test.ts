@@ -147,6 +147,35 @@ it('requires dedicated slots and preserves separate paths on enrollment and refr
   expect(analyzeGraph(both.graph).issues.filter(({ severity }) => severity === 'error')).toEqual(
     [],
   );
+  // Recreating the dedicated TUN input with identical destinations changes only its ID.
+  const replacement = structuredClone(graph);
+  replacement.nodes.find((n) => n.id === tun.id)!.id = 'replacement-tun';
+  for (const edge of replacement.edges) if (edge.source === tun.id) edge.source = 'replacement-tun';
+  const repaired = preparePoolWorkspace(
+    capturePoolGraph('Updated', replacement, stash, []),
+    both.graph,
+    stash,
+    recipient,
+    'current',
+    both.bindings,
+    true,
+  );
+  expect(repaired.bindings.capture).toBe('replacement-tun');
+  expect(repaired.graph.edges).toEqual(both.graph.edges);
+  replacement.edges.find(
+    (e) => e.source === 'replacement-tun' && e.sourceHandle === 'data',
+  )!.target = 'direct';
+  expect(() =>
+    preparePoolWorkspace(
+      capturePoolGraph('Different route', replacement, stash, []),
+      both.graph,
+      stash,
+      recipient,
+      'current',
+      both.bindings,
+      true,
+    ),
+  ).toThrow('Inbound Placeholder');
   expect(() =>
     preparePoolWorkspace(bundle, undefined, stash, recipient, 'proxy', { proxy: tun.id }),
   ).toThrow('Edit inbound assignments');

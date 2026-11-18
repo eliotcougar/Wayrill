@@ -224,15 +224,45 @@ and closing the window discards the simulation.
    enrollment. Choose **Connect to Pool** to apply the reviewed configuration.
 4. If you chose Proxy, use the shown address and port in your apps or open
    Windows capture settings. **Test outbounds** checks the configured server
-   paths. **Open applied graph** loads the configuration into the editor.
+   paths. The canvas opens the applied graph automatically.
    Use **Edit configuration choices** to change layers, outbounds or local
    capture later.
 
+After enrollment, refreshes keep the existing inbounds and their settings.
+To change them, choose **Edit configuration choices → Change local capture**.
 Wayrill saves assignments by node ID. Renaming or moving a placeholder
 preserves its assignments. A new placeholder stays unused until assigned.
-If a publication removes a selected graph, layer, outbound or assigned
-placeholder, Wayrill keeps the last working configuration until you review
-and apply new choices.
+If a publisher recreates a capture placeholder, Wayrill can reconnect it when
+exactly one compatible entry leads every local output to the same destination.
+If the intended path is unclear, the current routing stays in place.
+
+### Make this computer your own
+
+| What you want to change | Where to change it | What the next delivery does |
+| --- | --- | --- |
+| Use the administrator’s current default graph, even if it changes | **Edit configuration choices → Graph for this computer → Follow Pool default** | Follows the published default. Select a named graph to keep using that template. |
+| Include or exclude an optional Stash | **Edit configuration choices → Customize layers and outbounds → Stash layers** | Keeps that preference on this computer, even when you follow the Pool’s changing default graph. Other Stashes continue to follow their published defaults. |
+| Choose a different traffic filter, DNS filter or outbound | **Edit configuration choices → Customize layers and outbounds** | Pins this graph so the chosen filter or outbound stays attached to the intended node. Other filters can still follow their published defaults. Selecting **Follow Pool default** again clears graph-specific selections and keeps your Stash preferences. |
+| Add a domain, IP or application exception | Open the traffic filter and add a personal **Before** or **After** rule | Carries your rules into the updated filter. |
+| Add a static DNS record, tune DNS caching or probing, or change an independent outbound’s socket and transport defaults | Edit the node and **Apply** | Keeps your changed fields on that node. Static DNS records merge by host, so a local printer entry and the Pool’s updated bootstrap addresses can coexist. Under **Edit configuration choices → Personal node settings**, clear individual preferences to resume following the Pool. |
+| Use a different log level, domain strategy, UDP buffer size or primary geofile | Change the value or primary file in **Global defaults**, then save and apply | Editing selects **Use my … on this computer** for that setting. You can also check it to keep the current value. Clear it to follow the Pool again. |
+
+Personal node settings belong to a particular graph and node. A newly selected
+template uses its own settings. To change a Stash-linked connection, select a
+published alternative in **Edit configuration choices**. Rewiring the graph or
+editing the publisher’s connection credentials directly requires taking control
+of the routes and pauses automatic routing updates.
+
+### When a delivery cannot be used
+
+| What happened | How routing and recovery work |
+| --- | --- |
+| The source is offline, access was withdrawn, or the file is incomplete | The service keeps the applied configuration. It checks again on the configured timer, even with the desktop closed. |
+| A selected optional Stash was withdrawn | A subscriber using individual Stash preferences receives the remaining Stashes. If a chosen outbound needs the withdrawn entry, the service retains the last working delivery. |
+| A graph, selected outbound, filter output or capture path is missing or ambiguous | Open **Edit configuration choices**. Review the named conflict, select a replacement, or review the remaining available choices before applying. |
+| The publication or local routing changed during setup | Choose **Review latest delivery**. Check the refreshed assignments before applying. |
+| Existing local inbounds cannot be reused | Review with **Proxy** or **TUN** to see a fresh capture setup before applying it. |
+| Resources, validation or activation fail | The service checks the candidate and required geofiles before switching. If activation has already begun, its recovery checkpoint protects the previous configuration. Check the reported cause, such as a missing custom DAT. A later corrected delivery can apply unattended. |
 
 The main graph header shows the connected Pool. Click its indicator to see the
 last check, change the update interval or resolve a paused or failed update.
@@ -242,6 +272,19 @@ interval is five minutes and can be set from 1 to 1,440 minutes under
 runs an immediate check and reports whether a delivery was applied. The connection
 window shows the last check since service startup and when the Pool configuration
 was last applied. A failed update keeps the last working configuration.
+The canvas follows the applied graph, including its traffic and DNS filters.
+**Pool graph up to date** means you are looking at the service’s applied source.
+Moving a node or panning the canvas keeps that status. **Unapplied local edits**
+means the editor also contains changes you have made. Compatible edits carry
+forward when a new delivery arrives. If the same setting changed on both sides,
+the canvas shows the working delivery. Under **Connection settings → Export
+previous local graph**, you can save the most recently displaced draft, including
+its local settings and rules. **Show applied Pool graph** also takes you back
+from a separately opened graph. Opening a graph in the editor does not start routing.
+
+On each timer tick Wayrill checks the publication. HTTPS servers with a strong
+ETag can answer that the saved publication is current without resending it.
+An unchanged delivery leaves the running revision and its connections in place.
 If you explicitly stop routing, later updates keep routing stopped.
 
 Regular Stash subscriptions refresh independently. Received entries have a

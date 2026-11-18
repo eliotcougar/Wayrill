@@ -24,6 +24,17 @@ export const isPoolResourceKey = (key: PoolSettingKey): key is PoolResourceKey =
   Object.hasOwn(poolResourceKinds, key);
 export const isPoolSettingKey = (key: string): key is PoolSettingKey =>
   poolSettingKeys.some((allowed) => allowed === key);
+export function parseLocalPoolSettings(value: unknown) {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > poolSettingKeys.length ||
+    !value.every((key) => typeof key === 'string' && isPoolSettingKey(key))
+  )
+    throw new Error('Invalid personal Pool settings.');
+  const keys = poolSettingKeys.filter((key) => value.includes(key));
+  return keys.length ? keys : undefined;
+}
 export const poolResourceLabel = (key: PoolResourceKey) =>
   key === 'geoSiteFile' ? 'Default GeoSite file' : 'Default GeoIP file';
 

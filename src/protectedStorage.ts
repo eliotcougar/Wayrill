@@ -3,7 +3,7 @@ import { readServiceStash, writeServiceStash } from './profiles/serviceSubscript
 
 export const protectedStorageAvailable = () =>
   isTauri() && document.documentElement.dataset.app !== 'pool';
-export type StorageSlot = 'workspace' | 'stash';
+export type StorageSlot = 'workspace' | 'stash' | 'pool-base' | 'pool-previous';
 const operations = new Map<StorageSlot, Promise<unknown>>();
 let savedWorkspace: string | null | undefined;
 

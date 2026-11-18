@@ -54,7 +54,6 @@ export interface RuntimeState {
   error: string;
   errorAction?: string;
   notice: string;
-  events: ServiceEvent[];
   capabilities: string[];
   protocols: ServiceProtocols | null;
   limits: { configBytes: number; outbounds: number; routingRules: number } | null;
@@ -113,12 +112,13 @@ export class RuntimeSession {
     busy: false,
     error: '',
     notice: '',
-    events: [],
     capabilities: [],
     protocols: null,
     limits: null,
   };
   private listeners = new Set<() => void>();
+  private events: ServiceEvent[] = [];
+  private eventListeners = new Set<() => void>();
   private epoch = 0;
   private transportEpoch = 0;
   private cursor = { instanceId: '', sequence: 0 };
@@ -134,6 +134,20 @@ export class RuntimeSession {
       this.listeners.delete(listener);
     };
   };
+  getEvents = () => this.events;
+  subscribeEvents = (listener: () => void) => {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  };
+  clearEvents = () => {
+    if (this.events.length) this.updateEvents([]);
+  };
+  private updateEvents(events: ServiceEvent[]) {
+    this.events = events;
+    for (const listener of this.eventListeners) listener();
+  }
   update = (patch: Partial<RuntimeState>) => {
     this.state = {
       ...this.state,
@@ -178,11 +192,11 @@ export class RuntimeSession {
     // events keep their original identity and should appear only once.
     if (
       message.kind !== 'service.snapshot' &&
-      !this.state.events.some(
+      !this.events.some(
         (event) => event.instanceId === message.instanceId && event.sequence === message.sequence,
       )
     )
-      this.update({ events: [...this.state.events, message].slice(-150) });
+      this.updateEvents([...this.events, message].slice(-150));
     if (message.sequence <= this.cursor.sequence || message.kind === 'core.log') return;
     this.cursor = { instanceId: message.instanceId, sequence: message.sequence };
     if (message.kind === 'subscriptions.changed' || message.kind === 'subscriptions.progress') {

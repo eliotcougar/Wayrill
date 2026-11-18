@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import useGraphEditor from './useGraphEditor';
+import { followPoolGraph } from './pool/model';
 import { compileRuntimeGraph } from './graph/runtime';
 import { createPolicyExample } from './graph/policyExample';
 import {
@@ -392,6 +393,40 @@ it('restores graph and stash as one Undo/Redo transaction and rejects restoratio
   expect(store.update).not.toHaveBeenCalled();
   expect(editor.graph.name).toBe('Restored graph');
 });
+
+it('follows the service’s Pool graph after a drag without writing back the Stash', async () => {
+  const library: Stash = { format: 'wayrill.stash', version: 3, groups: [] };
+  const store = { get: () => library, update: vi.fn() };
+  await act(() => root.render(<Harness stash={library} store={store} />));
+  const poolId = '0123456789abcdef0123456789abcdef';
+  const original = {
+    name: 'First Pool graph',
+    poolId,
+    defaults: factoryDefaults(),
+    nodes: [makeNode('direct-outbound', { x: 0, y: 0 }, 'route')],
+    edges: [],
+  };
+  await act(() => editor.restoreWorkspace(original, library));
+  const applied = { ...original, name: 'Updated Pool graph' };
+  await act(() => {
+    editor.beginDrag();
+    editor.onNodesChange([{ id: 'route', type: 'position', position: { x: 25, y: 30 } }]);
+    expect(editor.showPoolGraph(applied, 'revision-2')).toBe(false);
+    editor.endDrag();
+  });
+  store.update.mockClear();
+  await act(() => {
+    expect(
+      editor.showPoolGraph(followPoolGraph(applied, editor.graph, original), 'revision-2'),
+    ).toBe(true);
+  });
+  expect(editor.graph.name).toBe(applied.name);
+  expect(editor.graph.nodes[0].position).toEqual({ x: 25, y: 30 });
+  await act(() => editor.undo());
+  expect(editor.graph.name).toBe(applied.name);
+  expect(store.update).not.toHaveBeenCalled();
+});
+
 it('restores viewports only when Undo or Redo crosses a whole-graph replacement', async () => {
   let library: Stash = { format: 'wayrill.stash', version: 3, groups: [] };
   const store = {

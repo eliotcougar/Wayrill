@@ -1653,9 +1653,9 @@ mod tests {
             }
         });
         let input = &config["inbounds"][0];
-        let uplink = super::super::uplink_except(&input["settings"], None).unwrap();
         let plan =
-            super::super::prepare_source(&config, input, None, uplink, true, true, true).unwrap();
+            super::super::prepare_source(&config, input, None, "Fixture uplink".into(), true, true)
+                .unwrap();
         validate_worker(&plan.worker).unwrap();
 
         let mut worker = plan.worker;

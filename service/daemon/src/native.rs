@@ -82,6 +82,7 @@ pub fn verify_hash(path: &Path, expected: &str) -> Result<()> {
 }
 pub const XRAY_VERSION: &str = env!("WAYRILL_XRAY_VERSION");
 pub const XRAY_SHA: &str = env!("WAYRILL_XRAY_SHA");
+pub const XRAY_CONFIG_LOAD_TIMEOUT: Duration = Duration::from_secs(60);
 pub fn token_sid(token: HANDLE) -> Result<String> {
     unsafe {
         let mut bytes = 0;
@@ -894,7 +895,7 @@ fn spawn_verified_core(
 
 pub fn validate_core(exe: &Path, identity: CoreIdentity<'_>, config: &Value) -> Result<()> {
     let core = spawn_core(exe, identity, config, true, None, 0)?;
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + XRAY_CONFIG_LOAD_TIMEOUT;
     loop {
         if let Some(code) = core.exit_code()? {
             if code == 0 {
@@ -911,7 +912,10 @@ pub fn validate_core(exe: &Path, identity: CoreIdentity<'_>, config: &Value) -> 
         if Instant::now() >= deadline {
             return Err(ApiError::new(
                 "TIMEOUT",
-                "Xray validation exceeded twenty seconds.",
+                format!(
+                    "Xray validation exceeded {} seconds.",
+                    XRAY_CONFIG_LOAD_TIMEOUT.as_secs()
+                ),
             ));
         }
         std::thread::sleep(Duration::from_millis(30));

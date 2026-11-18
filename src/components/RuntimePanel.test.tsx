@@ -38,8 +38,9 @@ function fixture(): RuntimeController {
     },
     systemProxy: { managed: false, conflict: false, recoveryPending: false },
   };
+  const session = new RuntimeSession(async <T,>() => ({}) as T);
   return {
-    ...new RuntimeSession(async <T,>() => ({}) as T).getSnapshot(),
+    ...session.getSnapshot(),
     desktop: true,
     connected: true,
     snapshot,
@@ -60,7 +61,9 @@ function fixture(): RuntimeController {
     run: vi.fn(async () => ({})),
     setError: vi.fn(),
     setNotice: vi.fn(),
-    clearEvents: vi.fn(),
+    getEvents: session.getEvents,
+    subscribeEvents: session.subscribeEvents,
+    clearEvents: session.clearEvents,
   };
 }
 async function render(runtime: RuntimeController) {
@@ -106,4 +109,34 @@ it('permits reapplying a damaged profile and stopping a failed core', async () =
   expect(runtime.run).toHaveBeenCalledWith('core.stop', {});
   await render(runtime);
   expect(primary().disabled).toBe(false);
+});
+
+it('keeps Stop in the footer while waiting and during an automatic recovery attempt', async () => {
+  const runtime = fixture();
+  runtime.snapshot!.core.state = 'failed';
+  runtime.snapshot!.recovery = {
+    desiredState: 'running',
+    state: 'waiting',
+    attempts: 1,
+    nextAttemptMs: null,
+    lastError: null,
+  };
+  const view = () => (
+    <RuntimePanel graph={graph} runtime={runtime} onIssue={vi.fn()} onClose={vi.fn()} />
+  );
+  await act(() => root.render(view()));
+  expect(button('Stop').closest('.rule-editor-footer')).not.toBeNull();
+  runtime.snapshot!.lifecycle = {
+    operation: 'start',
+    stage: 'validate',
+    percent: null,
+    recovering: true,
+  };
+  await act(() => root.render(view()));
+  expect(primary().disabled).toBe(true);
+  const stop = button('Stop');
+  expect(stop.closest('[inert]')).toBeNull();
+  expect(stop.disabled).toBe(false);
+  await act(() => stop.click());
+  expect(runtime.run).toHaveBeenCalledWith('core.stop', {});
 });
