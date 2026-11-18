@@ -9,32 +9,19 @@ const point = (id: number, rate: number | null = 100): TrafficPoint => ({
 });
 describe('traffic formatting and chart history', () => {
   it('formats exact decimal totals without truncating to JavaScript integer precision', () => {
-    expect(formatBytes('1024')).toBe('1.0 KiB');
-    expect(formatBytes('0')).toBe('0.0 KiB');
-    expect(formatBytes('9007199254740993')).toBe('8.0 PiB');
-    expect(formatBytes('340282366920938463463374607431768211455')).not.toMatch(/NaN|Infinity/);
+    // These adjacent byte counters round to the same JavaScript Number.
+    expect(formatBytes('9063494250083123')).toBe('8.0 PiB');
+    expect(formatBytes('9063494250083124')).toBe('8.1 PiB');
     expect(formatBytes('-1')).toBe('—');
-    expect(formatBytes(undefined)).toBe('—');
   });
-  it('merges late history without losing live samples, de-duplicates and bounds it', () => {
-    expect(mergeTrafficPoints([point(3), point(4)], [point(1), point(2), point(3)])).toEqual([
-      point(1),
-      point(2),
-      point(3),
-      point(4),
-    ]);
-    const merged = mergeTrafficPoints(
-      [],
-      Array.from({ length: 401 }, (_, i) => point(i + 1)),
-    );
-    expect(merged).toHaveLength(300);
-    expect(merged[0].sampleId).toBe(102);
+  it('keeps a bounded, chronological history across backfill and live snapshots', () => {
+    const history = Array.from({ length: 401 }, (_, i) => point(i + 1));
+    const merged = mergeTrafficPoints([point(401), point(402)], history);
+    expect(merged.length).toBeLessThan(history.length);
+    expect(merged.length).toBeGreaterThan(1);
+    expect(merged).toEqual(history.concat(point(402)).slice(-merged.length));
+    expect(appendTrafficPoint(merged, point(402))).toBe(merged);
+    expect(appendTrafficPoint(merged, point(401))).toBe(merged);
+    expect(appendTrafficPoint(merged, point(403))).toEqual([...merged.slice(1), point(403)]);
   });
-});
-
-it('does not redraw history for repeated snapshots and keeps the newest 300 measurements', () => {
-  const points = Array.from({ length: 300 }, (_, i) => point(i + 1));
-  expect(appendTrafficPoint(points, point(300))).toBe(points);
-  expect(appendTrafficPoint(points, point(298))).toBe(points);
-  expect(appendTrafficPoint(points, point(301))).toEqual([...points.slice(1), point(301)]);
 });

@@ -6,11 +6,6 @@ import RuleTableEditor from './RuleTableEditor';
 import { makeNode } from '../graph/catalog';
 import { createRoutingExample } from '../graph/example';
 import { updateGraphNode } from '../graph/model';
-import {
-  commitWorkspaceHistory,
-  initialWorkspaceHistory,
-  undoWorkspaceHistory,
-} from '../graph/workspaceHistory';
 import { readRuleTable, tableSettings } from '../graph/rules';
 import type { GraphState } from '../graph/types';
 import { exportFile } from '../exportFile';
@@ -139,66 +134,62 @@ async function key(target: HTMLElement, value: string) {
     );
   });
 }
-it.each(['Cancel', 'Apply changes'])(
-  'keeps an edited rule while traversing sections and honors %s',
-  async (finish) => {
-    const node = makeNode('routing-filter', { x: 0, y: 0 }),
-      graph = { name: 'Keyboard draft', nodes: [node], edges: [] } as GraphState;
-    const table = readRuleTable(node.data.settings);
-    node.data.settings = {
-      ...node.data.settings,
-      ...tableSettings({
-        ...table,
-        rules: [
-          {
-            id: 'qa-rule',
-            name: 'Public site',
-            enabled: true,
-            output: table.defaultOutput,
-            matchAll: false,
-            conditions: { domain: 'full:public.example' },
-          },
-        ],
-      }),
-    };
-    const before = structuredClone(node.data),
-      apply = vi.fn(),
-      close = vi.fn();
-    await act(() =>
-      root.render(<RuleTableEditor node={node} graph={graph} onApply={apply} onClose={close} />),
+it('applies the edited rule after navigating away and back with the keyboard', async () => {
+  const node = makeNode('routing-filter', { x: 0, y: 0 }),
+    graph = { name: 'Keyboard draft', nodes: [node], edges: [] } as GraphState;
+  const table = readRuleTable(node.data.settings);
+  node.data.settings = {
+    ...node.data.settings,
+    ...tableSettings({
+      ...table,
+      rules: [
+        {
+          id: 'qa-rule',
+          name: 'Public site',
+          enabled: true,
+          output: table.defaultOutput,
+          matchAll: false,
+          conditions: { domain: 'full:public.example' },
+        },
+      ],
+    }),
+  };
+  const before = structuredClone(node.data),
+    apply = vi.fn(),
+    close = vi.fn();
+  await act(() =>
+    root.render(<RuleTableEditor node={node} graph={graph} onApply={apply} onClose={close} />),
+  );
+  const input = [...host.querySelectorAll<HTMLInputElement>('input')].find((i) =>
+    i.parentElement!.textContent!.includes('Rule name'),
+  )!;
+  await act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'My edited rule',
     );
-    const input = [...host.querySelectorAll<HTMLInputElement>('input')].find((i) =>
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const first = host.querySelector<HTMLButtonElement>('[role="tab"]')!;
+  await key(first, 'ArrowRight');
+  expect(first.getAttribute('aria-selected')).toBe('true');
+  await key(document.activeElement as HTMLElement, 'Enter');
+  expect(
+    host.querySelector('[role="tabpanel"]:not([hidden])')!.getAttribute('aria-labelledby'),
+  ).toBe(document.activeElement!.id);
+  await key(document.activeElement as HTMLElement, 'ArrowLeft');
+  await key(document.activeElement as HTMLElement, ' ');
+  expect(
+    [...host.querySelectorAll('input')].find((i) =>
       i.parentElement!.textContent!.includes('Rule name'),
-    )!;
-    await act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-        input,
-        'My edited rule',
-      );
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    const first = host.querySelector<HTMLButtonElement>('[role="tab"]')!;
-    await key(first, 'ArrowRight');
-    expect(first.getAttribute('aria-selected')).toBe('true');
-    await key(document.activeElement as HTMLElement, 'Enter');
-    expect(
-      host.querySelector('[role="tabpanel"]:not([hidden])')!.getAttribute('aria-labelledby'),
-    ).toBe(document.activeElement!.id);
-    await key(document.activeElement as HTMLElement, 'ArrowLeft');
-    await key(document.activeElement as HTMLElement, ' ');
-    expect(
-      [...host.querySelectorAll('input')].find((i) =>
-        i.parentElement!.textContent!.includes('Rule name'),
-      )!.value,
-    ).toBe('My edited rule');
-    expect(node.data).toEqual(before);
-    await act(() => button(finish).click());
-    expect(close).toHaveBeenCalledOnce();
-    if (finish === 'Cancel') expect(apply).not.toHaveBeenCalled();
-    else
-      expect(readRuleTable(apply.mock.calls[0][1].settings).rules[0].name).toBe('My edited rule');
-  },
-);
+    )!.value,
+  ).toBe('My edited rule');
+  expect(node.data).toEqual(before);
+  expect(apply).not.toHaveBeenCalled();
+  await act(() => button('Apply changes').click());
+  expect(close).toHaveBeenCalledOnce();
+  expect(readRuleTable(apply.mock.calls[0][1].settings).rules[0].name).toBe('My edited rule');
+});
 
 async function choose(select: HTMLSelectElement, value: string) {
   await act(() => {
@@ -213,9 +204,10 @@ it.each(['Cancel', 'Apply changes'])(
     const graph = createRoutingExample(),
       node = graph.nodes.find((n) => n.id === 'routes')!,
       before = structuredClone(graph),
-      apply = vi.fn();
+      apply = vi.fn(),
+      close = vi.fn();
     await act(() =>
-      root.render(<RuleTableEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
+      root.render(<RuleTableEditor node={node} graph={graph} onApply={apply} onClose={close} />),
     );
     await act(() => button('Outputs (3)').click());
     const output = readRuleTable(node.data.settings).outputs.find((o) => o.id === 'blocked')!;
@@ -232,6 +224,7 @@ it.each(['Cancel', 'Apply changes'])(
     await choose(select, 'default');
     expect(button('Apply changes').disabled).toBe(false);
     await act(() => button(finish).click());
+    expect(close).toHaveBeenCalledOnce();
     if (finish === 'Cancel') {
       expect(apply).not.toHaveBeenCalled();
       expect(graph).toEqual(before);
@@ -243,11 +236,6 @@ it.each(['Cancel', 'Apply changes'])(
       expect(
         readRuleTable(updated.nodes.find((n) => n.id === node.id)!.data.settings).rules[0].output,
       ).toBe('default');
-      expect(
-        undoWorkspaceHistory(
-          commitWorkspaceHistory(initialWorkspaceHistory(graph), { graph: updated }),
-        ).present.graph,
-      ).toEqual(before);
     }
   },
 );

@@ -267,42 +267,16 @@ it('clearing the user advanced scope leaves an active legacy proxy visible', asy
   ).toContain('On');
 });
 
-it('allows machine-wide Windows proxy actions with the exact version shown', async () => {
-  snapshot.rows[0].scope = 'machine';
-  await render();
-  expect(host.textContent).toContain('All users · default LAN');
-  expect(button('Clear').disabled).toBe(false);
-  await select('Proxy inbound', 'local-http');
-  await act(async () => button('Set').click());
-  expect(serviceCall).toHaveBeenCalledWith(
-    'system.capture.set',
-    expect.objectContaining({
-      channel: 'wininet',
-      expectedVersion: 'wininet-v',
-      inputTag: 'local-http',
-    }),
-  );
-  snapshot.rows[0].managed = true;
-  snapshot.rows[0].version = 'machine-managed';
-  await act(async () =>
-    host
-      .querySelector<HTMLButtonElement>('button[aria-label="Refresh system capture settings"]')!
-      .click(),
-  );
-  expect(host.textContent).toContain('All users · default LAN');
-  await act(async () => button('Restore previous').click());
-  expect(serviceCall).toHaveBeenCalledWith('system.capture.restore', {
-    channel: 'wininet',
-    expectedVersion: 'machine-managed',
-  });
-});
-
 it('applies a selected Windows proxy scope directly and refreshes the actual scope', async () => {
   Object.assign(snapshot.rows[0], { scope: 'user', scopeSwitchSupported: true });
   const original = vi.mocked(serviceCall).getMockImplementation()!;
   vi.mocked(serviceCall).mockImplementation(async (method, params) => {
     if (method === 'system.capture.setScope') {
-      Object.assign(snapshot.rows[0], { scope: params?.scope, version: 'new-scope-v' });
+      Object.assign(snapshot.rows[0], {
+        scope: params?.scope,
+        version: 'new-scope-v',
+        managed: true,
+      });
       return {};
     }
     return original(method, params);
@@ -317,6 +291,11 @@ it('applies a selected Windows proxy scope directly and refreshes the actual sco
   expect(
     host.querySelector<HTMLSelectElement>('select[aria-label="Windows proxy scope"]')!.value,
   ).toBe('machine');
+  await act(async () => button('Restore previous').click());
+  expect(serviceCall).toHaveBeenCalledWith('system.capture.restore', {
+    channel: 'wininet',
+    expectedVersion: 'new-scope-v',
+  });
 });
 it('blocks proxy actions while the selected scope is being changed', async () => {
   Object.assign(snapshot.rows[0], { scope: 'user', scopeSwitchSupported: true });

@@ -9,12 +9,6 @@ beforeAll(async () => {
   await initializeEdgeRouter();
 });
 const geometry = sample as RoutingGeometry;
-it('draws separate Users output points without hiding unrelated traffic connections', () => {
-  const paths = routeEdgePaths(geometry.edges, geometry.nodes);
-  expect(paths.size).toBe(5);
-  expect([...paths].filter(([, route]) => route.blocked).map(([id]) => id)).toEqual([]);
-  expect([...paths.values()].every((route) => !!route.path)).toBe(true);
-});
 it('draws two user sets connected to both inbounds, with distinct source points and shared target trunks', () => {
   const edges = [
     ...geometry.edges,

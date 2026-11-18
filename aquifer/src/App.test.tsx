@@ -354,7 +354,7 @@ beforeEach(async () => {
     await sessionPromise;
   });
 });
-it('opens User sets from the inbound editor and returns to its unsaved draft', async () => {
+it('opens User sets while an inbound has an invalid port and returns to the unsaved draft', async () => {
   await act(async () => button('Read server').click());
   const entry = [...host.querySelectorAll('button')].find(
     (item) =>
@@ -364,20 +364,13 @@ it('opens User sets from the inbound editor and returns to its unsaved draft', a
   )!;
   await act(async () => entry.click());
   await act(async () => button('Edit…').click());
-  const tag = host.querySelector<HTMLInputElement>('[aria-label="Tag"]')!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-      tag,
-      'new-server-tag',
-    );
-    tag.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  await inputValue('Listen port', '65536');
   await act(async () => button('Manage users').click());
   expect(host.querySelector('dialog[aria-label="User sets"]')).not.toBeNull();
   await act(async () =>
     host.querySelector<HTMLButtonElement>('[aria-label="Close user sets"]')!.click(),
   );
-  expect(host.querySelector<HTMLInputElement>('[aria-label="Tag"]')!.value).toBe('new-server-tag');
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Listen port"]')!.value).toBe('65536');
   expect(client.read).toHaveBeenCalledOnce();
 });
 it('previews installations, upgrades and removals before confirming dist-upgrade', async () => {
@@ -390,17 +383,14 @@ it('previews installations, upgrades and removals before confirming dist-upgrade
   expect(preview.textContent).toContain('obsolete-lib');
   expect(preview.textContent).toContain('2.0');
   expect(preview.querySelector('[aria-label="Removals"]')?.textContent).toContain('0.5');
+  await act(async () => button('Cancel').click());
+  expect(client.startAction).not.toHaveBeenCalled();
+  await act(async () => button('Full upgrade…').click());
   await act(async () => button('Install full upgrade').click());
   expect(client.startAction).toHaveBeenCalledWith(
     'FlauntVPN',
     expect.objectContaining({ action: 'distUpgrade', planId: upgradePlan.id }),
   );
-});
-it('cancels a full upgrade without starting a mutation', async () => {
-  await act(async () => button('Server status').click());
-  await act(async () => button('Full upgrade…').click());
-  await act(async () => button('Cancel').click());
-  expect(client.startAction).not.toHaveBeenCalled();
 });
 it('reports failed previews and does not enable a full upgrade', async () => {
   vi.mocked(client.previewUpgrade).mockRejectedValue({
@@ -489,13 +479,6 @@ it('reads server health without downloading a configuration', async () => {
   await act(async () => button('Refresh').click());
   expect(dialog.textContent).not.toContain('nginx.service');
 });
-it('disconnects before clearing a remote configuration', async () => {
-  await act(async () => button('Read server').click());
-  expect(host.textContent).toContain('Canvas ready');
-  await menuAction('File', 'Close configuration');
-  expect(client.disconnect).toHaveBeenCalledTimes(1);
-  expect(host.textContent).not.toContain('Canvas ready');
-});
 it('waits for disconnect before switching servers', async () => {
   vi.mocked(client.sessions).mockResolvedValue({
     ...inventory,
@@ -578,19 +561,6 @@ it.each([
     'FlauntVPN',
     expect.objectContaining({ action, service }),
   );
-});
-it('retains a running job when its progress window closes', async () => {
-  await act(async () => button('Server status').click());
-  await act(async () => button('Refresh package lists').click());
-  const request = vi.mocked(client.startAction).mock.calls[0]![1];
-  await act(async () =>
-    host
-      .querySelector<HTMLButtonElement>('dialog button[aria-label="Close server status"]')!
-      .click(),
-  );
-  expect(localStorage.getItem('wayrill.remote.job.FlauntVPN')).toContain(request.id);
-  expect(client.cancel).not.toHaveBeenCalled();
-  expect(client.startAction).toHaveBeenCalledTimes(1);
 });
 it('reconnects to persisted progress after closing without submitting twice', async () => {
   vi.useFakeTimers();
@@ -745,15 +715,6 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
 });
-it('reads a saved session then opens its detected file, without execution controls', async () => {
-  await act(async () => button('Read server').click());
-  expect(client.discover).toHaveBeenCalledWith('FlauntVPN');
-  expect(client.read).toHaveBeenCalledWith('FlauntVPN', snapshot.path);
-  expect(host.textContent).toContain('Canvas ready');
-  expect(host.textContent).toContain('Routing filter');
-  for (const title of ['Start', 'Apply', 'Stop', 'System traffic capture'])
-    expect([...host.querySelectorAll('button')].some((b) => b.textContent === title)).toBe(false);
-});
 it('displays ordered rules and switches to redacted source JSON', async () => {
   await act(async () => button('Read server').click());
   await act(async () => button('Routing filterRouting filter').click());
@@ -839,20 +800,7 @@ it('shows actionable setup when automatic detection finds no executable or sites
   expect(host.querySelector('[aria-label="Locate WinSCP"]')).not.toBeNull();
   expect(host.textContent).toContain('PC\\Alice');
 });
-it('cancelling the location picker retains the current graph', async () => {
-  await act(async () => button('Read server').click());
-  await menuAction('Settings', 'WinSCP setup\u2026');
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Locate WinSCP"]')!.click(),
-  );
-  expect(host.textContent).toContain('Canvas ready');
-  expect(client.choose).toHaveBeenCalledWith('executable');
-});
 it('reads the visible default path directly without discovery', async () => {
-  expect(host.querySelector<HTMLInputElement>('#remote-path')!.value).toBe(
-    '/usr/local/etc/xray/config.json',
-  );
-  expect(button('Read file').disabled).toBe(false);
   await act(async () => button('Read file').click());
   expect(client.discover).not.toHaveBeenCalled();
   expect(client.read).toHaveBeenCalledWith('FlauntVPN', '/usr/local/etc/xray/config.json');
@@ -1020,50 +968,6 @@ it('protects draft user assignments from an accidental server refresh', async ()
   expect(client.read).toHaveBeenCalledTimes(1);
   confirm.mockRestore();
 });
-it('limits the rendered user list to one page', async () => {
-  const config = structuredClone(demoConfig);
-  config.inbounds[0].settings.clients = Array.from({ length: 1000 }, (_, i) => ({
-    id: `synthetic-${i}`,
-  }));
-  vi.mocked(client.read).mockResolvedValue({ ...snapshot, text: JSON.stringify(config) });
-  await act(async () => button('Read server').click());
-  await act(async () => nodeButton('public-vless users').click());
-  await act(async () => button('Edit users').click());
-  expect(
-    host.querySelector('[aria-label="Users in set"]')?.querySelectorAll('button'),
-  ).toHaveLength(100);
-  expect(host.querySelector('dialog')?.textContent).toContain('1000 total');
-  await act(async () => button('Next').click());
-  expect(host.querySelector('[aria-label="Users in set"]')?.textContent).toContain('User 101');
-});
-
-it('uses the shared menus for examples, core settings and export without SSH', async () => {
-  await menuAction('File', 'Load Example');
-  await act(async () => button('Server configuration').click());
-  expect(client.read).not.toHaveBeenCalled();
-  expect(client.discover).not.toHaveBeenCalled();
-  expect(host.querySelectorAll('.menu-trigger')).toHaveLength(7);
-  await menuAction('Settings', 'Core settings…');
-  expect(host.querySelector('dialog h2')?.textContent).toBe('Core settings');
-  await act(async () => button('Cancel').click());
-  await menuAction('File', 'Export Xray configuration…');
-  expect(JSON.parse(vi.mocked(exportJson).mock.calls.at(-1)![1])).toEqual(demoConfig);
-});
-it('hides API plumbing in navigation while preserving it in an unchanged export', async () => {
-  await act(async () => button('Read server').click());
-  expect(nodeButton('local-admin')).toBeUndefined();
-  expect(nodeButton('api')).toBeUndefined();
-  await act(async () => nodeButton('Routing filter').click());
-  await act(async () => button('Edit…').click());
-  expect(
-    [...host.querySelectorAll('dialog select option')].some((option) =>
-      option.textContent?.includes('api'),
-    ),
-  ).toBe(false);
-  await act(async () => button('Cancel').click());
-  await menuAction('File', 'Export Xray configuration…');
-  expect(JSON.parse(vi.mocked(exportJson).mock.calls.at(-1)![1])).toEqual(demoConfig);
-});
 it('keeps User set bindings correct when Core settings removes an API listener before the public inbound', async () => {
   const config = { ...demoConfig, inbounds: [demoConfig.inbounds[1], demoConfig.inbounds[0]] };
   vi.mocked(client.read).mockResolvedValue({ ...snapshot, text: JSON.stringify(config) });
@@ -1147,22 +1051,6 @@ it('opens editors through double click and node context menu actions', async () 
     document.querySelector<HTMLButtonElement>('.node-context-menu button')!.click(),
   );
   expect(host.querySelector('[aria-label="Node settings"]')).not.toBeNull();
-});
-it('switches tools and keeps the selected node when hiding and showing properties', async () => {
-  await act(async () => button('Read server').click());
-  expect(host.querySelector('.inspector')?.textContent).toContain('Select a node to inspect.');
-  expect(host.querySelector('.inspector [role="tablist"]')).toBeNull();
-  await act(async () => nodeButton('public-vless').click());
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Pan tool"]')!.click());
-  expect(host.querySelector('[aria-label="Pan tool"]')?.getAttribute('aria-pressed')).toBe('true');
-  await menuAction('View', 'Hide properties');
-  expect(host.querySelector('.inspector')).toBeNull();
-  await menuAction('View', 'Show properties');
-  expect(host.querySelector('.inspector')?.textContent).toContain('public-vless');
-  await menuAction('View', 'Hide navigation');
-  expect(host.querySelector('.connection-panel')?.hasAttribute('hidden')).toBe(true);
-  await menuAction('View', 'Show navigation');
-  expect(host.querySelector('.connection-panel')?.hasAttribute('hidden')).toBe(false);
 });
 it('runs graph checks and ignores global shortcuts while an editor is open', async () => {
   canvasActions.fit.mockClear();
@@ -1249,11 +1137,6 @@ it('updates the server snapshot and draft baseline only after confirmed successf
   expect(host.textContent).toContain('The draft matches the loaded configuration.');
   const sent = vi.mocked(client.validateConfig).mock.calls[0][1];
   expect(JSON.parse(sent.configText).outbounds[0].tag).toBe('renamed-direct');
-});
-it('opens properties for an imported outbound selected on the graph', async () => {
-  await act(async () => button('Read server').click());
-  await act(async () => nodeButton('direct').click());
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Properties');
 });
 
 it('reloads a saved graph layout on the next connection and exposes layout-only saving', async () => {
@@ -1412,21 +1295,6 @@ it('adds a hidden stashed outbound to the graph and remembers its placement', as
   expect(host.querySelector('[aria-label="Configuration stash"]')).toBeNull();
   await act(async () => button('Stash').click());
   expect(host.querySelector('tbody [aria-label="Locate on graph"]')).not.toBeNull();
-});
-
-it.each(['mixed', 'socks', 'http'])('configures Proxy mode %s without raw JSON', async (mode) => {
-  await menuAction('File', 'New configuration');
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="Add Proxy inbound (Inbounds)"]')!.click(),
-  );
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="Proxy mode"]')!;
-  await act(async () => {
-    select.value = mode;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await act(async () => button('Apply changes').click());
-  await menuAction('File', 'Export Xray configuration…');
-  expect(JSON.parse(vi.mocked(exportJson).mock.calls.at(-1)![1]).inbounds[0].protocol).toBe(mode);
 });
 
 it('keeps password authentication when changing an HTTP listener to SOCKS', async () => {

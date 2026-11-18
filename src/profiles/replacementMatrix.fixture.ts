@@ -72,8 +72,8 @@ export const replacementCases = (
   const original = definitions[from],
     replacement = definitions[to];
   const label = from + ' → ' + to;
-  function candidate() {
-    const old = applyStashedProfile(graph, original, { x: 0, y: 0 }, 'proxy');
+  function candidate(base = graph) {
+    const old = applyStashedProfile(base, original, { x: 0, y: 0 }, 'proxy');
     const result = subscriptionEngine({
       operation: 'runtime',
       stash: serializeStash({
@@ -86,5 +86,5 @@ export const replacementCases = (
     if (!('graph' in result)) throw new Error('Missing prepared runtime');
     return parseGraph(result.graph);
   }
-  return { label, original, candidate };
+  return { from, to, label, original, candidate };
 });

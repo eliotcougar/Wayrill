@@ -10,7 +10,7 @@ export default mergeConfig(
       setupFiles: ['@wayrill/ui/browserTestSetup'],
       pool: 'threads',
       include: ['src/**/*.test.{ts,tsx}'],
-      exclude: ['src/**/*.integration.test.ts'],
+      exclude: ['src/**/*.integration.test.{ts,tsx}'],
     },
   }),
 );

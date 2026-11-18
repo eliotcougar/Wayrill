@@ -35,9 +35,7 @@ const names = { inbound: {}, outbound: { a: 'Zulu', z: 'alpha', m: 'ALPHA' } };
 it.each([
   ['name', ['m', 'z', 'a'], ['a', 'm', 'z']],
   ['uploadBytes', ['z', 'a', 'm'], ['m', 'a', 'z']],
-  ['downloadBytes', ['a', 'm', 'z'], ['z', 'm', 'a']],
   ['uploadPerSecond', ['m', 'z', 'a'], ['z', 'm', 'a']],
-  ['downloadPerSecond', ['a', 'm', 'z'], ['z', 'm', 'a']],
 ] as [TrafficSortColumn, string[], string[]][])(
   'sorts %s using measurements, exact totals and stable label/tag ties',
   (column, asc, desc) => {

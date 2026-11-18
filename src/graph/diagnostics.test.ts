@@ -3,7 +3,7 @@ import { diagnoseRuntimeGraph } from './diagnostics';
 import { createTrafficExample } from './example';
 import { makeNode } from './catalog';
 import { readRuleTable, tableSettings } from './rules';
-import { parseGraph, serializeGraph } from './model';
+
 import { analyzeGraph } from './analysis';
 import * as runtime from './runtime';
 import { importXrayConfig } from './xrayImport';
@@ -22,23 +22,6 @@ describe('Runtime graph diagnostics', () => {
         .filter((issue) => issue.message.includes('excludes every inbound'))
         .map((issue) => issue.rowId),
     ).toEqual([table.rules[1].id]);
-  });
-  it('accepts the complete current example and its round trip', () => {
-    for (const g of [createTrafficExample(), parseGraph(serializeGraph(createTrafficExample()))])
-      expect(diagnoseRuntimeGraph(g).filter((i) => i.severity === 'error')).toEqual([]);
-  });
-  it('uses the same compilation for runtime diagnostics and the Apply preview', () => {
-    const compile = vi.spyOn(runtime, 'compileRuntimeGraph');
-    try {
-      const graph = createTrafficExample();
-      const result = analyzeGraph(graph);
-      expect(compile).toHaveBeenCalledExactlyOnceWith(graph);
-      expect(result.compilation).toBe(compile.mock.results[0].value);
-      expect(result.configBytes).toBeGreaterThan(0);
-      expect(result.issues.filter((issue) => issue.severity === 'error')).toEqual([]);
-    } finally {
-      compile.mockRestore();
-    }
   });
   it('checks the actual runtime configuration for an imported graph', () => {
     const graph = importXrayConfig(

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { importProfiles, mergeImport, parseStash, vlessLink } from './import';
 import { applyStashedProfile } from './graph';
@@ -30,24 +31,31 @@ describe('Subscription import and stash', () => {
       },
     });
   });
-  it('accepts Base64URL UTF-8 subscription lists and removes duplicate configurations', () => {
-    const plain = `${link()}\n${link().replace('Friendly%20route', 'Different%20name')}\n${link('&fp=firefox')}`;
-    const result = importProfiles(btoa(plain).replace(/=/g, ''));
-    expect(result.groups[0].entries).toHaveLength(2);
-    expect(result.duplicates).toBe(1);
-  });
   it('rejects ambiguous duplicate parameters and malformed server identity', () => {
     expect(() => vlessLink(link('&fp=chrome&fp=firefox'))).toThrow(/Repeated/);
     expect(() => vlessLink(`vless://${id}@edge.example.net?security=tls`)).toThrow(/explicit port/);
   });
-  it('retains mixed protocol subscriptions and reports malformed rows without putting them on the graph', () => {
-    const result = importProfiles(
-      `${link()}\ntrojan://test@other.example.net:443#Other\nss://opaque#Another\nthis is not a profile`,
-    );
-    expect(result.groups[0].entries).toHaveLength(3);
-    expect(result.groups[0].entries.filter((e) => e.profile)).toHaveLength(2);
-    expect(result.rejected).toBe(1);
-    expect(result.problems[0]).toMatch(/Entry 4/);
+  it('imports a mixed Base64URL subscription, deduplicates connections and identifies bad rows', () => {
+    const source = [
+      link().replace('Friendly%20route', 'Québec🛰'),
+      link(),
+      link('&fp=firefox'),
+      'trojan://test@other.example.net:443#Other',
+      'ss://opaque#Another',
+      'this is not a profile',
+    ].join('\n');
+    const result = importProfiles(Buffer.from(source).toString('base64url'));
+    expect(result.groups[0].entries).toMatchObject([
+      { name: 'Québec🛰', profile: { kind: 'vless-outbound' } },
+      { profile: { settings: { fingerprint: 'firefox' } } },
+      { profile: { kind: 'trojan-outbound' } },
+      { raw: 'ss://opaque#Another', profile: null },
+    ]);
+    expect(result).toMatchObject({
+      duplicates: 1,
+      rejected: 1,
+      problems: [expect.stringMatching(/Entry 6/)],
+    });
   });
   it('imports v2rayN and v2rayNG subscription-group metadata and request headers', () => {
     const result = importProfiles(

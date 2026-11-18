@@ -42,10 +42,8 @@ class UpgradeTests(unittest.TestCase):
                                               {('pkg', 'arm64'):'1', ('shared', 'all'):'1'}, 'amd64')
         self.assertEqual([p['architecture'] for p in result['upgrades']], ['arm64', 'all'])
 
-    def test_apt_protocol_matches_reviewed_transaction(self):
+    def test_hook_accepts_reviewed_transaction_and_blocks_changes(self):
         self.ns['verify_upgrade_transaction'](self.protocol, self.plan)
-
-    def test_hook_blocks_extra_removals_versions_architectures_and_configures(self):
         for text in [self.protocol.replace('2.0 amd64', '2.1 amd64'),
                      self.protocol.replace('curl 1.0 amd64', 'curl 1.0 arm64'),
                      self.protocol + 'extra 9 amd64 none > - - none **REMOVE**\n',
@@ -56,11 +54,13 @@ class UpgradeTests(unittest.TestCase):
                 self.ns['verify_upgrade_transaction'](text, self.plan)
 
     def test_expired_or_rebooted_preview_requires_new_confirmation(self):
-        saved = dict(self.plan, expiresAt=10, bootId='before')
-        with patch.dict(self.ns, load=lambda *args, **kwargs: saved, boot_id=lambda:'after'):
-            with self.assertRaises(self.ns['ActionError']) as caught:
-                self.ns['approved_upgrade']('a'*32)
-        self.assertEqual(caught.exception.code, 'PLAN_EXPIRED')
+        for expires, boot in [(10, 'current'), (10**12, 'previous')]:
+            saved = dict(self.plan, expiresAt=expires, bootId=boot)
+            with self.subTest(expires=expires, boot=boot), patch.dict(
+                    self.ns, load=lambda *args, **kwargs: saved, boot_id=lambda: 'current'):
+                with self.assertRaises(self.ns['ActionError']) as caught:
+                    self.ns['approved_upgrade']('a'*32)
+                self.assertEqual(caught.exception.code, 'PLAN_EXPIRED')
 
     def test_changed_simulation_is_rejected_before_apt_starts(self):
         saved = dict(self.plan, expiresAt=10**12, bootId='same', fingerprint='wrong')

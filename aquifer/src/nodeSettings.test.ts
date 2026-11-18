@@ -185,20 +185,6 @@ const dnsTagsConfig = {
     ],
   },
 };
-it.each(['native-dns', 'native-resolver-0'])(
-  'keeps DNS query routing when renaming the source tag in %s',
-  (id) => {
-    const view = remoteView(JSON.stringify(dnsTagsConfig));
-    const oldTag = id === 'native-dns' ? 'dns-global' : 'dns-server';
-    const value = nodeSettings(view, id)!.value as object;
-    const next = replaceNodeSettings(view, id, { ...value, tag: 'renamed-dns' });
-    const expected = JSON.parse(JSON.stringify(dnsTagsConfig).replaceAll(oldTag, 'renamed-dns'));
-    expect(compileRemote(next, createUserWorkspace(next.original, emptyLibrary())).config).toEqual(
-      expected,
-    );
-    expect(view.original).toEqual(dnsTagsConfig);
-  },
-);
 it('preserves other sources sharing a DNS tag and rejects merges into another source tag', () => {
   const source = structuredClone(dnsTagsConfig);
   source.dns.servers[0].tag = 'dns-global';

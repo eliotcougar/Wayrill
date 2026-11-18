@@ -13,13 +13,12 @@ foreach ($taskFile in $taskPins.resourceData.files) {
     Copy-Item -LiteralPath (Join-Path $taskProject ('service/resource-assets/' + $taskFile.path)) -Destination $taskFixture
 }
 $taskEnvironment = @{}
-foreach ($taskKey in @('WAYRILL_REMOTE_TEST_CORE','WAYRILL_REMOTE_EDITOR_CORE','WAYRILL_REMOTE_TEST_CERTIFICATE','WAYRILL_REMOTE_TEST_KEY','XRAY_LOCATION_ASSET')) { $taskEnvironment[$taskKey] = [Environment]::GetEnvironmentVariable($taskKey,'Process') }
+foreach ($taskKey in @('WAYRILL_REMOTE_TEST_CORE','WAYRILL_REMOTE_TEST_CERTIFICATE','WAYRILL_REMOTE_TEST_KEY','XRAY_LOCATION_ASSET')) { $taskEnvironment[$taskKey] = [Environment]::GetEnvironmentVariable($taskKey,'Process') }
 Push-Location $taskFixture
 try {
     & $CorePath tls cert -domain=localhost -file=server *> cert-generation.log
     if ($LASTEXITCODE) { throw 'Could not prepare the synthetic TLS certificate.' }
     $env:WAYRILL_REMOTE_TEST_CORE = $CorePath
-    $env:WAYRILL_REMOTE_EDITOR_CORE = $CorePath
     $env:WAYRILL_REMOTE_TEST_CERTIFICATE = Join-Path $taskFixture 'server.crt'
     $env:WAYRILL_REMOTE_TEST_KEY = Join-Path $taskFixture 'server.key'
     $env:XRAY_LOCATION_ASSET = $taskFixture

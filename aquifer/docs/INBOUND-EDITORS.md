@@ -28,6 +28,7 @@ The editor keeps tabs and actions visible while the form scrolls. Tab arrows/Hom
 
 ## Validation
 
-- `RemoteSettings.test.tsx` exercises all protocols in the independently generated Xray registry, graph export after edits, optional-value removal, Unix sockets, aliases, numeric arrays, empty short IDs, server/client field applicability, sniffing checkboxes, credential handoff and error navigation.
+- Run `npm run aquifer:test` for editor workflows such as optional-field removal, Unix socket listeners, alias preservation, credential handoff and error navigation.
+- Run `pwsh -NoProfile -File tools/Check-AquiferCore.ps1` from the repository root to edit, export and validate each supported inbound protocol against the pinned Xray executable.
 - The private local snapshot harness additionally validates and round-trips the four previously audited real configurations. It decrypts snapshots in memory; do not print the configurations or package private fixtures.
 - JSON stays available for extensions. Form validation checks common requirements and shapes, not certificate-file existence or the remote daemon's runtime environment.

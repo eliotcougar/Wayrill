@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
 import { generatedTag } from './tags';
-import { makeNode, makeProxyInbound } from './catalog';
+import { makeNode } from './catalog';
 import { createTrafficExample } from './example';
 import { parseGraph, serializeGraph } from './model';
 import { readRuleTable, tableSettings } from './rules';
@@ -91,22 +91,5 @@ describe('Complete graph runtime compilation', () => {
         compileRuntimeGraph(process).config.routing as { rules: Record<string, unknown>[] }
       ).rules.some((r) => Array.isArray(r.process) && r.process.includes('browser.exe')),
     ).toBe(true);
-  });
-  it('supports a minimal direct-only graph without a global DNS module', () => {
-    const input = makeProxyInbound('socks', { x: 0, y: 0 }, 'socks'),
-      direct = makeNode('direct-outbound', { x: 0, y: 0 }, 'direct');
-    const result = compileRuntimeGraph({
-      name: 'Direct',
-      nodes: [input, direct],
-      edges: ['dns', 'data'].map((port) => ({
-        id: port,
-        source: 'socks',
-        sourceHandle: port,
-        target: 'direct',
-        targetHandle: 'in',
-      })),
-    });
-    expect(result.config).not.toHaveProperty('dns');
-    expect(result.summary.trafficRuleCount).toBe(2);
   });
 });

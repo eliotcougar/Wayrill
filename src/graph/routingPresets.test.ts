@@ -1,227 +1,106 @@
-import { describe, expect, it } from 'vitest';
-import {
-  trafficPresets,
-  dnsPresets,
-  importTrafficPreset,
-  importDnsPreset,
-  newPresetOutput,
-  rolesForTraffic,
-  type TrafficPreset,
-  type DnsPreset,
-} from './routingPresets';
-import { createDnsExample, createRoutingExample } from './example';
-import { readRuleTable, routingRuleVariants, tableSettings } from './rules';
-import { readDnsFilter, newDnsServer } from './dns';
-import { compileDnsGraph } from './dnsCompilation';
+import { expect, it } from 'vitest';
 import { makeNode } from './catalog';
-import { updateGraphNode, serializeGraph, parseGraph } from './model';
+import { readDnsFilter } from './dns';
+import { readRuleTable, routingRuleVariants } from './rules';
 import {
-  initialWorkspaceHistory,
-  commitWorkspaceHistory,
-  undoWorkspaceHistory,
-} from './workspaceHistory';
-import { compileRuntimeGraph } from './runtime';
-import { factoryDefaults } from './defaults';
-import original from './fixtures/v2rayN-routing-presets.json';
+  dnsPresets,
+  importDnsPreset,
+  importTrafficPreset,
+  newPresetOutput,
+  trafficPresets,
+} from './routingPresets';
 
-function traffic(preset: TrafficPreset) {
-  let graph = createRoutingExample();
-  graph.nodes.find((n) => n.data.kind === 'vless-outbound')!.data.settings.id =
-    '00000000-0000-0000-0000-000000000001';
-  const node = graph.nodes.find((n) => n.data.kind === 'routing-filter')!;
-  const table = importTrafficPreset(
-    readRuleTable(node.data.settings),
-    preset,
-    { proxy: 'preferred', direct: 'default', block: 'blocked' },
-    'replace',
-  );
-  graph = updateGraphNode(graph, node.id, {
-    settings: { ...node.data.settings, ...tableSettings(table) },
-  });
-  if (preset.domainStrategy)
-    graph.defaults = {
-      ...factoryDefaults(),
-      settings: { routingDomainStrategy: preset.domainStrategy },
-    };
-  return { graph, table };
-}
-function dns(preset: DnsPreset) {
-  let graph = createDnsExample();
-  graph.nodes.find((n) => n.data.kind === 'vless-outbound')!.data.settings.id =
-    '00000000-0000-0000-0000-000000000001';
-  const node = graph.nodes.find((n) => n.data.kind === 'dns-routing-filter')!;
-  const filter = importDnsPreset(
-    readDnsFilter(node.data.settings),
-    preset,
-    Object.fromEntries(preset.roles.map((r) => [r.id, newPresetOutput])),
-    'replace',
-  );
-  graph = updateGraphNode(graph, node.id, {
-    settings: {
-      ...node.data.settings,
-      outputs: JSON.stringify(filter.outputs),
-      rules: JSON.stringify(filter.rules),
-      fallbackMode: filter.fallbackMode,
-      parallel: filter.parallel,
-      fallbackFirst: filter.fallbackFirst ?? false,
-    },
-  });
-  graph.edges = graph.edges.filter((e) => e.source !== node.id);
-  const direct = graph.nodes.find((n) => n.data.kind === 'direct-outbound')!;
-  for (const [index, role] of preset.roles.entries()) {
-    const group = makeNode('dns-servers', { x: 0, y: 0 }, `preset-server-${index}`);
-    group.data.settings.servers = JSON.stringify(
-      role.servers.map((address, i) => ({ ...newDnsServer(`s-${i}`), address })),
-    );
-    graph.nodes.push(group);
-    const output =
-      role.id === 'fallback'
-        ? filter.outputs.find((o) => o.fallback)!
-        : filter.outputs.find((o) => o.name === role.name)!;
-    graph.edges.push(
+it('maps preset traffic to the chosen outputs and preserves earlier rules on append', () => {
+  const base = readRuleTable(makeNode('routing-filter', { x: 0, y: 0 }).data.settings);
+  const preset = {
+    ...trafficPresets[0],
+    domainStrategy: 'IPOnDemand',
+    defaultOutput: 'direct',
+    rules: [
       {
-        id: `preset-${index}`,
-        source: node.id,
-        sourceHandle: output.id,
-        target: group.id,
-        targetHandle: 'in',
+        name: 'Regional exceptions',
+        output: 'proxy',
+        conditions: { domain: 'ext:example-geosite.dat:regional', ip: '192.0.2.0/24' },
       },
-      {
-        id: `preset-q-${index}`,
-        source: group.id,
-        sourceHandle: 'queries',
-        target: direct.id,
-        targetHandle: 'in',
-      },
-    );
-  }
-  return { graph, filter };
-}
-// Explicit files keep each country's provider independent of global resources.
-function ext(value: string, country: string) {
-  const region = { China: 'cn', Iran: 'ir', Russia: 'ru' }[country];
-  return value.replace(/^(geoip|geosite):/, (_, kind) => `ext:${region}-${kind}.dat:`);
-}
-describe('v2rayN preset intent with explicit regional geodata', () => {
-  it.each(trafficPresets)(
-    '$label preserves source order, domain/IP alternatives and final destination',
-    (preset) => {
-      const { graph, table } = traffic(preset),
-        source = original.traffic[preset.id as keyof typeof original.traffic] as Record<
-          string,
-          unknown
-        >[];
-      const expected = source.flatMap((row) => {
-        const r = Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase(), v]));
-        if (r.port === '0-65535') return [];
-        const fields: Record<string, unknown> = {};
-        for (const key of ['domain', 'ip', 'port', 'network', 'protocol'])
-          if (r[key])
-            fields[key] = Array.isArray(r[key])
-              ? (r[key] as string[]).map((v) => ext(v, preset.country))
-              : r[key];
-        const output = { proxy: 'preferred', direct: 'default', block: 'blocked' }[
-          String(r.outboundtag) as 'proxy' | 'direct' | 'block'
-        ];
-        const alternatives = ['domain', 'ip'].filter((key) => fields[key]);
-        return alternatives.length
-          ? alternatives.map((key) => ({
-              fields: {
-                ...Object.fromEntries(
-                  Object.entries(fields).filter(([k]) => !['domain', 'ip'].includes(k)),
-                ),
-                [key]: fields[key],
-              },
-              output,
-            }))
-          : [{ fields, output }];
-      });
-      expect(
-        table.rules.flatMap((r) =>
-          routingRuleVariants(r).map((fields) => ({ fields, output: r.output })),
-        ),
-      ).toEqual(expected);
-      expect(table.defaultOutput).toBe(preset.defaultOutput === 'direct' ? 'default' : 'preferred');
-      expect(table.rules.every((r) => !r.matchAll)).toBe(true);
-      expect(compileRuntimeGraph(graph).config.routing).toBeDefined();
-    },
+    ],
+  };
+  const bindings = { direct: base.defaultOutput, proxy: newPresetOutput };
+  const replaced = importTrafficPreset(base, preset, bindings, 'replace');
+  const [row] = replaced.rules;
+  expect(replaced.outputs.some((o) => o.id === row.output && o.id !== base.defaultOutput)).toBe(
+    true,
   );
-  it.each(dnsPresets)(
-    '$label preserves resolver order, preference domains, expected IPs and skipFallback',
-    (preset) => {
-      const { graph, filter } = dns(preset);
-      const config = compileDnsGraph(parseGraph(serializeGraph(graph)));
-      const servers = config.dns.servers as Record<string, unknown>[];
-      const expected = original.dns[preset.id as keyof typeof original.dns].servers;
-      expect(servers.map((r) => r.address)).toEqual(
-        expected.map((r) => (typeof r === 'string' ? r : r.address)),
-      );
-      expected.forEach((raw, index) => {
-        if (typeof raw === 'string') {
-          expect(servers[index].domains).toBeUndefined();
-          return;
-        }
-        expect(servers[index].domains).toEqual(raw.domains?.map((v) => ext(v, preset.country)));
-        if ('expectIPs' in raw)
-          expect(servers[index].expectedIPs).toEqual(
-            raw.expectIPs?.map((v) => ext(v, preset.country)),
-          );
-        expect(servers[index].skipFallback).toBe('skipFallback' in raw ? raw.skipFallback : false);
-      });
-      expect(filter.outputs.filter((o) => o.fallback)).toHaveLength(1);
-    },
-  );
-});
-it('reuses stable IDs and connections, appends without changing defaults, rejects limits and missing bindings', () => {
-  const graph = createRoutingExample(),
-    before = structuredClone(graph),
-    node = graph.nodes.find((n) => n.data.kind === 'routing-filter')!;
-  const old = readRuleTable(node.data.settings),
-    preset = trafficPresets[0],
-    bindings = { proxy: 'preferred', direct: 'default', block: 'blocked' };
-  const append = importTrafficPreset(old, preset, bindings, 'append');
-  expect(append.rules.slice(0, old.rules.length)).toEqual(old.rules);
-  expect(append.defaultOutput).toBe(old.defaultOutput);
-  expect(append.outputs).toEqual(old.outputs);
-  expect(graph).toEqual(before);
-  expect(() => importTrafficPreset(old, preset, {}, 'replace')).toThrow('Choose an output');
-  expect(() =>
-    importTrafficPreset(
-      { ...old, rules: Array.from({ length: 128 }, () => old.rules[0]) },
-      preset,
-      bindings,
-      'append',
-    ),
-  ).toThrow('128');
-  const next = updateGraphNode(graph, node.id, {
-    settings: { ...node.data.settings, ...tableSettings(append) },
-  });
-  expect(next.edges).toEqual(before.edges);
-  expect(
-    undoWorkspaceHistory(commitWorkspaceHistory(initialWorkspaceHistory(graph), { graph: next }))
-      .present.graph,
-  ).toEqual(before);
-  expect(
-    new Set(
-      importTrafficPreset(
-        old,
-        preset,
-        Object.fromEntries(rolesForTraffic(preset).map((r) => [r.id, newPresetOutput])),
-        'replace',
-      ).outputs.map((o) => o.id),
-    ).size,
-  ).toBe(old.outputs.length + 3);
-});
-it('DNS append keeps policies and ordering while replacing can restore the upstream fallback order', () => {
-  const { filter } = dns(dnsPresets[1]);
-  const before = structuredClone(filter);
-  const next = importDnsPreset(
-    filter,
-    dnsPresets[2],
-    { google: newPresetOutput, domestic: newPresetOutput },
+  expect(routingRuleVariants(row)).toEqual([
+    { domain: ['ext:example-geosite.dat:regional'] },
+    { ip: ['192.0.2.0/24'] },
+  ]);
+  expect(replaced.defaultOutput).toBe(base.defaultOutput);
+  const appended = importTrafficPreset(
+    replaced,
+    preset,
+    { ...bindings, proxy: row.output },
     'append',
   );
-  expect(next.rules[0]).toEqual(filter.rules[0]);
-  expect(next.fallbackFirst).toBe(true);
-  expect(filter).toEqual(before);
+  expect(appended.rules.slice(0, -1)).toEqual(replaced.rules);
+  expect(appended.rules.at(-1)?.output).toBe(row.output);
+  expect(appended.outputs).toEqual(replaced.outputs);
+  expect(() => importTrafficPreset(base, preset, {}, 'replace')).toThrow();
+  const full = { ...replaced, rules: Array.from({ length: 128 }, () => row) };
+  expect(() =>
+    importTrafficPreset(full, preset, { ...bindings, proxy: row.output }, 'append'),
+  ).toThrow(/128/);
+});
+
+it('binds DNS preferences without replacing the existing fallback on append', () => {
+  const base = readDnsFilter(makeNode('dns-routing-filter', { x: 0, y: 0 }).data.settings);
+  const role = 'regional';
+  const preset = {
+    ...dnsPresets[0],
+    fallbackFirst: true,
+    roles: [
+      { id: role, name: 'Regional', servers: ['192.0.2.53'] },
+      { id: 'fallback', name: 'Fallback', servers: ['192.0.2.54'] },
+    ],
+    rules: [
+      {
+        name: 'Regional names',
+        output: role,
+        domains: 'domain:example.test',
+        expectedIPs: '192.0.2.0/24',
+        skipFallback: true,
+      },
+    ],
+  };
+  const replaced = importDnsPreset(base, preset, { [role]: newPresetOutput }, 'replace');
+  const [row] = replaced.rules;
+  expect(row).toMatchObject({
+    domains: 'domain:example.test',
+    expectedIPs: '192.0.2.0/24',
+    skipFallback: true,
+  });
+  expect(replaced.outputs.find((o) => o.id === row.output)?.fallback).toBe(false);
+  expect(replaced.outputs.find((o) => o.fallback)).toEqual(base.outputs.find((o) => o.fallback));
+  const appended = importDnsPreset(
+    replaced,
+    { ...preset, fallbackFirst: false },
+    { [role]: row.output },
+    'append',
+  );
+  expect(appended.fallbackFirst).toBe(true);
+  expect(appended.rules[0]).toEqual(row);
+  expect(appended.rules[1].output).toBe(row.output);
+  expect(appended.outputs).toEqual(replaced.outputs);
+});
+
+it('keeps regional geodata references independent of the active default files', () => {
+  for (const preset of [...trafficPresets, ...dnsPresets]) {
+    for (const rule of preset.rules) {
+      const terms =
+        'conditions' in rule ? Object.values(rule.conditions) : [rule.domains, rule.expectedIPs];
+      for (const entry of terms.join('\n').split('\n')) {
+        if (/^(?:geoip|geosite|ext):/i.test(entry))
+          expect(entry, preset.id).toMatch(/^ext:(?!(?:geoip|geosite)\.dat:)[^:]+:.+/i);
+      }
+    }
+  }
 });

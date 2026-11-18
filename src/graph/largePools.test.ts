@@ -1,6 +1,7 @@
-import { expect, it } from 'vitest';
+import { largeGraph } from './analysis';
+import { expect, it, vi } from 'vitest';
 import { compactTagId, generatedTag } from './tags';
-import { LIMITS } from '../limits';
+import * as limits from '../limits';
 import { createPolicyExample } from './policyExample';
 import {
   policyCandidates,
@@ -61,6 +62,7 @@ it('preserves the ordered native config while keeping 5,000 imported candidates 
     },
   };
   const graph = importXrayConfig(JSON.stringify(config));
+  expect(largeGraph(graph)).toBe(true);
   expect(graph.nodes.length).toBeLessThan(10);
   expect(graph.xray!.outboundPool).toHaveLength(5000);
   expect(
@@ -78,11 +80,17 @@ it('preserves the ordered native config while keeping 5,000 imported candidates 
   expect(edited[0].tag).toBe('renamed');
   expect(edited.slice(1).every((o) => o.proxySettings?.tag === 'renamed')).toBe(true);
 });
-it('enforces the total core-outbound limit including generated fallbacks', () => {
-  expect(() => compileRuntimeGraph(groupGraph(LIMITS.maxOutbounds - 3))).toThrow(
-    /16,384 outbounds/,
-  );
-}, 15000);
+it('counts generated outbounds against the service budget', ({ onTestFinished }) => {
+  const graph = groupGraph(2);
+  const count = (compileRuntimeGraph(graph).config.outbounds as unknown[]).length;
+  const original = limits.LIMITS;
+  const budget = vi.spyOn(limits, 'LIMITS', 'get');
+  onTestFinished(() => budget.mockRestore());
+  budget.mockReturnValue({ ...original, maxOutbounds: count });
+  expect(compileRuntimeGraph(graph).config.outbounds).toHaveLength(count);
+  budget.mockReturnValue({ ...original, maxOutbounds: count - 1 });
+  expect(() => compileRuntimeGraph(graph)).toThrow(/outbounds/i);
+});
 it('retains exact membership for overlapping substantial groups and generated aliases', () => {
   const graph = groupGraph(200),
     first = graph.nodes.find((n) => n.data.kind === 'policy-group')!;

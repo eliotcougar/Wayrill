@@ -1,30 +1,16 @@
 import { expect, it } from 'vitest';
-import { createRemoteNode, nodeLibrary } from './remoteCreation';
+import { createRemoteNode } from './remoteCreation';
 import { remoteView } from './remoteModel';
 import { compileRemote } from './remoteExport';
 import { createUserWorkspace, emptyLibrary } from './users/model';
+import { replaceNodeSettings } from './nodeSettings';
 
-it.each(nodeLibrary.filter((entry) => entry.id !== 'users'))(
-  'creates $id from an empty installed core config',
-  (entry) => {
-    const result = createRemoteNode(remoteView('{}'), entry.id);
-    expect(result.view.nodes.some((node) => node.id === result.id)).toBe(true);
-    const compiled = compileRemote(
-      result.view,
-      createUserWorkspace(result.view.original, emptyLibrary()),
-    );
-    expect(compiled.errors).toEqual([]);
-  },
-);
-
-it('allocates independent tags and unused listen ports', () => {
-  let view = remoteView('{}');
-  for (let i = 0; i < 3; i++) view = createRemoteNode(view, 'inbound:vless').view;
-  expect(view.normalized.inbounds).toMatchObject([
-    { tag: 'vless', port: 10808 },
-    { tag: 'vless-2', port: 10809 },
-    { tag: 'vless-3', port: 10810 },
-  ]);
+it('adds a resolver to a fresh graph and exports the selected address', () => {
+  const { view, id } = createRemoteNode(remoteView('{}'), 'resolver');
+  const edited = replaceNodeSettings(view, id, { address: '192.0.2.53' });
+  const result = compileRemote(edited, createUserWorkspace(view.original, emptyLibrary()));
+  expect(result.errors).toEqual([]);
+  expect(result.config.dns).toMatchObject({ servers: [{ address: '192.0.2.53' }] });
 });
 
 it('creates lowest-latency groups with a Block fallback and preserves existing server observation', () => {

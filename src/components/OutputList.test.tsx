@@ -4,18 +4,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import RuleTableEditor from './RuleTableEditor';
 import DnsEditor from './DnsEditor';
-import { moveEntry } from './OrderedEntries';
 import { createDnsExample } from '../graph/example';
 import { getOutputPorts } from '../graph/catalog';
 import { readDnsFilter } from '../graph/dns';
 import { readRuleTable } from '../graph/rules';
 import { updateGraphNode } from '../graph/model';
 import { compileRuntimeGraph } from '../graph/runtime';
-import {
-  commitWorkspaceHistory,
-  initialWorkspaceHistory,
-  undoWorkspaceHistory,
-} from '../graph/workspaceHistory';
 
 let root: Root, host: HTMLDivElement;
 beforeEach(() => {
@@ -70,72 +64,62 @@ async function pointer(handle: HTMLElement, type: string, x: number, y: number) 
 }
 
 for (const kind of ['routing-filter', 'dns-routing-filter'] as const) {
-  it.each(['Cancel', 'Apply changes'])(
-    `${kind} drag reorders connected ports without changing configuration and honors %s`,
-    async (finish) => {
-      const graph = createDnsExample(),
-        before = structuredClone(graph),
-        node = graph.nodes.find((n) => n.data.kind === kind)!,
-        apply = vi.fn(),
-        initial = getOutputPorts(kind, node.data).filter((p) => p !== 'fakedns'),
-        expected = moveEntry(initial, initial.length - 1, 0),
-        configuration = compileRuntimeGraph(graph).config;
-      await act(() =>
-        root.render(
-          kind === 'routing-filter' ? (
-            <RuleTableEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />
-          ) : (
-            <DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />
-          ),
+  it(`${kind} keeps routes and connections intact when dragging the last output to the top`, async () => {
+    const graph = createDnsExample(),
+      before = structuredClone(graph),
+      node = graph.nodes.find((n) => n.data.kind === kind)!,
+      apply = vi.fn(),
+      initial = getOutputPorts(kind, node.data).filter((p) => p !== 'fakedns'),
+      expected = [initial.at(-1)!, ...initial.slice(0, -1)],
+      configuration = compileRuntimeGraph(graph).config;
+    await act(() =>
+      root.render(
+        kind === 'routing-filter' ? (
+          <RuleTableEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />
+        ) : (
+          <DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />
         ),
-      );
-      await act(() =>
-        button(kind === 'dns-routing-filter' ? 'Outputs' : `Outputs (${initial.length})`).click(),
-      );
-      const rows = geometry(),
-        handle = rows.at(-1)!.querySelector<HTMLElement>('.output-drag-handle')!;
-      await pointer(handle, 'pointerdown', 32, 121 + (rows.length - 1) * 52);
-      await pointer(handle, 'pointermove', 32, 121);
-      expect(order()).toEqual(initial);
-      expect(graph).toEqual(before);
-      await pointer(handle, 'pointerup', 32, 121);
-      expect(order()).toEqual(expected);
-      expect(document.activeElement).toBe(handle);
-      expect(button('Apply changes').disabled).toBe(false);
-      if (kind === 'dns-routing-filter') {
-        expect(
-          host.querySelector('[role="tabpanel"]:not([hidden]) [aria-label="Fallback policy"]'),
-        ).toBeNull();
-        expect(host.querySelector('[aria-label="Delete output Fallback"]')).toBeNull();
-      }
-      await act(() => button(finish).click());
-      if (finish === 'Cancel') expect(apply).not.toHaveBeenCalled();
-      else {
-        const edited = updateGraphNode(graph, node.id, apply.mock.calls[0][1]),
-          data = edited.nodes.find((n) => n.id === node.id)!.data;
-        expect(getOutputPorts(kind, data)).toEqual(
-          kind === 'dns-routing-filter' ? [...expected, 'fakedns'] : expected,
-        );
-        expect(edited.edges).toEqual(before.edges);
-        expect(compileRuntimeGraph(edited).config).toEqual(configuration);
-        if (kind === 'routing-filter') {
-          const old = readRuleTable(node.data.settings),
-            current = readRuleTable(data.settings);
-          expect(current.rules).toEqual(old.rules);
-          expect(current.defaultOutput).toBe(old.defaultOutput);
-        } else {
-          const old = readDnsFilter(node.data.settings),
-            current = readDnsFilter(data.settings);
-          expect(current.rules).toEqual(old.rules);
-          expect(current.fallbackMode).toBe(old.fallbackMode);
-        }
-        expect(
-          undoWorkspaceHistory(
-            commitWorkspaceHistory(initialWorkspaceHistory(graph), { graph: edited }),
-          ).present.graph,
-        ).toEqual(before);
-      }
-      expect(graph).toEqual(before);
-    },
-  );
+      ),
+    );
+    await act(() =>
+      button(kind === 'dns-routing-filter' ? 'Outputs' : `Outputs (${initial.length})`).click(),
+    );
+    const rows = geometry(),
+      handle = rows.at(-1)!.querySelector<HTMLElement>('.output-drag-handle')!;
+    await pointer(handle, 'pointerdown', 32, 121 + (rows.length - 1) * 52);
+    await pointer(handle, 'pointermove', 32, 121);
+    expect(order()).toEqual(initial);
+    expect(graph).toEqual(before);
+    await pointer(handle, 'pointerup', 32, 121);
+    expect(order()).toEqual(expected);
+    expect(document.activeElement).toBe(handle);
+    expect(button('Apply changes').disabled).toBe(false);
+    if (kind === 'dns-routing-filter') {
+      expect(
+        host.querySelector('[role="tabpanel"]:not([hidden]) [aria-label="Fallback policy"]'),
+      ).toBeNull();
+      expect(host.querySelector('[aria-label="Delete output Fallback"]')).toBeNull();
+    }
+    expect(apply).not.toHaveBeenCalled();
+    await act(() => button('Apply changes').click());
+    const edited = updateGraphNode(graph, node.id, apply.mock.calls[0][1]),
+      data = edited.nodes.find((n) => n.id === node.id)!.data;
+    expect(getOutputPorts(kind, data)).toEqual(
+      kind === 'dns-routing-filter' ? [...expected, 'fakedns'] : expected,
+    );
+    expect(edited.edges).toEqual(before.edges);
+    expect(compileRuntimeGraph(edited).config).toEqual(configuration);
+    if (kind === 'routing-filter') {
+      const old = readRuleTable(node.data.settings),
+        current = readRuleTable(data.settings);
+      expect(current.rules).toEqual(old.rules);
+      expect(current.defaultOutput).toBe(old.defaultOutput);
+    } else {
+      const old = readDnsFilter(node.data.settings),
+        current = readDnsFilter(data.settings);
+      expect(current.rules).toEqual(old.rules);
+      expect(current.fallbackMode).toBe(old.fallbackMode);
+    }
+    expect(graph).toEqual(before);
+  });
 }

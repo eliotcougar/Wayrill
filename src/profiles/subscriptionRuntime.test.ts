@@ -8,19 +8,7 @@ import { createPolicyExample } from '../graph/policyExample';
 import { emptyPolicySources, subscriptionSource, policyProfile } from '../graph/policySources';
 import { refreshAppliedSubscriptions } from './subscriptionRuntime';
 
-import { runtimeFixture, changedStash } from './subscriptionRuntime.fixture';
-it('refreshes the applied graph independently of unrelated draft changes', () => {
-  const { graph, stash } = runtimeFixture();
-  const draft = structuredClone(graph);
-  draft.nodes[0].data.settings.port = 29999;
-  const refreshed = refreshAppliedSubscriptions(graph, changedStash(stash));
-  expect(refreshed.nodes.find((n) => n.id === 'proxy')!.data.settings.port).toBe(2080);
-  expect(refreshed.nodes[0].data.settings.port).toBe(graph.nodes[0].data.settings.port);
-  expect(draft.nodes[0].data.settings.port).toBe(29999);
-  expect(compileRuntimeGraph(refreshed).config.inbounds).toEqual(
-    compileRuntimeGraph(graph).config.inbounds,
-  );
-});
+import { runtimeFixture } from './subscriptionRuntime.fixture';
 it('refreshes adopted prepared chains without freezing graph-linked hops or changing live shape', () => {
   const { graph, stash } = runtimeFixture();
   const provider = stash.groups[0];

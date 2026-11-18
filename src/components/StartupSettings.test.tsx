@@ -52,27 +52,13 @@ it('requires a deliberate change and sends the current applied revision', async 
     expectedRevision: 7,
   });
 });
-it.each(['header', 'footer', 'escape'])(
-  'allows closing with %s during a service operation',
-  async (action) => {
-    runtime.busy = true;
-    await render();
-    expect(checkbox().disabled).toBe(true);
-    expect(apply().disabled).toBe(true);
-    const header = host.querySelector<HTMLButtonElement>('[aria-label="Close startup settings"]')!;
-    const footer = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Close',
-    )!;
-    expect(header.disabled).toBe(false);
-    expect(footer.disabled).toBe(false);
-    await act(async () => {
-      if (action === 'escape') {
-        host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }));
-      } else {
-        (action === 'header' ? header : footer).click();
-      }
-    });
-    expect(close).toHaveBeenCalledOnce();
-    expect(runtime.run).not.toHaveBeenCalled();
-  },
-);
+it('can dismiss the dialog while settings are locked by a service operation', async () => {
+  runtime.busy = true;
+  await render();
+  expect(checkbox().disabled).toBe(true);
+  expect(apply().disabled).toBe(true);
+  const dismiss = host.querySelector<HTMLButtonElement>('[aria-label="Close startup settings"]')!;
+  await act(() => dismiss.click());
+  expect(close).toHaveBeenCalledOnce();
+  expect(runtime.run).not.toHaveBeenCalled();
+});

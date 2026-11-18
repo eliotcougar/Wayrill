@@ -33,29 +33,6 @@ const route: EdgePath = {
   sharedWires: [],
 };
 const paths = new Map([['wire', route]]);
-it('retains completed routes and keeps both endpoints attached throughout varied live movement', () => {
-  for (let i = 0; i < 60; i++) {
-    const edge = {
-      ...from.edges[0],
-      sourceX: 200 + i * 16,
-      sourceY: 40 - i * 16,
-      targetX: 500 - i * 8,
-      targetY: 160 + i * 8,
-    };
-    const preview = previewEdgePaths(paths, from, { nodes: [], edges: [edge] }).get('wire')!;
-    expect(preview.path).not.toBe('');
-    expect(preview.points[0]).toEqual({ x: edge.sourceX, y: edge.sourceY });
-    expect(preview.points.at(-1)).toEqual({ x: edge.targetX, y: edge.targetY });
-    expect(preview.points[1].x).toBeGreaterThan(edge.sourceX);
-    expect(preview.points.at(-2)!.x).toBeLessThan(edge.targetX);
-    for (let j = 1; j < preview.points.length; j++)
-      expect(
-        preview.points[j].x === preview.points[j - 1].x ||
-          preview.points[j].y === preview.points[j - 1].y,
-      ).toBe(true);
-  }
-  expect(route.points[0]).toEqual({ x: 200, y: 40 });
-});
 it('does not resurrect deleted links, show a new link before routing, or reuse a replaced endpoint', () => {
   expect(previewEdgePaths(paths, from, { edges: [], nodes: [] }).size).toBe(0);
   expect(

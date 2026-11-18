@@ -1,23 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { fixXrayCapitalization, inspectXrayCapitalization } from './xrayConfigNames';
-import {
-  fixXrayCapitalization as fixAquifer,
-  inspectXrayCapitalization as inspectAquifer,
-} from '../../aquifer/src/graph/xrayConfigNames';
+import { inspectXrayCapitalization as inspectAquifer } from '../../aquifer/src/graph/xrayConfigNames';
 
-describe.each([
-  ['Wayrill', fixXrayCapitalization, inspectXrayCapitalization],
-  ['Aquifer', fixAquifer, inspectAquifer],
-] as const)('%s schema-aware capitalization repair', (_name, fix, inspect) => {
-  it.each([
-    '{"Observatory":{},"observatory":{}}',
-    '{"outbounds":[{"protocol":"vless","streamSettings":{"tlsSettings":{},"TLSSETTINGS":{}}}]}',
-    '{"routing":{"rules":[{"outboundTag":"a","OUTBOUNDTAG":"a"}]}}',
-    '{"policy":{"levels":{"0":{"connIdle":1,"CONNIDLE":2}}}}',
-    '{"dns":{"servers":[{"address":"localhost","ADDRESS":"localhost"}]}}',
-  ])('refuses ambiguous aliases without choosing a value: %s', (text) => {
-    expect(() => inspect(text)).toThrow('Ambiguous Xray fields');
-    expect(() => fix(text)).toThrow('Resolve the duplicate names');
+describe('schema-aware capitalization repair', () => {
+  const fix = fixXrayCapitalization,
+    inspect = inspectXrayCapitalization;
+  it('refuses capitalization repair when nested policy fields collide', () => {
+    expect(() => fix('{"policy":{"levels":{"0":{"connIdle":1,"CONNIDLE":2}}}}')).toThrow(
+      'Resolve the duplicate names',
+    );
   });
 
   it('preserves comments, values and dictionary keys while correcting nested fields', () => {

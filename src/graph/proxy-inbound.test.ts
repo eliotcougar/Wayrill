@@ -1,7 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest';
-import { makeNode, makeProxyInbound } from './catalog';
-import { factoryDefaults, resolveGraph } from './defaults';
+import { makeProxyInbound } from './catalog';
 import { inboundPreview, inboundPreFilters, inboundProblems } from './inbounds';
 import { makeProxyInbound as makeAquiferProxy } from '../../aquifer/src/graph/catalog';
 import {
@@ -11,7 +10,6 @@ import {
 import type { SettingValue } from '@wayrill/core/settings';
 import { importXrayConfig } from './xrayImport';
 import { compileRuntimeGraph } from './runtime';
-import { parseGraph, serializeGraph } from './model';
 
 const modes = ['socks', 'http', 'mixed'] as const;
 type ProxyMode = (typeof modes)[number];
@@ -33,22 +31,6 @@ const editors = [
     },
   ],
 ] as const;
-const graphFor = (mode: (typeof modes)[number]) => {
-  const input = makeProxyInbound(mode, { x: 0, y: 0 }, 'proxy');
-  const direct = makeNode('direct-outbound', { x: 400, y: 0 }, 'direct');
-  return resolveGraph({
-    name: 'Proxy modes',
-    defaults: factoryDefaults(),
-    nodes: [input, direct],
-    edges: ['data', 'dns'].map((port) => ({
-      id: port,
-      source: input.id,
-      sourceHandle: port,
-      target: direct.id,
-      targetHandle: 'in',
-    })),
-  });
-};
 const native = (mode: (typeof modes)[number], settings: Record<string, unknown> = {}) => ({
   inbounds: [{ tag: 'native', protocol: mode, listen: '127.0.0.1', port: 20801, settings }],
   outbounds: [{ tag: 'direct', protocol: 'freedom', settings: {} }],
@@ -56,16 +38,13 @@ const native = (mode: (typeof modes)[number], settings: Record<string, unknown> 
 });
 
 describe('One Proxy inbound with three modes', () => {
-  it.each(modes)('%s emits its native protocol with the same graph connections', (mode) => {
-    const graph = graphFor(mode),
-      before = structuredClone(graph.edges);
-    const config = compileRuntimeGraph(graph).config;
-    expect((config.inbounds as Record<string, unknown>[])[0].protocol).toBe(mode);
-    expect(parseGraph(serializeGraph(graph)).nodes[0].data.settings.mode).toBe(mode);
-    expect(graph.edges).toEqual(before);
-    expect(inboundPreFilters(graph.nodes[0].data)[0].match.network).toBe(
-      mode === 'http' ? 'tcp' : 'tcp,udp',
-    );
+  it('adds UDP to the DNS branch when switching an HTTP proxy to mixed mode', () => {
+    const input = makeProxyInbound('http', { x: 0, y: 0 });
+    const dnsNetwork = () =>
+      inboundPreFilters(input.data).find((p) => p.branch === 'dns')?.match.network;
+    expect(dnsNetwork()).toBe('tcp');
+    input.data.settings.mode = 'mixed';
+    expect(dnsNetwork()).toBe('tcp,udp');
   });
   it.each(editors)(
     '%s preserves each proxy mode’s authentication and credential limits',

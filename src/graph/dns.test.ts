@@ -17,14 +17,9 @@ import {
   initialWorkspaceHistory,
   undoWorkspaceHistory,
 } from './workspaceHistory';
-import { diagnoseGraph, parseGraph, serializeGraph, updateGraphNode } from './model';
+import { updateGraphNode } from './model';
 
 describe('Native Xray DNS graph', () => {
-  it('round-trips the new graph with typed connections and stable identities', () => {
-    const graph = createDnsExample();
-    expect(parseGraph(serializeGraph(graph)).edges).toEqual(graph.edges);
-    expect(diagnoseGraph(graph).filter((i) => i.severity === 'error')).toEqual([]);
-  });
   it('exports the native DNS server list in preference and fallback order', () => {
     const fragment = compileDnsGraph(createDnsExample());
     expect(fragment.dns.servers.map((s) => s.address)).toEqual([

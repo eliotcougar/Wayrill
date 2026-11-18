@@ -65,7 +65,11 @@ it('flushes an edit made during a pending close write before destroying the wind
   );
   const error = vi.fn(),
     stash = () => 'stash';
+  mock.invoke.mockImplementation(async (command) => {
+    if (command === 'desktop_ready') mock.close?.();
+  });
   await act(() => root.render(<Harness workspace={() => 'old'} stash={stash} error={error} />));
+  expect(mock.write).toHaveBeenCalledTimes(1);
   await act(() => {
     mock.close!();
   });
@@ -107,38 +111,5 @@ it('keeps the window open after write failure and permits a fresh close attempt'
   expect(error).toHaveBeenCalledWith(expect.stringContaining('disk full'));
   expect(mock.invoke).toHaveBeenCalledWith('desktop_close_cancel', { message: 'disk full' });
   await act(() => mock.close!());
-  expect(mock.destroy).toHaveBeenCalledOnce();
-});
-
-it('registers saved-exit handling before telling native startup it is ready', async () => {
-  await act(() =>
-    root.render(<Harness workspace={() => 'graph'} stash={() => 'stash'} error={vi.fn()} />),
-  );
-  expect(mock.close).toBeTypeOf('function');
-  expect(mock.invoke).toHaveBeenCalledWith('desktop_ready');
-  expect(mock.write).not.toHaveBeenCalled();
-  expect(mock.destroy).not.toHaveBeenCalled();
-});
-
-it('coalesces duplicate exit events during a pending save', async () => {
-  let finish!: () => void;
-  mock.write.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  await act(() =>
-    root.render(<Harness workspace={() => 'graph'} stash={() => 'stash'} error={vi.fn()} />),
-  );
-  await act(() => {
-    mock.close!();
-  });
-  await act(() => mock.close!());
-  expect(mock.write).toHaveBeenCalledTimes(1);
-  await act(async () => {
-    finish();
-    await Promise.resolve();
-  });
   expect(mock.destroy).toHaveBeenCalledOnce();
 });

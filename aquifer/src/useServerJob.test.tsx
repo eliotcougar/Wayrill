@@ -82,20 +82,17 @@ it('does not reconnect to a locally expired result', async () => {
   expect(client.startAction).not.toHaveBeenCalled();
 });
 
-it.each(['succeeded', 'failed', 'interrupted'] as const)(
-  'releases an old %s result saved by a previous app without redisplaying it',
-  async (state) => {
-    localStorage.setItem(storageKey, JSON.stringify(request));
-    vi.mocked(client.pollAction).mockResolvedValue(progress(state, hour + 1000));
-    await mount();
-    await act(async () => vi.advanceTimersByTimeAsync(1000));
-    expect(operation.request).toBeNull();
-    expect(operation.job).toBeNull();
-    expect(localStorage.getItem(storageKey)).toBeNull();
-    expect(onFinished).not.toHaveBeenCalled();
-    expect(client.startAction).not.toHaveBeenCalled();
-  },
-);
+it('discards an expired interrupted job on reopening', async () => {
+  localStorage.setItem(storageKey, JSON.stringify(request));
+  vi.mocked(client.pollAction).mockResolvedValue(progress('interrupted', hour + 1000));
+  await mount();
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(operation.request).toBeNull();
+  expect(operation.job).toBeNull();
+  expect(localStorage.getItem(storageKey)).toBeNull();
+  expect(onFinished).not.toHaveBeenCalled();
+  expect(client.startAction).not.toHaveBeenCalled();
+});
 
 it('keeps monitoring a running job even when its last progress is older than one hour', async () => {
   localStorage.setItem(storageKey, JSON.stringify(request));

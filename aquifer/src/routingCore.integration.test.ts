@@ -89,29 +89,46 @@ describe('executable routing and policy editor configurations', () => {
   );
 });
 
-it.each(['native-dns', 'native-resolver-0'])('accepts query routing after renaming %s', (id) => {
+it('keeps DNS query routes bound to the handler and resolver through successive renames', () => {
   const config = {
     outbounds: [{ tag: 'direct', protocol: 'freedom' }],
     dns: { tag: 'dns-global', servers: [{ address: '8.8.8.8', tag: 'dns-server' }] },
-    routing: { rules: [{ inboundTag: ['dns-global', 'dns-server'], outboundTag: 'direct' }] },
+    routing: {
+      rules: [
+        { inboundTag: ['dns-global', 'dns-server'], outboundTag: 'direct' },
+        { inboundTag: 'dns-global', outboundTag: 'direct' },
+      ],
+    },
   };
   let view = remoteView(JSON.stringify(config));
-  view = replaceNodeSettings(view, id, {
-    ...(nodeSettings(view, id)!.value as object),
-    tag: 'renamed-query',
-  });
+  for (const [id, tag] of [
+    ['native-dns', 'handler'],
+    ['native-resolver-0', 'resolver'],
+  ] as const) {
+    view = replaceNodeSettings(view, id, { ...(nodeSettings(view, id)!.value as object), tag });
+  }
   const output = compileRemote(view, createUserWorkspace(view.original, emptyLibrary()));
   expect(output.errors).toEqual([]);
   const directory = resolve('.tools/routing-config-fixtures');
   mkdirSync(directory, { recursive: true });
-  const file = join(directory, `renamed-${id}.json`);
+  expect(output.config.dns).toEqual({
+    tag: 'handler',
+    servers: [{ address: '8.8.8.8', tag: 'resolver' }],
+  });
+  expect(output.config.routing).toEqual({
+    rules: [
+      { inboundTag: ['handler', 'resolver'], outboundTag: 'direct' },
+      { inboundTag: 'handler', outboundTag: 'direct' },
+    ],
+  });
+  const file = join(directory, 'renamed-dns.json');
   writeFileSync(file, JSON.stringify(output.config, null, 2));
   const result = spawnSync(core!, ['run', '-test', '-config', file], {
     encoding: 'utf8',
     timeout: 15000,
     windowsHide: true,
   });
-  writeFileSync(join(directory, `renamed-${id}.log`), result.stdout + result.stderr);
+  writeFileSync(join(directory, 'renamed-dns.log'), result.stdout + result.stderr);
   expect(result.error).toBeUndefined();
   expect(result.status, result.stdout + result.stderr).toBe(0);
 });

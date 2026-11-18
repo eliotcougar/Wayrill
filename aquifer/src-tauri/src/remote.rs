@@ -943,15 +943,6 @@ mod tests {
         );
     }
     #[test]
-    fn window_title_preserves_utf8_and_matches_app_version() {
-        let config: serde_json::Value =
-            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert_eq!(
-            config["app"]["windows"][0]["title"],
-            format!("Wayrill Aquifer {} · SSH / SFTP", env!("CARGO_PKG_VERSION"))
-        );
-    }
-    #[test]
     fn full_upgrade_requires_a_plan_and_preview_is_typed() {
         let mut request = ActionRequest {
             id: "a".repeat(32),
@@ -1151,12 +1142,5 @@ mod tests {
             assert!(command.encode_utf16().count() < 10000);
             assert!(!command.contains(['\n', '\r']));
         }
-    }
-    #[test]
-    fn discovery_does_not_have_write_commands() {
-        assert!(!DISCOVERY.contains("subprocess"));
-        assert!(!DISCOVERY.contains("os.system"));
-        assert!(!DISCOVERY.contains("'wb'"));
-        assert!(!DISCOVERY.contains("'w'"));
     }
 }

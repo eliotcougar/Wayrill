@@ -5,14 +5,8 @@ import { applyDefaults, factoryDefaults, resetNodeDefaults } from './defaults';
 import { diagnoseRuntimeGraph } from './diagnostics';
 import { diagnoseGraph, parseGraph, serializeGraph } from './model';
 import { fieldsForStructure, structureProblems } from './protocolFields';
-import { fixtureId, protocolFixture } from './protocolFixtures';
-import {
-  loopbackProblems,
-  protocolConfig,
-  protocolInboundKinds,
-  protocolOutboundKinds,
-  specForKind,
-} from './protocols';
+import { fixtureId, fixtureKey } from './protocolFixtures';
+import { loopbackProblems, protocolConfig } from './protocols';
 import { compileXrayGraph } from './xrayCompiler';
 import { importXrayConfig } from './xrayImport';
 import { importXrayConfig as importAquifer } from '../../aquifer/src/graph/xrayImport';
@@ -30,7 +24,7 @@ const wrap = (outbound: Record<string, unknown>) => ({
   outbounds: [outbound],
   routing: { rules: [] },
 });
-describe('Every pinned Xray protocol family', () => {
+describe('Native protocol configuration', () => {
   it.each(['vless', 'missing'])(
     'diagnoses nested XHTTP dial-through to %s before activation',
     (target) => {
@@ -105,23 +99,56 @@ describe('Every pinned Xray protocol family', () => {
     },
   );
 
-  // Native TUN JSON does not carry the service-owned ICS role; its graph round trip
-  // and activation metadata are tested in internetSharing.test.ts.
-  for (const kind of [
-    ...protocolInboundKinds.filter((k) => k !== 'ics-tun'),
-    ...protocolOutboundKinds,
-  ])
-    it(`${kind}: graph storage and no-change native equality`, () => {
-      const spec = specForKind(kind)!,
-        raw = protocolFixture(spec),
-        config =
-          spec.direction === 'outbound'
-            ? wrap(raw)
-            : { inbounds: [raw], outbounds: [{ tag: 'direct', protocol: 'direct', settings: {} }] };
-      const graph = parseGraph(serializeGraph(importXrayConfig(JSON.stringify(config))));
-      expect(graph.nodes.some((n) => n.data.kind === kind)).toBe(true);
-      expect(compileXrayGraph(graph).config).toEqual(config);
+  it('preserves a native tunnel and its WireGuard route when editing a peer configuration', () => {
+    const wireguard = {
+      tag: 'wg',
+      protocol: 'wireguard',
+      settings: {
+        secretKey: fixtureKey,
+        address: ['10.20.0.1/32'],
+        peers: [
+          {
+            publicKey: 'AQ'.repeat(21) + 'E=',
+            endpoint: '192.0.2.1:51820',
+            allowedIPs: ['0.0.0.0/0'],
+          },
+        ],
+      },
+    };
+    const config = {
+      inbounds: [
+        {
+          tag: 'ingress',
+          protocol: 'dokodemo-door',
+          listen: '127.0.0.1',
+          port: 10980,
+          settings: { address: '192.0.2.2', port: 443, network: 'tcp,udp' },
+        },
+      ],
+      outbounds: [wireguard],
+      routing: { rules: [{ type: 'field', inboundTag: ['ingress'], outboundTag: 'wg' }] },
+    };
+    const graph = parseGraph(serializeGraph(importXrayConfig(JSON.stringify(config))));
+    expect(graph.nodes.find((n) => n.data.settings.tag === 'ingress')?.data.kind).toBe(
+      'tunnel-inbound',
+    );
+    const out = graph.nodes.find((n) => n.data.kind === 'wireguard-outbound')!;
+    const raw = JSON.parse(String(out.data.settings.json));
+    raw.settings.peers[0].endpoint = '192.0.2.9:51820';
+    out.data.settings.json = JSON.stringify(raw);
+    expect(compileXrayGraph(graph).config).toEqual({
+      ...config,
+      outbounds: [
+        {
+          ...wireguard,
+          settings: {
+            ...wireguard.settings,
+            peers: [{ ...wireguard.settings.peers[0], endpoint: '192.0.2.9:51820' }],
+          },
+        },
+      ],
     });
+  });
   it('exports defaults and explicit false/zero overrides without changing imported omissions', () => {
     const raw = {
         tag: 'vmess',
@@ -200,11 +227,10 @@ describe('Every pinned Xray protocol family', () => {
         structure: 'Mask',
         collection: true,
         jsonShape: 'array',
-        label: key === 'tcp' ? 'TCP masks' : 'UDP masks',
       });
-    expect(structureProblems('FinalMask', { udp: [{ type: 42 }] })).toEqual([
-      'settings.udp[0].type must be text.',
-    ]);
+    expect(structureProblems('FinalMask', { udp: [{ type: 42 }] })).toContainEqual(
+      expect.stringContaining('settings.udp[0].type'),
+    );
     expect(
       structureProblems('FinalMask', {
         tcp: [{ type: 'fragment', settings: { packets: 'tlshello', future: true } }],

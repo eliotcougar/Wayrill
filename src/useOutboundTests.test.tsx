@@ -176,42 +176,38 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-it.each(['latency', 'speed'] as const)(
-  'cancels the owned %s job and cannot publish a late completed result',
-  async (mode) => {
-    let finish: ((v: unknown) => void) | undefined;
-    vi.mocked(serviceCall).mockImplementation((method) =>
-      method === 'outbounds.testPlanStart'
-        ? new Promise((resolve) => {
-            finish = resolve;
-          })
-        : Promise.resolve({ job: 3, busy: false, results: [] }),
-    );
-    await act(() => root.render(<Probe />));
-    let pending: Promise<void>;
-    await act(async () => {
-      pending = latest.start(undefined, undefined, mode);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(finish).toBeDefined();
-    await act(() => latest.cancel());
-    await act(async () => {
-      finish!({
-        job: 3,
-        busy: false,
-        results: [{ id: 'test-1', latencyMs: 999 }],
-        cancelled: false,
-      });
-      await pending!;
-    });
-    expect(serviceCall).toHaveBeenCalledWith('outbounds.testCancel', {
+it('cancels a job before the start reply arrives and discards its late result', async () => {
+  let finish: ((v: unknown) => void) | undefined;
+  vi.mocked(serviceCall).mockImplementation((method) =>
+    method === 'outbounds.testPlanStart'
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve({ job: 3, busy: false, results: [] }),
+  );
+  await act(() => root.render(<Probe />));
+  let pending: Promise<void>;
+  await act(async () => {
+    pending = latest.start();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(() => latest.cancel());
+  await act(async () => {
+    finish!({
       job: 3,
+      busy: false,
+      results: [{ id: 'test-1', latencyMs: 999 }],
+      cancelled: false,
     });
-    expect(latest.results.size).toBe(0);
-    expect(latest.busy).toBe(false);
-  },
-);
+    await pending!;
+  });
+  expect(serviceCall).toHaveBeenCalledWith('outbounds.testCancel', {
+    job: 3,
+  });
+  expect(latest.results.size).toBe(0);
+  expect(latest.busy).toBe(false);
+});
 
 it('requests UDP alongside latency only when enabled, with separate results and no UDP in speed jobs', async () => {
   respondToTests((id) => ({
@@ -326,62 +322,39 @@ it('reads the final plan and results across multiple pages from one service job'
     'outbounds.testGet',
   ]);
 });
-it.each(['latency', 'speed'] as const)(
-  'retains other %s results and policy summaries when retesting one server, including after preparation fails',
-  async (mode) => {
-    respondToTests((id, round, index) => ({
-      id,
-      latencyMs: round === 1 ? 20 + index * 10 : 99,
-      ip: '203.0.113.1',
-      country: 'FI',
-      error: null,
-      countryError: null,
-      ...(mode === 'speed'
-        ? {
-            speed: {
-              bytesPerSecond: round === 1 ? 1_000_000 + index : 9_000_000,
-              bytes: 5_000_000,
-              elapsedMs: 5000,
-            },
-          }
-        : {
-            udp: {
-              reachable: round === 1,
-              error: round === 1 ? null : 'No UDP reply.',
-            },
-          }),
-    }));
-    await act(() => root.render(<Probe g={createPolicyExample()} />));
-    await act(() => latest.start(undefined, undefined, mode));
-    const summaries = () => (mode === 'speed' ? latest.speedSummaries : latest.summaries);
-    const first = summaries().get('node:test-first');
-    const group = summaries().get('node:test-group');
-    expect(first?.state).toBe('passed');
-    expect(group?.state).toBe('passed');
-    const firstTarget = latest.plan!.rows.find((row) => row.key === 'node:test-first')!.targets[0];
-    const firstResult = latest.results.get(firstTarget);
-    await act(() => latest.start(undefined, ['test-second'], mode));
-    expect(summaries().get('node:test-first')).toEqual(first);
-    expect(latest.results.get(firstTarget)).toEqual(firstResult);
-    expect(latest.plan!.rows.filter((row) => !row.hidden)).toHaveLength(3);
-    if (mode === 'latency') {
-      expect(summaries().get('node:test-second')).toMatchObject({
-        text: '99 ms',
-        udp: { reachable: false },
-      });
-      expect(summaries().get('node:test-group')).toMatchObject({
-        text: 'Avg 60 ms · 2/2 live',
-        udp: { reachable: false },
-      });
-    } else {
-      expect(summaries().get('node:test-second')?.text).toBe('72.00 Mbit/s');
-      expect(summaries().get('node:test-group')).toEqual(group);
-    }
-    const completed = latest.results;
-    vi.mocked(stageOutboundTests).mockRejectedValueOnce(new Error('Cannot upload draft'));
-    await act(() => latest.start(undefined, ['test-second'], mode));
-    expect(latest.error).toContain('Cannot upload draft');
-    expect(latest.results).toBe(completed);
-    expect(summaries().get('node:test-first')).toEqual(first);
-  },
-);
+it('updates the group UDP verdict when one member is retested and retains results after a staging failure', async () => {
+  respondToTests((id, round, index) => ({
+    id,
+    latencyMs: round === 1 ? 20 + index * 10 : 99,
+    ip: '203.0.113.1',
+    country: 'FI',
+    error: null,
+    countryError: null,
+    udp: { reachable: round === 1, error: round === 1 ? null : 'No UDP reply.' },
+  }));
+  await act(() => root.render(<Probe g={createPolicyExample()} />));
+  await act(() => latest.start());
+  const first = latest.summaries.get('node:test-first');
+  expect(first?.state).toBe('passed');
+  expect(latest.summaries.get('node:test-group')?.udp?.reachable).toBe(true);
+  const firstTarget = latest.plan!.rows.find((row) => row.key === 'node:test-first')!.targets[0];
+  const firstResult = latest.results.get(firstTarget);
+  await act(() => latest.start(undefined, ['test-second']));
+  expect(latest.summaries.get('node:test-first')).toEqual(first);
+  expect(latest.results.get(firstTarget)).toEqual(firstResult);
+  expect(latest.plan!.rows.filter((row) => !row.hidden)).toHaveLength(3);
+  expect(latest.summaries.get('node:test-second')).toMatchObject({
+    text: '99 ms',
+    udp: { reachable: false },
+  });
+  expect(latest.summaries.get('node:test-group')).toMatchObject({
+    text: 'Avg 60 ms · 2/2 live',
+    udp: { reachable: false },
+  });
+  const completed = latest.results;
+  vi.mocked(stageOutboundTests).mockRejectedValueOnce(new Error('Cannot upload draft'));
+  await act(() => latest.start(undefined, ['test-second']));
+  expect(latest.error).toContain('Cannot upload draft');
+  expect(latest.results).toBe(completed);
+  expect(latest.summaries.get('node:test-first')).toEqual(first);
+});

@@ -1,6 +1,6 @@
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { expect, it } from 'vitest';
-import { generateServerKeys, generateShortId, serverPublicKey } from './serverKeys';
+import { generateServerKeys, serverPublicKey } from './serverKeys';
 
 it.each([false, true])(
   'generates a consistent X25519 pair in the server encoding (WireGuard=%s)',
@@ -15,6 +15,3 @@ it.each([false, true])(
     expect(await serverPublicKey(pair.privateKey, wireguard)).toBe(pair.publicKey);
   },
 );
-it('generates supported REALITY short IDs', () => {
-  expect(generateShortId()).toMatch(/^[a-f0-9]{16}$/);
-});

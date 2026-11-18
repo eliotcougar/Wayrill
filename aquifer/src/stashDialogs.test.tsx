@@ -285,36 +285,3 @@ it('protects invalid account JSON from being discarded by user navigation or clo
   await click('Restore last valid JSON');
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
-
-it('keeps all Stash tabs connected to their visible, correctly labelled panel', async () => {
-  const view = remoteView(JSON.stringify(demoConfig));
-  await act(async () =>
-    root.render(
-      <RemoteStash
-        view={view}
-        visible={new Set()}
-        canAdd={() => true}
-        onAdd={vi.fn()}
-        onEdit={vi.fn()}
-        onEditChain={vi.fn()}
-        onShow={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    ),
-  );
-  const verify = () => {
-    for (const tab of host.querySelectorAll('[role="tab"]'))
-      expect(document.getElementById(tab.getAttribute('aria-controls')!)).not.toBeNull();
-    const active = host.querySelector('[role="tab"][aria-selected="true"]')!;
-    expect(
-      document
-        .getElementById(active.getAttribute('aria-controls')!)
-        ?.getAttribute('aria-labelledby'),
-    ).toBe(active.id);
-  };
-  verify();
-  await click('Policy groups');
-  verify();
-  await click('Proxy chains');
-  verify();
-});

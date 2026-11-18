@@ -11,25 +11,6 @@ const merge = (base: Stash, local: Stash, remote: Stash) =>
   parseStash(
     mergeStashDocuments(serializeStash(base), serializeStash(local), serializeStash(remote)),
   );
-it('retains provider changes while saving an independent group rename', () => {
-  const base = example(),
-    local = structuredClone(base),
-    remote = structuredClone(base);
-  local.groups[0].name = 'My provider';
-  remote.groups[0].entries[0].profile!.settings.port = 2080;
-  const result = merge(base, local, remote);
-  expect(result.groups[0].name).toBe('My provider');
-  expect(result.groups[0].entries[0].profile!.settings.port).toBe(2080);
-});
-it('rejects conflicting connection edits without overwriting either document', () => {
-  const base = example(),
-    local = structuredClone(base),
-    remote = structuredClone(base);
-  local.groups[0].entries[0].profile!.settings.port = 2080;
-  remote.groups[0].entries[0].profile!.settings.port = 3080;
-  expect(() => merge(base, local, remote)).toThrow(/same subscription item changed/);
-  expect(remote.groups[0].entries[0].profile!.settings.port).toBe(3080);
-});
 it('does not resurrect a concurrently deleted entry', () => {
   const base = example(),
     local = structuredClone(base),

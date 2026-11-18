@@ -132,10 +132,3 @@ it('retries failed live reads without erasing entries or an export error', async
   await tick();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('export failed');
 });
-it('opens the desktop folder when only a desktop component is selected', async () => {
-  await render();
-  await click(check('sources', 'All'));
-  await click(check('sources', 'Desktop app / renderer'));
-  await click(button('Open folder'));
-  expect(invoke).toHaveBeenCalledWith('diagnostics_open', { source: 'desktop' });
-});

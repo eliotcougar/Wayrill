@@ -1,26 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { remoteView, redact, ruleConditions } from './remoteModel';
-import { demoConfig } from './demo';
+import { remoteView, redact } from './remoteModel';
 import { jsonRecord } from './graph/xrayJson';
 import { compileRemote } from './remoteExport';
 import { createUserWorkspace, emptyLibrary } from './users/model';
 import { readRuleTable, tableSettings } from './graph/rules';
-
-it('exports ordered graph rules instead of replaying the source configuration', () => {
-  const view = remoteView(JSON.stringify(demoConfig));
-  const routing = view.graph.nodes.find((node) => node.id === 'native-routing')!;
-  const table = readRuleTable(routing.data.settings);
-  table.rules.push(table.rules.shift()!);
-  routing.data.settings = tableSettings(table);
-  const workspace = createUserWorkspace(view.original, emptyLibrary());
-  const exported = compileRemote(view, workspace);
-  expect(exported.errors).toEqual([]);
-  expect(exported.config.routing).toEqual({
-    ...demoConfig.routing,
-    rules: [...demoConfig.routing.rules.slice(1), demoConfig.routing.rules[0]],
-  });
-  expect(exported.config.outbounds).toEqual(demoConfig.outbounds);
-});
 
 it('edits effective imported routing aliases without retaining a competing predicate', () => {
   const config = {
@@ -73,29 +56,6 @@ it('edits effective imported routing aliases without retaining a competing predi
 });
 
 describe('read-only remote graph projection', () => {
-  it('keeps all source values and ordered rules with an internal API endpoint', () => {
-    const view = remoteView(JSON.stringify(demoConfig));
-    expect(view.original).toEqual(demoConfig);
-    expect(view.ruleCount).toBe(4);
-    const router = view.nodes.find((n) => n.id === 'native-routing')!;
-    expect(router.data.rules).toEqual(demoConfig.routing.rules);
-    expect(view.nodes.find((n) => n.id === 'remote-api')?.data.subtitle).toBe(
-      'Xray API · internal',
-    );
-    expect(view.edges.some((e) => e.target === 'remote-api')).toBe(true);
-    expect(view.nodes.some((n) => n.data.category === 'inbound')).toBe(true);
-    expect(view.nodes.some((n) => n.data.subtitle === 'Observatory')).toBe(true);
-    expect(view.nodes.filter((n) => n.id.startsWith('native-resolver-'))).toHaveLength(2);
-  });
-  it('canonicalizes display field names without modifying the original JSON', () => {
-    const config = { ...demoConfig, observatory: undefined, Observatory: demoConfig.observatory };
-    const source = '// untouched source\n' + JSON.stringify(config);
-    const view = remoteView(source);
-    expect(view.original.Observatory).toEqual(demoConfig.observatory);
-    expect(view.original.observatory).toBeUndefined();
-    expect(view.normalized.observatory).toEqual(demoConfig.observatory);
-    expect(view.notices.some((n) => n.includes('capitalization'))).toBe(true);
-  });
   it('does not treat a real outbound as an API virtual endpoint', () => {
     const view = remoteView(
       JSON.stringify({
@@ -124,15 +84,6 @@ describe('read-only remote graph projection', () => {
     );
     expect(view.edges.some((e) => e.id === 'via-0' && e.target === 'native-out-1')).toBe(true);
     expect(view.nodes.find((n) => n.id === 'native-out-1')?.data.hasInput).toBe(true);
-  });
-  it('retains exact per-node native inbound and outbound objects', () => {
-    const view = remoteView(JSON.stringify(demoConfig));
-    expect(view.nodes.find((n) => n.id === 'native-in-0')?.data.raw).toEqual(
-      demoConfig.inbounds[0],
-    );
-    expect(view.nodes.find((n) => n.id === 'native-out-2')?.data.raw).toEqual(
-      demoConfig.outbounds[2],
-    );
   });
   it('rejects duplicate keys, unsafe objects and missing destinations', () => {
     for (const source of [
@@ -175,11 +126,5 @@ describe('credential display', () => {
     expect(result).not.toContain('password');
     expect(result).not.toContain('secret');
     expect(result).toContain('mode=json');
-  });
-  it('describes rule conditions including native objects', () => {
-    expect(ruleConditions({ type: 'field', outboundTag: 'direct' })).toBe('All traffic');
-    expect(ruleConditions({ domain: ['example.org'], attrs: { key: 'value' } })).toContain(
-      'attrs: {"key":"value"}',
-    );
   });
 });

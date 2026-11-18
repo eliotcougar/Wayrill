@@ -122,14 +122,18 @@ it('searches only visible rules and cannot delete a hidden selection', async () 
   expect(onSave).toHaveBeenCalledWith({ rules: [first] });
 });
 it('validation reveals a failing rule outside the current search', async () => {
-  await render({ rules: [first, { ...second, sourcePort: '99999' }] });
+  const onSave = await render({ rules: [first, { ...second, sourcePort: '99999' }] });
   await change('Find routing rules', 'first.example');
   await act(async () => button('Apply changes').click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   expect(control('Find routing rules').value).toBe('');
   expect(control('Rule name').value).toBe('Second');
-  expect(control('Source ports').value).toBe('99999');
+  expect(onSave).not.toHaveBeenCalled();
+  expect(control('Source ports').closest('details')!.open).toBe(true);
   expect(document.activeElement).toBe(control('Source ports'));
+  await change('Source ports', '1000-2000');
+  await act(async () => button('Apply changes').click());
+  expect(onSave.mock.calls[0][0].rules[1].sourcePort).toBe('1000-2000');
 });
 it('duplicates next to the original and preserves unknown fields through move and search', async () => {
   const original = {
@@ -206,19 +210,6 @@ it('uses protocol/network checkboxes and removes empty restrictions', async () =
   await act(async () => button('Apply changes').click());
   expect(onSave).toHaveBeenCalledWith({ rules: [{ ...first, protocol: ['quic'] }] });
   expect(host.textContent).toContain('none selected = any');
-});
-it('selects the failing rule and opens its advanced conditions for invalid ports', async () => {
-  const onSave = await render({ rules: [first, { ...second, sourcePort: '99999' }] });
-  await act(async () => button('Apply changes').click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  expect(onSave).not.toHaveBeenCalled();
-  expect(control('Rule name').value).toBe('Second');
-  expect(control('Source ports').closest('details')!.open).toBe(true);
-  expect(document.activeElement).toBe(control('Source ports'));
-  await change('Source ports', '1000-2000');
-  expect(host.querySelector('.settings-issues')).toBeNull();
-  await act(async () => button('Apply changes').click());
-  expect(onSave).toHaveBeenCalledOnce();
 });
 it('blocks a new empty rule and exposes unavailable destinations without replacing them silently', async () => {
   const onSave = await render({ rules: [{ ...first, outboundTag: 'missing' }] });
@@ -390,9 +381,9 @@ it('edits policy strategy and fallback without adding defaults to an unchanged p
 it('searches a large policy candidate set without rendering every row', async () => {
   const list = Array.from({ length: 220 }, (_, i) => ({ tag: `relay-${i} 🌍`, group: false }));
   await render({ tag: 'large', selector: ['relay-'] }, 'BalancingRule', list);
-  expect(host.querySelectorAll('.policy-preview li')).toHaveLength(100);
+  const first = host.querySelector('.policy-preview li')!.textContent;
   await act(async () => button('Next').click());
-  expect(host.textContent).toContain('2 / 3');
+  expect(host.querySelector('.policy-preview li')!.textContent).not.toBe(first);
   await change('Find matching outbounds', 'relay-219');
   expect(host.querySelectorAll('.policy-preview li')).toHaveLength(1);
   expect(host.textContent).toContain('relay-219 🌍');
@@ -433,9 +424,9 @@ it('bounds Stash rows and finds Unicode names beyond the current page', async ()
       />,
     ),
   );
-  expect(host.querySelectorAll('tbody tr')).toHaveLength(100);
+  const first = host.querySelector('tbody tr')!.textContent;
   await act(async () => button('Next').click());
-  expect(host.textContent).toContain('101–200 of 230');
+  expect(host.querySelector('tbody tr')!.textContent).not.toBe(first);
   await change('Find stashed configurations', 'Ireland-229');
   expect(host.querySelectorAll('tbody tr')).toHaveLength(1);
   await act(async () => button('Edit 🇮🇪 Ireland-229').click());

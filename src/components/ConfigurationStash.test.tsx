@@ -214,7 +214,7 @@ it('saves an outbound edit after background health refresh without losing its cu
     health,
   });
 });
-it('bounds 50,000 stash entries to 60 visible rows and navigates/searches without widening an action scope', async () => {
+it('pages 50,000 stash entries and navigates/searches without widening an action scope', async () => {
   await act(async () => root.render(<Harness />));
   const group = imported().groups[0];
   group.entries = Array.from({ length: 50000 }, (_, i) => ({
@@ -230,12 +230,13 @@ it('bounds 50,000 stash entries to 60 visible rows and navigates/searches withou
       problems: [],
     }),
   );
-  expect(container.querySelectorAll('.stash-row:not(.stash-header)')).toHaveLength(60);
+  expect(container.textContent).toContain('Node 00000');
+  expect(container.textContent).not.toContain('Node 49999');
   await act(async () =>
     (container.querySelector('[aria-label="Stash: last page"]') as HTMLButtonElement).click(),
   );
-  expect(container.textContent).toContain('Page 834');
-  expect(container.querySelectorAll('.stash-row:not(.stash-header)')).toHaveLength(20);
+  expect(container.textContent).toContain('Node 49999');
+  expect(container.textContent).not.toContain('Node 00000');
   await setValue(
     container.querySelector('[aria-label="Search configurations"]') as HTMLInputElement,
     'NODE 49999',

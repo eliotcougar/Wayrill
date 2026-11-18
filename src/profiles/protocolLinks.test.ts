@@ -2,8 +2,6 @@
 import { describe, expect, it } from 'vitest';
 import * as wayrill from './import';
 import * as aquifer from '../../aquifer/src/profiles/import';
-import { protocolLink } from '@wayrill/core/protocolLinks';
-import { LIMITS } from '../limits';
 import { fixtureId, fixtureKey } from '../graph/protocolFixtures';
 import { makeNode as wayrillNode } from '../graph/catalog';
 import { outboundPreview as wayrillOutbound } from '../graph/outbounds';
@@ -16,27 +14,9 @@ const cases = [
     'vmess-outbound',
   ],
   [
-    'trojan',
-    'trojan://fictional-qa-only@127.0.0.1:20922?type=grpc&serviceName=qa&sni=qa.example.invalid#Trojan',
-    'trojan-outbound',
-  ],
-  [
-    'shadowsocks',
-    `ss://${btoa('aes-128-gcm:fictional-qa-only')}@127.0.0.1:20922#SS`,
-    'shadowsocks-outbound',
-  ],
-  ['socks', `socks://${btoa('qa:fictional-qa-only')}@127.0.0.1:20922#SOCKS`, 'socks-outbound'],
-  ['http', 'http://qa:fictional-qa-only@127.0.0.1:20922#HTTP', 'http-outbound'],
-  ['https', 'https://qa:fictional-qa-only@qa.example.invalid:20922#HTTPS', 'http-outbound'],
-  [
     'wireguard',
     `wireguard://${encodeURIComponent(fixtureKey)}@127.0.0.1:20922?publickey=${encodeURIComponent(fixtureKey)}&address=10.90.0.2&reserved=0,0,0&mtu=1420`,
     'wireguard-outbound',
-  ],
-  [
-    'hysteria2',
-    'hysteria2://fictional-qa-only@qa.example.invalid?sni=qa.example.invalid&obfs=salamander&obfs-password=fictional-qa-mask',
-    'hysteria-outbound',
   ],
   [
     'masque',
@@ -44,10 +24,8 @@ const cases = [
     'masque-outbound',
   ],
 ] as const;
-describe.each([
-  ['Wayrill', wayrill],
-  ['Aquifer', aquifer],
-] as const)('%s protocol subscription links', (_app, { importProfiles, parseEntry }) => {
+describe('protocol subscription links', () => {
+  const { parseEntry, importProfiles } = wayrill;
   it.each([
     [
       'socks',
@@ -68,11 +46,6 @@ describe.each([
   ])(
     'preserves the credentials in %s links through Stash import',
     (_scheme, protocol, link, user, pass) => {
-      const parsed = protocolLink(link, LIMITS.configBytes);
-      expect(parsed.config.protocol).toBe(protocol);
-      expect(parsed.config.settings).toMatchObject(
-        protocol === 'socks' ? { user, pass } : { method: user, password: pass },
-      );
       const entry = parseEntry(link);
       expect(entry.problem).toBe('');
       if (protocol === 'socks')
@@ -90,35 +63,59 @@ describe.each([
   );
   for (const [name, link, kind] of cases)
     it(`imports ${name} into a ready stash profile`, () => {
-      const entry = parseEntry(link);
+      const [entry] = importProfiles(btoa(link)).groups[0].entries;
       expect(entry.problem).toBe('');
       expect(entry.profile?.kind).toBe(kind);
-      expect(importProfiles(btoa(link)).groups[0].entries[0].profile?.kind).toBe(kind);
     });
+  it('keeps HTTP and HTTPS connections to the same proxy distinct', () => {
+    const endpoint = 'qa:secret@proxy.example:20922';
+    const [group] = importProfiles(`http://${endpoint}\nhttps://${endpoint}`).groups;
+    const connections = group.entries.map(({ profile }) => {
+      const { kind, settings } = profile!;
+      const node = wayrillNode(kind, { x: 0, y: 0 });
+      Object.assign(node.data.settings, settings);
+      return wayrillOutbound(node.data);
+    });
+    expect(connections).toMatchObject([
+      { protocol: 'http', settings: { address: 'proxy.example', user: 'qa', pass: 'secret' } },
+      { protocol: 'http', streamSettings: { security: 'tls' } },
+    ]);
+    expect(
+      (connections[0].streamSettings as { security?: string } | undefined)?.security ?? 'none',
+    ).toBe('none');
+  });
   it('preserves trailing colons in opaque Trojan and Hysteria 2 credentials', () => {
     const trojan = parseEntry('trojan://secret:@example.test:443');
     expect(trojan.problem).toBe('');
     expect(JSON.parse(String(trojan.profile?.settings.json)).settings.password).toBe('secret:');
-    const hysteria = parseEntry('hysteria2://secret:@example.test:443');
-    expect(hysteria.problem).toBe('');
-    expect(
-      JSON.parse(String(hysteria.profile?.settings.json)).streamSettings.hysteriaSettings.auth,
-    ).toBe('secret:');
-  });
-  for (const link of [
-    'trojan://qa@127.0.0.1:443?insecure=1',
-    'ss://YWVzLTEyOC1nY206cWE=@127.0.0.1:443?plugin=obfs-local',
-    'hysteria2://qa@host.example:0',
-    'trojan://qa@host.example:443?flow=xtls-rprx-vision',
-    'tuic://qa@host.example:443',
-    'trojan://qa@host.example:443?unknown=tuning',
-  ])
-    it(`retains unsupported ${link.slice(0, link.indexOf(':'))} settings`, () => {
-      const entry = parseEntry(link);
-      expect(entry.raw).toBe(link);
-      expect(entry.profile).toBeNull();
-      expect(entry.problem).toBeTruthy();
+    const hysteria = parseEntry(
+      'hysteria2://secret:@example.test:443?obfs=salamander&obfs-password=mask',
+    );
+    expect(JSON.parse(String(hysteria.profile?.settings.json)).streamSettings).toMatchObject({
+      hysteriaSettings: { auth: 'secret:' },
+      finalmask: { udp: [{ type: 'salamander', settings: { password: 'mask' } }] },
     });
+  });
+  it.each([
+    ['insecure TLS', 'trojan://qa@127.0.0.1:443?insecure=1'],
+    ['Shadowsocks plugin', 'ss://YWVzLTEyOC1nY206cWE=@127.0.0.1:443?plugin=obfs-local'],
+    ['invalid port', 'hysteria2://qa@host.example:0'],
+    ['unmapped Trojan flow', 'trojan://qa@host.example:443?flow=xtls-rprx-vision'],
+    ['unknown protocol', 'tuic://qa@host.example:443'],
+  ])('retains the original link for %s', (_reason, link) => {
+    const entry = parseEntry(link);
+    expect(entry.raw).toBe(link);
+    expect(entry.profile).toBeNull();
+    expect(entry.problem).toBeTruthy();
+  });
+});
+
+it('carries link credentials through Aquifer’s Stash adapter and retains unsupported entries', () => {
+  const [group] = aquifer.importProfiles(
+    'socks://qa:p%40ss@proxy.example:1080\ntuic://qa@proxy.example:443',
+  ).groups;
+  expect(group.entries[0].profile?.settings).toMatchObject({ username: 'qa', password: 'p@ss' });
+  expect(group.entries[1]).toMatchObject({ raw: 'tuic://qa@proxy.example:443', profile: null });
 });
 
 describe.each([

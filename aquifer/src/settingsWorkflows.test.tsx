@@ -1,11 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import RemoteSettings from './RemoteSettings';
+import { expect, it } from 'vitest';
 import { coreIssues } from './RemoteCoreSettings';
 import { remoteView } from './remoteModel';
 import { nodeSettings, replaceNodeSettings } from './nodeSettings';
@@ -13,100 +8,8 @@ import { compileRemote } from './remoteExport';
 import { createUserWorkspace, emptyLibrary } from './users/model';
 import { settingsStructures } from './settingsFields';
 import names from './graph/xrayConfigNames.json';
-import type { ServerObject } from './inboundFields';
+import { host, button, control, click, change, toggle, render } from './test/settingsHarness';
 
-let host: HTMLDivElement, root: Root;
-const destinations = [
-  { tag: 'direct', group: false },
-  { tag: 'relay-eu', group: false },
-  { tag: 'automatic', group: true },
-];
-beforeEach(() => {
-  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  HTMLDialogElement.prototype.showModal = function () {
-    this.open = true;
-  };
-  window.requestAnimationFrame = (callback) =>
-    window.setTimeout(() => callback(performance.now()), 0);
-  window.cancelAnimationFrame = (id) => clearTimeout(id);
-  host = document.createElement('div');
-  document.body.append(host);
-  root = createRoot(host);
-});
-afterEach(async () => {
-  await act(async () => root.unmount());
-  host.remove();
-  vi.restoreAllMocks();
-});
-const button = (name: string) =>
-  [...host.querySelectorAll('button')].find(
-    (item) =>
-      item.getAttribute('aria-label') === name ||
-      (item.getAttribute('role') === 'tab'
-        ? item.childNodes[0]?.textContent?.trim()
-        : item.textContent?.trim()) === name,
-  )!;
-const control = (name: string) =>
-  host.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-    `[aria-label="${name}"]`,
-  )!;
-const click = async (name: string) => {
-  await act(async () => button(name).click());
-};
-async function change(name: string, value: string) {
-  const input = control(name);
-  expect(input, name).not.toBeNull();
-  await act(async () => {
-    const prototype =
-      input instanceof HTMLSelectElement
-        ? HTMLSelectElement.prototype
-        : input instanceof HTMLTextAreaElement
-          ? HTMLTextAreaElement.prototype
-          : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, value);
-    input.dispatchEvent(
-      new Event(input instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }),
-    );
-  });
-}
-async function toggle(name: string) {
-  await act(async () => control(name).click());
-}
-async function render(value: unknown, schema = 'Config') {
-  const save = vi.fn(),
-    close = vi.fn();
-  await act(async () =>
-    root.render(
-      <RemoteSettings
-        title="Example"
-        value={value}
-        schema={schema}
-        destinations={destinations}
-        onSave={save}
-        onClose={close}
-      />,
-    ),
-  );
-  return { save, close };
-}
-
-it('shows ordinary logging fields immediately and leaves an empty configuration untouched', async () => {
-  const { save } = await render({});
-  expect(control('Log level').value).toBe('');
-  expect(control('Access log').textContent).toContain('Default (off)');
-  expect(host.querySelector('[aria-label="Add field"]')).toBeNull();
-  expect(host.querySelector('details')).toBeNull();
-  for (const tab of ['Routing', 'Connections', 'Statistics & API', 'Resources', 'Advanced'])
-    await click(tab);
-  await click('Apply changes');
-  expect(save).toHaveBeenCalledWith({});
-});
-it('distinguishes absent and empty logging blocks and does not enable access logs by changing verbosity', async () => {
-  const { save } = await render({});
-  await change('Log level', 'info');
-  await click('Apply changes');
-  expect(save).toHaveBeenLastCalledWith({ log: { access: 'none', loglevel: 'info' } });
-});
 it('preserves imported empty logging semantics without materializing any defaults', async () => {
   const { save } = await render({ Log: {} });
   expect(control('Access log').textContent).toContain('Default (console)');
@@ -252,47 +155,6 @@ it('edits object-shaped FakeDNS without converting it to a list, and accepts IPv
   expect(save).toHaveBeenCalledWith({ fakeDns: { ...value.fakeDns, ipPool: 'fd00::/64' } });
   expect(coreIssues(save.mock.calls[0][0])).toEqual([]);
 });
-it.each([
-  ['NameServerConfig', { address: '1.1.1.1', extension: 7 }],
-  [
-    'DNSConfig',
-    {
-      servers: ['localhost'],
-      hosts: { 'domain:example.org': '192.0.2.1' },
-      queryStrategy: 'UseIP',
-    },
-  ],
-  ['ObservatoryConfig', { subjectSelector: ['relay-'], probeURL: 'https://example.org/check' }],
-  [
-    'BurstObservatoryConfig',
-    { subjectSelector: ['relay-'], pingConfig: { destination: 'https://example.org/check' } },
-  ],
-  [
-    'OutboundDetourConfig',
-    {
-      tag: 'relay-eu',
-      protocol: 'vless',
-      settings: {
-        vnext: [
-          {
-            address: 'example.org',
-            port: 443,
-            users: [{ id: '00000000-0000-4000-8000-000000000001', encryption: 'none' }],
-          },
-        ],
-      },
-    },
-  ],
-] as const)(
-  'replaces the %s field builder with a normal form without rewriting imported data',
-  async (schema, value) => {
-    const { save } = await render(value, schema);
-    expect(host.querySelector('[aria-label="Add field"]')).toBeNull();
-    expect(host.querySelector('[aria-label="Available fields"]')).toBeNull();
-    await click('Apply changes');
-    expect(save).toHaveBeenCalledWith(value);
-  },
-);
 it('makes DNS options available immediately for a compact string server', async () => {
   const { save } = await render('localhost', 'NameServerConfig');
   await change('DNS server port', '5353');
@@ -321,16 +183,6 @@ it('adds a DNS server from the handler without rewriting existing compact entrie
     servers: ['localhost', 'https://dns.example.org/dns-query'],
     hosts: { 'example.org': '192.0.2.1' },
   });
-});
-it('opens the correct section for an invalid advanced DNS field', async () => {
-  const { save } = await render({}, 'DNSConfig');
-  await click('Advanced');
-  await change('Expired answer TTL (seconds)', '-1');
-  await click('General');
-  await click('Apply changes');
-  expect(save).not.toHaveBeenCalled();
-  expect(button('Advanced').getAttribute('aria-selected')).toBe('true');
-  expect(control('Expired answer TTL (seconds)').getAttribute('aria-invalid')).toBe('true');
 });
 it('previews the observed outbounds while editing selectors', async () => {
   const { save } = await render({ subjectSelector: ['relay-'] }, 'ObservatoryConfig');
@@ -366,14 +218,6 @@ it('enables statistics in place while configuring per-user counters', async () =
     policy: { levels: { '0': { statsUserUplink: true } } },
   });
 });
-it('does not show single-section tabs or irrelevant Block transport settings', async () => {
-  const { save } = await render({ tag: 'blocked', protocol: 'blackhole' }, 'OutboundDetourConfig');
-  expect(host.querySelector('[role="tablist"]')).toBeNull();
-  expect(control('Transport')).toBeNull();
-  expect(control('Response')).not.toBeNull();
-  await click('Apply changes');
-  expect(save).toHaveBeenCalledWith({ tag: 'blocked', protocol: 'blackhole' });
-});
 it.each(['active', ''])('edits the effective REALITY key when password is %s', async (password) => {
   const realitySettings = { Password: password, PublicKey: 'legacy', fingerprint: 'chrome' };
   const value = {
@@ -404,56 +248,22 @@ it('keeps least-load tuning errors visible and navigable', async () => {
   expect(control('Allowed failure rate').getAttribute('aria-invalid')).toBe('true');
   expect(host.textContent).toContain('enter a number from 0 to 1');
 });
-it.each([
-  [
-    'vless',
-    {
-      address: 'example.org',
-      port: 443,
-      id: '00000000-0000-4000-8000-000000000001',
-      encryption: 'none',
-    },
-  ],
-  ['vmess', { address: 'example.org', port: 443, id: '00000000-0000-4000-8000-000000000001' }],
-  ['trojan', { address: 'example.org', port: 443, password: 'fictional' }],
-  [
-    'socks',
-    {
+it('renames an outbound without rewriting nested credentials or unknown fields', async () => {
+  const value = {
+    protocol: 'socks',
+    tag: 'old',
+    settings: {
       servers: [
         { address: '127.0.0.1', port: 1080, users: [{ user: 'alice', pass: 'fictional' }] },
       ],
     },
-  ],
-  ['http', { address: '127.0.0.1', port: 8080, user: 'alice', pass: 'fictional' }],
-  [
-    'shadowsocks',
-    { address: 'example.org', port: 443, method: 'aes-128-gcm', password: 'fictional' },
-  ],
-  ['hysteria', { address: 'example.org', port: 443, version: 2 }],
-  ['masque', { address: 'example.org', port: 443 }],
-  [
-    'wireguard',
-    {
-      secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-      address: ['10.0.0.2/32'],
-      peers: [
-        { publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', endpoint: 'example.org:443' },
-      ],
-    },
-  ],
-  ['dns', { address: '1.1.1.1' }],
-  ['freedom', { domainStrategy: 'UseIPv4' }],
-  ['loopback', { inboundTag: 'proxy' }],
-] as const)(
-  'edits the %s outbound without changing credentials, legacy structure or other options',
-  async (protocol, settings) => {
-    const value = { protocol, tag: 'old', settings, futureSetting: { value: 1 } },
-      { save } = await render(value, 'OutboundDetourConfig');
-    await change('Outbound tag', 'new');
-    await click('Apply changes');
-    expect(save).toHaveBeenCalledWith({ ...value, tag: 'new' });
-  },
-);
+    futureSetting: { value: 1 },
+  };
+  const { save } = await render(value, 'OutboundDetourConfig');
+  await change('Outbound tag', 'new');
+  await click('Apply changes');
+  expect(save).toHaveBeenCalledWith({ ...value, tag: 'new' });
+});
 it('retains configuration sections and graph routing when editing a global option', async () => {
   const config = {
     log: { loglevel: 'warning' },
@@ -482,41 +292,4 @@ it('keeps known native fields aligned with the pinned schema', () => {
     if (structures[schema])
       for (const field of fields)
         expect(Object.hasOwn(structures[schema], field.key), `${schema}.${field.key}`).toBe(true);
-});
-
-it('compiles the edited global settings without starting networking', async () => {
-  const { save } = await render({});
-  await change('Log level', 'error');
-  await click('Connections');
-  await change('Idle timeout (seconds)', '450');
-  await click('Statistics & API');
-  await toggle('Enable traffic statistics');
-  await toggle('Outbound download');
-  await toggle('Enable management API');
-  await toggle('Traffic statistics');
-  await click('Resources');
-  await toggle('Automatically update resource files');
-  await click('Add resource file');
-  await change('File on server', 'geosite.dat');
-  await change('HTTPS download URL', 'https://example.org/geosite.dat');
-  await toggle('Use custom FakeDNS pools');
-  await click('Apply changes');
-  expect(save).toHaveBeenCalledOnce();
-  const draft = save.mock.calls[0][0] as ServerObject;
-  expect(coreIssues(draft)).toEqual([]);
-  if (process.env.AQUIFER_CORE_TESTS !== '1') return;
-  const directory = resolve('.tools/settings-core-fixtures');
-  mkdirSync(directory, { recursive: true });
-  const file = join(directory, 'globals.json');
-  writeFileSync(
-    file,
-    JSON.stringify({ ...draft, outbounds: [{ tag: 'direct', protocol: 'freedom' }] }),
-  );
-  const result = spawnSync(
-    process.env.WAYRILL_REMOTE_EDITOR_CORE!,
-    ['run', '-test', '-config', file],
-    { encoding: 'utf8', timeout: 15000, windowsHide: true },
-  );
-  writeFileSync(join(directory, 'globals.log'), result.stdout + result.stderr);
-  expect(result.status, result.stdout + result.stderr).toBe(0);
 });

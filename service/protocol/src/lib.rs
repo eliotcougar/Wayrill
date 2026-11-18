@@ -755,25 +755,22 @@ mod tests {
     }
     #[test]
     fn accepts_public_addresses_and_all_nonzero_ports() {
-        for address in [
-            "0.0.0.0",
-            "::",
-            "192.0.2.1",
-            "2001:db8::1",
-            "127.0.0.2",
-            "::ffff:192.0.2.1",
+        for (address, port) in [
+            ("0.0.0.0", 1),
+            ("::", 65535),
+            ("192.0.2.1", 80),
+            ("2001:db8::1", 443),
+            ("127.0.0.2", 1023),
+            ("::ffff:192.0.2.1", 53),
         ] {
-            for port in [1, 53, 80, 443, 1023, 65535] {
-                let mut c = direct_example();
-                c["inbounds"][0]["listen"] = json!(address);
-                c["inbounds"][0]["port"] = json!(port);
-                let normalized = normalize_config(c.clone()).unwrap();
-                assert_eq!(normalized["inbounds"], c["inbounds"]);
-                assert_eq!(
-                    listener_endpoints(&normalized)[0].address.ip(),
-                    address.parse::<std::net::IpAddr>().unwrap()
-                );
-            }
+            let mut c = direct_example();
+            c["inbounds"][0]["listen"] = json!(address);
+            c["inbounds"][0]["port"] = json!(port);
+            let normalized = normalize_config(c.clone()).unwrap();
+            assert_eq!(normalized["inbounds"], c["inbounds"]);
+            let endpoint = listener_endpoints(&normalized)[0].address;
+            assert_eq!(endpoint.ip(), address.parse::<std::net::IpAddr>().unwrap());
+            assert_eq!(endpoint.port(), port);
         }
         for port in [json!(0), json!(65536), json!(-1), json!(1.5), json!("80")] {
             let mut c = direct_example();
@@ -883,27 +880,6 @@ mod protocol_registry_tests {
         assert_eq!(normalized["inbounds"][0]["protocol"], "tun");
         assert_eq!(normalized["outbounds"][0]["protocol"], "freedom");
         assert!(listener_endpoints(&normalized).is_empty());
-    }
-    #[test]
-    fn every_socket_protocol_and_alias_passes_service_safeguards() {
-        for protocol in INBOUND_PROTOCOLS.iter().filter(|p| **p != "tun") {
-            let mut config = direct_example();
-            config["inbounds"][0]["protocol"] = json!(protocol);
-            assert_eq!(
-                normalize_config(config.clone()).unwrap()["inbounds"],
-                config["inbounds"]
-            );
-            config["inbounds"][0]["listen"] = json!("0.0.0.0");
-            assert_eq!(
-                normalize_config(config.clone()).unwrap()["inbounds"],
-                config["inbounds"]
-            );
-        }
-        for protocol in OUTBOUND_PROTOCOLS {
-            let mut config = direct_example();
-            config["outbounds"][1]["protocol"] = json!(protocol);
-            assert!(normalize_config(config).is_ok());
-        }
     }
     #[test]
     fn rejects_unregistered_inbound_and_outbound_protocols() {

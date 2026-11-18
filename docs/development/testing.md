@@ -106,11 +106,20 @@ executable integrity checks still apply. No installed app or VM is required.
 
 ## What deserves a regression
 
-Protect observable behavior: routing precedence, lossless import/save,
-subscription updates, settings ownership, cancellation, recovery and bounded work.
-Prefer a complete representative workflow over multiple tests of its helpers.
-A test should fail when supported behavior breaks, not because an internal
-representation, label, CSS rule, control placement or catalogue count changes.
+Choose the cheapest layer that can observe the failure.
+
+| Regression category | What to exercise |
+| --- | --- |
+| Routing and compatibility | Assert the selected destination, fallback and capture scope. Use the pinned Xray executable when acceptance depends on its parser or dispatcher. |
+| Data preservation | Import, edit, save and reopen. Check credentials, unknown fields, rule precedence and user overrides where a conversion can lose them. |
+| Service lifecycle and isolation | Exercise cancellation, concurrent operations, rollback and restart. Verify ownership and the last working state. |
+| User workflows | Exercise actions through an editor or browser when event handling matters. Verify the resulting selection, saved settings or recovery action. |
+| Resource limits | Exercise both sides of a boundary. Use large fixtures when collection size itself is the failure condition. |
+
+Keep separate cases for different failure modes. When multiple apps call the
+same implementation, cover its edge cases once and check each adapter at its
+boundary. Let labels, layout, page sizes and bundled preset contents evolve
+unless changing them breaks a user-facing contract.
 
 Use synthetic profiles and local fake peers. Do not add a dependency on a real
 subscription, personal configuration, commercial server or public speed-test

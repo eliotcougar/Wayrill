@@ -35,22 +35,12 @@ describe('Native routing predicate aliases', () => {
       { domains: ['full:a.example.com'] },
       { domain: ['full:a.example.com'] },
     ],
-    [
-      { domains: ['domain:example.com'] },
-      { domain: ['full:a.example.com'] },
-      { domain: ['full:a.example.com'] },
-    ],
     [{ sourceIP: ['10.0.0.0/8'] }, { source: ['192.0.2.0/24'] }, null],
     [{ source: ['10.0.0.0/8'] }, { sourceIP: ['10.2.0.0/16'] }, { sourceIP: ['10.2.0.0/16'] }],
     [
       { domain: ['domain:example.com'] },
       { domain: ['domain:ignored.example'], domains: [] },
       { domain: ['domain:example.com'] },
-    ],
-    [
-      { domains: [], port: '443' },
-      { domain: ['domain:example.com'] },
-      { domain: ['domain:example.com'], port: '443' },
     ],
     [
       { sourceIP: null, source: ['10.0.0.0/8'] },

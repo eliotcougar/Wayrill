@@ -216,16 +216,6 @@ it('reconnects to a submitted deployment without repeating it or marking an unre
   expect(applied).not.toHaveBeenCalled();
   expect(host.textContent).toContain('Completed');
 });
-it('closing progress preserves the running server job', async () => {
-  await mount();
-  await click('Validate on server');
-  await click('Apply…');
-  await click('Apply & restart');
-  await act(async () => root.unmount());
-  root = createRoot(host);
-  expect(client.cancel).not.toHaveBeenCalled();
-  expect(localStorage.getItem('wayrill.remote.job.Example')).toContain('applyConfig');
-});
 
 it('rejects a non-restorable companion before uploading or staging it', async () => {
   await act(async () =>

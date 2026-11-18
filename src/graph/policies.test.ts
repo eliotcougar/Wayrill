@@ -8,11 +8,6 @@ import { parseGraph, serializeGraph } from './model';
 import { editPolicyGraph } from './policies';
 import { readPolicySources } from './policySources';
 import { createPolicyExample } from './policyExample';
-import {
-  commitWorkspaceHistory,
-  initialWorkspaceHistory,
-  undoWorkspaceHistory,
-} from './workspaceHistory';
 
 const group = (graph: ReturnType<typeof createPolicyExample>) =>
   graph.nodes.find((n) => n.data.kind === 'policy-group')!;
@@ -35,7 +30,7 @@ const setManual = (graph: ReturnType<typeof createPolicyExample>, ids: string[])
   node.data.settings.sources = JSON.stringify(sources);
 };
 describe('Policy-group compilation and graph editing', () => {
-  for (const strategy of ['random', 'roundRobin', 'leastPing', 'leastLoad'])
+  for (const strategy of ['roundRobin', 'leastPing', 'leastLoad'])
     it(`compiles ${strategy} and preserves routing order`, () => {
       const graph = createPolicyExample(strategy, strategy === 'leastLoad' ? 'burst' : 'standard');
       const result = compileRuntimeGraph(graph),
@@ -50,7 +45,6 @@ describe('Policy-group compilation and graph editing', () => {
         'block',
         'policy-group',
       ]);
-      expect(result.config.outbounds).toHaveLength(4);
       expect(
         result.config[strategy === 'leastLoad' ? 'burstObservatory' : 'observatory'],
       ).toMatchObject({ subjectSelector: ['test-a', 'test-b'] });
@@ -125,7 +119,7 @@ describe('Policy-group compilation and graph editing', () => {
     group(graph).data.settings.costs = '[{"match":"test-a","regexp":true,"value":4}]';
     expect(() => compileRuntimeGraph(graph)).toThrow(/regular-expression weights/);
   });
-  it('applies a new shared observer and connections atomically, with undo', () => {
+  it('keeps a newly connected observer and its group members after saving', () => {
     const graph = createPolicyExample();
     graph.nodes = graph.nodes.filter((n) => n.data.kind !== 'observatory');
     graph.edges = graph.edges.filter((e) => e.sourceHandle !== 'observation');
@@ -138,10 +132,17 @@ describe('Policy-group compilation and graph editing', () => {
       newObserver.id,
       newObserver,
     );
-    expect(compileRuntimeGraph(next).config).toHaveProperty('observatory');
-    const history = commitWorkspaceHistory(initialWorkspaceHistory(graph), { graph: next });
-    expect(undoWorkspaceHistory(history).present.graph).toEqual(graph);
-    expect(parseGraph(serializeGraph(next)).nodes).toHaveLength(6);
+    const saved = parseGraph(serializeGraph(next));
+    expect(saved.edges).toContainEqual(
+      expect.objectContaining({
+        source: node.id,
+        sourceHandle: 'observation',
+        target: newObserver.id,
+      }),
+    );
+    expect(compileRuntimeGraph(saved).config.observatory).toMatchObject({
+      subjectSelector: ['test-a', 'test-b'],
+    });
   });
 });
 

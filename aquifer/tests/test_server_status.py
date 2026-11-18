@@ -34,11 +34,6 @@ class StatusTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.probe.parse_apt(output)
 
-    def test_empty_upgrade_plan_is_valid(self):
-        result = self.probe.parse_apt('0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n')
-        self.assertEqual(result['packages'], [])
-        self.assertEqual(result['upgraded'], 0)
-
     def test_simulation_has_no_locks_downloads_or_cache_writes(self):
         completed = types.SimpleNamespace(returncode=0, stdout=b'0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n', stderr=b'')
         with patch('shutil.which', return_value='/usr/bin/apt-get'), patch('glob.glob', return_value=[]), \
@@ -53,6 +48,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['env']['LC_ALL'], 'C')
         self.assertEqual(run.call_args.kwargs['stdin'], subprocess.DEVNULL)
         self.assertEqual(status['upgraded'], 0)
+        self.assertEqual(status['packages'], [])
 
     def test_apt_not_installed_is_explicit(self):
         with patch('shutil.which', return_value=None), patch('subprocess.run') as run:
@@ -125,7 +121,8 @@ class StatusTests(unittest.TestCase):
         self.assertEqual([(row['name'], row['subState']) for row in rows], [('nginx', 'running')])
 
     def test_command_timeout_is_bounded(self):
-        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('apt-get', 18)):
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('apt-get', 18)) as run:
             output, error = self.probe.command(['apt-get', '--simulate', 'upgrade'])
         self.assertIsNone(output)
         self.assertIn('timed out', error)
+        self.assertGreater(run.call_args.kwargs['timeout'], 0)

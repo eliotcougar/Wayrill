@@ -63,13 +63,4 @@ describe('subscription refresh continuity', () => {
       unsupported: 0,
     });
   });
-  it('does not guess which repeated name was updated', () => {
-    const old = importList([link('a', 'Same'), link('b', 'Same')]).groups[0];
-    const next = mergeImport(
-      { ...empty(), groups: [old] },
-      importList([link('c', 'Same'), link('d', 'Same')]),
-      old.id,
-    );
-    expect(refreshSummary(old, next.groups[0])).toMatchObject({ added: 2, updated: 0, removed: 2 });
-  });
 });

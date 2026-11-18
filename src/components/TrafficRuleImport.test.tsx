@@ -7,11 +7,6 @@ import { makeNode } from '../graph/catalog';
 import { createDnsExample } from '../graph/example';
 import { readRuleTable, tableSettings } from '../graph/rules';
 import { updateGraphNode } from '../graph/model';
-import {
-  initialWorkspaceHistory,
-  commitWorkspaceHistory,
-  undoWorkspaceHistory,
-} from '../graph/workspaceHistory';
 import fixture from '../graph/fixtures/v2rayN-lab-routing.json';
 const download = vi.hoisted(() => vi.fn());
 vi.mock('../routingDownload', () => ({ downloadRoutingRules: download }));
@@ -98,38 +93,27 @@ it.each(['preset', 'file', 'proxy chain'])(
     expect(imported.rules.some((rule) => rule.output === 'preferred')).toBe(false);
   },
 );
-it.each(['Cancel', 'Apply changes'])(
-  'file import stages atomically, retains wires and supports %s',
-  async (finish) => {
-    const { graph, node, apply } = await editor(),
-      original = structuredClone(graph);
-    await file(JSON.stringify(fixture));
-    expect(host.querySelector('[aria-label="Imported rule preview"]')).not.toBeNull();
-    await act(() => button('Import rules').click());
-    expect(graph).toEqual(original);
-    expect(apply).not.toHaveBeenCalled();
-    expect(button('Apply changes').disabled).toBe(false);
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe(
-      'Rules (11)',
-    );
-    await act(() => button(finish).click());
-    if (finish === 'Cancel') expect(apply).not.toHaveBeenCalled();
-    else {
-      const next = updateGraphNode(graph, node.id, apply.mock.calls[0][1]);
-      expect(next.edges).toEqual(original.edges);
-      expect(
-        readRuleTable(next.nodes.find((n) => n.id === node.id)!.data.settings).defaultOutput,
-      ).toBe('default');
-      expect(
-        undoWorkspaceHistory(
-          commitWorkspaceHistory(initialWorkspaceHistory(graph), {
-            graph: next,
-          }),
-        ).present.graph,
-      ).toEqual(original);
-    }
-  },
-);
+it('stages an imported block rule and preserves existing connections on apply', async () => {
+  const { graph, node, apply } = await editor(),
+    original = structuredClone(graph);
+  await file(JSON.stringify([{ domain: ['full:blocked.example'], outboundTag: 'block' }]));
+  expect(host.querySelector('[aria-label="Imported rule preview"]')).not.toBeNull();
+  await act(() => button('Import rules').click());
+  expect(graph).toEqual(original);
+  expect(apply).not.toHaveBeenCalled();
+  expect(button('Apply changes').disabled).toBe(false);
+  await act(() => button('Apply changes').click());
+  const next = updateGraphNode(graph, node.id, apply.mock.calls[0][1]);
+  expect(next.edges).toEqual(original.edges);
+  const table = readRuleTable(next.nodes.find((n) => n.id === node.id)!.data.settings);
+  expect(table.rules).toContainEqual(
+    expect.objectContaining({
+      output: 'blocked',
+      conditions: expect.objectContaining({ domain: 'full:blocked.example' }),
+    }),
+  );
+  expect(table.defaultOutput).toBe('default');
+});
 it('ignores an older file read after a newer selection completes', async () => {
   await editor();
   let resolve!: (v: ArrayBuffer) => void;

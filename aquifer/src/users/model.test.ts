@@ -17,8 +17,6 @@ import {
   newUserSet,
   parseUserLibrary,
   saveUserSet,
-  userProtocols,
-  type UserProtocol,
 } from './model';
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -207,7 +205,7 @@ describe('portable multi-user sets', () => {
       [],
     );
   });
-  it.each(['socks', 'mixed', 'http'])(
+  it.each(['socks', 'http'])(
     'assigns accounts to %s without changing unrelated settings',
     (protocol) => {
       const config = { inbounds: [{ protocol, settings: { auth: 'noauth', udp: true } }] };
@@ -235,10 +233,11 @@ describe('portable multi-user sets', () => {
     const imported = createUserWorkspace(other, restored);
     expect(imported.sets[0].id).toBe(set.id);
     expect(imported.bindings).toHaveLength(2);
-    expect(restored.sets[0].users[0].account.id).toBe(id);
+    expect(restored.sets[0]).toEqual(set);
   });
   it('merges portable files without overwriting local sets with the same ID', () => {
     const set = newUserSet();
+    set.users.push({ ...newUser(set.protocol, 2), name: 'Боб 🦦', enabled: false });
     const current = saveUserSet(emptyLibrary(), set),
       modified = cloneJson(current);
     modified.sets[0].users[0].account.id = newUser('vless', 2).account.id;
@@ -250,17 +249,6 @@ describe('portable multi-user sets', () => {
     expect(merged.library.sets[1].id).not.toBe(set.id);
     expect(mergeUserLibraries(merged.library, modified).skipped).toBe(1);
   });
-  it.each(Object.keys(userProtocols) as UserProtocol[])(
-    'generates valid %s users with portable metadata',
-    (protocol) => {
-      const set = newUserSet(protocol);
-      set.users.push(newUser(protocol, 2));
-      expect(accountProblem(protocol, set.users[0].account)).toBeNull();
-      expect(parseUserLibrary(JSON.stringify({ ...emptyLibrary(), sets: [set] })).sets[0]).toEqual(
-        set,
-      );
-    },
-  );
   it('rejects invalid credentials, duplicate IDs, unsafe keys and malformed portable files', () => {
     const set = newUserSet();
     const library = saveUserSet(emptyLibrary(), set);

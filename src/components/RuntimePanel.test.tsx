@@ -111,7 +111,7 @@ it('permits reapplying a damaged profile and stopping a failed core', async () =
   expect(primary().disabled).toBe(false);
 });
 
-it('keeps Stop in the footer while waiting and during an automatic recovery attempt', async () => {
+it('can stop routing while waiting and during an automatic recovery attempt', async () => {
   const runtime = fixture();
   runtime.snapshot!.core.state = 'failed';
   runtime.snapshot!.recovery = {
@@ -125,7 +125,7 @@ it('keeps Stop in the footer while waiting and during an automatic recovery atte
     <RuntimePanel graph={graph} runtime={runtime} onIssue={vi.fn()} onClose={vi.fn()} />
   );
   await act(() => root.render(view()));
-  expect(button('Stop').closest('.rule-editor-footer')).not.toBeNull();
+  expect(button('Stop').disabled).toBe(false);
   runtime.snapshot!.lifecycle = {
     operation: 'start',
     stage: 'validate',

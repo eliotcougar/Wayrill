@@ -9,11 +9,6 @@ import { createFakeDnsExample } from '../graph/fakeDnsExample';
 import { readDnsFilter, dnsFilterSettings } from '../graph/dns';
 import { exportDnsRules } from '../graph/dnsRuleSource';
 import { updateGraphNode } from '../graph/model';
-import {
-  commitWorkspaceHistory,
-  initialWorkspaceHistory,
-  undoWorkspaceHistory,
-} from '../graph/workspaceHistory';
 import type { GraphState } from '../graph/types';
 const download = vi.hoisted(() => vi.fn());
 vi.mock('../routingDownload', () => ({ downloadRoutingRules: download }));
@@ -181,9 +176,10 @@ it.each(['Cancel', 'Apply changes'])(
     const graph = createDnsExample(),
       node = graph.nodes.find((n) => n.id === 'dns-routes')!,
       before = structuredClone(graph),
-      apply = vi.fn();
+      apply = vi.fn(),
+      close = vi.fn();
     await act(() =>
-      root.render(<DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
+      root.render(<DnsEditor node={node} graph={graph} onApply={apply} onClose={close} />),
     );
     await act(() => button('Outputs').click());
     expect(button('Delete output Local names').disabled).toBe(false);
@@ -197,6 +193,7 @@ it.each(['Cancel', 'Apply changes'])(
     await choose(select, 'remote');
     expect(button('Apply changes').disabled).toBe(false);
     await act(() => button(finish).click());
+    expect(close).toHaveBeenCalledOnce();
     if (finish === 'Cancel') expect(apply).not.toHaveBeenCalled();
     else {
       const edited = updateGraphNode(graph, node.id, apply.mock.calls[0][1]);
@@ -209,91 +206,60 @@ it.each(['Cancel', 'Apply changes'])(
       expect(
         readDnsFilter(edited.nodes.find((n) => n.id === node.id)!.data.settings).rules[0].output,
       ).toBe('remote');
-      expect(
-        undoWorkspaceHistory(
-          commitWorkspaceHistory(initialWorkspaceHistory(graph), { graph: edited }),
-        ).present.graph,
-      ).toEqual(before);
     }
     expect(graph).toEqual(before);
   },
 );
 
-it.each(['Cancel', 'Apply changes'])(
-  'keeps fallback behavior below preferences, leaves Outputs for ports, and honors %s',
-  async (finish) => {
-    const graph = createDnsExample(),
-      before = structuredClone(graph),
-      node = graph.nodes.find((n) => n.id === 'dns-routes')!,
-      apply = vi.fn(),
-      filter = readDnsFilter(node.data.settings),
-      fallback = filter.outputs.find((output) => output.fallback)!,
-      target = graph.nodes.find(
-        (n) =>
-          n.id ===
-          graph.edges.find((e) => e.source === node.id && e.sourceHandle === fallback.id)?.target,
-      )!;
-    await act(() =>
-      root.render(<DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
-    );
-    const footer = host.querySelector<HTMLDetailsElement>('[aria-label="DNS fallback"]')!;
-    expect(footer.open).toBe(false);
-    await act(() => footer.querySelector('summary')!.click());
-    expect(footer.open).toBe(true);
-    const advanced = footer.querySelector<HTMLDetailsElement>('.settings-advanced')!;
-    expect(advanced.open).toBe(false);
-    await act(() => advanced.querySelector('summary')!.click());
-    expect(advanced.open).toBe(true);
-    expect(footer.previousElementSibling?.getAttribute('aria-label')).toBe(
-      'Ordered DNS preferences',
-    );
-    expect(footer.querySelector('[aria-label="Fallback output"]')?.textContent).toContain(
-      target.data.label,
-    );
-    await choose(footer.querySelector('[aria-label="Fallback policy"]')!, 'when-unmatched');
-    expect(footer.querySelector('summary')!.textContent).toContain('Unmatched only');
-    for (const field of ['fallbackFirst', 'parallel']) {
-      const checkbox = footer.querySelector<HTMLInputElement>(
-        `[data-diagnostic-field="${field}"] input`,
-      )!;
-      if (!checkbox.checked) await act(() => checkbox.click());
-    }
-    await act(() => button('Outputs').click());
-    expect(
-      host.querySelector('[role="tabpanel"]:not([hidden]) [aria-label="Fallback policy"]'),
-    ).toBeNull();
-    expect(
-      host.querySelector('[role="tabpanel"]:not([hidden]) [data-diagnostic-field="parallel"]'),
-    ).toBeNull();
-    expect(
-      host.querySelector('[role="tabpanel"]:not([hidden]) [data-diagnostic-field="fallbackFirst"]'),
-    ).toBeNull();
-    expect(host.querySelector('[aria-label="Delete output Fallback"]')).toBeNull();
-    await act(() => button(`Preferences (${filter.rules.length})`).click());
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Fallback policy"]')!.value).toBe(
-      'when-unmatched',
-    );
-    await act(() => button(finish).click());
-    if (finish === 'Cancel') expect(apply).not.toHaveBeenCalled();
-    else {
-      const edited = updateGraphNode(graph, node.id, apply.mock.calls[0][1]);
-      const current = readDnsFilter(edited.nodes.find((n) => n.id === node.id)!.data.settings);
-      expect(current).toEqual({
-        ...filter,
-        fallbackMode: 'when-unmatched',
-        fallbackFirst: true,
-        parallel: true,
-      });
-      expect(edited.edges).toEqual(before.edges);
-      expect(
-        undoWorkspaceHistory(
-          commitWorkspaceHistory(initialWorkspaceHistory(graph), { graph: edited }),
-        ).present.graph,
-      ).toEqual(before);
-    }
-    expect(graph).toEqual(before);
-  },
-);
+it('applies a staged DNS fallback change after switching tabs', async () => {
+  const graph = createDnsExample(),
+    before = structuredClone(graph),
+    node = graph.nodes.find((n) => n.id === 'dns-routes')!,
+    apply = vi.fn(),
+    filter = readDnsFilter(node.data.settings),
+    fallback = filter.outputs.find((output) => output.fallback)!,
+    target = graph.nodes.find(
+      (n) =>
+        n.id ===
+        graph.edges.find((e) => e.source === node.id && e.sourceHandle === fallback.id)?.target,
+    )!;
+  await act(() =>
+    root.render(<DnsEditor node={node} graph={graph} onApply={apply} onClose={vi.fn()} />),
+  );
+  const footer = host.querySelector<HTMLDetailsElement>('[aria-label="DNS fallback"]')!;
+  if (!footer.open) await act(() => footer.querySelector('summary')!.click());
+  const advanced = footer.querySelector<HTMLDetailsElement>('details')!;
+  if (!advanced.open) await act(() => advanced.querySelector('summary')!.click());
+  expect(footer.querySelector('[aria-label="Fallback output"]')?.textContent).toContain(
+    target.data.label,
+  );
+  await choose(footer.querySelector('[aria-label="Fallback policy"]')!, 'when-unmatched');
+  expect(footer.querySelector('summary')!.textContent).toContain('Unmatched only');
+  for (const field of ['fallbackFirst', 'parallel']) {
+    const checkbox = footer.querySelector<HTMLInputElement>(
+      `[data-diagnostic-field="${field}"] input`,
+    )!;
+    if (!checkbox.checked) await act(() => checkbox.click());
+  }
+  await act(() => button('Outputs').click());
+  expect(host.querySelector('[aria-label="Delete output Fallback"]')).toBeNull();
+  await act(() => button(`Preferences (${filter.rules.length})`).click());
+  expect(host.querySelector<HTMLSelectElement>('[aria-label="Fallback policy"]')!.value).toBe(
+    'when-unmatched',
+  );
+  expect(apply).not.toHaveBeenCalled();
+  await act(() => button('Apply changes').click());
+  const edited = updateGraphNode(graph, node.id, apply.mock.calls[0][1]);
+  const current = readDnsFilter(edited.nodes.find((n) => n.id === node.id)!.data.settings);
+  expect(current).toEqual({
+    ...filter,
+    fallbackMode: 'when-unmatched',
+    fallbackFirst: true,
+    parallel: true,
+  });
+  expect(edited.edges).toEqual(before.edges);
+  expect(graph).toEqual(before);
+});
 
 it('does not convert an invalid UDP resolver draft to TCP', async () => {
   const node = makeNode('dns-servers', { x: 0, y: 0 });
