@@ -271,6 +271,22 @@ textarea::placeholder {
   color: var(--text-secondary);
   user-select: none;
 }
+.status-traffic {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  margin-inline-start: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.status-traffic > span {
+  min-inline-size: 7.5ch;
+}
+.status-traffic > .icon-button {
+  width: 24px;
+  height: 21px;
+}
 .status-divider {
   width: 1px;
   height: 12px;

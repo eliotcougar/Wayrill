@@ -1709,34 +1709,6 @@ export default function App({
                                     ? 'Offline'
                                     : 'Preview'}
                             </button>
-                            <button
-                              className="icon-button"
-                              title="Traffic statistics"
-                              aria-label="Open live traffic statistics"
-                              onClick={() => setTrafficOpen(true)}
-                            >
-                              <Activity size={18} />
-                            </button>
-                            <div className="toolbar-traffic" aria-label="Live traffic rates">
-                              <span>
-                                ↑{' '}
-                                {formatRate(
-                                  runtime.connected
-                                    ? runtime.snapshot?.traffic?.uploadPerSecond
-                                    : null,
-                                  trafficUnits.rate,
-                                )}
-                              </span>
-                              <span>
-                                ↓{' '}
-                                {formatRate(
-                                  runtime.connected
-                                    ? runtime.snapshot?.traffic?.downloadPerSecond
-                                    : null,
-                                  trafficUnits.rate,
-                                )}
-                              </span>
-                            </div>
                             <OutboundTestButtons
                               all
                               disabled={
@@ -2166,6 +2138,40 @@ export default function App({
                                     ? 'Draft unsaved'
                                     : 'Save failed'}
                         </span>
+                        {!simulation && !layer && (
+                          <div
+                            className="status-traffic"
+                            role="group"
+                            aria-label="Live traffic rates"
+                          >
+                            <span>
+                              ↑{' '}
+                              {formatRate(
+                                runtime.connected
+                                  ? runtime.snapshot?.traffic?.uploadPerSecond
+                                  : null,
+                                trafficUnits.rate,
+                              )}
+                            </span>
+                            <span>
+                              ↓{' '}
+                              {formatRate(
+                                runtime.connected
+                                  ? runtime.snapshot?.traffic?.downloadPerSecond
+                                  : null,
+                                trafficUnits.rate,
+                              )}
+                            </span>
+                            <button
+                              className="icon-button"
+                              title="Traffic statistics"
+                              aria-label="Open live traffic statistics"
+                              onClick={() => setTrafficOpen(true)}
+                            >
+                              <Activity size={15} aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
                       </footer>
                       <input
                         className="file-input"

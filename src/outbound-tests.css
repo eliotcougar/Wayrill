@@ -103,20 +103,6 @@
 .outbound-test-summary:hover {
   text-decoration: underline;
 }
-.toolbar-traffic {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.toolbar-traffic span {
-  display: inline-block;
-  min-width: 73px;
-}
 @media (forced-colors: active) {
   .outbound-test-summary,
   .outbound-test-row .passed,

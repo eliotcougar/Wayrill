@@ -85,6 +85,7 @@ try {
         $taskPin.build.utlsHandshakePatch=$taskPin.build.utlsHandshakePatchSha256
         $taskPin.build.resolverActivityPatch=$taskPin.build.resolverActivityPatchSha256
         $taskPin.build.udpSafetyPatch=$taskPin.build.udpSafetyPatchSha256
+        $taskPin.build.directIPv6RoutePatch=$taskPin.build.directIPv6RoutePatchSha256
     }
     # This extracted source is not part of the enclosing Wayrill Git worktree.
     # Otherwise git apply can silently skip every path when invoked below .tools/.

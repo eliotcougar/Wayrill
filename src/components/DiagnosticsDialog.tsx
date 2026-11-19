@@ -245,6 +245,7 @@ export default function DiagnosticsDialog({
           aria-label="Application log entries"
           className="text-control code-control diagnostics-output"
           readOnly
+          wrap="soft"
           value={text}
           placeholder={
             !live && desktop

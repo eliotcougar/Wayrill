@@ -2,7 +2,7 @@
   "xray": {
     "version": "26.11.9",
     "prerelease": false,
-    "executableSha256": "5997635D9D3B9B5EC686048789D13D4813733E7398D0C8A89EF3027109EE3863",
+    "executableSha256": "24C1B972D38B1CD325C3188CB3CF33EBDA74F36C35A33438F33658412DE6902E",
     "license": "MPL-2.0",
     "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.11.9",
     "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
@@ -20,6 +20,8 @@
       "resolverActivityPatchSha256": "49585000C238C0F4C99768DEE2911B61CBD9F730AE5C399379290540591E0642",
       "udpSafetyPatch": "service/xray-patches/udp-safety.patch",
       "udpSafetyPatchSha256": "D34C3AF9CC3F5C9DC1E1F8DABA3CFEA981121B4D7026FEFEE2E98BF2BE27D273",
+      "directIPv6RoutePatch": "service/xray-patches/direct-ipv6-route.patch",
+      "directIPv6RoutePatchSha256": "74CA9F18BBDFD1BDD5CEFA6D4DE8DE07183BCDDE95B52E058F981FC8474F4E12",
       "tunUdpRoutesPatch": "service/xray-patches/tun-udp-routes.patch",
       "tunUdpRoutesPatchSha256": "A33E9D37A47D0623BC6A845D3EA9C2F014CC6D4FB218099E50ADA9A6226BAAEE",
       "initializerFiles": {

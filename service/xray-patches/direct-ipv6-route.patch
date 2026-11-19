@@ -1,0 +1,271 @@
+diff --git a/transport/internet/system_dialer.go b/transport/internet/system_dialer.go
+index f881a20..e8e9eac 100644
+--- a/transport/internet/system_dialer.go
++++ b/transport/internet/system_dialer.go
+@@ -15,6 +15,7 @@ import (
+ )
+ 
+ var (
++	ErrDirectIPv6NoRoute  = go_errors.New("Direct IPv6 destination has no usable route")
+ 	Controllers           []func(network, address string, c syscall.RawConn) error
+ 	ControllersLock       sync.Mutex
+ 	effectiveSystemDialer SystemDialer = &DefaultSystemDialer{}
+@@ -108,7 +109,7 @@ func (d *DefaultSystemDialer) Dial(ctx context.Context, src net.Address, dest ne
+ 			return nil, err
+ 		}
+ 		return &net.PacketConnWrapper{
+-			PacketConn: packetConn,
++			PacketConn: guardDirectIPv6Packets(ctx, src, sockopt, packetConn),
+ 			Dest:       destAddr,
+ 		}, nil
+ 	}
+@@ -142,11 +143,14 @@ func (d *DefaultSystemDialer) Dial(ctx context.Context, src net.Address, dest ne
+ 		KeepAliveConfig: keepAliveConfig,
+ 	}
+ 
+-	if sockopt != nil || len(Controllers) > 0 {
++	if sockopt != nil || len(Controllers) > 0 || guardsDirectIPv6(ctx) {
+ 		if sockopt != nil && sockopt.TcpMptcp {
+ 			dialer.SetMultipathTCP(true)
+ 		}
+ 		dialer.Control = func(network, address string, c syscall.RawConn) error {
++			if err := guardDirectIPv6TCP(ctx, src, sockopt, network, address); err != nil {
++				return err
++			}
+ 			for _, ctl := range Controllers {
+ 				if err := ctl(network, address, c); err != nil {
+ 					return errors.New("failed to apply external controller").Base(err)
+diff --git a/proxy/freedom/freedom.go b/proxy/freedom/freedom.go
+index 79bbc2b..4146e92 100644
+--- a/proxy/freedom/freedom.go
++++ b/proxy/freedom/freedom.go
+@@ -321,6 +321,7 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
+ 	var conn stat.Connection
+ 	var blockedDest *net.Destination
+ 	var blockedRule *FinalRule
++	var noIPv6Route bool
+ 	err := retry.ExponentialBackoff(5, 100).On(func() error {
+ 		if destination.Address.Family().IsDomain() {
+ 			if defaultRule != nil || len(h.finalRules) > 0 {
+@@ -368,6 +369,10 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
+ 		}
+ 
+ 		rawConn, err := dialer.Dial(ctx, destination)
++		if stderrors.Is(err, internet.ErrDirectIPv6NoRoute) {
++			noIPv6Route = true
++			return nil
++		}
+ 		if err != nil {
+ 			return err
+ 		}
+@@ -378,6 +383,9 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
+ 	if err != nil {
+ 		return errors.New("failed to open connection to ", destination).Base(err)
+ 	}
++	if noIPv6Route {
++		return nil
++	}
+ 	if blockedDest != nil {
+ 		return h.blackhole(ctx, input, output, blockedRule, blockedDest)
+ 	}
+diff --git a/transport/internet/direct_ipv6_windows.go b/transport/internet/direct_ipv6_windows.go
+new file mode 100644
+index 0000000..88c0c63
+--- /dev/null
++++ b/transport/internet/direct_ipv6_windows.go
+@@ -0,0 +1,169 @@
++package internet
++
++import (
++	"context"
++	"errors"
++	"net"
++	"net/netip"
++	"sync"
++	"time"
++	"unsafe"
++
++	xnet "github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/session"
++	"golang.org/x/sys/windows"
++	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
++)
++
++const directIPv6RouteTTL = time.Second
++
++type directIPv6Route struct {
++	iface       string
++	source      netip.Addr
++	destination netip.Addr
++}
++
++type directIPv6RouteResult struct {
++	usable  bool
++	expires time.Time
++}
++
++var directIPv6Routes = struct {
++	sync.Mutex
++	results map[directIPv6Route]directIPv6RouteResult
++}{results: make(map[directIPv6Route]directIPv6RouteResult)}
++
++var getDirectIPv6Route = windows.NewLazySystemDLL("iphlpapi.dll").NewProc("GetBestRoute2")
++
++func guardsDirectIPv6(ctx context.Context) bool {
++	outbounds := session.OutboundsFromContext(ctx)
++	return len(outbounds) != 0 && outbounds[len(outbounds)-1].Name == "freedom"
++}
++
++func directIPv6Binding(src xnet.Address, sockopt *SocketConfig) directIPv6Route {
++	var route directIPv6Route
++	if src != nil && src.Family().IsIPv6() {
++		route.source, _ = netip.AddrFromSlice(src.IP())
++	}
++	if sockopt != nil {
++		route.iface = sockopt.Interface
++	}
++	return route
++}
++
++func (r directIPv6Route) nativeRouteUsable() bool {
++	var index uint32
++	if r.iface != "" {
++		iface, err := net.InterfaceByName(r.iface)
++		if err != nil {
++			return true // Preserve the socket bind error for invalid adapters.
++		}
++		index = uint32(iface.Index)
++	} else if err := windows.GetBestInterfaceEx(&windows.SockaddrInet6{Addr: r.destination.As16()}, &index); err != nil {
++		return !missingDirectIPv6Route(err)
++	}
++
++	var dest, source, selected winipcfg.RawSockaddrInet
++	_ = dest.SetAddr(r.destination)
++	var sourcePtr *winipcfg.RawSockaddrInet
++	if r.source.IsValid() && !r.source.IsUnspecified() {
++		_ = source.SetAddr(r.source)
++		sourcePtr = &source
++	}
++	var route winipcfg.MibIPforwardRow2
++	code, _, _ := getDirectIPv6Route.Call(0, uintptr(index), uintptr(unsafe.Pointer(sourcePtr)),
++		uintptr(unsafe.Pointer(&dest)), 0, uintptr(unsafe.Pointer(&route)), uintptr(unsafe.Pointer(&selected)))
++	if code != 0 {
++		return !missingDirectIPv6Route(windows.Errno(code))
++	}
++	// A link-local source cannot reach a routable unicast destination.
++	return route.InterfaceIndex == index && selected.Addr().IsGlobalUnicast()
++}
++
++func missingDirectIPv6Route(err error) bool {
++	switch err {
++	case windows.ERROR_NOT_FOUND, windows.ERROR_NETWORK_UNREACHABLE, windows.ERROR_HOST_UNREACHABLE,
++		windows.WSAENETUNREACH, windows.WSAEHOSTUNREACH:
++		return true
++	}
++	return false
++}
++
++func (r directIPv6Route) remember(usable bool) {
++	directIPv6Routes.Lock()
++	defer directIPv6Routes.Unlock()
++	if len(directIPv6Routes.results) >= 2048 {
++		clear(directIPv6Routes.results)
++	}
++	directIPv6Routes.results[r] = directIPv6RouteResult{usable, time.Now().Add(directIPv6RouteTTL)}
++}
++
++func (r directIPv6Route) usable() bool {
++	directIPv6Routes.Lock()
++	result := directIPv6Routes.results[r]
++	directIPv6Routes.Unlock()
++	if time.Now().Before(result.expires) {
++		return result.usable
++	}
++	usable := r.nativeRouteUsable()
++	r.remember(usable)
++	return usable
++}
++
++func guardDirectIPv6TCP(ctx context.Context, src xnet.Address, sockopt *SocketConfig, network, address string) error {
++	if network != "tcp6" || !guardsDirectIPv6(ctx) {
++		return nil
++	}
++	addr, err := netip.ParseAddrPort(address)
++	if err != nil || !isDirectRoutableIPv6(addr.Addr()) {
++		return nil
++	}
++	binding := directIPv6Binding(src, sockopt)
++	binding.destination = addr.Addr()
++	if !binding.usable() {
++		return ErrDirectIPv6NoRoute
++	}
++	return nil
++}
++
++// The Windows stack retains responsibility for loopback, multicast and scoped
++// IPv6 addresses. IPv4-mapped addresses also use the ordinary IPv4 path.
++func isDirectRoutableIPv6(addr netip.Addr) bool {
++	return addr.Is6() && !addr.Is4In6() && addr.Zone() == "" && addr.IsGlobalUnicast()
++}
++
++func guardDirectIPv6Packets(ctx context.Context, src xnet.Address, sockopt *SocketConfig, conn net.PacketConn) net.PacketConn {
++	if !guardsDirectIPv6(ctx) {
++		return conn
++	}
++	return &directIPv6PacketConn{PacketConn: conn, binding: directIPv6Binding(src, sockopt)}
++}
++
++type directIPv6PacketConn struct {
++	net.PacketConn
++	binding directIPv6Route
++}
++
++func (c *directIPv6PacketConn) WriteTo(data []byte, address net.Addr) (int, error) {
++	udp, ok := address.(*net.UDPAddr)
++	if !ok {
++		return c.PacketConn.WriteTo(data, address)
++	}
++	dst := udp.AddrPort().Addr()
++	if !isDirectRoutableIPv6(dst) {
++		return c.PacketConn.WriteTo(data, address)
++	}
++	route := c.binding
++	route.destination = dst
++	if !route.usable() {
++		return len(data), nil
++	}
++	n, err := c.PacketConn.WriteTo(data, address)
++	if errors.Is(err, windows.WSAENETUNREACH) && !route.nativeRouteUsable() {
++		// A route can disappear between lookup and send. Keep the UDP socket
++		// available to other destinations and let the negative result expire.
++		route.remember(false)
++		return len(data), nil
++	}
++	return n, err
++}
+diff --git a/transport/internet/direct_ipv6_other.go b/transport/internet/direct_ipv6_other.go
+new file mode 100644
+index 0000000..09f5a2e
+--- /dev/null
++++ b/transport/internet/direct_ipv6_other.go
+@@ -0,0 +1,20 @@
++//go:build !windows
++
++package internet
++
++import (
++	"context"
++	"net"
++
++	xnet "github.com/xtls/xray-core/common/net"
++)
++
++func guardsDirectIPv6(context.Context) bool { return false }
++
++func guardDirectIPv6TCP(context.Context, xnet.Address, *SocketConfig, string, string) error {
++	return nil
++}
++
++func guardDirectIPv6Packets(_ context.Context, _ xnet.Address, _ *SocketConfig, conn net.PacketConn) net.PacketConn {
++	return conn
++}

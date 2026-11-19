@@ -15,7 +15,7 @@ notes record the state at the time of their review.
 | Main executable | `xray.exe`; upstream base plus the shared patches and socket initializer |
 | Private worker executable | `wayrill-tun.exe`; main-core changes plus TUN hooks and helper commands |
 | Shared FakeDNS authority | Separate restricted process running `wayrill-tun.exe wayrill-fakedns`; not a third independently maintained binary |
-| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch), [resolver activity](../../service/xray-patches/resolver-activity.patch), [UDP association and datagram handling](../../service/xray-patches/udp-safety.patch) |
+| Patches | [Shared FakeDNS](../../service/xray-patches/shared-fakedns.patch), [relay telemetry](../../service/xray-patches/relay-telemetry.patch), [uTLS handshake timeout](../../service/xray-patches/utls-handshake-timeout.patch), [resolver activity](../../service/xray-patches/resolver-activity.patch), [UDP association and datagram handling](../../service/xray-patches/udp-safety.patch), [Direct IPv6 route availability](../../service/xray-patches/direct-ipv6-route.patch) |
 | Private worker patch | [Attributed UDP routing](../../service/xray-patches/tun-udp-routes.patch) |
 | Initializers and additions | [core-init](../../service/core-init), [core-control](../../service/core-control), [tun-core](../../service/tun-core) |
 | Application of every change | [tools/Build-XrayCores.ps1](../../tools/Build-XrayCores.ps1) |
@@ -66,6 +66,22 @@ binary patch. The bounded log supplies observations rather than per-tab attribut
 | X15 | Per-destination UDP routing with route-scoped FullCone | Worker | Adapts [#7346](https://github.com/XTLS/Xray-core/pull/7346) to the attributed Wayrill dispatcher |
 | X16 | DNS resolver attempt counters | Shared | Uses the existing stats manager and metrics handler. The query counter is a private hook. |
 | X17 | XUDP resumption boundaries and large Direct UDP replies | Shared | Source-pinned fixes for the XUDP server and Freedom packet reader |
+| X18 | Direct IPv6 route availability on Windows | Shared | Checks the native route at Direct egress and resumes after route recovery |
+
+### X18 — Direct IPv6 route availability on Windows
+
+The [Direct IPv6 route patch](../../service/xray-patches/direct-ipv6-route.patch)
+checks the actual destination and selected uplink after hostname resolution.
+Windows supplies the matching route and source address. A missing route skips
+the TCP candidate before connect or drops the UDP datagram while keeping its
+socket available. Results expire after one second so a restored route works
+without restarting the core. The check applies to native Direct egress and
+preserves the Windows handling of loopback, scoped addresses and multicast.
+
+The patch adds Windows and non-Windows implementations in
+`transport/internet/direct_ipv6_*.go`. It hooks `system_dialer.go` and
+`proxy/freedom/freedom.go`. IPv6 capture and proxy destinations continue to be
+selected by the graph independently of native IPv6 reachability.
 
 ### X16 — DNS resolver attempts
 

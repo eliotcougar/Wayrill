@@ -23,7 +23,8 @@
   flex: 1;
   min-height: 180px;
   resize: none;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   overflow: auto;
 }
 .diagnostics-status {
