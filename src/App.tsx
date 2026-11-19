@@ -364,9 +364,9 @@ export default function App({
         'The graph is temporarily busy. Your draft is preserved; try saving again when the operation finishes.',
       );
   };
-  const saveNodeGraph = (draft: GraphState) => {
-    if (!editingGraph) return;
-    requireGraphSave(editor.change((current) => commitEditorDraft(editingGraph, draft, current)));
+  const saveNodeGraph = (draft: GraphState, base = editingGraph) => {
+    if (!base) return;
+    requireGraphSave(editor.change((current) => commitEditorDraft(base, draft, current)));
   };
   const saveNodeData = (id: string, data: Partial<RuleNodeData>) => {
     if (editingGraph) saveNodeGraph(editGraphNode(editingGraph, id, data));
@@ -2749,21 +2749,34 @@ export default function App({
                             key={editingNode.id}
                             node={editingNode}
                             graph={editor.graph}
-                            onApply={(id, data, domainStrategy) => {
-                              if (!editingGraph) return;
-                              const next = updateGraphNode(editingGraph, id, data);
-                              if (!domainStrategy) return saveNodeGraph(next);
-                              const defaults = editingGraph.defaults ?? factoryDefaults();
-                              saveNodeGraph({
-                                ...next,
-                                defaults: {
-                                  ...defaults,
-                                  settings: {
-                                    ...defaults.settings,
-                                    routingDomainStrategy: domainStrategy,
+                            followPool={
+                              managed &&
+                              !!editingGraph?.poolId &&
+                              editingGraph.poolId === editor.graph.poolId
+                            }
+                            onApply={(
+                              id,
+                              data,
+                              domainStrategy,
+                              base = editingGraph ?? undefined,
+                            ) => {
+                              if (!base) return;
+                              const next = updateGraphNode(base, id, data);
+                              if (!domainStrategy) return saveNodeGraph(next, base);
+                              const defaults = base.defaults ?? factoryDefaults();
+                              saveNodeGraph(
+                                {
+                                  ...next,
+                                  defaults: {
+                                    ...defaults,
+                                    settings: {
+                                      ...defaults.settings,
+                                      routingDomainStrategy: domainStrategy,
+                                    },
                                   },
                                 },
-                              });
+                                base,
+                              );
                             }}
                             onClose={closeNodeEditor}
                           />

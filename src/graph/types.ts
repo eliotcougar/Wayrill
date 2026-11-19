@@ -71,6 +71,8 @@ export interface GraphState {
   poolApplicationBindings?: import('./applications').PoolApplicationBindings;
   /** Local discovery results, replaced on recheck. Explicit choices take precedence. */
   poolAutomaticApplications?: import('./applications').PoolApplicationBindings;
+  /** Filters reachable from the Pool template's TUN placeholder, even in Proxy mode. */
+  poolTunFilters?: string[];
   /** Workspace quick-switch target; never an Xray setting. */
   mainOutboundId?: string;
   name: string;

@@ -6,7 +6,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use sha2::{Digest, Sha256};
 
 // Increase when existing publications need to be read again after an upgrade.
-const DELIVERY_READER: u16 = 4;
+const DELIVERY_READER: u16 = 5;
 
 fn default_minutes() -> u64 {
     5

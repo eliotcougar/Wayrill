@@ -31,7 +31,7 @@ import useModalDialog from './useModalDialog';
 import { OrderedEntries, moveEntry } from './OrderedEntries';
 import { ruleConditionSummary } from './editorSummaries';
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2, X, Expand } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type SetStateAction } from 'react';
 import {
   readRuleTable,
   normalizeRuleLists,
@@ -54,8 +54,9 @@ import { ensureNodeTags } from '../graph/tags';
 import { graphTagChoices } from '../graph/tagReferences';
 
 export default function RuleTableEditor({
-  node,
+  node: initialNode,
   graph: sourceGraph,
+  followPool = false,
   resourceWarnings,
   onApply,
   onClose,
@@ -73,10 +74,12 @@ export default function RuleTableEditor({
   node: RuleNode;
   resourceWarnings?: Partial<ResourceWarningReport> | null;
   graph: GraphState;
+  followPool?: boolean;
   onApply: (
     id: string,
     data: Partial<RuleNodeData>,
     domainStrategy?: string | null,
+    base?: GraphState,
   ) => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -86,9 +89,12 @@ export default function RuleTableEditor({
     [graph],
   );
   const { save, saveError } = useEditorSave(onClose);
-  const [expanded, setExpanded] = useState<{ key: string; label: string; value: string } | null>(
-    null,
-  );
+  const [expanded, setExpanded] = useState<{
+    key: string;
+    label: string;
+    value: string;
+    base?: GraphState;
+  } | null>(null);
   const expandTrigger = useRef<HTMLButtonElement | null>(null);
   const domainInput = useRef<HTMLTextAreaElement | null>(null);
   const ipInput = useRef<HTMLTextAreaElement | null>(null);
@@ -100,10 +106,35 @@ export default function RuleTableEditor({
   );
   const requested = useRequestedDiagnostic();
   const dialog = useRef<HTMLDialogElement>(null);
-  const [table, setTable] = useState(() => readRuleTable(node.data.settings));
+  const liveNode = followPool
+    ? sourceGraph.nodes.find(
+        ({ id, data }) => id === initialNode.id && data.kind === initialNode.data.kind,
+      )
+    : undefined;
+  const [draft, setDraft] = useState<{ base?: GraphState; table: RuleTable }>();
+  const snapshot = draft ?? expanded;
+  const base = snapshot ? snapshot.base : liveNode ? sourceGraph : undefined;
+  const node =
+    (snapshot ? base?.nodes.find(({ id }) => id === initialNode.id) : liveNode) ?? initialNode;
+  const originalTable = useMemo(() => readRuleTable(node.data.settings), [node.data.settings]);
+  const table = draft?.table ?? originalTable;
+  function setTable(update: SetStateAction<RuleTable>) {
+    setDraft((current) => {
+      const previous = current?.table ?? originalTable;
+      const next = typeof update === 'function' ? update(previous) : update;
+      return next === previous ? current : { base, table: next };
+    });
+  }
   const poolManaged = !!graph.poolId && !layerMode;
-  const [originalRules] = useState(() => new Map(table.rules.map((rule) => [rule.id, rule])));
-  const [selected, setSelected] = useState<string | null>(
+  const poolRulesChanged =
+    !!(draft || expanded) &&
+    !!liveNode &&
+    liveNode.data.settings.rules !== node.data.settings.rules;
+  const originalRules = useMemo(
+    () => new Map(originalTable.rules.map((rule) => [rule.id, rule])),
+    [originalTable],
+  );
+  const [selection, setSelected] = useState<string | null>(
     () => requested?.rowId ?? table.rules[0]?.id ?? null,
   );
   const [tab, setTab] = useState<
@@ -148,8 +179,10 @@ export default function RuleTableEditor({
     ...sharedIssues,
   ];
   const errors = issues.filter((issue) => issue.severity === 'error');
-  const selectedRule = table.rules.find((rule) => rule.id === selected);
-  const index = table.rules.findIndex((rule) => rule.id === selected);
+  const selectedIndex = table.rules.findIndex((rule) => rule.id === selection);
+  const index = selectedIndex === -1 && table.rules.length ? 0 : selectedIndex;
+  const selectedRule = index < 0 ? undefined : table.rules[index];
+  const selected = selectedRule?.id ?? null;
   const canMove = (to: number) =>
     !!selectedRule &&
     !!table.rules[to] &&
@@ -346,7 +379,7 @@ export default function RuleTableEditor({
                 title={`Expand ${label}`}
                 onClick={(e) => {
                   expandTrigger.current = e.currentTarget;
-                  setExpanded({ key, label, value: selectedRule?.conditions[key] ?? '' });
+                  setExpanded({ key, label, value: selectedRule?.conditions[key] ?? '', base });
                 }}
               >
                 <Expand size={14} />
@@ -1030,6 +1063,12 @@ export default function RuleTableEditor({
         )}
       </EditorTabPanels>
       <div className="rule-editor-diagnostics" aria-live="polite">
+        {poolRulesChanged && (
+          <p className="field-help">
+            The Pool updated this filter while you were editing. Reopen the filter to see the latest
+            published rules.
+          </p>
+        )}
         {removedEdges.length > 0 && (
           <p className="warning">{removedEdges.length} connection(s) will be removed.</p>
         )}
@@ -1068,6 +1107,7 @@ export default function RuleTableEditor({
                   },
                 },
                 presetStrategy,
+                base,
               );
             })
           }

@@ -9,6 +9,7 @@ import {
 } from '../graph/applications';
 import { withoutPreferences } from './preferences';
 import { getDefinition, getOutputPorts, makeNode } from '../graph/catalog';
+import { captureReachableFilters } from '../graph/capture';
 import {
   capturePlaceholder,
   placeholderKind,
@@ -24,7 +25,12 @@ import { bundledExamples, createProxyStarter } from '../graph/examples';
 import { isDisabledInbound, isGraphInbound } from '../graph/inboundState';
 import { parseGraph, toDocument } from '../graph/model';
 import { refreshPolicyGraph, refreshStashComposites } from '../graph/policySources';
-import { readRuleTable, tableSettings, type TableRule } from '../graph/rules';
+import {
+  hasDirectCaptureApplications,
+  readRuleTable,
+  tableSettings,
+  type TableRule,
+} from '../graph/rules';
 import { detachTrafficSource } from '../graph/trafficRuleSource';
 import type { GraphState, NodeKind, PoolGraphLink, RuleEdge, RuleNode } from '../graph/types';
 import { generatedTag } from '../graph/tags';
@@ -812,11 +818,20 @@ export function preparePoolWorkspace(
         };
       }),
   ];
+  const tunFilters = captureReachableFilters(portable, true);
+  const poolTunFilters = portable.nodes
+    .filter(
+      ({ id, data }) =>
+        tunFilters.has(id) && readRuleTable(data.settings).rules.some(hasDirectCaptureApplications),
+    )
+    .map(({ id }) => id)
+    .sort();
   const graph = parseGraph(
     JSON.stringify(
       toDocument({
         name: bundle.name,
         poolId: recipient,
+        poolTunFilters,
         poolApplicationBindings: applicationBindings,
         poolAutomaticApplications: Object.fromEntries(
           applications.flatMap(({ id, executable }) => {

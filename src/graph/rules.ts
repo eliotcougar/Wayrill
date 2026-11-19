@@ -505,10 +505,7 @@ export function resolveRuleApplications(
   // Application selectors are alternatives within the same condition.
   // An unresolved condition cannot leave only the row's common predicates.
   const canMatch =
-    applications.some((app) => app.enabled) ||
-    legacy.length > 0 ||
-    (rule.targetMatch !== 'all' &&
-      ['domain', 'ip'].some((key) => routingListEntries(conditions[key] ?? '', key).length > 0));
+    applications.some((app) => app.enabled) || legacy.length > 0 || hasDestinationAlternative(rule);
   return {
     ...rule,
     applications: [...applications, ...nativeProcessSelectors(legacy)],
@@ -516,6 +513,20 @@ export function resolveRuleApplications(
     enabled: rule.enabled && (rule.matchAll || !hadPoolCondition || canMatch),
   };
 }
+
+export const hasDestinationAlternative = (rule: TableRule) =>
+  rule.targetMatch !== 'all' &&
+  ['domain', 'ip'].some((key) => routingListEntries(rule.conditions[key] ?? '', key).length > 0);
+
+export const isCaptureOnlyApplication = (selector: ApplicationSelector) =>
+  selector.kind !== 'process' || selector.children;
+
+export const hasDirectCaptureApplications = (rule: TableRule) =>
+  rule.enabled &&
+  !rule.matchAll &&
+  rule.applications?.some(
+    (app) => app.enabled && app.kind !== 'pool' && isCaptureOnlyApplication(app),
+  );
 
 /** Lower the editor's alternatives to core AND predicates, without changing rule precedence. */
 export function routingRuleVariants(rule: TableRule): Record<string, unknown>[] {
@@ -537,7 +548,7 @@ function fieldVariants(
 export const hasCaptureOnlyApplications = (rule: TableRule, bindings?: PoolApplicationBindings) =>
   !rule.matchAll &&
   !!resolveRuleApplications(rule, bindings).applications?.some(
-    (r) => r.enabled && (r.kind !== 'process' || r.children),
+    (r) => r.enabled && (r.kind === 'pool' || isCaptureOnlyApplication(r)),
   );
 
 /** Shared filters retain identity predicates until the compiler separates source scopes. */

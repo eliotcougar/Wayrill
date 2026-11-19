@@ -9,6 +9,7 @@ import { routingPaths, RoutingPathError } from './routingPaths';
 import { intersectNativeProcesses } from '@wayrill/core/nativePredicates';
 import { readRuleTable } from './rules';
 import { NAT_ROUTING_TAG } from './tun';
+import { capturePlaceholder } from './inboundPlaceholder';
 
 export type { ApplicationSelector as CaptureSelector } from './applications';
 import {
@@ -91,7 +92,10 @@ export function orderedCaptureInbounds(graph: GraphState) {
 }
 
 /** Only enabled traffic paths grant a shared filter access to capture metadata. */
-export function captureReachableFilters(graph: GraphState): Set<string> {
+export function captureReachableFilters(
+  graph: GraphState,
+  includeTunPlaceholders = false,
+): Set<string> {
   const byId = new Map(graph.nodes.map((node) => [node.id, node]));
   const edges = new Map<string, typeof graph.edges>();
   for (const edge of graph.edges) {
@@ -101,8 +105,9 @@ export function captureReachableFilters(graph: GraphState): Set<string> {
   }
   const pending = graph.nodes.filter(
     (node) =>
-      ['tun-inbound', 'windivert-inbound'].includes(node.data.kind) &&
-      !isDisabledInbound(node.data),
+      !isDisabledInbound(node.data) &&
+      (['tun-inbound', 'windivert-inbound'].includes(node.data.kind) ||
+        (includeTunPlaceholders && capturePlaceholder(node.data) === 'tun')),
   );
   const filters = new Set<string>();
   while (pending.length) {
@@ -182,11 +187,11 @@ export function compileCaptureRouting(
   const routing = config.routing as { rules?: Record<string, unknown>[] } | undefined;
   const rules = routing?.rules ?? [];
   if (!plan) {
-    if (rules.some((r) => r._wayrillApplications))
+    if (!rules.some((rule) => rule._wayrillApplications)) return undefined;
+    if (!graph.poolId || !graph.poolTunFilters?.length)
       throw new Error(
         'Windows apps, services and child-process conditions require a connected TUN or WinDivert source.',
       );
-    return undefined;
   }
   const predicates: CaptureSelector[][] = [],
     keys = new Map<string, number>();
@@ -202,9 +207,9 @@ export function compileCaptureRouting(
     predicates.push(rows);
     return predicates.length - 1;
   };
-  const captureTags = new Set(plan.inputs.map((i) => i.tag));
+  const captureTags = new Set(plan?.inputs.map((i) => i.tag));
   const allTags = (config.inbounds as Record<string, unknown>[]).map((i) => String(i.tag));
-  const icsTag = plan.tunSharing?.tag;
+  const icsTag = plan?.tunSharing?.tag;
   const output: Record<string, unknown>[] = [];
   for (const rule of rules) {
     const groups =
@@ -255,6 +260,11 @@ export function compileCaptureRouting(
         }),
       );
     }
+  }
+  if (!plan) {
+    // Only native-compatible alternatives remain for a Pool using Proxy capture.
+    if (routing) routing.rules = output;
+    return undefined;
   }
   const masks = processProfiles(predicates);
   const allowAmbiguity = graph.nodes.some(

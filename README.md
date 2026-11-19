@@ -12,7 +12,7 @@ selected apps through a proxy, and give DNS its own rules. Wayrill runs the grap
 as a Windows service. The bundled **Wayrill Aquifer** uses the same editing
 approach to manage Xray on a Linux server over SSH.
 
-[**Download the 0.38.0 Windows beta**](https://github.com/eliotcougar/Wayrill/releases/tag/v0.38.0) ·
+[**Download the 0.39.0 Windows beta**](https://github.com/eliotcougar/Wayrill/releases/tag/v0.39.0) ·
 [Getting started](docs/guide/getting-started.md) ·
 [Documentation](docs/README.md) ·
 [Report a problem](https://github.com/eliotcougar/Wayrill/issues)
@@ -66,11 +66,19 @@ keys. [Aquifer setup and deployment](aquifer/README.md).
 
 > **Wayrill Pool is still a preview and is not ready for production use.**
 
-Pool lets an administrator assign graphs, Stash layers, traffic and DNS filters,
-and individual server credentials to each user. Publish encrypted deliveries to
-a shared folder or serve them over HTTPS. Subscribers join with an invitation
-and keep their own capture settings. The Wayrill service checks for updates and
-keeps the last working configuration if an update fails. [Pool setup and enrollment](docs/guide/pool.md).
+Set up routing once for several Windows PCs. Assign graphs, Stashes, traffic and
+DNS filters, and individual server credentials to each user. Publish encrypted
+deliveries to a shared folder or serve them over HTTPS. **Test invitation** opens
+the subscriber’s view in a separate window so you can review the graph and routing
+without starting capture.
+
+Subscribers choose Proxy, TUN, or both. They can keep their own capture settings
+and add personal rules before or after the managed ones. Pool can distribute
+application rules by Windows package, service, or executable identity, even
+when the application is installed in a different folder. It can also supply
+geodata defaults and offer opt-in loopback exemptions and app protection.
+Updates apply automatically. The service keeps the last working configuration
+if a delivery fails. [Pool setup and enrollment](docs/guide/pool.md).
 
 ## From a webpage to its routing rules
 
@@ -83,8 +91,8 @@ editor, even when only the service is running. Choose an exact-domain or
 subdomain match, edit the entry yourself, or find a GeoSite group containing it.
 Review the change in your draft, then **Apply** when ready.
 
-**Companion 0.7.1** ships for Firefox and Chromium. Firefox now shares Chromium’s
-routing popup and **Time Zone** controls. Install or update Firefox Companion
+**Companion 0.7.1** ships for Firefox and Chromium. Both offer the routing popup
+and **Time Zone** controls. Install or update Firefox Companion
 through the Add-ons Manager using the bundled Mozilla-signed XPI. Chromium
 browsers load the included extension folder.
 
@@ -111,10 +119,12 @@ groups, ports and protocols. Host TUN and WinDivert also support executable name
 paths and folders, child processes, Windows services and packaged apps.
 Chain filters when it makes a large ruleset easier to organize.
 
-Each traffic filter has a live log showing the destination, matched rule and
-chosen output. Search for a failing site or show only unmatched traffic to find
-what your rules missed. DNS filters separately select resolver groups and
-fallback behavior; FakeDNS can preserve domain names for routing captured traffic.
+Each traffic filter has a live log showing the destination, matched rule, and
+chosen output. It can also show the process or ancestor that matched and the
+server selected by a policy group. Search for a failing site or show only
+unmatched traffic to see what your rules missed. DNS filters select resolver
+groups and fallback behavior independently. FakeDNS can preserve domain names
+for routing captured traffic.
 
 ### Switch routes without rebuilding the graph
 
@@ -151,7 +161,7 @@ and outbound editors.
 
 - **Test the actual route.** Check delay, exit IP, optional UDP connectivity and
   download speed for servers, groups and chains. Follow live rates, totals and
-  traffic history by source and outbound.
+  traffic history by source and outbound from the status bar.
 - **Keep rules current without losing local edits.** Import traffic rules from a
   file or URL, add your own entries, and preserve those additions across manual
   refreshes. Browse GeoSite/GeoIP contents and update resource files from the app.

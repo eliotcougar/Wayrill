@@ -8,6 +8,7 @@ import { createRoutingExample } from '../graph/example';
 import { updateGraphNode } from '../graph/model';
 import { readRuleTable, tableSettings } from '../graph/rules';
 import type { GraphState } from '../graph/types';
+import type { RuleApplication } from '../graph/applications';
 import { exportFile } from '../exportFile';
 import { attachTrafficSource, editSourcedRule } from '../graph/trafficRuleSource';
 import { parseTrafficRules } from '../graph/trafficRuleImport';
@@ -313,5 +314,83 @@ it('edits ambiguity atomically without changing the default output', async () =>
   expect(readRuleTable(apply.mock.calls[0][1].settings).tunAmbiguity).toEqual({
     action: 'allow',
     output: 'preferred',
+  });
+});
+
+it('shows newly delivered Windows selectors in an open managed filter and preserves a subsequent draft', async () => {
+  const initial = { ...createRoutingExample(), poolId: 'a'.repeat(32) };
+  const node = initial.nodes.find(({ id }) => id === 'routes')!;
+  const published = (applications: RuleApplication[]) => {
+    const graph = structuredClone(initial);
+    const filter = graph.nodes.find(({ id }) => id === node.id)!;
+    const table = readRuleTable(filter.data.settings);
+    table.rules = [
+      {
+        ...table.rules[0],
+        name: 'Apps',
+        conditions: {},
+        applications,
+      },
+    ];
+    Object.assign(filter.data.settings, tableSettings(table));
+    return graph;
+  };
+  const process = {
+    kind: 'process',
+    mode: 'name',
+    value: 'discord.exe',
+    children: false,
+    enabled: true,
+  } as const;
+  const app = {
+    ...process,
+    kind: 'package',
+    value: 'Example.WindowsApp_123456789abcd',
+    children: true,
+  } as const;
+  const service = { ...process, kind: 'service', value: 'ExampleService' } as const;
+  const before = published([process]);
+  const openingNode = before.nodes.find(({ id }) => id === node.id)!;
+  const apply = vi.fn();
+  const close = vi.fn();
+  const render = (graph: GraphState) =>
+    act(() =>
+      root.render(
+        <RuleTableEditor
+          graph={graph}
+          followPool
+          node={openingNode}
+          onApply={apply}
+          onClose={close}
+        />,
+      ),
+    );
+  const listed = (value: string) => host.querySelector(`input[aria-label="Enable ${value}"]`);
+  await render(before);
+  expect(listed(process.value)).toBeTruthy();
+  expect(listed(app.value)).toBeNull();
+  const updated = published([process, app, service]);
+  await render(updated);
+  expect(listed(app.value)).toBeTruthy();
+  expect(listed(service.value)).toBeTruthy();
+  expect(apply).not.toHaveBeenCalled();
+
+  const name = host.querySelector<HTMLInputElement>('[data-diagnostic-field="name"]')!;
+  await act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      name,
+      'My draft',
+    );
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await render(published([process]));
+  expect(name.value).toBe('My draft');
+  expect(listed(service.value)).toBeTruthy();
+  expect(host.textContent).toContain('The Pool updated this filter while you were editing.');
+  await act(() => button('Apply changes').click());
+  expect(apply.mock.calls[0][3]).toBe(updated);
+  expect(readRuleTable(apply.mock.calls[0][1].settings).rules[0]).toMatchObject({
+    name: 'My draft',
+    applications: [process, app, service],
   });
 });

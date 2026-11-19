@@ -221,13 +221,16 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
   const paths = routingPaths(graph, rules.length);
   rules.push(...compileNatRouting(graph, paths, terminal, warnings));
   const captureFilters = captureReachableFilters(graph);
+  const poolTunFilters = new Set(graph.poolId ? graph.poolTunFilters : undefined);
   const applicationBindings = effectivePoolApplications(graph);
   const project = (input: RuleNode, node: RuleNode, row: TableRule) => {
     try {
       if (input.data.kind === 'ics-tun')
         return sharedRuleVariants(row, sharedFilterSources(graph, node.id).host, warnings, node);
       const captured = ['windivert-inbound', 'tun-inbound'].includes(input.data.kind);
-      const shared = !captured && captureFilters.has(node.id);
+      const shared =
+        !captured &&
+        (captureFilters.has(node.id) || (!row.poolPlacement && poolTunFilters.has(node.id)));
       if (shared && hasCaptureOnlyApplications(row, applicationBindings))
         warnings.push(
           `${node.data.label}: ${row.name} — child-process, app and service matching is unavailable for ${input.data.label}; supported conditions and fallback still apply.`,

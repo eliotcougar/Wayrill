@@ -105,6 +105,9 @@ export function toDocument(graph: GraphState): GraphDocument {
     version: 2,
     name: graph.name,
     ...(graph.poolId ? { poolId: graph.poolId } : {}),
+    ...(graph.poolId && graph.poolTunFilters?.length
+      ? { poolTunFilters: graph.poolTunFilters }
+      : {}),
     ...(graph.poolId && graph.poolSettings ? { poolSettings: { ...graph.poolSettings } } : {}),
     ...(graph.poolId &&
     graph.poolAutomaticApplications &&
@@ -277,6 +280,16 @@ export function parseGraph(text: string): GraphState {
     throw new Error('Invalid Pool graph identity.');
   const poolSettings = parsePoolSettings(raw.poolSettings);
   if (poolSettings && !raw.poolId) throw new Error('Pool settings require a Pool graph.');
+  const poolTunFilters = raw.poolTunFilters;
+  if (
+    poolTunFilters !== undefined &&
+    (!raw.poolId ||
+      !jsonArray(poolTunFilters) ||
+      poolTunFilters.length > 500 ||
+      !poolTunFilters.every(validId) ||
+      new Set(poolTunFilters).size !== poolTunFilters.length)
+  )
+    throw new Error('Invalid Pool TUN filter list.');
   if (
     (raw.poolApplicationBindings !== undefined || raw.poolAutomaticApplications !== undefined) &&
     !raw.poolId
@@ -284,6 +297,7 @@ export function parseGraph(text: string): GraphState {
     throw new Error('Local application bindings require a Pool graph.');
   const graph: GraphState = {
     ...(raw.poolId ? { poolId: raw.poolId } : {}),
+    ...(poolTunFilters?.length ? { poolTunFilters } : {}),
     ...(poolSettings ? { poolSettings } : {}),
     ...(raw.poolApplicationBindings === undefined
       ? {}

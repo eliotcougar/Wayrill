@@ -201,6 +201,73 @@ it('never treats a missing or unavailable application as a match on the remainin
   ).not.toContain('pool-qa.example');
 });
 
+it('validates app rules through the TUN placeholder and keeps Proxy-only delivery safe', () => {
+  const bundle = publication(app);
+  const graph = parseGraph(bundle.graph);
+  const filter = graph.nodes.find(({ id }) => id === 'filter')!;
+  const table = readRuleTable(filter.data.settings);
+  const [rule] = table.rules;
+  const packageMatch = {
+    ...app.identities[0],
+    mode: 'name',
+    children: true,
+    enabled: true,
+  } as const;
+  table.rules = [{ ...rule, applications: [packageMatch] }];
+  filter.data.settings = tableSettings(table);
+  const delivery = () => ({ ...bundle, graph: serializeGraph(graph) });
+  const publicationWire = () =>
+    encodePoolDelivery({
+      format: 'wayrill.pool.catalog',
+      version: 1,
+      defaultGraph: 'graph',
+      graphs: [{ id: 'graph', bundle: delivery() }],
+      layers: [
+        {
+          id: 'rules',
+          name: 'Rules',
+          data: { kind: 'traffic', filter: { nodeId: filter.id, table } },
+        },
+      ],
+      defaultLayers: [],
+    });
+
+  expect(() => validatePublishedGraph(delivery())).not.toThrow();
+  const wire = publicationWire();
+  const restored = resolvePoolDelivery(wire, {
+    graph: 'graph',
+    filters: { [filter.id]: 'rules' },
+  }).bundle;
+  expect(apply(restored).capture?.inputs[0].predicates?.flat()).toContainEqual(packageMatch);
+  const proxy = apply(restored, undefined, undefined, 'proxy');
+  expect(proxy.capture).toBeUndefined();
+  expect(JSON.stringify(proxy.config.routing)).not.toContain('pool-qa.example');
+  expect(
+    readRuleTable(parseGraph(proxy.graph!).nodes.find(({ id }) => id === filter.id)!.data.settings)
+      .rules[0].applications,
+  ).toEqual([packageMatch]);
+  expect(
+    JSON.stringify(apply(wire.graphs[0].bundle, undefined, undefined, 'proxy').config.routing),
+  ).not.toContain('pool-qa.example');
+
+  table.rules[0].targetMatch = 'any';
+  filter.data.settings = tableSettings(table);
+  expect(JSON.stringify(apply(delivery(), undefined, undefined, 'proxy').config.routing)).toContain(
+    'pool-qa.example',
+  );
+  expect(
+    JSON.stringify(
+      apply(publicationWire().graphs[0].bundle, undefined, undefined, 'proxy').config.routing,
+    ),
+  ).toContain('pool-qa.example');
+
+  const tun = graph.nodes.find((node) => node.data.settings.captureKind === 'tun')!;
+  graph.edges.find(
+    ({ source, sourceHandle }) => source === tun.id && sourceHandle === 'data',
+  )!.target = 'direct';
+  expect(() => validatePublishedGraph(delivery())).toThrow('requires TUN or WinDivert');
+});
+
 it('blocks local paths in portable identity files', () => {
   expect(readApplicationIdentity(writeApplicationIdentity(app))).toEqual(app);
   const carryingLocalPath = writeApplicationIdentity(app).replace(
