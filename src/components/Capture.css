@@ -70,7 +70,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.application-selector-row > button {
+.application-selector-actions {
+  display: flex;
+  gap: var(--space-1);
   grid-column: 4;
 }
 .application-choice > .item-content {

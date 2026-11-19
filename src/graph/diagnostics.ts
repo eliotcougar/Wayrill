@@ -13,7 +13,7 @@ import { isInboundKind } from './inbounds';
 import { isExecutableOutboundKind } from './outbounds';
 import { isXrayOutbound } from './xrayNodes';
 import { isNativeDnsHandler } from './dns';
-import { listEntries, readRuleTable } from './rules';
+import { listEntries, readRuleTable, resolveRuleApplications } from './rules';
 import { selectorKey } from './applications';
 import { resolveGraph } from './defaults';
 import type { Diagnostic, GraphState, RuleNode } from './types';
@@ -182,12 +182,14 @@ function checkRuntimeGraph(
         for (const output of new Set(active.map((r) => r.output))) path(node, output, false, true);
         let catchAll = false;
         const predicates = new Set<string>();
-        for (const row of active) {
+        for (const rule of active) {
+          const row = resolveRuleApplications(rule, graph.poolApplicationBindings);
+          if (!row.enabled) continue;
           const predicate = JSON.stringify({
             conditions: Object.entries(row.conditions)
               .filter(([, v]) => v?.trim())
               .sort(([a], [b]) => a.localeCompare(b)),
-            applications: selectorKey((row.applications ?? []).filter((r) => r.enabled)),
+            applications: selectorKey((row.applications ?? []).filter((r) => r.kind !== 'pool')),
             targetMatch: row.targetMatch ?? 'any',
           });
           if (catchAll || (!row.matchAll && predicates.has(predicate)))

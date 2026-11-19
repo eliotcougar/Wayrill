@@ -67,6 +67,8 @@ export interface GraphState {
   poolId?: string;
   /** Published settings for this revision. Local defaults remain editable and intact. */
   poolSettings?: import('./poolSettings').PoolSettings;
+  /** Subscriber-only bindings. A publication never supplies these values. */
+  poolApplicationBindings?: import('./applications').PoolApplicationBindings;
   /** Workspace quick-switch target; never an Xray setting. */
   mainOutboundId?: string;
   name: string;

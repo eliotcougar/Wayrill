@@ -21,6 +21,7 @@ async function loadDelivery(review: PoolReview) {
       recipient,
       capture: review.capture,
       bindings: review.bindings,
+      applicationChanges: review.applicationChanges,
       poolSelection: review.selection,
       stash: '',
     },

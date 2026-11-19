@@ -1,7 +1,7 @@
 import type { ResourceWarningReport } from '../serviceClient';
 import type { GraphState, RuleNode } from './types';
 import { resourceCompilationGraph } from './resources';
-import { readRuleTable, captureRuleVariants, listEntries } from './rules';
+import { readRuleTable, captureRuleVariants, listEntries, resolveRuleApplications } from './rules';
 import type { DnsRoute, DnsPolicy } from './dns';
 import { parseJson } from './xrayJson';
 
@@ -23,9 +23,13 @@ export function unavailableRuleIds(
     value.every((term) => unavailable.has(String(term)));
   if (node.data.kind === 'routing-filter') {
     for (const rule of readRuleTable(projected.data.settings).rules) {
+      const variants = captureRuleVariants(
+        resolveRuleApplications(rule, graph.poolApplicationBindings),
+        'shared',
+      );
       if (
-        rule.enabled &&
-        captureRuleVariants(rule, 'shared').every((variant) =>
+        variants.length &&
+        variants.every((variant) =>
           ['domain', 'ip', 'sourceIP', 'localIP'].some((key) => empty(variant[key])),
         )
       )

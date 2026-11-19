@@ -50,3 +50,26 @@ compares both compilers' routing decisions with Xray's `TestRoute` handler.
 See [lifecycle](lifecycle.md), [reliability](reliability.md), [service API](service-api.md),
 [compiler](graph-compiler.md), [generated tags](generated-tags.md) and
 [Xray integrations](xray-customizations.md).
+
+## Pool delivery compatibility
+
+Wayrill 0.38.14 is the baseline subscriber for Pool wire compatibility.
+
+Publish a baseline graph, Stash, and layer catalog that existing subscribers
+can apply. Put optional capabilities in independently versioned extensions
+alongside their graph or layer. Readers ignore unrecognized extensions.
+Keep incompatible node kinds, selector values, and other data out of the
+baseline fields that older clients validate.
+
+Project semantics as well as syntax. If the baseline cannot express a
+required condition, skip the affected rule. When it can keep an independent
+alternative, preserve that alternative and the rest of the rule. The published
+fallback still applies to traffic the baseline cannot classify. Preserve
+stable graph, layer, and rule IDs so an update never invalidates a user's
+selection just because the client ignores an extension.
+
+Test the serialized publication with the previous client and the current
+client. When the service learns to read a new extension, advance its delivery
+reader revision so an upgraded client reevaluates the same publication on the
+next sync. Keep the existing guarded apply and last-working-configuration
+behavior when a newly supported feature needs a local choice.

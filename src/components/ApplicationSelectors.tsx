@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useState, useRef, useEffect } from 'react';
-import { Plus, RefreshCw, Trash2, FolderOpen } from 'lucide-react';
-import { type ApplicationSelector } from '../graph/applications';
+import { Plus, RefreshCw, Trash2, FolderOpen, Download } from 'lucide-react';
+import { writeApplicationIdentity, type ApplicationSelector } from '../graph/applications';
+import { exportFile } from '../exportFile';
 import { useWindowsCatalog } from './useWindowsCatalog';
 import { desktopServiceAvailable, errorText, serviceCall } from '../serviceClient';
 import { applicationChoices } from './applicationChoices';
@@ -368,13 +369,45 @@ export default function ApplicationSelectors({
                 Children
               </label>
             )}
-            <button
-              className="icon-button"
-              aria-label={`Remove ${r.value}`}
-              onClick={() => onChange(rows.filter((_, j) => i !== j))}
-            >
-              <Trash2 size={13} />
-            </button>
+            <span className="application-selector-actions">
+              <button
+                type="button"
+                className="icon-button"
+                title="Export app identity"
+                aria-label={`Export identity for ${r.value}`}
+                onClick={() => {
+                  try {
+                    const identity = {
+                      id: crypto.randomUUID(),
+                      name: (
+                        nameFor(r) ||
+                        r.value
+                          .replace(/[\\/]+$/, '')
+                          .split(/[\\/]/)
+                          .at(-1) ||
+                        r.value
+                      ).slice(0, 128),
+                      identities: r.kind === 'process' ? [] : [{ kind: r.kind, value: r.value }],
+                    };
+                    void exportFile(
+                      'wayrill-app-identity.json',
+                      writeApplicationIdentity(identity),
+                    ).catch((error) => setBulkError(errorText(error)));
+                  } catch (error) {
+                    setBulkError(errorText(error));
+                  }
+                }}
+              >
+                <Download size={13} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label={`Remove ${r.value}`}
+                onClick={() => onChange(rows.filter((_, j) => i !== j))}
+              >
+                <Trash2 size={13} />
+              </button>
+            </span>
           </div>
         ))}
       </div>

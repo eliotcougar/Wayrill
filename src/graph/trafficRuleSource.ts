@@ -5,7 +5,7 @@ import {
   editSourceConditions,
   applySourceList,
 } from './ruleSourceEdits';
-import { nativeProcessSelectors, type ApplicationSelector } from './applications';
+import { nativeProcessSelectors, type RuleApplication } from './applications';
 import {
   routingListEntries,
   ruleTableProblems,
@@ -20,13 +20,14 @@ import type { RuleNodeData } from './types';
 import { LIMITS, CONFIG_LIMIT_LABEL } from '../limits';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-export function applicationIdentity(row: ApplicationSelector) {
+export function applicationIdentity(row: RuleApplication) {
+  if (row.kind === 'pool') return JSON.stringify([row.kind, row.identity.id, row.children]);
   let value = row.value.trim().replaceAll('\\', '/');
   if (row.mode === 'folder') value = value.replace(/\/+$/, '');
   return JSON.stringify([row.kind, row.mode, row.children, value.toLowerCase()]);
 }
 export function ruleApplications(rule: Pick<SourceRule, 'conditions' | 'applications'>) {
-  const rows = new Map<string, ApplicationSelector>();
+  const rows = new Map<string, RuleApplication>();
   for (const row of [
     ...(rule.applications ?? []),
     ...nativeProcessSelectors(routingListEntries(rule.conditions.process ?? '', 'process')),

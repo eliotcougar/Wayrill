@@ -26,6 +26,8 @@ Rust service, separate capture/attribution workers and custom pinned Xray cores.
 - Traffic rules are first-match; DNS preferences/fallback have different semantics.
   Proxy DNS outputs do not imply system DNS capture. Use Inbounds, Outbounds,
   Local capture and node Inputs/Outputs consistently.
+- Keep Pool deliveries readable by existing clients when adding optional data.
+  Follow the [Pool delivery compatibility contract](docs/development/architecture.md#pool-delivery-compatibility).
 
 ## Core and helper work
 

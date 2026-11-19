@@ -5,6 +5,9 @@ use crate::pool_access::Source;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use sha2::{Digest, Sha256};
 
+// Increase when the service starts interpreting new optional publication data.
+const DELIVERY_READER: u16 = 1;
+
 fn default_minutes() -> u64 {
     5
 }
@@ -41,6 +44,8 @@ pub(super) struct Connection {
     pub(super) refresh_minutes: u64,
     #[serde(default)]
     published_version: u64,
+    #[serde(default)]
+    delivery_reader: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bindings: Option<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,6 +104,7 @@ pub(super) struct Enrollment {
     expected_revision: u64,
     expected_source_hash: Option<String>,
     bindings: Option<BTreeMap<String, String>>,
+    application_changes: Option<ApplicationChanges>,
     expected_digest: Option<String>,
     selection: Option<Selection>,
     #[serde(default = "default_minutes")]
@@ -108,6 +114,7 @@ impl Enrollment {
     pub(super) fn validate(&self) -> Result<()> {
         self.source.location()?;
         validate_minutes(self.refresh_minutes)?;
+        validate_application_changes(self.application_changes.as_ref())?;
         validate_selection(
             &self.capture,
             self.bindings.as_ref(),
@@ -152,12 +159,14 @@ pub(super) struct BindingChange {
     expected_source_hash: Option<String>,
     expected_digest: String,
     bindings: BTreeMap<String, String>,
+    application_changes: Option<ApplicationChanges>,
     selection: Option<Selection>,
     #[serde(default)]
     reset_preferences: BTreeMap<String, Vec<String>>,
 }
 impl BindingChange {
     pub(super) fn validate(&self) -> Result<()> {
+        validate_application_changes(self.application_changes.as_ref())?;
         if self.reset_preferences.len() > 500
             || self.reset_preferences.iter().any(|(id, keys)| {
                 id.len() > 128
@@ -169,6 +178,31 @@ impl BindingChange {
         }
         validate_selection(&self.capture, Some(&self.bindings), self.selection.as_ref())
     }
+}
+
+type ApplicationChanges = BTreeMap<String, Option<ApplicationBinding>>;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplicationBinding {
+    kind: String,
+    value: String,
+}
+
+fn validate_application_changes(changes: Option<&ApplicationChanges>) -> Result<()> {
+    if changes.is_some_and(|map| {
+        map.len() > 1024
+            || map.iter().any(|(id, binding)| {
+                id.len() != 36
+                    || binding.as_ref().is_some_and(|binding| {
+                        !matches!(binding.kind.as_str(), "process" | "package" | "service")
+                            || binding.value.len() > 16 * 1024
+                    })
+            })
+    }) {
+        return Err(error("Invalid Pool application bindings."));
+    }
+    Ok(())
 }
 
 fn validate_selection(
@@ -429,7 +463,7 @@ pub(super) fn perform(
     let connection = current.pool.as_ref().filter(|_| initial.is_none());
     let refresh = matches!(task, Task::Refresh);
     let validator = connection
-        .filter(|c| refresh && !c.preference_base.is_null())
+        .filter(|c| refresh && c.delivery_reader == DELIVERY_READER && !c.preference_base.is_null())
         .and_then(|p| p.etag.as_ref());
     let request = json!({"operation":"poolDownload","source":source,"etag":validator});
     let response = match worker::helper_as(&request, identity, stop, shutdown) {
@@ -486,7 +520,10 @@ pub(super) fn perform(
                 ));
             }
         }
-        if refresh && connection.digest == content_digest {
+        if refresh
+            && connection.delivery_reader == DELIVERY_READER
+            && connection.digest == content_digest
+        {
             if connection.published_version < published_version
                 || connection.etag != fetched.etag
                 || migrated.is_some()
@@ -549,6 +586,8 @@ pub(super) fn perform(
         &json!({"operation":"poolPrepare","stash":current.stash.as_deref().unwrap_or(""),
         "appliedGraph":applied.as_ref().map(|value| &value.0),"bundle":bundle,"recipient":recipient,
         "capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names,
+        "applicationChanges":initial.and_then(|input| input.application_changes.as_ref())
+            .or_else(|| rebind.and_then(|input| input.application_changes.as_ref())),
         "poolPreferenceBase":preference_base,"resetPreferences":rebind.map(|r| &r.reset_preferences),
         "reconcileBindings":refresh}),
         stop,
@@ -596,6 +635,7 @@ pub(super) fn perform(
                 |input| input.refresh_minutes,
             ),
             published_version,
+            delivery_reader: DELIVERY_READER,
             bindings: Some(
                 serde_json::from_value(candidate["bindings"].clone())
                     .map_err(|_| error("Invalid prepared Pool inbound assignments."))?,

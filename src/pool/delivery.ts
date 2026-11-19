@@ -14,6 +14,7 @@ import {
   type PoolLayer,
 } from './layers';
 import { parsePoolBundle, type PoolBundle } from './model';
+import { restorePoolDelivery } from './deliveryCompatibility';
 
 export type PoolSelection = {
   graph: string;
@@ -37,8 +38,8 @@ export type PoolDelivery = {
   version: 1 | 2;
   poolName?: string;
   defaultGraph: string;
-  graphs: { id: string; bundle: PoolBundle }[];
-  layers: PoolLayer[];
+  graphs: { id: string; bundle: PoolBundle; extensions?: unknown }[];
+  layers: (PoolLayer & { extensions?: unknown })[];
   defaultLayers: { id: string; target?: string }[];
 };
 
@@ -106,7 +107,7 @@ export function resolvePoolDelivery(
     if (requested && !inspect) throw new Error('The Pool has withdrawn the selected graph.');
     return { bundle: parsePoolBundle(value) };
   }
-  const delivery = readDelivery(value);
+  const delivery = restorePoolDelivery(readDelivery(value));
   const unavailable: string[] = [];
   function missing(message: string) {
     if (!inspect) throw new Error(`${message} Open Edit configuration choices to review.`);

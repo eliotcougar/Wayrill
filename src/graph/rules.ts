@@ -2,9 +2,11 @@ export { effectiveRoutingFields, projectNativeRule } from '@wayrill/core/routing
 import { jsonText, jsonArray, parseJson } from './xrayJson';
 import { portRangeProblem } from './portRanges';
 import {
-  parseApplicationSelectors,
+  readRuleApplications,
   nativeProcessSelectors,
   type ApplicationSelector,
+  type PoolApplicationBindings,
+  type RuleApplication,
 } from './applications';
 import { LIMITS } from '../limits';
 import { ipProblem, domainProblem } from './addressValidation';
@@ -39,7 +41,7 @@ export interface TableRule {
   conditions: Record<string, string>;
   /** Native Xray rules retain AND; authored rules use domain/IP/application alternatives. */
   targetMatch?: 'any' | 'all';
-  applications?: ApplicationSelector[];
+  applications?: RuleApplication[];
   native?: NativeProjection;
   source?: SourceRow;
   poolPlacement?: PoolRulePlacement;
@@ -265,7 +267,8 @@ export function readRuleTable(settings: Record<string, SettingValue>): RuleTable
     ruleIds.add(rule.id);
     if (rule.targetMatch !== undefined && !['any', 'all'].includes(jsonText(rule.targetMatch)))
       throw new Error('Invalid destination matching mode.');
-    if (rule.applications !== undefined) parseApplicationSelectors(rule.applications);
+    if (rule.applications !== undefined)
+      rule.applications = readRuleApplications(rule.applications);
     if (rule.native !== undefined) parseNativeProjection(rule.native);
     if (typeof rule.matchAll !== 'boolean') throw new Error('Invalid match-all setting.');
     if (
@@ -446,7 +449,9 @@ export function ruleTablePlan(data: RuleNodeData) {
 /** Internal AND marker survives flattening, then becomes authenticated process metadata. */
 export function captureRuleFields(rule: TableRule, captured = false): Record<string, unknown> {
   const fields = routingRuleFields(rule);
-  const rows = rule.applications?.filter((r) => r.enabled) ?? [];
+  const rows =
+    rule.applications?.filter((r): r is ApplicationSelector => r.enabled && r.kind !== 'pool') ??
+    [];
   if (!rule.matchAll && rows.length) {
     if (rows.every((r) => r.kind === 'process' && !r.children))
       fields.process = rows.map((r) =>
@@ -463,6 +468,53 @@ export function captureRuleFields(rule: TableRule, captured = false): Record<str
     delete fields.process;
   }
   return fields;
+}
+
+export function resolveRuleApplications(
+  rule: TableRule,
+  bindings?: PoolApplicationBindings,
+  captured = true,
+): TableRule {
+  const selectors = rule.applications;
+  if (!selectors?.some((selector) => selector.kind === 'pool')) return rule;
+  const applications: ApplicationSelector[] = [];
+  let hadPoolCondition = false;
+  for (const selector of selectors) {
+    if (selector.kind !== 'pool') {
+      applications.push(selector);
+      continue;
+    }
+    if (!selector.enabled) continue;
+    hadPoolCondition = true;
+    const binding = bindings?.[selector.identity.id];
+    for (const identity of binding
+      ? [...selector.identity.identities, binding]
+      : selector.identity.identities) {
+      if (!captured && (identity.kind !== 'process' || selector.children)) continue;
+      applications.push({
+        ...identity,
+        mode: identity.kind === 'process' ? 'path' : 'name',
+        children: identity.kind !== 'service' && selector.children,
+        enabled: true,
+      });
+    }
+  }
+  const legacy = routingListEntries(rule.conditions.process ?? '', 'process');
+  const conditions = { ...rule.conditions };
+  delete conditions.process;
+  // Application selectors are alternatives within the same condition.
+  // An unresolved condition cannot leave only the row's common predicates.
+  const canMatch =
+    applications.some((app) => app.enabled) ||
+    legacy.length > 0 ||
+    (rule.targetMatch !== 'all' &&
+      ['domain', 'ip'].some((key) => routingListEntries(conditions[key] ?? '', key).length > 0));
+  return {
+    ...rule,
+    applications: [...applications, ...nativeProcessSelectors(legacy)],
+    conditions,
+    enabled: rule.enabled && (rule.matchAll || !hadPoolCondition || canMatch),
+  };
 }
 
 /** Lower the editor's alternatives to core AND predicates, without changing rule precedence. */
@@ -482,15 +534,20 @@ function fieldVariants(
   return alternatives.map((key) => ({ ...common, [key]: fields[key] }));
 }
 
-export const hasCaptureOnlyApplications = (rule: TableRule) =>
+export const hasCaptureOnlyApplications = (rule: TableRule, bindings?: PoolApplicationBindings) =>
   !rule.matchAll &&
-  !!rule.applications?.some((r) => r.enabled && (r.kind !== 'process' || r.children));
+  !!resolveRuleApplications(rule, bindings).applications?.some(
+    (r) => r.enabled && (r.kind !== 'process' || r.children),
+  );
 
 /** Shared filters retain identity predicates until the compiler separates source scopes. */
 export function captureRuleVariants(
   rule: TableRule,
   scope: 'native' | 'capture' | 'shared' = 'native',
+  bindings?: PoolApplicationBindings,
 ): Record<string, unknown>[] {
+  rule = resolveRuleApplications(rule, bindings, scope === 'capture');
+  if (!rule.enabled) return [];
   if (scope === 'capture') return fieldVariants(rule, captureRuleFields(rule, true));
   if (scope === 'native' && hasCaptureOnlyApplications(rule))
     throw new Error(

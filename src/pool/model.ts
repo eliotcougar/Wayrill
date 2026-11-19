@@ -1,4 +1,11 @@
 import { graphDependencies } from '../profiles/workspaceDependencies';
+import { graphPoolApplications } from '../graph/poolApplicationGraph';
+import {
+  updatePoolApplicationBindings,
+  type PoolApplicationBinding,
+  type PoolApplicationChanges,
+  type PoolApplicationIdentity,
+} from '../graph/applications';
 import { withoutPreferences } from './preferences';
 import { getDefinition, getOutputPorts, makeNode } from '../graph/catalog';
 import {
@@ -36,6 +43,7 @@ export type PoolBindings = Record<string, string>;
 export type PoolEntries = {
   name: string;
   settings?: PoolSettings;
+  applications: (PoolApplicationIdentity & { binding?: PoolApplicationBinding })[];
   placeholders: { id: string; name: string; ports: string[]; destination?: string }[];
   inbounds: {
     id: string;
@@ -293,6 +301,7 @@ export function readPortableGraph(
   const ids = new Set(graph.nodes.map((node) => node.id));
   if (
     graph.xray ||
+    graph.poolId ||
     graph.captureOptions ||
     graph.nodes.some((node) => isGraphInbound(node.data.kind)) ||
     (roles
@@ -417,6 +426,7 @@ export function inspectPoolEntries(
   local: GraphState | undefined,
   capture: PoolCapture,
   bindings?: PoolBindings,
+  recipient?: string,
 ): PoolEntries {
   const { graph } = editablePoolGraph(bundle);
   const { inputs } = localPoolInputs(local, capture);
@@ -425,6 +435,10 @@ export function inspectPoolEntries(
   return {
     name: bundle.name,
     settings: bundle.settings,
+    applications: graphPoolApplications(graph).map((app) => ({
+      ...app,
+      binding: local?.poolId === recipient ? local?.poolApplicationBindings?.[app.id] : undefined,
+    })),
     placeholders: placeholders.map((node) => {
       const paths = graph.edges.filter((edge) => edge.source === node.id);
       const data = paths.find((edge) => edge.sourceHandle === 'data');
@@ -715,10 +729,17 @@ export function preparePoolWorkspace(
   capture: PoolCapture,
   bindings?: PoolBindings,
   reconcileBindings = false,
+  applicationChanges?: PoolApplicationChanges,
 ) {
   const bundle = parsePoolBundle(value);
   const { graph: portable, ids: sharedIds } = editablePoolGraph(bundle);
   const shared = mergePersonalRules(portable, local?.poolId === recipient ? local : undefined);
+  const allowed = new Set(graphPoolApplications(portable).map(({ id }) => id));
+  const applicationBindings = updatePoolApplicationBindings(
+    local?.poolId === recipient ? local.poolApplicationBindings : undefined,
+    applicationChanges &&
+      Object.fromEntries(Object.entries(applicationChanges).filter(([id]) => allowed.has(id))),
+  );
   const placeholders = new Set(
     shared.nodes.filter((node) => node.data.kind === placeholderKind).map((node) => node.id),
   );
@@ -790,6 +811,7 @@ export function preparePoolWorkspace(
       toDocument({
         name: bundle.name,
         poolId: recipient,
+        poolApplicationBindings: applicationBindings,
         poolSettings: bundle.settings,
         defaults:
           local?.poolId !== recipient && local?.defaults?.localPoolSettings

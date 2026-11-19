@@ -85,6 +85,27 @@ separately. You can also copy graph and layer assignments in **Edit delivery**.
 **Preview** shows what is applied by default and what subscribers can choose.
 Open **Edit delivery** from the preview to correct an assignment.
 
+### Route by application
+
+In a Pool traffic filter, use **Pool applications** to create an entry, reuse
+one from another rule, or import a Wayrill application identity file. Enter
+exact Windows package family names or internal service names. An entry can
+include alternate identities for editions published under different names.
+On a PC where the app is installed, the regular traffic rule editor can export
+an identity from a Windows application selector.
+
+To let subscribers choose an executable, leave the published identities blank.
+They can select a running app, browse for its executable, or choose a Windows
+package or service in **Applications on this PC** during enrollment. They can
+change the choice later under **Edit configuration choices**. The choice stays
+on that PC and survives later deliveries. If the Pool requires a local choice,
+Wayrill keeps the last applied delivery until the user makes that choice.
+
+**Include child processes** applies to a package or executable when Wayrill
+can verify the process tree. Use TUN for packages, services, and child
+processes. With Proxy capture, the filter can still match supported executable
+selectors and any independent destination alternatives.
+
 ### Reuse users, Stashes and filters
 
 Choose **Add similar user** next to a user whose setup is close to the one you

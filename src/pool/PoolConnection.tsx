@@ -15,6 +15,8 @@ import {
 import { errorText, serviceCall } from '../serviceClient';
 import { choosePoolFolder } from './handoff';
 import type { PoolBindings, PoolCapture, PoolEntries } from './model';
+import type { PoolApplicationChanges } from '../graph/applications';
+import { PoolApplicationBindingEditor } from './PoolApplications';
 import type { Stash } from '../profiles/import';
 import { portLabel } from '../graph/catalog';
 import type { PoolOptions, PoolSelection } from './delivery';
@@ -39,6 +41,7 @@ export type PoolReview = {
   capture: PoolCapture;
   selection?: PoolSelection;
   bindings?: PoolBindings;
+  applicationChanges?: PoolApplicationChanges;
   expectedDigest?: string;
 };
 type Simulation = {
@@ -94,6 +97,7 @@ export default function PoolConnection({
   const busy = !!activity;
   const [failure, setFailure] = useState('');
   const [resets, setResets] = useState<PoolPreferenceResets>({});
+  const [applicationChanges, setApplicationChanges] = useState<PoolApplicationChanges>({});
   const [justConnected, setJustConnected] = useState<{ proxy: string[] }>();
   const [disconnect, setDisconnect] = useState(false);
   const [keepStash, setKeepStash] = useState(false);
@@ -167,6 +171,7 @@ export default function PoolConnection({
         bindings: choice && keepBindings ? assignments : undefined,
       });
       setPreview({ ...next, capture: mode });
+      if (!preview) setApplicationChanges({});
       setCapture(mode);
       setSelection(next.selection);
       if (!choice) setCustomize(false);
@@ -190,6 +195,7 @@ export default function PoolConnection({
     await waitSubscriptionJob(job);
     const next = await serviceCall<PoolPreview>('pool.previewResult', { job });
     setPreview({ ...next, capture: mode });
+    if (!preview) setApplicationChanges({});
     if (!preview || preview.selection?.graph !== next.selection?.graph || latest) setResets({});
     if (!connected) setCapture(mode);
     setSelection(next.selection);
@@ -226,6 +232,10 @@ export default function PoolConnection({
   const complete = preview?.inbounds.every(
     ({ id, enabled }) => !enabled || Object.hasOwn(assignments, id),
   );
+  const applicationChoiceMissing = preview?.applications?.some(
+    ({ id, requireLocal, binding }) =>
+      requireLocal && !(Object.hasOwn(applicationChanges, id) ? applicationChanges[id] : binding),
+  );
   const options = preview?.options;
   // Older enrollments selected entire lists. Keep their explicit choices until
   // the subscriber chooses which entries should follow future defaults.
@@ -258,7 +268,7 @@ export default function PoolConnection({
     (!!simulation || (!!status && revision !== undefined));
 
   async function connect() {
-    if (!preview || !complete || options?.reviewRequired) return;
+    if (!preview || !complete || applicationChoiceMissing || options?.reviewRequired) return;
     const changes = {
       capture: preview.capture,
       bindings: assignments,
@@ -266,6 +276,7 @@ export default function PoolConnection({
       expectedSourceHash: preview.sourceHash,
       expectedDigest: preview.digest,
       selection,
+      ...(Object.keys(applicationChanges).length ? { applicationChanges } : {}),
     } as const;
     if (simulation) {
       simulation.onPrepare(await simulation.prepare({ ...changes, source: source() }));
@@ -329,6 +340,7 @@ export default function PoolConnection({
               disabled={
                 blocked ||
                 !complete ||
+                !!applicationChoiceMissing ||
                 !!options?.reviewRequired ||
                 (!connected && !simulation && !intervalValid)
               }
@@ -462,6 +474,15 @@ export default function PoolConnection({
                 );
               })}
           </ul>
+          {!!preview.applications?.length && (
+            <PoolApplicationBindingEditor
+              applications={preview.applications}
+              changes={applicationChanges}
+              onChange={(id, binding) =>
+                setApplicationChanges((current) => ({ ...current, [id]: binding }))
+              }
+            />
+          )}
           <details className="editor-advanced">
             <summary>Change local capture</summary>
             <label className="editor-field">

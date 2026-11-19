@@ -18,7 +18,8 @@ import TrafficRuleExport from './TrafficRuleExport';
 import { deduplicateRule, editSourcedRule } from '../graph/trafficRuleSource';
 import { importTrafficPreset, type TrafficPreset } from '../graph/routingPresets';
 import ApplicationSelectors from './ApplicationSelectors';
-import { nativeProcessSelectors } from '../graph/applications';
+import { nativeProcessSelectors, type PoolApplicationIdentity } from '../graph/applications';
+import { PoolApplicationPicker } from '../pool/PoolApplications';
 import { listEntries } from '../graph/rules';
 import { ruleDiagnosticTab } from '../graph/editorNavigation';
 import DiagnosticList, {
@@ -62,10 +63,12 @@ export default function RuleTableEditor({
   onExportPool,
   layerMode = false,
   fixedOutputs = false,
+  poolApplicationChoices = [],
 }: {
   initialTab?: 'log' | 'export';
   layerMode?: boolean;
   fixedOutputs?: boolean;
+  poolApplicationChoices?: PoolApplicationIdentity[];
   onExportPool?: (table: RuleTable) => Promise<void>;
   node: RuleNode;
   resourceWarnings?: Partial<ResourceWarningReport> | null;
@@ -815,19 +818,64 @@ export default function RuleTableEditor({
                               selectedRule.conditions.process) && (
                               <ApplicationSelectors
                                 rows={
-                                  selectedRule.applications ??
+                                  selectedRule.applications?.filter((app) => app.kind !== 'pool') ??
                                   nativeProcessSelectors(
                                     listEntries(selectedRule.conditions.process ?? ''),
                                   )
                                 }
                                 onChange={(applications) =>
                                   setRule({
-                                    applications,
+                                    applications: [
+                                      ...applications,
+                                      ...(selectedRule.applications?.filter(
+                                        (app) => app.kind === 'pool',
+                                      ) ?? []),
+                                    ],
                                     conditions: { ...selectedRule.conditions, process: '' },
                                   })
                                 }
                               />
                             )}
+                            {layerMode ? (
+                              <PoolApplicationPicker
+                                key={selectedRule.id}
+                                rows={
+                                  selectedRule.applications?.filter((app) => app.kind === 'pool') ??
+                                  []
+                                }
+                                known={[
+                                  ...new Map(
+                                    [
+                                      ...poolApplicationChoices,
+                                      ...table.rules.flatMap((rule) =>
+                                        (rule.applications ?? []).flatMap((app) =>
+                                          app.kind === 'pool' ? [app.identity] : [],
+                                        ),
+                                      ),
+                                    ].map((identity) => [identity.id, identity]),
+                                  ).values(),
+                                ]}
+                                onChange={(applications) =>
+                                  setRule({
+                                    applications: [
+                                      ...(selectedRule.applications?.filter(
+                                        (app) => app.kind !== 'pool',
+                                      ) ??
+                                        nativeProcessSelectors(
+                                          listEntries(selectedRule.conditions.process ?? ''),
+                                        )),
+                                      ...applications,
+                                    ],
+                                    conditions: { ...selectedRule.conditions, process: '' },
+                                  })
+                                }
+                              />
+                            ) : selectedRule.applications?.some((app) => app.kind === 'pool') ? (
+                              <p className="field-help">
+                                Pool applications are configured in the Pool’s local application
+                                choices.
+                              </p>
+                            ) : null}
                             {sourceScope.shared && (
                               <p className="field-message">
                                 {sharedOnly

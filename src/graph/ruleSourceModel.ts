@@ -1,5 +1,5 @@
 import { jsonArray, jsonRecord } from './xrayJson';
-import { parseApplicationSelectors, type ApplicationSelector } from './applications';
+import { readRuleApplications, type RuleApplication } from './applications';
 import type { TableRule } from './rules';
 
 export type SourceRule = Omit<TableRule, 'id' | 'source'>;
@@ -12,7 +12,7 @@ export interface RuleEdits {
   conditions?: Record<string, string | null>;
   domain?: ListEdits;
   ip?: ListEdits;
-  applications?: { added: ApplicationSelector[]; removed: string[] };
+  applications?: { added: RuleApplication[]; removed: string[] };
 }
 export interface SourceRow {
   identity?: string;
@@ -125,7 +125,7 @@ export function validateSourceRow(
   if (edits.applications !== undefined) {
     if (!jsonRecord(edits.applications) || !strings(edits.applications.removed, 8192))
       throw new Error('Invalid local process entries.');
-    parseApplicationSelectors(edits.applications.added);
+    readRuleApplications(edits.applications.added);
   }
   return raw as unknown as SourceRow;
 }

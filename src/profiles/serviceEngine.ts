@@ -5,6 +5,8 @@ import { prepareRefresh, materializeRefresh } from './refreshPreparation';
 import { parseGraph, serializeGraph } from '../graph/model';
 import { refreshAppliedSubscriptions } from './subscriptionRuntime';
 import { analyzeGraph } from '../graph/analysis';
+import type { PoolApplicationChanges } from '../graph/applications';
+import { graphPoolApplications } from '../graph/poolApplicationGraph';
 import { jsonEqual } from '../graph/xrayJson';
 import { createTestPlan, type TestSelection } from '../outboundTestPlan';
 import { applySubscriptionHealth } from './subscriptionHealth';
@@ -53,6 +55,7 @@ interface Request {
   recipient?: string;
   capture?: PoolCapture;
   bindings?: PoolBindings;
+  applicationChanges?: PoolApplicationChanges;
   poolSelection?: PoolSelection;
   poolChoiceNames?: PoolChoiceNames;
   poolPreferenceBase?: PoolPreferenceBase;
@@ -118,7 +121,13 @@ export function subscriptionEngine(request: Request) {
     );
     return {
       poolEntries: {
-        ...inspectPoolEntries(bundle, applied, request.capture!, request.bindings),
+        ...inspectPoolEntries(
+          bundle,
+          applied,
+          request.capture!,
+          request.bindings,
+          request.recipient,
+        ),
         personalSettings: personalSettingChoices(
           applied?.poolId === request.recipient ? applied : undefined,
           request.poolPreferenceBase,
@@ -154,7 +163,15 @@ export function subscriptionEngine(request: Request) {
       request.capture!,
       request.bindings,
       request.reconcileBindings,
+      request.applicationChanges,
     );
+    const missing = graphPoolApplications(prepared.graph).find(
+      ({ id, requireLocal }) => requireLocal && !prepared.graph.poolApplicationBindings?.[id],
+    );
+    if (missing)
+      throw new Error(
+        `Choose “${missing.name}” in the Pool’s local application choices before applying this delivery.`,
+      );
     const preferences = applyPoolPreferences(
       prepared.graph,
       applied?.poolId === request.recipient ? applied : undefined,

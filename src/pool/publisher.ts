@@ -11,6 +11,7 @@ import { LIMITS } from '../limits';
 import { jsonArray, jsonRecord, parseJson } from '../graph/xrayJson';
 import { parsePoolBundle, type PoolBundle } from './model';
 import { resolvePoolDelivery, type PoolDelivery } from './delivery';
+import { encodePoolDelivery } from './deliveryCompatibility';
 import { validatePublishedGraph } from './validation';
 import { resolveGraphLinks } from './graphLinks';
 import { formatPoolInvitation, invitePattern, type PoolSource } from './invitation';
@@ -254,7 +255,7 @@ export async function publishMember(
   let output: string | null = null;
   if (!withdraw) {
     const encode = new TextEncoder();
-    const bundle = prepared ?? prepareDelivery(pool, member);
+    const bundle = encodePoolDelivery(prepared ?? prepareDelivery(pool, member));
     const clear = encode.encode(JSON.stringify({ ...bundle, publication: member.publication }));
     if (clear.length > (LIMITS.configBytes * 3) / 4 - 1024)
       throw new Error('This Pool configuration is too large. Choose fewer Stash groups.');

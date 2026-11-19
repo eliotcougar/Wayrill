@@ -63,7 +63,22 @@ export default function PoolFilterEditor({
     });
   };
   return data.kind === 'traffic' ? (
-    <RuleTableEditor {...scope} layerMode fixedOutputs onApply={apply} onClose={onClose} />
+    <RuleTableEditor
+      {...scope}
+      layerMode
+      fixedOutputs
+      poolApplicationChoices={(pool.layers ?? []).flatMap(({ data }) =>
+        data.kind === 'traffic'
+          ? data.filter.table.rules.flatMap((rule) =>
+              (rule.applications ?? []).flatMap((app) =>
+                app.kind === 'pool' ? [app.identity] : [],
+              ),
+            )
+          : [],
+      )}
+      onApply={apply}
+      onClose={onClose}
+    />
   ) : (
     <DnsEditor {...scope} layerMode fixedOutputs onApply={apply} onClose={onClose} />
   );

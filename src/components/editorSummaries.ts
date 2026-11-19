@@ -58,7 +58,10 @@ export function ruleConditionSummary(
     (rule.targetMatch === 'all' ? parts : targets).push(
       `Applications: ${apps
         .slice(0, 2)
-        .map((r) => r.value + (r.children ? ' + children' : ''))
+        .map(
+          (r) =>
+            (r.kind === 'pool' ? r.identity.name : r.value) + (r.children ? ' + children' : ''),
+        )
         .join(' OR ')}${apps.length > 2 ? ` (+${apps.length - 2})` : ''}`,
     );
   if (targets.length) parts.unshift(targets.length > 1 ? `(${targets.join(' OR ')})` : targets[0]);

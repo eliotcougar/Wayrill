@@ -226,11 +226,15 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
         return sharedRuleVariants(row, sharedFilterSources(graph, node.id).host, warnings, node);
       const captured = ['windivert-inbound', 'tun-inbound'].includes(input.data.kind);
       const shared = !captured && captureFilters.has(node.id);
-      if (shared && hasCaptureOnlyApplications(row))
+      if (shared && hasCaptureOnlyApplications(row, graph.poolApplicationBindings))
         warnings.push(
           `${node.data.label}: ${row.name} — child-process, app and service matching is unavailable for ${input.data.label}; supported conditions and fallback still apply.`,
         );
-      return captureRuleVariants(row, captured ? 'capture' : shared ? 'shared' : 'native');
+      return captureRuleVariants(
+        row,
+        captured ? 'capture' : shared ? 'shared' : 'native',
+        graph.poolApplicationBindings,
+      );
     } catch (error) {
       const issue = new RoutingPathError(
         node.id,

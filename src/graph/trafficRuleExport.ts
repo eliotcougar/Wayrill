@@ -1,4 +1,5 @@
 import { portableTrafficRule } from '../portableJson';
+import type { ApplicationSelector } from './applications';
 import { jsonArray, jsonRecord } from './xrayJson';
 import type { GraphState, RuleNode } from './types';
 import {
@@ -107,7 +108,9 @@ export function exportCompatibleRules(
     const label = rule.name || `Rule ${index + 1}`;
     try {
       const applications = rule.applications?.filter((app) => app.enabled) ?? [];
-      const plain = applications.filter((app) => app.kind === 'process' && !app.children);
+      const plain = applications.filter(
+        (app): app is ApplicationSelector => app.kind === 'process' && !app.children,
+      );
       const unavailable = applications.length - plain.length;
       if (!rule.matchAll && unavailable && rule.targetMatch === 'all')
         throw new Error('requires Windows apps, services or child-process tracking');
