@@ -21,7 +21,7 @@ use windows_sys::Win32::{
     System::Memory::{GetProcessHeap, HeapFree},
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Change {
     pub family: String,
@@ -184,6 +184,16 @@ pub fn snapshot(packages: &[Package]) -> Result<Snapshot> {
     project(packages, &read()?)
 }
 pub fn apply(packages: &[Package], expected_version: &str, changes: &[Change]) -> Result<Snapshot> {
+    apply_checked(packages, expected_version, changes, &[])?;
+    snapshot(packages)
+}
+
+fn apply_checked(
+    packages: &[Package],
+    expected_version: &str,
+    changes: &[Change],
+    owned: &[String],
+) -> Result<()> {
     let mut current = read()?;
     if version(&current)? != expected_version {
         return Err(Error::invalid(
@@ -204,6 +214,10 @@ pub fn apply(packages: &[Package], expected_version: &str, changes: &[Change]) -
         if !packages
             .iter()
             .any(|p| text::equal(&p.family, &change.family))
+            && (change.enabled
+                || !owned
+                    .iter()
+                    .any(|family| text::equal(family, &change.family)))
         {
             return Err(Error::invalid(
                 "Only installed packages belonging to the app owner can be changed.",
@@ -217,11 +231,15 @@ pub fn apply(packages: &[Package], expected_version: &str, changes: &[Change]) -
         }
     }
     if current == before {
-        return snapshot(packages);
+        return Ok(());
     }
+    write(&current)
+}
+
+fn write(current: &BTreeMap<String, u32>) -> Result<()> {
     let mut allocations = Vec::with_capacity(current.len());
     let mut entries = Vec::with_capacity(current.len());
-    for (sid, attributes) in &current {
+    for (sid, attributes) in current {
         let text = wide(sid);
         let mut binary = std::ptr::null_mut();
         // SAFETY: canonical NUL-terminated SID text is converted to a separate
@@ -242,10 +260,122 @@ pub fn apply(packages: &[Package], expected_version: &str, changes: &[Change]) -
     if error != 0 {
         return Err(from_win32(error));
     }
-    if read()? != current {
+    if read()? != *current {
         return Err(Error::invalid(
             "Loopback permission verification failed; refresh current Windows permissions.",
         ));
     }
-    snapshot(packages)
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    before: String,
+    after: String,
+    changes: Vec<Change>,
+    owned: Vec<String>,
+}
+
+pub fn plan_pool(packages: &[Package], desired: &[String], owned: &[String]) -> Result<Plan> {
+    plan_pool_from(read()?, packages, desired, owned)
+}
+
+fn plan_pool_from(
+    mut current: BTreeMap<String, u32>,
+    packages: &[Package],
+    desired: &[String],
+    owned: &[String],
+) -> Result<Plan> {
+    let before = version(&current)?;
+    let mut next = Vec::new();
+    let mut changes = Vec::new();
+    for family in owned {
+        let sid = sid_for(family)?;
+        if current.get(&sid) == Some(&0) {
+            if desired.iter().any(|item| text::equal(item, family)) {
+                next.push(family.clone());
+            } else {
+                current.remove(&sid);
+                changes.push(Change {
+                    family: family.clone(),
+                    enabled: false,
+                });
+            }
+        }
+    }
+    for package in packages {
+        if !desired
+            .iter()
+            .any(|item| text::equal(item, &package.family))
+        {
+            continue;
+        }
+        if let std::collections::btree_map::Entry::Vacant(entry) =
+            current.entry(sid_for(&package.family)?)
+        {
+            entry.insert(0);
+            next.push(package.family.clone());
+            changes.push(Change {
+                family: package.family.clone(),
+                enabled: true,
+            });
+        }
+    }
+    next.sort_unstable();
+    Ok(Plan {
+        before,
+        after: version(&current)?,
+        changes,
+        owned: next,
+    })
+}
+
+pub fn apply_pool(
+    packages: &[Package],
+    expected_version: &str,
+    changes: &[Change],
+    owned: &[String],
+) -> Result<()> {
+    apply_checked(packages, expected_version, changes, owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pool_retracts_only_its_own_exemptions_even_after_package_removal() {
+        let existing = "Wayrill.Test.Existing_123456789abcd".to_owned();
+        let added = "Wayrill.Test.Added_123456789abcd".to_owned();
+        let absent = "Wayrill.Test.Absent_123456789abcd".to_owned();
+        let installed = |family: &String| Package {
+            family: family.clone(),
+            name: family.clone(),
+            publisher: String::new(),
+            install_path: None,
+        };
+        let manual = BTreeMap::from([(sid_for(&existing).unwrap(), 0)]);
+        let desired = [existing.clone(), added.clone(), absent];
+        let active = plan_pool_from(
+            manual.clone(),
+            &[installed(&existing), installed(&added)],
+            &desired,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(active.owned.as_slice(), std::slice::from_ref(&added));
+        assert_eq!(active.changes.len(), 1);
+        assert!(active.changes[0].enabled);
+        let mut current = manual.clone();
+        current.insert(sid_for(&added).unwrap(), 0);
+        let withdrawal = plan_pool_from(current.clone(), &[], &[], &active.owned).unwrap();
+        assert_eq!(withdrawal.after, version(&manual).unwrap());
+        assert!(withdrawal.owned.is_empty());
+        assert!(!withdrawal.changes[0].enabled);
+        current.insert(sid_for(&added).unwrap(), 1);
+        let external = plan_pool_from(current, &[], &[], &active.owned).unwrap();
+        assert!(external.changes.is_empty());
+        assert!(external.owned.is_empty());
+    }
 }

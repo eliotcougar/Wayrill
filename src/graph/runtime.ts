@@ -1,3 +1,4 @@
+import { effectivePoolApplications } from './applications';
 import {
   sharedRuleVariants,
   sharedFilterSources,
@@ -220,20 +221,21 @@ function compileActiveRuntimeGraph(source: GraphState, generated: boolean): Runt
   const paths = routingPaths(graph, rules.length);
   rules.push(...compileNatRouting(graph, paths, terminal, warnings));
   const captureFilters = captureReachableFilters(graph);
+  const applicationBindings = effectivePoolApplications(graph);
   const project = (input: RuleNode, node: RuleNode, row: TableRule) => {
     try {
       if (input.data.kind === 'ics-tun')
         return sharedRuleVariants(row, sharedFilterSources(graph, node.id).host, warnings, node);
       const captured = ['windivert-inbound', 'tun-inbound'].includes(input.data.kind);
       const shared = !captured && captureFilters.has(node.id);
-      if (shared && hasCaptureOnlyApplications(row, graph.poolApplicationBindings))
+      if (shared && hasCaptureOnlyApplications(row, applicationBindings))
         warnings.push(
           `${node.data.label}: ${row.name} — child-process, app and service matching is unavailable for ${input.data.label}; supported conditions and fallback still apply.`,
         );
       return captureRuleVariants(
         row,
         captured ? 'capture' : shared ? 'shared' : 'native',
-        graph.poolApplicationBindings,
+        applicationBindings,
       );
     } catch (error) {
       const issue = new RoutingPathError(

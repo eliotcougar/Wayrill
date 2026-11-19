@@ -107,6 +107,11 @@ export function toDocument(graph: GraphState): GraphDocument {
     ...(graph.poolId ? { poolId: graph.poolId } : {}),
     ...(graph.poolId && graph.poolSettings ? { poolSettings: { ...graph.poolSettings } } : {}),
     ...(graph.poolId &&
+    graph.poolAutomaticApplications &&
+    Object.keys(graph.poolAutomaticApplications).length
+      ? { poolAutomaticApplications: graph.poolAutomaticApplications }
+      : {}),
+    ...(graph.poolId &&
     graph.poolApplicationBindings &&
     Object.keys(graph.poolApplicationBindings).length
       ? { poolApplicationBindings: graph.poolApplicationBindings }
@@ -272,7 +277,10 @@ export function parseGraph(text: string): GraphState {
     throw new Error('Invalid Pool graph identity.');
   const poolSettings = parsePoolSettings(raw.poolSettings);
   if (poolSettings && !raw.poolId) throw new Error('Pool settings require a Pool graph.');
-  if (raw.poolApplicationBindings !== undefined && !raw.poolId)
+  if (
+    (raw.poolApplicationBindings !== undefined || raw.poolAutomaticApplications !== undefined) &&
+    !raw.poolId
+  )
     throw new Error('Local application bindings require a Pool graph.');
   const graph: GraphState = {
     ...(raw.poolId ? { poolId: raw.poolId } : {}),
@@ -282,6 +290,9 @@ export function parseGraph(text: string): GraphState {
       : {
           poolApplicationBindings: readPoolApplicationBindings(raw.poolApplicationBindings),
         }),
+    ...(raw.poolAutomaticApplications === undefined
+      ? {}
+      : { poolAutomaticApplications: readPoolApplicationBindings(raw.poolAutomaticApplications) }),
     ...(raw.mainOutboundId === undefined ? {} : { mainOutboundId: raw.mainOutboundId }),
     name: raw.name,
     defaults,

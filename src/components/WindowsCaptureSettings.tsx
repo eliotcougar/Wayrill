@@ -6,6 +6,7 @@ import type { GraphState } from '../graph/types';
 import { defaultCaptureOptions } from '../graph/capture';
 import { desktopServiceAvailable, errorText, serviceCall } from '../serviceClient';
 import { useWindowsCatalog } from './useWindowsCatalog';
+import LoopbackPackageList from './LoopbackPackageList';
 interface LoopbackSnapshot {
   version: string;
   packages: {
@@ -396,32 +397,11 @@ export default function WindowsCaptureSettings({
                   : `Apply permissions${changes.length ? ` (${changes.length})` : ''}`}
               </button>
             </div>
-            <div
-              className="choice-list capture-picker-list capture-system-list"
-              role="region"
-              aria-label="Windows app loopback permissions"
-              tabIndex={0}
-            >
-              {rows.map((p) => (
-                <label key={p.family} className="check-control choice-row choice-row--compact">
-                  <input
-                    type="checkbox"
-                    disabled={busy}
-                    checked={checked[p.family] ?? p.enabled}
-                    onChange={(e) =>
-                      setChecked((c) => ({
-                        ...c,
-                        [p.family]: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span className="item-content item-content--inline">
-                    <strong>{p.name}</strong>
-                    <small title={p.family}>{p.family}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
+            <LoopbackPackageList
+              rows={rows.map((p) => ({ ...p, enabled: checked[p.family] ?? p.enabled }))}
+              disabled={busy}
+              onChange={(family, enabled) => setChecked((c) => ({ ...c, [family]: enabled }))}
+            />
             <p className="field-help">
               {permissions
                 ? `${permissions.packages.length} installed packages · ${permissions.unmatched.length} unmatched exemptions · ${changes.length} pending changes`

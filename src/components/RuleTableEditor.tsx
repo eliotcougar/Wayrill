@@ -817,6 +817,7 @@ export default function RuleTableEditor({
                               selectedRule.applications?.length ||
                               selectedRule.conditions.process) && (
                               <ApplicationSelectors
+                                portableNamesOnly={layerMode}
                                 rows={
                                   selectedRule.applications?.filter((app) => app.kind !== 'pool') ??
                                   nativeProcessSelectors(

@@ -31,22 +31,6 @@ async fn export_json(
         .map_err(|_| "Export task failed.")?
 }
 
-#[tauri::command]
-async fn process_picker(
-    window: tauri::WebviewWindow,
-    mode: String,
-) -> Result<Option<String>, String> {
-    let owner = window.hwnd().map_err(|_| "Cannot find the app window.")?.0 as usize;
-    tauri::async_runtime::spawn_blocking(move || {
-        // A dedicated STA thread avoids inheriting COM mode from an unrelated runtime task.
-        std::thread::spawn(move || picker::choose(owner, &mode))
-            .join()
-            .map_err(|_| "Process picker failed.")?
-    })
-    .await
-    .map_err(|_| "Process picker task failed.")?
-}
-
 use tauri::{Emitter, Manager};
 struct VaultLock {
     write: Mutex<()>,
@@ -294,7 +278,7 @@ fn main() {
             protected_read,
             protected_write,
             export_json,
-            process_picker,
+            picker::process_picker,
             routing_source::routing_source_file,
             routing_source::routing_source_download,
             diagnostics::diagnostics_read,

@@ -866,7 +866,7 @@ fn scoped_token() -> Result<Handle> {
     native::restrict_token(Handle(token))
 }
 fn wait_started(core: &CoreProcess) -> Result<()> {
-    let until = Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + native::XRAY_CONFIG_LOAD_TIMEOUT;
     loop {
         if let Some(code) = core.exit_code()? {
             return Err(invalid(format!("Shared TUN worker exited ({code}).")));
@@ -2268,7 +2268,7 @@ impl Manager {
                 assets: exe.parent().unwrap(),
             },
         )?;
-        let until = Instant::now() + Duration::from_secs(20);
+        let until = Instant::now() + native::XRAY_CONFIG_LOAD_TIMEOUT;
         loop {
             if let Some(code) = core.exit_code()? {
                 return Err(ApiError::new(

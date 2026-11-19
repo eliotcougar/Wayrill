@@ -21,6 +21,22 @@ impl Drop for Apartment {
     }
 }
 
+#[tauri::command]
+pub async fn process_picker(
+    window: tauri::WebviewWindow,
+    mode: String,
+) -> Result<Option<String>, String> {
+    let owner = window.hwnd().map_err(|_| "Cannot find the app window.")?.0 as usize;
+    tauri::async_runtime::spawn_blocking(move || {
+        // Keep the dialog on a dedicated STA thread, independent of the runtime's COM mode.
+        std::thread::spawn(move || choose(owner, &mode))
+            .join()
+            .map_err(|_| "File picker failed.")?
+    })
+    .await
+    .map_err(|_| "File picker task failed.")?
+}
+
 pub fn choose(owner: usize, mode: &str) -> Result<Option<String>, String> {
     if !["name", "path", "folder", "pool-folder", "routing"].contains(&mode) {
         return Err("Invalid file picker mode.".into());

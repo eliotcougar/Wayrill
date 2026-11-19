@@ -408,13 +408,13 @@ impl Client {
             return Err(failure("Sharing request exceeds capacity."));
         }
         bytes.push(b'\n');
-        let duration = Duration::from_secs(
-            if matches!(method, "start" | "stop" | "keep" | "replaceWorker") {
-                90
-            } else {
-                25
-            },
-        );
+        let duration = Duration::from_secs(match method {
+            // Adapter reactivation, enumeration and worker startup can all
+            // run before the first Windows sharing progress notification.
+            "start" | "replaceWorker" => 240,
+            "stop" | "keep" => 90,
+            _ => 25,
+        });
         let (done, written) = mpsc::channel();
         self.writes
             .as_ref()

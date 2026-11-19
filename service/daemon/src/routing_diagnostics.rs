@@ -464,7 +464,9 @@ fn query_core(
             assets,
         },
     )?;
-    let deadline = Instant::now() + Duration::from_secs(18);
+    // Leave time around the diagnostic's own budget to start the process,
+    // transfer the request and drain its response.
+    let deadline = Instant::now() + native::XRAY_CONFIG_LOAD_TIMEOUT + Duration::from_secs(15);
     loop {
         if stop.load(Ordering::Acquire) {
             return Err(invalid("Diagnostic cancelled."));

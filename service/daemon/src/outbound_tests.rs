@@ -1,5 +1,5 @@
 //! Isolated, bounded outbound checks. Never modify the applied runtime or system settings.
-use crate::native::{spawn_core, CoreIdentity};
+use crate::native::{spawn_core, CoreIdentity, XRAY_CONFIG_LOAD_TIMEOUT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -416,9 +416,19 @@ impl Manager {
                 if queue.is_empty() {
                     return;
                 }
+                // Each probe starts a separate Xray. Leave CPU headroom for
+                // routing and config loading when testing on a small machine.
+                let workers = if input.mode == Mode::Speed {
+                    1
+                } else {
+                    std::thread::available_parallelism()
+                        .map_or(1, |cpus| cpus.get().div_ceil(2))
+                        .min(4)
+                        .min(queue.len())
+                };
                 let queue = Mutex::new(queue);
                 std::thread::scope(|scope| {
-                    for _ in 0..if input.mode == Mode::Speed { 1 } else { 4 } {
+                    for _ in 0..workers {
                         let queue = &queue;
                         let state = &state;
                         let stop = &stop;
@@ -713,6 +723,40 @@ struct Probe<'a> {
     active: Option<&'a ActivePolicy>,
     udp_url: &'a str,
 }
+
+fn wait_for_test_listeners(
+    pid: u32,
+    ports: &[u16],
+    stop: &AtomicBool,
+    mut exit_code: impl FnMut() -> Result<Option<u32>>,
+) -> Result<()> {
+    let deadline = Instant::now() + XRAY_CONFIG_LOAD_TIMEOUT;
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return Err(invalid("Test cancelled."));
+        }
+        if let Some(code) = exit_code()? {
+            return Err(ApiError::new(
+                "XRAY_TEST_START_FAILED",
+                format!("Xray exited while starting the outbound test (code {code})."),
+            ));
+        }
+        if crate::sockets::owns_loopback_tcp_listeners(pid, ports.iter().copied())? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(ApiError::new(
+                "TIMEOUT",
+                format!(
+                    "The local Xray test listener did not become ready within {} seconds.",
+                    XRAY_CONFIG_LOAD_TIMEOUT.as_secs()
+                ),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     let Probe {
         test,
@@ -794,6 +838,9 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     let control = (mode != Mode::Latency)
         .then(|| crate::live::Control::new(&config))
         .transpose()?;
+    if stop.load(Ordering::Acquire) {
+        return Err(invalid("Test cancelled."));
+    }
     drop(reservation);
     drop(udp_reservation);
     let core = spawn_core(
@@ -811,28 +858,16 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
         None,
         0,
     )?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if stop.load(Ordering::SeqCst) {
-            return Err(invalid("Test cancelled."));
-        }
-        if core.exit_code()?.is_some() {
-            return Err(invalid("Xray could not start this test configuration."));
-        }
-        let listeners = crate::sockets::listeners()?;
-        if std::iter::once(port).chain(udp_port).all(|port| {
-            listeners.iter().any(|e| {
-                e.pid == core.pid
-                    && e.endpoint.address == std::net::SocketAddr::from(([127, 0, 0, 1], port))
-            })
-        }) {
-            break;
-        }
-        if Instant::now() > deadline {
-            return Err(invalid("The outbound test listener did not become ready."));
-        }
-        std::thread::sleep(Duration::from_millis(30));
-    }
+    // The UDP SOCKS association and policy RPC also start through TCP listeners.
+    let ports: Vec<_> = [
+        Some(port),
+        udp_port,
+        control.as_ref().map(crate::live::Control::port),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    wait_for_test_listeners(core.pid, &ports, stop, || core.exit_code())?;
     if let Some(control) = &control {
         policy::prepare(
             control,
@@ -995,6 +1030,41 @@ impl Client {
 }
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn waits_for_a_local_relay_that_loads_after_the_old_deadline() {
+        let http = TcpListener::bind("127.0.0.1:0").unwrap();
+        let socks = tokio::net::TcpSocket::new_v4().unwrap();
+        socks.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let http_port = http.local_addr().unwrap().port();
+        let socks_port = socks.local_addr().unwrap().port();
+        let (checking, started) = tokio::sync::oneshot::channel();
+        let waiter = tokio::task::spawn_blocking(move || {
+            let mut checking = Some(checking);
+            wait_for_test_listeners(
+                std::process::id(),
+                &[http_port, socks_port],
+                &AtomicBool::new(false),
+                || {
+                    if let Some(checking) = checking.take() {
+                        let _ = checking.send(());
+                    }
+                    Ok(None)
+                },
+            )
+        });
+        started.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(5250)).await;
+        let finished_early = waiter.is_finished();
+        let _socks = socks.listen(1).unwrap();
+        waiter.await.unwrap().unwrap();
+        assert!(
+            !finished_early,
+            "the SOCKS control listener was still starting"
+        );
+    }
+
     #[test]
     fn isolated_tests_keep_valid_listener_settings_and_reject_other_environment() {
         let mut target = Target {
@@ -1007,7 +1077,6 @@ mod tests {
         target.config["env"]["WAYRILL_FAKEDNS"] = json!("not-allowed");
         assert!(test_config(&target, 18777, "private").is_err());
     }
-    use super::*;
     #[test]
     fn test_http_deadline_includes_a_slow_streaming_response_body() {
         use std::io::Write;

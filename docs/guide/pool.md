@@ -87,24 +87,60 @@ Open **Edit delivery** from the preview to correct an assignment.
 
 ### Route by application
 
-In a Pool traffic filter, use **Pool applications** to create an entry, reuse
-one from another rule, or import a Wayrill application identity file. Enter
-exact Windows package family names or internal service names. An entry can
-include alternate identities for editions published under different names.
-On a PC where the app is installed, the regular traffic rule editor can export
-an identity from a Windows application selector.
+In a Pool traffic filter, use **Choose from this PC** to add a running
+process, installed Windows package, or registered service. To match a process
+on several PCs, use **Executable name** when the filename is the same and
+the installation path varies.
 
-To let subscribers choose an executable, leave the published identities blank.
-They can select a running app, browse for its executable, or choose a Windows
-package or service in **Applications on this PC** during enrollment. They can
-change the choice later under **Edit configuration choices**. The choice stays
-on that PC and survives later deliveries. If the Pool requires a local choice,
-Wayrill keeps the last applied delivery until the user makes that choice.
+Use **New application** under **Pool applications** when subscribers need to
+choose the actual app, when an executable is installed in different places,
+or when the app has several package or service identities.
+Give it a name subscribers will recognize, then choose how to match it.
+
+- **Find the executable on each PC** is the default. Choose a running
+  executable, browse to the file, or enter its filename. Picking a file collects
+  identity details such as its product and verified signer. The publisher’s
+  drive, user folder, and full executable path stay local. The subscriber’s
+  service checks running apps, registry registrations, and standard installation
+  folders. It selects a supported unique match or offers the candidates for
+  review. It remembers a manual choice until you choose **Use automatic matching**.
+- **Let each subscriber choose** needs only a name. Subscribers choose a
+  running process, browse for an executable, or select a package or service in
+  **Applications on this PC** during enrollment. They can update the choice
+  under **Edit configuration choices**. Wayrill remembers it across updates.
+- **Match a Windows package or service** uses exact identities. Choose from
+  this PC or enter a package family name such as
+  `Microsoft.WindowsCalculator_8wekyb3d8bbwe`, or a service name such as
+  `Dnscache`. Put alternate identities on separate lines. From another PC
+  with the app installed, you can export its identity from the traffic
+  rule editor and import it into Pool.
+
+If you require an app match, Wayrill keeps the last applied delivery until it
+finds the app or the subscriber selects it.
 
 **Include child processes** applies to a package or executable when Wayrill
 can verify the process tree. Use TUN for packages, services, and child
 processes. With Proxy capture, the filter can still match supported executable
 selectors and any independent destination alternatives.
+
+### Offer Windows loopback exemptions and app protection
+
+Create a **Loopback exemptions** or **App protection** layer under **Layers**.
+Use the installed choices or enter a package family name manually. App
+protection also accepts an executable’s full path on the subscriber’s PC.
+The app can be absent on the administrator’s PC. Use package family names
+when subscribers have the same Windows package in different locations.
+
+Assign the layer to users and publish their deliveries. Subscribers can review
+the targets and check the layer under **Optional Windows settings** during
+enrollment or later under **Edit configuration choices**. Selected layers
+receive updates automatically. An added layer needs its own opt-in.
+
+Loopback exemptions apply to packages installed for the subscriber. Windows
+stores those exemptions for the whole PC. App protection adds targets to the
+existing restart and update protection.
+Clearing a layer or disconnecting from the Pool withdraws its contribution
+and preserves exemptions and protection configured separately on the PC.
 
 ### Reuse users, Stashes and filters
 

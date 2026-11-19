@@ -21,8 +21,10 @@ export default function PoolFilterEditor({
   onSave: (layer: PoolLayer) => Promise<void>;
 }) {
   const data = layer.data;
+  const filter = data.kind === 'traffic' || data.kind === 'dns' ? data : undefined;
   const scope = useMemo(() => {
-    if (data.kind === 'stash') return;
+    const data = filter;
+    if (!data) return;
     const sourceId = data.kind === 'traffic' ? data.filter.nodeId : data.nodeId;
     const candidates = pool.configurations.flatMap(({ bundle }) =>
       layerTargets(bundle, data).map((node) => ({ bundle, node })),
@@ -43,8 +45,8 @@ export default function PoolFilterEditor({
     const node = { ...source, data: { ...source.data, label: layer.name, settings } };
     const graph = { ...base, nodes: [...base.nodes.filter((item) => item.id !== node.id), node] };
     return { node, graph };
-  }, [data, layer.name, pool.configurations]);
-  if (!scope || data.kind === 'stash') return null;
+  }, [filter, layer.name, pool.configurations]);
+  if (!scope || (data.kind !== 'traffic' && data.kind !== 'dns')) return null;
   const apply = async (_id: string, update: Partial<RuleNodeData>) => {
     const settings = update.settings ?? scope.node.data.settings;
     const filter = data.kind === 'traffic' ? readRuleTable(settings) : readDnsFilter(settings);

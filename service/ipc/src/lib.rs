@@ -4,10 +4,10 @@ use wayrill_protocol::{ApiError, Message, Request, Result, API_VERSION, MAX_FRAM
 
 fn request_timeout(method: &str) -> u64 {
     match method {
-        "config.applyAndStart" | "config.refreshOutbounds" => 480, // Includes ICS handoff, rollback and recovery.
-        "core.start" | "core.restart" => 240, // Initial/inactive wait; native progress renews it.
+        // Includes adapter readiness, ICS handoff and recovery. Progress renews the wait.
+        "config.applyAndStart" | "config.refreshOutbounds" | "core.start" | "core.restart" => 480,
         "core.stop" | "core.stopForUpgrade" | "tun.sharing.restore" | "tun.sharing.keep" => 180,
-        "config.validate" | "config.apply" | "startup.set" => 90, // Xray config load and native preflight.
+        "config.validate" | "config.apply" | "startup.set" | "tun.adapters.remove" => 90,
         _ => 45,
     }
 }

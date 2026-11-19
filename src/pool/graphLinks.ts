@@ -3,24 +3,20 @@ import { dnsFilterSettings, readDnsFilter } from '../graph/dns';
 import { parseGraph, toDocument } from '../graph/model';
 import { refreshPolicyGraph } from '../graph/policySources';
 import { readRuleTable, tableSettings } from '../graph/rules';
-import { generatedTag } from '../graph/tags';
 import type { GraphState, PoolGraphLink } from '../graph/types';
 import { parseStash, serializeStash, type Stash } from '../profiles/import';
 import { graphDependencies } from '../profiles/workspaceDependencies';
 import { syncStashEdits } from '../profiles/workspace';
-import { composePoolLayers, type PoolLayer } from './layers';
+import { composePoolLayers, linkedStashGroupId, type PoolLayer } from './layers';
 import type { PoolBundle } from './model';
 
 export const graphLinks = (bundle: PoolBundle | undefined): PoolGraphLink[] =>
   bundle && bundle.version !== 1 ? (bundle.linkedLayers ?? []) : [];
 
-const linkedGroupId = (layer: PoolLayer, group: string) =>
-  generatedTag('pool-layer', JSON.stringify([layer.id, group]));
-
 function linkedStash(layer: PoolLayer) {
   if (layer.data.kind !== 'stash') throw new Error('Select a Stash layer.');
   const stash = parseStash(layer.data.stash);
-  const ids = new Map(stash.groups.map(({ id }) => [id, linkedGroupId(layer, id)]));
+  const ids = new Map(stash.groups.map(({ id }) => [id, linkedStashGroupId(layer.id, id)]));
   return {
     ...stash,
     groups: stash.groups.map((group) => ({
@@ -59,7 +55,7 @@ export function withoutLinkedStashes(
       .filter((layer) => links.some(({ id }) => id === layer.id))
       .flatMap((layer) =>
         layer.data.kind === 'stash'
-          ? parseStash(layer.data.stash).groups.map(({ id }) => linkedGroupId(layer, id))
+          ? parseStash(layer.data.stash).groups.map(({ id }) => linkedStashGroupId(layer.id, id))
           : [],
       ),
   );
@@ -159,7 +155,7 @@ export function resolveGraphLinks(bundle: PoolBundle, layers: readonly PoolLayer
       throw new Error(`Review where “${layer.name}” is linked.`);
   }
   const filters = links.filter(({ target }) => target);
-  const resolved = composePoolLayers(base, selected, filters, true);
+  const { bundle: resolved } = composePoolLayers(base, selected, filters);
   const shared = selected.flatMap((layer) =>
     layer.data.kind === 'stash' ? linkedStash(layer).groups : [],
   );

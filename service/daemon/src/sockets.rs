@@ -262,11 +262,7 @@ fn endpoint(ip: IpAddr, port: u32, pid: u32, network: ListenerNetwork) -> OwnedE
 }
 pub fn listeners() -> Result<Vec<OwnedEndpoint>> {
     let mut result = Vec::new();
-    for row in rows::<MIB_TCPROW_OWNER_PID>(
-        AF_INET as u32,
-        TCP_TABLE_OWNER_PID_LISTENER,
-        GetExtendedTcpTable,
-    )? {
+    for row in tcp4_listeners()? {
         result.push(endpoint(
             Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).into(),
             row.dwLocalPort,
@@ -308,6 +304,30 @@ pub fn listeners() -> Result<Vec<OwnedEndpoint>> {
     }
     Ok(result)
 }
+
+fn tcp4_listeners() -> Result<Vec<MIB_TCPROW_OWNER_PID>> {
+    rows(
+        AF_INET as u32,
+        TCP_TABLE_OWNER_PID_LISTENER,
+        GetExtendedTcpTable,
+    )
+}
+
+pub(crate) fn owns_loopback_tcp_listeners(
+    pid: u32,
+    ports: impl IntoIterator<Item = u16>,
+) -> Result<bool> {
+    let listeners = tcp4_listeners()?;
+    let loopback = u32::from_ne_bytes(Ipv4Addr::LOCALHOST.octets());
+    Ok(ports.into_iter().all(|port| {
+        listeners.iter().any(|row| {
+            row.dwOwningPid == pid
+                && row.dwLocalAddr == loopback
+                && u16::from_be(row.dwLocalPort as u16) == port
+        })
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

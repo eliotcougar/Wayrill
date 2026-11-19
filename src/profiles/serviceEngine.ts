@@ -5,7 +5,11 @@ import { prepareRefresh, materializeRefresh } from './refreshPreparation';
 import { parseGraph, serializeGraph } from '../graph/model';
 import { refreshAppliedSubscriptions } from './subscriptionRuntime';
 import { analyzeGraph } from '../graph/analysis';
-import type { PoolApplicationChanges } from '../graph/applications';
+import {
+  effectivePoolApplications,
+  type PoolApplicationChanges,
+  type PoolApplicationDetection,
+} from '../graph/applications';
 import { graphPoolApplications } from '../graph/poolApplicationGraph';
 import { jsonEqual } from '../graph/xrayJson';
 import { createTestPlan, type TestSelection } from '../outboundTestPlan';
@@ -56,6 +60,7 @@ interface Request {
   capture?: PoolCapture;
   bindings?: PoolBindings;
   applicationChanges?: PoolApplicationChanges;
+  detectedApplications?: PoolApplicationDetection;
   poolSelection?: PoolSelection;
   poolChoiceNames?: PoolChoiceNames;
   poolPreferenceBase?: PoolPreferenceBase;
@@ -149,7 +154,7 @@ export function subscriptionEngine(request: Request) {
     return { stash: serializeStash(next), catalog: libraryCatalog(next) };
   }
   if (request.operation === 'poolPrepare') {
-    const { bundle, selection, choiceNames } = resolvePoolDelivery(
+    const { bundle, selection, choiceNames, deviceSettings } = resolvePoolDelivery(
       request.bundle,
       request.poolSelection,
       false,
@@ -164,9 +169,11 @@ export function subscriptionEngine(request: Request) {
       request.bindings,
       request.reconcileBindings,
       request.applicationChanges,
+      request.detectedApplications,
     );
+    const bindings = effectivePoolApplications(prepared.graph);
     const missing = graphPoolApplications(prepared.graph).find(
-      ({ id, requireLocal }) => requireLocal && !prepared.graph.poolApplicationBindings?.[id],
+      ({ id, requireLocal }) => requireLocal && !bindings?.[id],
     );
     if (missing)
       throw new Error(
@@ -191,6 +198,7 @@ export function subscriptionEngine(request: Request) {
       bindings: prepared.bindings,
       poolSelection: selection,
       poolChoiceNames: choiceNames,
+      poolDeviceSettings: deviceSettings,
       poolRoutingState: poolRoutingState(parseGraph(preparedGraph), true),
       poolPreferenceBase: preferences.base,
       graph: preparedGraph,

@@ -133,6 +133,9 @@ struct StopInput {
 pub struct Kernel {
     pub(crate) browser_timezone: crate::browser_timezone::Manager,
     protection: crate::app_protection::Manager,
+    pool_loopback: crate::pool_device::Loopback,
+    pool_protection_retry: Option<(crate::app_protection::Config, Instant)>,
+    pool_device_errors: [Option<ApiError>; 2],
     pub(crate) subscriptions: crate::subscriptions::Manager,
     startup: crate::startup::Startup,
     recovery: crate::recovery::Supervisor,
@@ -445,6 +448,9 @@ impl Kernel {
         }
         self.subscription_source_graph()
     }
+    pub(crate) fn attribution_root(&self) -> PathBuf {
+        self.capture.attribution_root()
+    }
     pub(crate) fn validate_pool_resources(&mut self, config: &Value) -> Result<()> {
         let projection = self.resources.project(config)?;
         if let Some(first) = projection.report.skipped_selectors.first() {
@@ -595,6 +601,12 @@ impl Kernel {
                 &owner,
                 data.join("app-protection.json"),
             )?,
+            pool_loopback: crate::pool_device::Loopback::new(
+                data.join("pool-loopback.json"),
+                base.join("attribution"),
+            ),
+            pool_protection_retry: None,
+            pool_device_errors: [None, None],
             subscriptions: crate::subscriptions::Manager::open(
                 &owner,
                 data.join("subscriptions.dpapi"),
@@ -803,7 +815,12 @@ impl Kernel {
             ));
         }
         if method.starts_with("subscriptions.") || method.starts_with("pool.") {
-            return self.subscriptions.handle(method, input);
+            let mut result = self.subscriptions.handle(method, input)?;
+            if method == "pool.status" {
+                result["deviceErrors"] =
+                    json!(self.pool_device_errors.iter().flatten().collect::<Vec<_>>());
+            }
+            return Ok(result);
         }
         if method == "routing.diagnosticStart" {
             let mut request: crate::routing_diagnostics::Input = params(input)?;
@@ -1373,6 +1390,18 @@ impl Kernel {
                 result?;
                 Ok(self.snapshot())
             }
+            "windows.describeExecutable" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Description {
+                    path: String,
+                }
+                let request: Description = params(input)?;
+                self.capture.once(
+                    "applications.describe",
+                    json!({"ownerSid":self.owner,"path":request.path}),
+                )
+            }
             "windows.catalog" | "windows.loopback.get" => {
                 let _: Empty = params(input)?;
                 let mut result = self.capture.once(
@@ -1400,6 +1429,12 @@ impl Kernel {
                 Ok(result)
             }
             "windows.loopback.set" => {
+                if self.pool_loopback.busy() {
+                    return Err(ApiError::new(
+                        "BUSY",
+                        "Pool is updating Loopback permissions. Try again in a moment.",
+                    ));
+                }
                 let p: capture::LoopbackChanges = params(input)?;
                 if p.expected_version.len() != 64
                     || !p.expected_version.bytes().all(|b| b.is_ascii_hexdigit())
@@ -2494,7 +2529,9 @@ impl Kernel {
         self.changed(fault.event());
     }
     pub fn tick(&mut self) {
-        if self.protection.reconcile(Instant::now()) {
+        let now = Instant::now();
+        self.reconcile_pool_device(now);
+        if self.protection.reconcile(now) {
             self.changed("appProtection.changed");
         }
         if crate::diagnostics::sampling_due() {
@@ -2532,6 +2569,56 @@ impl Kernel {
         self.reload_resource_filters();
         self.retry_routing();
         self.reconcile_user_settings();
+    }
+    fn reconcile_pool_device(&mut self, now: Instant) {
+        if self.protection.upgrading() {
+            return;
+        }
+        let desired = self.subscriptions.pool_device_settings();
+        if let Some(result) = self
+            .pool_loopback
+            .reconcile(desired.loopback, &self.owner, now)
+        {
+            self.report_pool_device(0, "Loopback exemptions", result.err());
+        }
+        if self
+            .pool_protection_retry
+            .as_ref()
+            .is_some_and(|(previous, at)| *previous == desired.protection && now < *at)
+        {
+            return;
+        }
+        let result = self.protection.set_pool(
+            desired.protection.clone(),
+            self.exe.parent().and_then(std::path::Path::parent).unwrap(),
+        );
+        self.pool_protection_retry = result
+            .as_ref()
+            .err()
+            .map(|_| (desired.protection, now + Duration::from_secs(30)));
+        if matches!(result, Ok(true)) {
+            self.changed("appProtection.changed");
+        }
+        self.report_pool_device(1, "App protection", result.err());
+    }
+    fn report_pool_device(&mut self, index: usize, setting: &str, error: Option<ApiError>) {
+        let error = error.map(|mut error| {
+            error.message = format!("{setting}: {}", error.message);
+            error
+        });
+        let previous = self.pool_device_errors[index].as_ref();
+        if previous.map(|e| (&e.code, &e.message)) == error.as_ref().map(|e| (&e.code, &e.message))
+        {
+            return;
+        }
+        if let Some(error) = &error {
+            crate::diagnostics::log(
+                "settings",
+                "warning",
+                &format!("Deferred Pool {}", error.message),
+            );
+        }
+        self.pool_device_errors[index] = error;
     }
     fn reconcile_user_settings(&mut self) {
         if !self.proxy.user_deferred() {

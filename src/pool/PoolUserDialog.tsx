@@ -247,15 +247,15 @@ export default function PoolUserDialog({
       )}
       {!!pool.layers?.length && (
         <details className="editor-advanced" open={layerIds.length > 0 || undefined}>
-          <summary>Optional Stashes and filters</summary>
+          <summary>Optional layers</summary>
           <fieldset className="pool-assignments" disabled={busy}>
             <p className="field-help">
               Select which layers the subscriber can use. Set defaults for the layers that should be
-              active at enrollment.
+              active at enrollment. Subscribers choose whether to apply Windows settings layers.
             </p>
             {pool.layers.map((layer) => {
               const assignment = assignments.find((item) => item.id === layer.id);
-              const isFilter = layer.data.kind !== 'stash';
+              const isFilter = layer.data.kind === 'traffic' || layer.data.kind === 'dns';
               const targets = targetsByLayer.get(layer.id) ?? [];
               return (
                 <div key={layer.id} className="pool-assignment">
@@ -279,7 +279,7 @@ export default function PoolUserDialog({
                       {layer.name} <small>{layerNames[layer.data.kind]}</small>
                     </span>
                   </label>
-                  {layerIds.includes(layer.id) && !isFilter && (
+                  {layerIds.includes(layer.id) && layer.data.kind === 'stash' && (
                     <label className="check-control">
                       <input
                         type="checkbox"

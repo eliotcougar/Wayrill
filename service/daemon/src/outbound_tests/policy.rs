@@ -10,6 +10,8 @@ use std::{
 };
 use wayrill_protocol::Result;
 
+const FRESH_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(20);
+
 fn selected<'a>(config: &'a Value, group: &Value) -> BTreeSet<&'a str> {
     let catalog: BTreeSet<_> = config["outbounds"]
         .as_array()
@@ -108,7 +110,7 @@ pub(super) fn prepare(
         .build()
         .map_err(|_| invalid("Cannot read the policy selection."))?
         .block_on(async {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + FRESH_OBSERVATION_TIMEOUT;
             for group in config["routing"]["balancers"]
                 .as_array()
                 .into_iter()

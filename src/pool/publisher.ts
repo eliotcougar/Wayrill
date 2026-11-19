@@ -217,11 +217,12 @@ export function prepareDelivery(
     const layer = layers.find((item) => item.id === id);
     if (!layer) throw new Error('An assigned layer was removed.');
     if (layer.data.kind === 'stash') return [{ id }];
+    if (layer.data.kind !== 'traffic' && layer.data.kind !== 'dns') return [];
     return target ? [{ id, target }] : [];
   });
   for (const { bundle } of graphs) validatePublishedGraph(bundle);
   const base = graphs.find(({ id }) => id === member.configurationId)!.bundle;
-  const defaults = composePoolLayers(base, layers, defaultLayers, true);
+  const { bundle: defaults } = composePoolLayers(base, layers, defaultLayers);
   if (defaults.graph !== base.graph) validatePublishedGraph(defaults);
   const privateGroup = `aquifer-${member.id}`;
   if (

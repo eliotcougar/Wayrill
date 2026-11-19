@@ -13,10 +13,11 @@ import { readRuleTable, tableSettings } from '../graph/rules';
 import { readDnsFilter, dnsFilterSettings } from '../graph/dns';
 import { parseEntry, parseStash, serializeStash } from '../profiles/import';
 import { defaultGroup } from '../profiles/stashModel';
-import { capturePoolGraph, preparePoolWorkspace, poolRoutingState } from './model';
+import { capturePoolGraph, poolGroupId, preparePoolWorkspace, poolRoutingState } from './model';
 import { applyPoolPreferences, personalSettingChoices } from './preferences';
 import { prepareDelivery, type Member, type Publisher } from './publisher';
 import { resolvePoolDelivery } from './delivery';
+import { encodePoolDelivery } from './deliveryCompatibility';
 import { subscriptionEngine } from '../profiles/serviceEngine';
 import type { ObservedServer } from './accounts';
 import { applyStashedEntry } from '../profiles/graph';
@@ -24,6 +25,101 @@ import { openGraphLayer } from './graphLayer';
 
 const stash = { format: 'wayrill.stash' as const, version: 3 as const, groups: [] };
 const recipient = '0123456789abcdef0123456789abcdef';
+
+it('offers per-user Windows layers through the compatibility extension and applies only selected layers', () => {
+  const starter = openGraphLayer(undefined, 'direct');
+  const family = 'Microsoft.WindowsStore_8wekyb3d8bbwe';
+  const app = { kind: 'executable' as const, value: 'C:\\Apps\\External\\client.exe' };
+  const member: Member = {
+    id: 'alice',
+    name: 'Alice',
+    invite: '',
+    configurationId: 'first',
+    layerIds: ['loop', 'protect'],
+  };
+  const other = { ...member, id: 'bob', layerIds: ['protect'] };
+  const pool: Publisher = {
+    id: 'pool',
+    name: 'Pool',
+    folder: 'C:\\Pool',
+    members: [member, other],
+    configurations: [
+      { id: 'first', bundle: capturePoolGraph('Main', starter.graph, starter.stash, []) },
+    ],
+    layers: [
+      { id: 'loop', name: 'Local proxy access', data: { kind: 'loopback', packages: [family] } },
+      {
+        id: 'protect',
+        name: 'Client protection',
+        data: { kind: 'app-protection', protection: { enabled: true, applications: [app] } },
+      },
+    ],
+  };
+  const alice = encodePoolDelivery(prepareDelivery(pool, member));
+  const bob = encodePoolDelivery(prepareDelivery(pool, other));
+  expect(alice.layers).toEqual([]);
+  expect(alice.defaultLayers).toEqual([]);
+  expect(
+    resolvePoolDelivery(alice, undefined, true).options?.deviceLayers?.map(({ id }) => id),
+  ).toEqual(['loop', 'protect']);
+  expect(
+    resolvePoolDelivery(bob, undefined, true).options?.deviceLayers?.map(({ id }) => id),
+  ).toEqual(['protect']);
+  expect(resolvePoolDelivery(alice).deviceSettings).toBeUndefined();
+  const enrolled = resolvePoolDelivery(alice, { graph: 'first', deviceLayers: ['loop'] });
+  expect(enrolled.deviceSettings).toEqual({
+    loopback: [family],
+    protection: { enabled: false, applications: [] },
+  });
+  const updated = encodePoolDelivery(
+    prepareDelivery(
+      {
+        ...pool,
+        layers: [
+          {
+            id: 'loop',
+            name: 'Renamed',
+            data: { kind: 'loopback', packages: [family, 'Uninstalled.Test_123456789abcd'] },
+          },
+          pool.layers![1],
+        ],
+      },
+      member,
+    ),
+  );
+  expect(resolvePoolDelivery(updated, enrolled.selection).deviceSettings?.loopback).toEqual([
+    family,
+    'Uninstalled.Test_123456789abcd',
+  ]);
+  expect(resolvePoolDelivery(bob, enrolled.selection).deviceSettings).toBeUndefined();
+  const prepared = subscriptionEngine({
+    operation: 'poolPrepare',
+    bundle: alice,
+    stash: '',
+    capture: 'proxy',
+    recipient,
+    poolSelection: { graph: 'first', deviceLayers: ['protect'] },
+  });
+  expect(prepared).toHaveProperty('poolDeviceSettings', {
+    loopback: [],
+    protection: { enabled: true, applications: [app] },
+  });
+  if (!('graph' in prepared)) throw new Error('Expected a prepared Pool graph.');
+  const rebind = subscriptionEngine({
+    operation: 'poolPrepare',
+    bundle: alice,
+    stash: '',
+    appliedGraph: prepared.graph,
+    recipient,
+    capture: 'current',
+    poolSelection: { graph: 'first' },
+  });
+  expect(rebind).toHaveProperty('graph', prepared.graph);
+  expect(rebind).toHaveProperty('poolDeviceSettings', undefined);
+  expect(
+    resolvePoolDelivery({ ...alice, extensions: undefined }, enrolled.selection).deviceSettings,
+  ).toBeUndefined();
+});
 
 it('applies published geofile defaults to traffic and DNS while retaining subscriber defaults', () => {
   const graph = createDnsExample();
@@ -549,6 +645,62 @@ it('keeps the subscriber outbound slot through a linked Stash rebuild and graph-
     outbounds: { [outbound.id]: { groupId: defaultGroup().id, entryId: 'one-entry' } },
   });
   expect(resolved.selection?.outbounds?.[outbound.id]?.entryId).toBe('one-entry');
+});
+
+it('imports a Stash assigned to both the user and graph once and preserves existing outbound choices', () => {
+  const { pool, member, servers, outbound } = fixture();
+  delete member.accounts;
+  member.assignments = [{ id: 'one' }, { id: 'two' }];
+  const base = pool.configurations[0].bundle;
+  if (base.version === 1) throw new Error('Expected a graph that supports linked layers');
+  base.linkedLayers = [{ id: 'one' }];
+  const publication = encodePoolDelivery(prepareDelivery(pool, member, servers));
+  const graphStash = parseStash(publication.graphs[0].bundle.stash);
+  const linked = graphStash.groups.find(({ entries }) =>
+    entries.some(({ id }) => id === 'one-entry'),
+  )!;
+  const layer = publication.layers.find(({ id }) => id === 'one')!.data;
+  if (layer.kind !== 'stash') throw new Error('Missing assigned Stash');
+  const local = parseEntry('socks://local.example.test:1080');
+  const previousStash = {
+    ...stash,
+    groups: [
+      ...[linked, ...parseStash(layer.stash).groups].map((group) => ({
+        ...group,
+        id: poolGroupId(recipient, group.id),
+      })),
+      { ...defaultGroup(), entries: [local] },
+    ],
+  };
+  const oldLink = { groupId: defaultGroup().id, entryId: 'one-entry' };
+  const result = subscriptionEngine({
+    operation: 'poolPrepare',
+    bundle: publication,
+    stash: serializeStash(previousStash),
+    poolSelection: { graph: 'first', outbounds: { [outbound.id]: oldLink } },
+    recipient,
+    capture: 'proxy',
+  });
+  if (!('graph' in result) || !result.graph || !result.stash)
+    throw new Error('Missing prepared Pool configuration');
+  const groups = parseStash(result.stash).groups;
+  expect(groups.flatMap(({ entries }) => entries.map(({ id }) => id))).toEqual([
+    local.id,
+    'one-entry',
+    'two-entry',
+  ]);
+  const linkedChoice = { ...oldLink, groupId: linked.id };
+  expect(result.poolSelection?.outbounds?.[outbound.id]).toEqual(linkedChoice);
+  expect(
+    parseGraph(result.graph).nodes.find(({ id }) => id === outbound.id)?.data.stashLink,
+  ).toEqual({ ...linkedChoice, groupId: poolGroupId(recipient, linked.id) });
+
+  delete base.linkedLayers;
+  const unlinked = resolvePoolDelivery(
+    prepareDelivery(pool, member, servers),
+    result.poolSelection,
+  );
+  expect(unlinked.selection?.outbounds?.[outbound.id]).toEqual(oldLink);
 });
 
 it('requires separate Aquifer accounts for different Pool users', () => {

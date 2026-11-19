@@ -340,6 +340,16 @@ impl Manager {
     pub fn snapshot(&self) -> Value {
         self.synchronized(|view| view)
     }
+    pub fn pool_device_settings(&self) -> crate::pool_device::Settings {
+        self.state
+            .lock()
+            .unwrap()
+            .library
+            .pool
+            .as_ref()
+            .map(|connection| connection.device_settings.clone())
+            .unwrap_or_default()
+    }
     pub(crate) fn timezone_choices(&self, input: Value) -> Result<Value> {
         let query: wayrill_protocol::companion::TimezoneChoices = params(input)?;
         query.validate()?;

@@ -14,7 +14,7 @@ use std::{
     path::{Path, PathBuf},
     ptr,
     sync::{Arc, Condvar, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use wayrill_protocol::{ApiError, Result};
 use windows_sys::{
@@ -27,6 +27,8 @@ use windows_sys::{
         System::Registry::*,
     },
 };
+
+const ADAPTER_READY_TIMEOUT: Duration = Duration::from_secs(60);
 
 // The SDK import library selects the software-device API set on Windows 10.
 // Calling cfgmgr32's compatibility export directly fails on some Windows 10 builds.
@@ -486,7 +488,8 @@ impl Store {
             // SWD lifetime control without loading Wintun or enabling PnP.
             let mut deleting = record.clone();
             deleting.guid = Some(id);
-            let mut device = SoftwareDevice::enumerate(deleting)?;
+            let mut device =
+                SoftwareDevice::enumerate(deleting, Instant::now() + ADAPTER_READY_TIMEOUT)?;
             device.remove()?;
         }
         storage::remove(&self.path(request.kind))
@@ -631,13 +634,13 @@ struct SoftwareDevice {
 }
 impl SoftwareDevice {
     fn open(record: Record) -> Result<Self> {
-        let device = Self::enumerate(record)?;
-        let until = std::time::Instant::now() + Duration::from_secs(20);
+        let until = Instant::now() + ADAPTER_READY_TIMEOUT;
+        let device = Self::enumerate(record, until)?;
         loop {
             match interface(&device.record) {
                 Ok(Some((dev, _))) if driver_ready(dev, &device.record)? => break,
                 Err(e) if e.code == "TUN_ADAPTER" => return Err(e),
-                result if std::time::Instant::now() >= until => {
+                result if Instant::now() >= until => {
                     return Err(result
                         .err()
                         .unwrap_or_else(|| error("The owned TUN driver did not become ready.")));
@@ -647,7 +650,7 @@ impl SoftwareDevice {
         }
         Ok(device)
     }
-    fn enumerate(record: Record) -> Result<Self> {
+    fn enumerate(record: Record, until: Instant) -> Result<Self> {
         // Verify before re-acquiring an existing SWD instance. No caller can
         // turn a foreign interface into an owned one by supplying its name.
         let _ = native_guid(&record)?;
@@ -713,7 +716,11 @@ impl SoftwareDevice {
             .map_err(|_| error("TUN creation observer failed."))?;
         let (value, _) = completion
             .ready
-            .wait_timeout_while(value, Duration::from_secs(20), |v| v.is_none())
+            .wait_timeout_while(
+                value,
+                until.saturating_duration_since(Instant::now()),
+                |v| v.is_none(),
+            )
             .map_err(|_| error("TUN creation observer failed."))?;
         let (result, id) = value
             .as_ref()
@@ -977,14 +984,14 @@ fn preserve_disabled(record: &Record) -> Result<()> {
             "Reactivate owned TUN device failed ({code})."
         )));
     }
-    let until = std::time::Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + ADAPTER_READY_TIMEOUT;
     loop {
         if let Some((dev, row)) = interface(record)? {
             if driver_ready(dev, record)? {
                 return set_enabled(row.InterfaceIndex, false);
             }
         }
-        if std::time::Instant::now() >= until {
+        if Instant::now() >= until {
             return Err(error(
                 "The reactivated owned TUN driver did not become ready.",
             ));

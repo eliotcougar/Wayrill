@@ -5,8 +5,8 @@ use crate::pool_access::Source;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use sha2::{Digest, Sha256};
 
-// Increase when the service starts interpreting new optional publication data.
-const DELIVERY_READER: u16 = 1;
+// Increase when existing publications need to be read again after an upgrade.
+const DELIVERY_READER: u16 = 4;
 
 fn default_minutes() -> u64 {
     5
@@ -56,6 +56,56 @@ pub(super) struct Connection {
     routing_digest: Option<String>,
     #[serde(default, skip_serializing_if = "Value::is_null")]
     preference_base: Value,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::pool_device::Settings::is_empty"
+    )]
+    pub(super) device_settings: crate::pool_device::Settings,
+    #[serde(default, skip_serializing_if = "PortableApplications::is_empty")]
+    portable_applications: PortableApplications,
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableApplications {
+    descriptors: BTreeMap<String, Value>,
+    paths: BTreeMap<String, String>,
+}
+impl PortableApplications {
+    fn is_empty(&self) -> bool {
+        self.descriptors.is_empty()
+    }
+}
+fn detect_apps(
+    root: &std::path::Path,
+    owner: &str,
+    descriptors: &BTreeMap<String, Value>,
+    stop: &AtomicBool,
+    shutdown: &AtomicBool,
+) -> Result<Value> {
+    if descriptors.is_empty() {
+        return Ok(json!({}));
+    }
+    worker::check(stop, shutdown)?;
+    let mut helper = crate::capture::Worker::spawn_attribution(root)?;
+    let detection = helper.call(
+        "applications.detect",
+        json!({"ownerSid":owner, "descriptors":descriptors}),
+    )?;
+    worker::check(stop, shutdown)?;
+    Ok(detection)
+}
+fn detected_paths(detection: &Value) -> BTreeMap<String, String> {
+    detection
+        .as_object()
+        .into_iter()
+        .flat_map(|map| map.iter())
+        .filter_map(|(id, result)| {
+            result["path"]
+                .as_str()
+                .map(|path| (id.clone(), path.to_owned()))
+        })
+        .collect()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -67,7 +117,7 @@ struct OutboundChoice {
     entry_id: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
     graph: String,
@@ -83,6 +133,8 @@ struct Selection {
     filter_overrides: Option<BTreeMap<String, Option<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbounds: Option<BTreeMap<String, OutboundChoice>>,
+    #[serde(rename = "deviceLayers", skip_serializing_if = "Option::is_none")]
+    device_layers: Option<Vec<String>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -243,6 +295,10 @@ fn validate_selection(
                 .as_ref()
                 .is_some_and(|ids| ids.len() > 500 || !ids.iter().all(|id| valid_id(id)))
             || choice.filters.as_ref().is_some_and(|map| !map_valid(map))
+            || choice
+                .device_layers
+                .as_ref()
+                .is_some_and(|ids| ids.len() > 500 || !ids.iter().all(|id| valid_id(id)))
             || (choice.filters.is_some() && choice.filter_overrides.is_some())
             || (choice.stashes.is_some() && choice.stash_overrides.is_some())
             || choice
@@ -428,7 +484,7 @@ pub(super) fn perform(
                 .and_then(|connection| connection.bindings.as_ref())
         });
     let (recipient, _) = source.parts()?;
-    let (proof, applied, owner) = {
+    let (proof, applied, owner, attribution) = {
         let routing = kernel
             .lock()
             .map_err(|_| error("Routing controller unavailable."))?;
@@ -445,7 +501,12 @@ pub(super) fn perform(
         } else if proof.wants_running && !proof.running {
             return Err(error("Waiting for the running configuration to recover."));
         }
-        (proof, routing.pool_source()?, current.owner_sid.clone())
+        (
+            proof,
+            routing.pool_source()?,
+            current.owner_sid.clone(),
+            routing.attribution_root(),
+        )
     };
     if matches!(task, Task::Refresh)
         && applied
@@ -462,8 +523,22 @@ pub(super) fn perform(
     };
     let connection = current.pool.as_ref().filter(|_| initial.is_none());
     let refresh = matches!(task, Task::Refresh);
+    let saved_apps = connection
+        .filter(|c| refresh && c.delivery_reader == DELIVERY_READER)
+        .map(|c| &c.portable_applications);
+    let previous_detection = saved_apps
+        .map(|apps| detect_apps(&attribution, &owner, &apps.descriptors, stop, shutdown))
+        .transpose()?;
+    let applications_changed = saved_apps
+        .zip(previous_detection.as_ref())
+        .is_some_and(|(apps, detected)| apps.paths != detected_paths(detected));
     let validator = connection
-        .filter(|c| refresh && c.delivery_reader == DELIVERY_READER && !c.preference_base.is_null())
+        .filter(|c| {
+            refresh
+                && !applications_changed
+                && c.delivery_reader == DELIVERY_READER
+                && !c.preference_base.is_null()
+        })
         .and_then(|p| p.etag.as_ref());
     let request = json!({"operation":"poolDownload","source":source,"etag":validator});
     let response = match worker::helper_as(&request, identity, stop, shutdown) {
@@ -484,6 +559,18 @@ pub(super) fn perform(
         }
     };
     let pool_name = bundle["poolName"].as_str().map(str::to_owned);
+    if let Some((graph, device_layers)) = bundle["defaultGraph"]
+        .as_str()
+        .zip(saved_selection.and_then(|choice| choice.device_layers.as_ref()))
+        .filter(|_| selection.is_none() && preview.is_some_and(|input| input.use_defaults))
+    {
+        selection = Some(Selection {
+            graph: graph.into(),
+            follow_default: true,
+            device_layers: Some(device_layers.clone()),
+            ..Default::default()
+        });
+    }
     if refresh || preview.is_some() {
         if let Some(choice) = selection.as_mut().filter(|choice| choice.follow_default) {
             if let Some(default) = bundle["defaultGraph"].as_str() {
@@ -521,6 +608,7 @@ pub(super) fn perform(
             }
         }
         if refresh
+            && !applications_changed
             && connection.delivery_reader == DELIVERY_READER
             && connection.digest == content_digest
         {
@@ -560,7 +648,15 @@ pub(super) fn perform(
                 .or_else(|| connection.map(|c| &c.preference_base))
         })
         .flatten();
-    if preview.is_some() {
+    let application_changes = initial
+        .and_then(|input| input.application_changes.as_ref())
+        .or_else(|| rebind.and_then(|input| input.application_changes.as_ref()));
+    let (descriptors, detection, preview_entries) = if applications_changed
+        && connection.is_some_and(|connection| connection.digest == content_digest)
+    {
+        let apps = saved_apps.unwrap();
+        (apps.descriptors.clone(), previous_detection.unwrap(), None)
+    } else if preview.is_some() || bundle["extensions"]["portableExecutablesV1"] == true {
         let mut response = worker::helper(
             &json!({"operation":"poolInspect","recipient":recipient,"appliedGraph":applied.as_ref().map(|value| &value.0),
             "bundle":bundle,"capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names,
@@ -568,7 +664,39 @@ pub(super) fn perform(
             stop,
             shutdown,
         )?;
-        let mut preview = response["poolEntries"].take();
+        let entries = response["poolEntries"].take();
+        let manual = applied
+            .as_ref()
+            .and_then(|value| serde_json::from_str::<Value>(&value.0).ok())
+            .filter(|graph| graph["poolId"] == recipient);
+        let descriptors = entries["applications"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|app| {
+                let id = app["id"].as_str()?;
+                let descriptor = app.get("executable")?;
+                let manual = application_changes
+                    .and_then(|changes| changes.get(id))
+                    .map_or_else(
+                        || {
+                            manual
+                                .as_ref()
+                                .and_then(|graph| graph["poolApplicationBindings"].get(id))
+                                .is_some()
+                        },
+                        |binding| binding.is_some(),
+                    );
+                (preview.is_some() || !manual).then(|| (id.to_owned(), descriptor.clone()))
+            })
+            .collect();
+        let detection = detect_apps(&attribution, &owner, &descriptors, stop, shutdown)?;
+        (descriptors, detection, Some(entries))
+    } else {
+        (BTreeMap::new(), json!({}), None)
+    };
+    if preview.is_some() {
+        let mut preview = preview_entries.ok_or_else(|| error("Missing Pool preview."))?;
         let entries = preview
             .as_object_mut()
             .ok_or_else(|| error("Invalid Pool preview."))?;
@@ -578,6 +706,16 @@ pub(super) fn perform(
             "sourceHash".into(),
             json!(proof.source_hash.unwrap_or_default()),
         );
+        if let Some(applications) = entries
+            .get_mut("applications")
+            .and_then(Value::as_array_mut)
+        {
+            for application in applications {
+                if let Some(value) = application["id"].as_str().and_then(|id| detection.get(id)) {
+                    application["detection"] = value.clone();
+                }
+            }
+        }
         let id = job.ok_or_else(|| error("Missing Pool preview job."))?;
         manager.state.lock().unwrap().pool_preview = Some((id, preview));
         return Ok(());
@@ -586,8 +724,7 @@ pub(super) fn perform(
         &json!({"operation":"poolPrepare","stash":current.stash.as_deref().unwrap_or(""),
         "appliedGraph":applied.as_ref().map(|value| &value.0),"bundle":bundle,"recipient":recipient,
         "capture":capture,"bindings":bindings,"poolSelection":selection,"poolChoiceNames":choice_names,
-        "applicationChanges":initial.and_then(|input| input.application_changes.as_ref())
-            .or_else(|| rebind.and_then(|input| input.application_changes.as_ref())),
+        "applicationChanges":application_changes,"detectedApplications":detection,
         "poolPreferenceBase":preference_base,"resetPreferences":rebind.map(|r| &r.reset_preferences),
         "reconcileBindings":refresh}),
         stop,
@@ -616,6 +753,13 @@ pub(super) fn perform(
     let name = candidate["name"]
         .as_str()
         .ok_or_else(|| error("Missing Pool configuration name."))?;
+    let mut device_settings = if candidate["poolDeviceSettings"].is_null() {
+        crate::pool_device::Settings::default()
+    } else {
+        serde_json::from_value(candidate["poolDeviceSettings"].clone())
+            .map_err(|_| error("Invalid prepared Pool Windows settings."))?
+    };
+    device_settings.validate()?;
     let pending = Pending {
         connection: Connection {
             source: source.clone(),
@@ -645,6 +789,11 @@ pub(super) fn perform(
             choice_names: candidate["poolChoiceNames"].clone(),
             routing_digest: Some(digest(&candidate["poolRoutingState"].to_string())),
             preference_base: candidate["poolPreferenceBase"].clone(),
+            device_settings,
+            portable_applications: PortableApplications {
+                descriptors,
+                paths: detected_paths(&detection),
+            },
         },
         source_digest: digest(graph),
         config_hash: Kernel::subscription_candidate_hash(&candidate)?,
@@ -680,7 +829,7 @@ pub(super) fn perform(
     routing.install_pool_resources(&candidate["config"], files, stop)?;
     // A publication can change an unselected graph or Stash without changing
     // this computer's routing. Commit its delivery without invoking activation.
-    let already_applied = refresh
+    let already_applied = (refresh || rebind.is_some())
         && applied
             .as_ref()
             .is_some_and(|(source, _, hash, _)| source == graph && hash == &pending.config_hash);

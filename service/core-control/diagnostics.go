@@ -330,7 +330,7 @@ func diagnosticDNSQuery(ctx context.Context, request diagnosticRequest, logger *
 	if err != nil || destination.Port == 0 || !destination.Address.Family().IsIP() {
 		return nil, errors.New("provide a DNS destination IP and port")
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	ctx = session.ContextWithInbound(ctx, &session.Inbound{Tag: "wayrill-diagnostic"})
 	ctx = session.ContextWithOutbounds(ctx, []*session.Outbound{{Target: destination}})
@@ -420,7 +420,7 @@ func diagnosticRun(input io.Reader) (any, error) {
 	if err := json.Unmarshal(data, &request); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	logger := &diagnosticLogger{start: time.Now()}
 	xlog.RegisterHandler(logger)

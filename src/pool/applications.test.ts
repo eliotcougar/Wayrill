@@ -75,6 +75,7 @@ function apply(
   changes: Parameters<typeof subscriptionEngine>[0]['applicationChanges'] = undefined,
   appliedGraph?: string,
   capture: 'proxy' | 'tun' | 'current' = 'tun',
+  detectedApplications?: Parameters<typeof subscriptionEngine>[0]['detectedApplications'],
 ) {
   const result = subscriptionEngine({
     operation: 'poolPrepare',
@@ -83,12 +84,72 @@ function apply(
     stash: '',
     bundle,
     applicationChanges: changes,
+    detectedApplications,
     appliedGraph,
   });
   if (!('graph' in result) || !result.graph || !result.config)
     throw new Error('Pool preparation did not return a compiled graph.');
   return result;
 }
+
+it('compiles discovered paths only on the subscriber, preserves overrides, and safely omits unpublished selectors on old clients', () => {
+  const identity = {
+    ...manual,
+    executable: { name: 'qa-app.exe', originalName: 'qa-app.exe', product: 'QA Client' },
+    requireLocal: true as const,
+  };
+  const bundle = publication(identity);
+  const delivery = encodePoolDelivery({
+    format: 'wayrill.pool.catalog',
+    version: 1,
+    defaultGraph: 'main',
+    graphs: [{ id: 'main', bundle }],
+    layers: [],
+    defaultLayers: [],
+  });
+  expect(delivery.extensions).toEqual({ portableExecutablesV1: true });
+  expect(delivery.graphs[0].extensions).not.toHaveProperty('trafficApplicationsV1');
+  const legacy = resolvePoolDelivery({
+    ...delivery,
+    graphs: [{ ...delivery.graphs[0], extensions: {} }],
+  }).bundle;
+  expect(JSON.stringify(apply(legacy).config.routing)).not.toContain('pool-qa.example');
+  const restored = resolvePoolDelivery(delivery).bundle;
+  const found = apply(restored, undefined, undefined, 'tun', {
+    [app.id]: { path, candidates: [] },
+  });
+  expect(found.capture?.inputs[0].predicates?.flat()).toContainEqual({
+    kind: 'process',
+    value: path,
+    mode: 'path',
+    children: true,
+    enabled: true,
+  });
+  const alternative = 'E:/Other Tool/qa-app.exe';
+  expect(() =>
+    apply(restored, undefined, found.graph, 'current', {
+      [app.id]: { candidates: [path, alternative] },
+    }),
+  ).toThrow('Choose “Example client”');
+  const manualChoice = apply(
+    restored,
+    { [app.id]: { kind: 'process', value: alternative } },
+    found.graph,
+    'current',
+  );
+  const newer = apply(restored, undefined, manualChoice.graph, 'current', {
+    [app.id]: { path, candidates: [] },
+  });
+  expect(
+    newer.capture?.inputs[0].predicates?.flat().find(({ kind }) => kind === 'process')?.value,
+  ).toBe(alternative);
+  const reset = apply(restored, { [app.id]: null }, newer.graph, 'current', {
+    [app.id]: { path, candidates: [] },
+  });
+  expect(
+    reset.capture?.inputs[0].predicates?.flat().find(({ kind }) => kind === 'process')?.value,
+  ).toBe(path);
+});
 
 it('compiles package aliases and service ownership on TUN and keeps a PC binding across a later delivery', () => {
   const original = publication(app);

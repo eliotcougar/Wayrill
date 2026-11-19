@@ -233,8 +233,10 @@ export default function PoolConnection({
     ({ id, enabled }) => !enabled || Object.hasOwn(assignments, id),
   );
   const applicationChoiceMissing = preview?.applications?.some(
-    ({ id, requireLocal, binding }) =>
-      requireLocal && !(Object.hasOwn(applicationChanges, id) ? applicationChanges[id] : binding),
+    ({ id, requireLocal, binding, detection }) =>
+      requireLocal &&
+      !detection?.path &&
+      !(Object.hasOwn(applicationChanges, id) ? applicationChanges[id] : binding),
   );
   const options = preview?.options;
   // Older enrollments selected entire lists. Keep their explicit choices until
@@ -429,6 +431,7 @@ export default function PoolConnection({
                       : {
                           stashes: selection.stashes,
                           stashOverrides: selection.stashOverrides,
+                          deviceLayers: selection.deviceLayers,
                         }),
                     graph: target,
                     followDefault,
@@ -674,7 +677,11 @@ export default function PoolConnection({
                     void run(() =>
                       inspect(
                         connected,
-                        { graph: options.defaultGraph, followDefault: true },
+                        {
+                          graph: options.defaultGraph,
+                          followDefault: true,
+                          deviceLayers: selection.deviceLayers,
+                        },
                         selection.graph === options.defaultGraph,
                       ),
                     )
@@ -684,6 +691,56 @@ export default function PoolConnection({
                 </button>
               )}
             </>
+          )}
+          {!!options?.deviceLayers?.length && selection && (
+            <fieldset className="pool-assignments" disabled={busy}>
+              <legend>Optional Windows settings</legend>
+              <p className="field-help">
+                Choose which layers to apply on this PC. Your choices carry over to future Pool
+                updates.
+              </p>
+              {options.deviceLayers.map(({ id, name, data }) => (
+                <div className="pool-assignment" key={id}>
+                  <label className="check-control">
+                    <input
+                      type="checkbox"
+                      checked={selection.deviceLayers?.includes(id) ?? false}
+                      onChange={(event) => {
+                        const selected = new Set(selection.deviceLayers);
+                        if (event.currentTarget.checked) selected.add(id);
+                        else selected.delete(id);
+                        setSelection({ ...selection, deviceLayers: [...selected] });
+                      }}
+                    />
+                    <span>
+                      {name}{' '}
+                      <small>
+                        {data.kind === 'loopback' ? 'Loopback exemptions' : 'App protection'}
+                      </small>
+                    </span>
+                  </label>
+                  <details className="editor-advanced">
+                    <summary>Review targets</summary>
+                    {data.kind === 'app-protection' && !data.protection.enabled ? (
+                      <p className="field-help">
+                        This layer currently supplies no active protection.
+                      </p>
+                    ) : (
+                      <ul>
+                        {(data.kind === 'loopback'
+                          ? data.packages
+                          : data.protection.applications.map(({ value }) => value)
+                        ).map((value) => (
+                          <li key={value} className="field-help">
+                            {value}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </details>
+                </div>
+              ))}
+            </fieldset>
           )}
           {!!preview.personalSettings?.length && (
             <details className="editor-advanced">
@@ -1027,6 +1084,11 @@ export default function PoolConnection({
           {failure || statusError || (!preview && status?.error?.message) || live?.editorError}
         </p>
       )}
+      {status?.deviceErrors?.map(({ message }) => (
+        <p key={message} role="alert" className="notice notice--error">
+          {message}
+        </p>
+      ))}
       {preview && (failure || (revision !== undefined && revision !== preview.revision)) && (
         <button
           className="secondary-button"

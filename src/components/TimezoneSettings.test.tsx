@@ -128,6 +128,38 @@ it('clears a transient inventory error on the next successful poll', async () =>
     vi.useRealTimers();
   }
 });
+it('saves an outbound timezone when the service probe takes longer than thirty seconds', async () => {
+  vi.useFakeTimers();
+  try {
+    let finished = false;
+    vi.mocked(serviceCall).mockImplementation(async (method) => {
+      if (method === 'timezone.probeStart') return { job: 7, revision: 9 };
+      if (method === 'outbounds.testGet')
+        return finished
+          ? { busy: false, results: [{ timezone: 'UTC', ip: '192.0.2.1' }] }
+          : { busy: true, results: [] };
+      if (method === 'config.get') return { revision: 9 };
+      return snapshot;
+    });
+    await act(async () => root.render(<TimezoneSettings onClose={() => {}} />));
+    await click('Edit');
+    await act(() => {
+      field('Mode').value = 'main';
+      field('Mode').dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click('Save');
+    await act(() => vi.advanceTimersByTimeAsync(45_000));
+    finished = true;
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(serviceCall).toHaveBeenCalledWith(
+      'browserTimezone.set',
+      expect.objectContaining({ policy: { mode: 'main', zone: 'UTC', ip: '192.0.2.1' } }),
+    );
+    expect(serviceCall).not.toHaveBeenCalledWith('outbounds.testCancel', { job: 7 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it('does not save a completed lookup when the dialog closes during revision validation', async () => {
   let release!: (value: { revision: number }) => void;
   vi.mocked(serviceCall).mockImplementation(async (method) => {

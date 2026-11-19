@@ -4,6 +4,7 @@ import {
   updatePoolApplicationBindings,
   type PoolApplicationBinding,
   type PoolApplicationChanges,
+  type PoolApplicationDetection,
   type PoolApplicationIdentity,
 } from '../graph/applications';
 import { withoutPreferences } from './preferences';
@@ -43,7 +44,10 @@ export type PoolBindings = Record<string, string>;
 export type PoolEntries = {
   name: string;
   settings?: PoolSettings;
-  applications: (PoolApplicationIdentity & { binding?: PoolApplicationBinding })[];
+  applications: (PoolApplicationIdentity & {
+    binding?: PoolApplicationBinding;
+    detection?: PoolApplicationDetection[string];
+  })[];
   placeholders: { id: string; name: string; ports: string[]; destination?: string }[];
   inbounds: {
     id: string;
@@ -730,11 +734,13 @@ export function preparePoolWorkspace(
   bindings?: PoolBindings,
   reconcileBindings = false,
   applicationChanges?: PoolApplicationChanges,
+  detected?: PoolApplicationDetection,
 ) {
   const bundle = parsePoolBundle(value);
   const { graph: portable, ids: sharedIds } = editablePoolGraph(bundle);
   const shared = mergePersonalRules(portable, local?.poolId === recipient ? local : undefined);
-  const allowed = new Set(graphPoolApplications(portable).map(({ id }) => id));
+  const applications = graphPoolApplications(portable);
+  const allowed = new Set(applications.map(({ id }) => id));
   const applicationBindings = updatePoolApplicationBindings(
     local?.poolId === recipient ? local.poolApplicationBindings : undefined,
     applicationChanges &&
@@ -812,6 +818,12 @@ export function preparePoolWorkspace(
         name: bundle.name,
         poolId: recipient,
         poolApplicationBindings: applicationBindings,
+        poolAutomaticApplications: Object.fromEntries(
+          applications.flatMap(({ id, executable }) => {
+            const path = executable && detected?.[id]?.path;
+            return path ? [[id, { kind: 'process' as const, value: path }]] : [];
+          }),
+        ),
         poolSettings: bundle.settings,
         defaults:
           local?.poolId !== recipient && local?.defaults?.localPoolSettings

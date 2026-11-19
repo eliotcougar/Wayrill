@@ -698,7 +698,11 @@ fn worker_response_timeout(method: &str) -> Duration {
     // Inactivity bounds, not native completion deadlines. Only a correctly
     // correlated, typed ICS progress frame renews the wait. Never replay a
     // mutation after transport loss.
-    Duration::from_secs(if method == "sharing.set" { 30 } else { 15 })
+    Duration::from_secs(match method {
+        "applications.detect" => 45,
+        "sharing.set" => 30,
+        _ => 15,
+    })
 }
 fn worker_progress(
     response: &Value,
@@ -1022,6 +1026,7 @@ impl Manager {
     pub fn once(&self, method: &str, data: Value) -> Result<Value> {
         let mut worker = if [
             "catalog",
+            "applications.describe",
             "loopback.get",
             "loopback.set",
             "sharing.inspect",
@@ -1029,7 +1034,7 @@ impl Manager {
         ]
         .contains(&method)
         {
-            Worker::spawn_attribution(&self.root.parent().unwrap().join("attribution"))?
+            Worker::spawn_attribution(&self.attribution_root())?
         } else {
             Worker::spawn(&self.root)?
         };
@@ -1038,6 +1043,9 @@ impl Manager {
             result["captureInterfaces"] = json!(self.known);
         }
         Ok(result)
+    }
+    pub(crate) fn attribution_root(&self) -> PathBuf {
+        self.root.parent().unwrap().join("attribution")
     }
 }
 impl Drop for Manager {

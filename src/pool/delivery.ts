@@ -15,6 +15,12 @@ import {
 } from './layers';
 import { parsePoolBundle, type PoolBundle } from './model';
 import { restorePoolDelivery } from './deliveryCompatibility';
+import {
+  combineDeviceLayers,
+  isDeviceLayer,
+  type DeviceLayerData,
+  type DeviceSettings,
+} from './deviceLayers';
 
 export type PoolSelection = {
   graph: string;
@@ -24,6 +30,7 @@ export type PoolSelection = {
   stashOverrides?: Record<string, boolean>;
   filterOverrides?: Record<string, string | null>;
   outbounds?: Record<string, StashLink>;
+  deviceLayers?: string[];
 };
 
 export type PoolChoiceNames = {
@@ -41,6 +48,7 @@ export type PoolDelivery = {
   graphs: { id: string; bundle: PoolBundle; extensions?: unknown }[];
   layers: (PoolLayer & { extensions?: unknown })[];
   defaultLayers: { id: string; target?: string }[];
+  extensions?: unknown;
 };
 
 export type PoolOptions = {
@@ -49,6 +57,7 @@ export type PoolOptions = {
   stashes: { id: string; name: string }[];
   activeStashes: string[];
   defaultStashes: string[];
+  deviceLayers?: { id: string; name: string; data: DeviceLayerData }[];
   filters: {
     id: string;
     name: string;
@@ -102,6 +111,7 @@ export function resolvePoolDelivery(
   selection?: PoolSelection;
   options?: PoolOptions;
   choiceNames?: PoolChoiceNames;
+  deviceSettings?: DeviceSettings;
 } {
   if (!jsonRecord(value) || value.format !== 'wayrill.pool.catalog') {
     if (requested && !inspect) throw new Error('The Pool has withdrawn the selected graph.');
@@ -123,9 +133,17 @@ export function resolvePoolDelivery(
   const base = parsePoolBundle(choice.bundle);
   const graph = parseGraph(base.graph);
   const layerById = new Map(delivery.layers.map((item) => [item.id, item]));
+  const deviceLayers = delivery.layers.flatMap(({ id, name, data }) =>
+    isDeviceLayer(data) ? [{ id, name, data }] : [],
+  );
+  const chosenDeviceLayers = deviceLayers.filter(({ id }) => requested?.deviceLayers?.includes(id));
   const defaults = delivery.defaultLayers.filter(({ id, target }) => {
     const layer = layerById.get(id);
-    return layer?.data.kind === 'stash' || (choice.id === delivery.defaultGraph && !!target);
+    return (
+      !!layer &&
+      !isDeviceLayer(layer.data) &&
+      (layer.data.kind === 'stash' || (choice.id === delivery.defaultGraph && !!target))
+    );
   });
   const stashOverrides = selected && requested?.stashOverrides;
   const filterOverrides = selected && requested?.filterOverrides;
@@ -200,7 +218,7 @@ export function resolvePoolDelivery(
           return false;
         })),
   ];
-  const effective = composePoolLayers(base, delivery.layers, assignments, true);
+  const { bundle: effective, stashAliases } = composePoolLayers(base, delivery.layers, assignments);
   const placeholders = graph.nodes.filter((node) => node.data.poolOutbound);
   const stash =
     inspect || Object.keys(outbounds).length
@@ -217,9 +235,19 @@ export function resolvePoolDelivery(
     });
   const resolved = new Map<string, StashLink>();
   const replacement = Object.entries(outbounds).reduce(
-    (current, [nodeId, link]) => {
+    (current, [nodeId, savedLink]) => {
       const node = placeholders.find((item) => item.id === nodeId);
-      const entry = stash && findStashEntry(stash, link);
+      let link = savedLink;
+      let entry = stash && findStashEntry(stash, link);
+      if (stash && !entry) {
+        const matching = (stashAliases.get(savedLink.groupId) ?? [])
+          .map((groupId) => ({ groupId, entryId: savedLink.entryId }))
+          .filter((candidate) => findStashEntry(stash, candidate));
+        if (matching.length === 1) {
+          [link] = matching;
+          entry = findStashEntry(stash, link);
+        }
+      }
       if (!node || !entry?.profile || !accepts(nodeId, entry.profile.kind)) {
         const saved = ownValue(previous?.outbounds, nodeId);
         const name = entry?.name ?? saved?.entry;
@@ -259,6 +287,7 @@ export function resolvePoolDelivery(
     } satisfies PoolBundle,
     selection: {
       graph: choice.id,
+      ...(chosenDeviceLayers.length && { deviceLayers: chosenDeviceLayers.map(({ id }) => id) }),
       ...((!requested || requested.followDefault) && { followDefault: true }),
       ...(stashOverrides
         ? {
@@ -284,6 +313,10 @@ export function resolvePoolDelivery(
           }),
       ...(requested?.outbounds && { outbounds: Object.fromEntries(resolved) }),
     } satisfies PoolSelection,
+    ...(!inspect &&
+      chosenDeviceLayers.length && {
+        deviceSettings: combineDeviceLayers(chosenDeviceLayers.map(({ data }) => data)),
+      }),
     choiceNames: {
       graph: base.name,
       stashes: Object.fromEntries(stashNames),
@@ -299,6 +332,7 @@ export function resolvePoolDelivery(
           .map(({ id, name }) => ({ id, name })),
         activeStashes: assignments.filter(({ target }) => !target).map(({ id }) => id),
         defaultStashes,
+        deviceLayers,
         filters: graph.nodes.flatMap((node) => {
           if (node.data.kind !== 'routing-filter' && node.data.kind !== 'dns-routing-filter')
             return [];

@@ -376,6 +376,8 @@ packet data.
   loopback routing scopes, starting fresh observations only when a reachable
   rule still references a policy group. Native process evidence is required
   only when an otherwise matching rule could decide the simulated route.
+  The diagnostic allows 60 seconds for isolated work, including cold geodata
+  loading. The DNS exchange has its own 12-second cap once the core is ready.
 - The same diagnostic command supports offline reverse GeoSite lookup. It reads
   one bounded installed DAT file, streams its groups and uses upstream
   `strmatcher` for full, domain, substring and regex matches. It returns paged

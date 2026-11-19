@@ -3,6 +3,7 @@ import Dialog from '../components/Dialog';
 import type { PoolTransfer } from './layers';
 import { usesLayer } from './management';
 import type { Publisher } from './publisher';
+import { isDeviceLayer } from './deviceLayers';
 
 export default function PoolLayerAssignments({
   pool,
@@ -75,7 +76,9 @@ export default function PoolLayerAssignments({
       }
     >
       <p className="field-help">
-        Select who can use this layer. Set each user’s defaults in Edit delivery.
+        {isDeviceLayer(layer)
+          ? 'Select who can use this layer. Each subscriber chooses whether to apply it.'
+          : 'Select who can use this layer. Set each user’s defaults in Edit delivery.'}
       </p>
       {!!pool.members.length && (
         <div className="pool-list-controls">

@@ -1,12 +1,22 @@
 export * from '@wayrill/core/applications';
 import { parseApplicationSelectors, type ApplicationSelector } from '@wayrill/core/applications';
-import { jsonRecord, parseJson } from './xrayJson';
+import { jsonRecord, ownValue, parseJson } from './xrayJson';
+import type { GraphState } from './types';
 
 type PortableIdentity = { kind: 'package' | 'service'; value: string };
+export type PoolExecutable = {
+  name: string;
+  originalName?: string;
+  product?: string;
+  company?: string;
+  signer?: string;
+  relativePath?: string;
+};
 export type PoolApplicationIdentity = {
   id: string;
   name: string;
   identities: PortableIdentity[];
+  executable?: PoolExecutable;
   requireLocal?: true;
 };
 export type PoolApplicationSelector = {
@@ -19,6 +29,46 @@ export type RuleApplication = ApplicationSelector | PoolApplicationSelector;
 export type PoolApplicationBinding = { kind: ApplicationSelector['kind']; value: string };
 export type PoolApplicationBindings = Record<string, PoolApplicationBinding>;
 export type PoolApplicationChanges = Record<string, PoolApplicationBinding | null>;
+export type PoolApplicationDetection = Record<string, { path?: string; candidates: string[] }>;
+
+export function effectivePoolApplications(graph: GraphState): PoolApplicationBindings | undefined {
+  return graph.poolAutomaticApplications
+    ? { ...graph.poolAutomaticApplications, ...graph.poolApplicationBindings }
+    : graph.poolApplicationBindings;
+}
+
+export function readPoolExecutable(raw: unknown): PoolExecutable {
+  if (!jsonRecord(raw)) throw new Error('Invalid executable identity.');
+  const { name } = raw;
+  if (
+    typeof name !== 'string' ||
+    !/^[^<>:"/\\|?*]+\.exe$/i.test(name) ||
+    name.length > 255 ||
+    [...name].some((char) => char.charCodeAt(0) < 32)
+  )
+    throw new Error('Enter an executable filename such as Example.exe.');
+  const descriptor: PoolExecutable = { name };
+  for (const key of ['originalName', 'product', 'company', 'signer', 'relativePath'] as const) {
+    const value = ownValue(raw, key);
+    if (value === undefined) continue;
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      value.length > 512 ||
+      [...value].some((char) => char.charCodeAt(0) < 32)
+    )
+      throw new Error('Invalid executable identity metadata.');
+    if (
+      key === 'relativePath' &&
+      (/[<>:"|?*\\]/.test(value) ||
+        value.split('/').some((part) => !part || part === '.' || part === '..') ||
+        value.split('/').at(-1)?.toLowerCase() !== name.toLowerCase())
+    )
+      throw new Error('Invalid relative executable path.');
+    descriptor[key] = value;
+  }
+  return descriptor;
+}
 
 const applicationId = (value: string) =>
   /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value);
@@ -46,6 +96,7 @@ export function readPoolApplication(raw: unknown): PoolApplicationIdentity {
     id: raw.id,
     name: raw.name.trim(),
     identities,
+    ...(raw.executable !== undefined && { executable: readPoolExecutable(raw.executable) }),
     ...(raw.requireLocal === true ? { requireLocal: true } : {}),
   };
 }

@@ -49,6 +49,8 @@ import { capturePoolGraph } from './model';
 import { resolveGraphLinks } from './graphLinks';
 import { isPoolShare } from './invitation';
 import { copyLayer, withPrivateStashes } from './copy';
+import { isDeviceLayer, type DeviceLayerData } from './deviceLayers';
+import PoolDeviceLayerEditor from './PoolDeviceLayerEditor';
 
 export type PoolModal =
   | { kind: 'settings'; pool?: Publisher }
@@ -56,6 +58,7 @@ export type PoolModal =
   | { kind: 'user'; member?: Member; firstDelivery?: boolean; template?: Member }
   | { kind: 'invalid-export'; id: string }
   | { kind: 'edit-filter'; id: string; draft?: Extract<PoolTransfer, { kind: 'traffic' | 'dns' }> }
+  | { kind: 'edit-device'; id: string; draft?: DeviceLayerData & { name: string } }
   | { kind: 'new-layer'; firstGraph?: boolean }
   | { kind: 'inbox' }
   | { kind: 'assign-layer'; id: string }
@@ -104,6 +107,7 @@ export default function PoolWorkspace() {
         : pool?.layers?.find((layer) => layer.id === modal.id)
       : undefined;
   const readyToPublish = (member: Member) => deliveryPending(member, servers);
+  const editingDevice = modal?.kind === 'edit-device' ? (modal.draft ?? managedLayer) : undefined;
   const pending = pool?.members.filter(readyToPublish) ?? [];
   const firstDelivery = pool?.members.find(
     (member) => !!member.configurationId && !member.withdrawn,
@@ -761,7 +765,9 @@ export default function PoolWorkspace() {
                     ? 'edit-graph'
                     : managedLayer.kind === 'stash'
                       ? 'edit-stash'
-                      : 'edit-filter',
+                      : isDeviceLayer(managedLayer)
+                        ? 'edit-device'
+                        : 'edit-filter',
                 id: copied.id,
               });
             })
@@ -780,6 +786,8 @@ export default function PoolWorkspace() {
               setModal({ kind: 'edit-graph', id, name: draft.name, starter: draft.starter });
             } else if (draft.kind === 'stash')
               setModal({ kind: 'edit-stash', id, name: draft.name });
+            else if (draft.kind === 'loopback' || draft.kind === 'app-protection')
+              setModal({ kind: 'edit-device', id, draft });
             else setModal({ kind: 'edit-filter', id, draft });
           }}
         />
@@ -851,6 +859,24 @@ export default function PoolWorkspace() {
             setModal(undefined);
             setMessage('Stash layer saved.');
           }}
+        />
+      )}
+      {pool && modal?.kind === 'edit-device' && editingDevice && isDeviceLayer(editingDevice) && (
+        <PoolDeviceLayerEditor
+          key={modal.id}
+          initial={editingDevice}
+          name={editingDevice.name}
+          busy={busy}
+          failure={failure}
+          onClose={close}
+          onSave={(data) =>
+            void run(async () => {
+              await save(putLayer(pool, modal.id, { ...data, name: editingDevice.name }));
+              setView('layers');
+              setModal(undefined);
+              setMessage('Windows settings layer saved.');
+            })
+          }
         />
       )}
       {pool && editingFilter && (

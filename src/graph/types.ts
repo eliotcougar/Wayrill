@@ -69,6 +69,8 @@ export interface GraphState {
   poolSettings?: import('./poolSettings').PoolSettings;
   /** Subscriber-only bindings. A publication never supplies these values. */
   poolApplicationBindings?: import('./applications').PoolApplicationBindings;
+  /** Local discovery results, replaced on recheck. Explicit choices take precedence. */
+  poolAutomaticApplications?: import('./applications').PoolApplicationBindings;
   /** Workspace quick-switch target; never an Xray setting. */
   mainOutboundId?: string;
   name: string;

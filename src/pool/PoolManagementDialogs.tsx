@@ -15,6 +15,7 @@ import { resolvePoolDelivery } from './delivery';
 import { PoolSettingSummary } from './PoolSettingFields';
 import type { PoolGraphStarter } from './graphLayer';
 import { availableLayerName } from './copy';
+import type { DeviceLayerData } from './deviceLayers';
 
 type Form = { busy: boolean; failure: string; onClose: () => void };
 type LayerKind = keyof typeof layerNames;
@@ -22,6 +23,7 @@ type FilterLayer = Extract<PoolTransfer, { kind: 'traffic' | 'dns' }>;
 export type NewLayerDraft =
   | { kind: 'graph'; name: string; starter: PoolGraphStarter }
   | { kind: 'stash'; name: string }
+  | (DeviceLayerData & { name: string })
   | FilterLayer;
 
 export function DuplicateLayer({
@@ -74,7 +76,7 @@ export function DuplicateLayer({
       <p className="field-help">
         {layer.kind === 'stash'
           ? 'The copy keeps the same servers, policy groups and chains. Edit its credentials, then assign it to the users who need them.'
-          : 'Edit the copy independently, then assign it to users or link it to a graph.'}
+          : 'Edit the copy independently, then assign it to users.'}
       </p>
       {failure && (
         <p className="notice notice--error" role="alert">
@@ -123,6 +125,14 @@ export function NewLayer({
     const label = name.trim();
     if (kind === 'graph' || kind === 'stash') {
       onCreate(kind === 'graph' ? { kind, name: label, starter } : { kind, name: label });
+      return;
+    }
+    if (kind === 'loopback' || kind === 'app-protection') {
+      onCreate(
+        kind === 'loopback'
+          ? { kind, name: label, packages: [] }
+          : { kind, name: label, protection: { enabled: true, applications: [] } },
+      );
       return;
     }
     if (!source) return;
@@ -241,9 +251,11 @@ export function NewLayer({
           ? 'A base graph defines the routing and DNS wiring for a user.'
           : kind === 'stash'
             ? 'A Stash layer adds a reusable set of outbounds, policy groups, and chains.'
-            : candidates.length
-              ? 'A filter layer replaces the rules for a filter while using that graph’s output connections.'
-              : `Add a ${layerNames[kind].toLowerCase()} node to a base graph first. Its output connections are used by the layer.`}
+            : !filter
+              ? 'Assign this layer to users so they can choose to apply it on their own PCs.'
+              : candidates.length
+                ? 'A filter layer replaces the rules for a filter while using that graph’s output connections.'
+                : `Add a ${layerNames[kind].toLowerCase()} node to a base graph first. Its output connections are used by the layer.`}
       </p>
     </Dialog>
   );

@@ -14,7 +14,7 @@ import { isExecutableOutboundKind } from './outbounds';
 import { isXrayOutbound } from './xrayNodes';
 import { isNativeDnsHandler } from './dns';
 import { listEntries, readRuleTable, resolveRuleApplications } from './rules';
-import { selectorKey } from './applications';
+import { effectivePoolApplications, selectorKey } from './applications';
 import { resolveGraph } from './defaults';
 import type { Diagnostic, GraphState, RuleNode } from './types';
 import { expandCompositeOutbounds, compositeDiagnostics } from './composites';
@@ -183,7 +183,7 @@ function checkRuntimeGraph(
         let catchAll = false;
         const predicates = new Set<string>();
         for (const rule of active) {
-          const row = resolveRuleApplications(rule, graph.poolApplicationBindings);
+          const row = resolveRuleApplications(rule, effectivePoolApplications(graph));
           if (!row.enabled) continue;
           const predicate = JSON.stringify({
             conditions: Object.entries(row.conditions)

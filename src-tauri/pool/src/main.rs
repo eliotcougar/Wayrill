@@ -67,6 +67,22 @@ async fn pool_accounts_read() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+async fn pool_windows_catalog() -> Result<serde_json::Value, wayrill_protocol::ApiError> {
+    wayrill_ipc::windows::request("windows.catalog", serde_json::json!({})).await
+}
+
+#[tauri::command]
+async fn pool_describe_executable(
+    path: String,
+) -> Result<serde_json::Value, wayrill_protocol::ApiError> {
+    wayrill_ipc::windows::request(
+        "windows.describeExecutable",
+        serde_json::json!({ "path": path }),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn pool_read(store: tauri::State<'_, Arc<Store>>) -> Result<Option<String>, String> {
     task(store, |store| {
         if let Some(text) = vault::read(&store.base, "pools")? {
@@ -106,14 +122,7 @@ async fn pool_discard(store: tauri::State<'_, Arc<Store>>, id: String) -> Result
 
 #[tauri::command]
 async fn pool_folder(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
-    let owner = window.hwnd().map_err(|_| "Cannot find the Pool window.")?.0 as usize;
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::spawn(move || picker::choose(owner, "pool-folder"))
-            .join()
-            .map_err(|_| "Pool folder picker failed.")?
-    })
-    .await
-    .map_err(|_| "The Pool folder task ended unexpectedly.")?
+    picker::process_picker(window, "pool-folder".into()).await
 }
 
 fn main() {
@@ -142,6 +151,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             pool_read,
             pool_accounts_read,
+            pool_windows_catalog,
+            pool_describe_executable,
+            picker::process_picker,
             export_json,
             pool_write,
             pool_folder,

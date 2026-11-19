@@ -20,6 +20,7 @@ mod operation_gate;
 mod outbound_tests;
 #[path = "../../pool_access.rs"]
 mod pool_access;
+mod pool_device;
 mod proxy;
 mod recovery;
 mod resource_download;

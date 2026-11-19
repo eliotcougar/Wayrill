@@ -23,7 +23,7 @@ struct GetPoolsResponse {
     usage: Vec<PoolUsage>,
 }
 
-const DEADLINE: Duration = Duration::from_secs(1);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) struct Monitor {
@@ -34,16 +34,14 @@ pub(super) struct Monitor {
 }
 
 impl Monitor {
-    pub(super) fn start(endpoint: &str, pools: &Value) -> Result<Self> {
+    pub(super) fn start(endpoint: &str, pools: &Value, startup_deadline: Instant) -> Result<Self> {
         if !valid_endpoint(endpoint) {
             return Err(failure("Invalid shared FakeDNS endpoint."));
         }
         let expected = prefixes(pools)?;
         let (address, secret) = endpoint.rsplit_once(':').unwrap();
         let target = Endpoint::from_shared(format!("http://{address}"))
-            .map_err(|_| failure("Invalid shared FakeDNS endpoint."))?
-            .connect_timeout(DEADLINE)
-            .timeout(DEADLINE);
+            .map_err(|_| failure("Invalid shared FakeDNS endpoint."))?;
         let credential = secret
             .parse::<tonic::metadata::MetadataValue<_>>()
             .map_err(|_| failure("Invalid shared FakeDNS credential."))?;
@@ -69,10 +67,15 @@ impl Monitor {
                         let mut failures = 0;
                         let mut first = true;
                         loop {
+                            let timeout = if first {
+                                startup_deadline.saturating_duration_since(Instant::now())
+                            } else {
+                                PROBE_TIMEOUT
+                            };
                             let probe = async {
                                 client.ready().await.map_err(|_| failure("Shared FakeDNS gRPC channel is unavailable."))?;
                                 let mut request = Request::new(GetPoolsRequest {});
-                                request.set_timeout(DEADLINE);
+                                request.set_timeout(timeout);
                                 request.metadata_mut().insert("x-wayrill-auth", credential.clone());
                                 let response: tonic::Response<GetPoolsResponse> = client
                                     .unary(request,
@@ -92,7 +95,7 @@ impl Monitor {
                             };
                             let result = tokio::select! {
                                 _ = &mut stopped => return Ok(()),
-                                result = tokio::time::timeout(DEADLINE, probe) => result.unwrap_or_else(|_| Err(failure("Shared FakeDNS gRPC probe timed out."))),
+                                result = tokio::time::timeout(timeout, probe) => result.unwrap_or_else(|_| Err(failure("Shared FakeDNS gRPC probe timed out."))),
                             };
                             if first {
                                 let _ = ready.send(result.clone());
@@ -125,7 +128,7 @@ impl Monitor {
             worker: Some(worker),
         };
         readiness
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(startup_deadline.saturating_duration_since(Instant::now()))
             .map_err(|_| failure("Shared FakeDNS gRPC did not become ready."))??;
         Ok(monitor)
     }

@@ -27,6 +27,20 @@ impl Companion {
                 progress,
             )?)?),
             "catalog" => catalog(owner_sid(data)?),
+            "applications.describe" => {
+                let path = data["path"]
+                    .as_str()
+                    .ok_or_else(|| Error::invalid("Missing executable path."))?;
+                Ok(serde_json::to_value(
+                    native::application_catalog::describe(owner_sid(data)?, path)?,
+                )?)
+            }
+            "applications.detect" => {
+                Ok(serde_json::to_value(native::application_catalog::detect(
+                    owner_sid(data)?,
+                    serde_json::from_value(data["descriptors"].clone())?,
+                )?)?)
+            }
             "timezone.scan" => self
                 .timezones
                 .read(owner_sid(data)?, data["catalog"].as_bool().unwrap_or(false)),
@@ -51,6 +65,23 @@ impl Companion {
                 Ok(serde_json::to_value(native::loopback::apply(
                     &packages, version, &changes,
                 )?)?)
+            }
+            "loopback.poolPlan" | "loopback.poolApply" => {
+                let packages = native::packages::read(Some(owner_sid(data)?))?;
+                let owned: Vec<String> = serde_json::from_value(data["owned"].clone())?;
+                if request.method == "loopback.poolPlan" {
+                    let desired: Vec<String> = serde_json::from_value(data["desired"].clone())?;
+                    return Ok(serde_json::to_value(native::loopback::plan_pool(
+                        &packages, &desired, &owned,
+                    )?)?);
+                }
+                let before = data["before"]
+                    .as_str()
+                    .ok_or_else(|| Error::invalid("Missing loopback version."))?;
+                let changes: Vec<native::loopback::Change> =
+                    serde_json::from_value(data["changes"].clone())?;
+                native::loopback::apply_pool(&packages, before, &changes, &owned)?;
+                Ok(Value::Null)
             }
 
             "applications.start" => {

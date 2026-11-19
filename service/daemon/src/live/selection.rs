@@ -1,7 +1,7 @@
 //! Existing RoutingService RPCs over Control's authenticated loopback SOCKS input.
 use super::Control;
 use hyper_util::rt::TokioIo;
-use std::{io, time::Duration};
+use std::{io, net::SocketAddr, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -12,6 +12,8 @@ use tonic::{
     Request,
 };
 use wayrill_protocol::{ApiError, Result};
+
+const POLICY_RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, PartialEq, prost::Message)]
 struct Query {
@@ -78,29 +80,28 @@ fn failed() -> ApiError {
 
 impl Control {
     async fn selection_channel(&self) -> Result<Grpc<Channel>> {
-        let address = self.address.clone();
+        let address = self.address;
         let password = self.password.clone();
         let endpoint = Endpoint::from_static("http://127.0.0.1")
-            .connect_timeout(Duration::from_secs(2))
-            .timeout(Duration::from_secs(2));
+            .connect_timeout(POLICY_RPC_TIMEOUT)
+            .timeout(POLICY_RPC_TIMEOUT);
         let channel = endpoint
             .connect_with_connector(tower::service_fn(move |_| {
-                let address = address.clone();
                 let password = password.clone();
-                async move { socks(&address, &password).await.map(TokioIo::new) }
+                async move { socks(address, &password).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|_| failed())?;
         Ok(Grpc::new(channel).max_decoding_message_size(4 * 1024 * 1024))
     }
     pub(crate) async fn balancer_selection(&self, tag: &str) -> Result<Selection> {
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(POLICY_RPC_TIMEOUT, async {
             let mut client = self.selection_channel().await?;
             client.ready().await.map_err(|_| failed())?;
             let mut query = Request::new(Query {
                 tag: tag.to_owned(),
             });
-            query.set_timeout(Duration::from_secs(2));
+            query.set_timeout(POLICY_RPC_TIMEOUT);
             let reply: tonic::Response<Reply> = client
                 .unary(
                     query,
@@ -119,14 +120,14 @@ impl Control {
     }
     /// Used only on an isolated test core, never on the active routing core.
     pub(crate) async fn pin_test_balancer(&self, tag: &str, target: &str) -> Result<()> {
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(POLICY_RPC_TIMEOUT, async {
             let mut client = self.selection_channel().await?;
             client.ready().await.map_err(|_| failed())?;
             let mut query = Request::new(SetTarget {
                 balancer_tag: tag.to_owned(),
                 target: target.to_owned(),
             });
-            query.set_timeout(Duration::from_secs(2));
+            query.set_timeout(POLICY_RPC_TIMEOUT);
             let _: tonic::Response<Empty> = client
                 .unary(
                     query,
@@ -144,7 +145,7 @@ impl Control {
     }
 }
 
-async fn socks(address: &str, password: &str) -> io::Result<TcpStream> {
+async fn socks(address: SocketAddr, password: &str) -> io::Result<TcpStream> {
     let mut stream = TcpStream::connect(address).await?;
     stream.set_nodelay(true)?;
     stream.write_all(&[5, 1, 2]).await?;

@@ -1,4 +1,5 @@
 import type { ResourceWarningReport } from '../serviceClient';
+import { effectivePoolApplications } from './applications';
 import type { GraphState, RuleNode } from './types';
 import { resourceCompilationGraph } from './resources';
 import { readRuleTable, captureRuleVariants, listEntries, resolveRuleApplications } from './rules';
@@ -22,11 +23,9 @@ export function unavailableRuleIds(
     value.length > 0 &&
     value.every((term) => unavailable.has(String(term)));
   if (node.data.kind === 'routing-filter') {
+    const bindings = effectivePoolApplications(graph);
     for (const rule of readRuleTable(projected.data.settings).rules) {
-      const variants = captureRuleVariants(
-        resolveRuleApplications(rule, graph.poolApplicationBindings),
-        'shared',
-      );
+      const variants = captureRuleVariants(resolveRuleApplications(rule, bindings), 'shared');
       if (
         variants.length &&
         variants.every((variant) =>

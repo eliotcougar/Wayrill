@@ -3,6 +3,7 @@
 use crate::native::{self, CoreIdentity};
 use serde_json::{json, Value};
 use std::{
+    net::SocketAddr,
     path::Path,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
@@ -13,7 +14,7 @@ pub(crate) mod selection;
 #[derive(Clone)]
 pub struct Control {
     pub config: Arc<Value>,
-    address: String,
+    address: SocketAddr,
     password: String,
     rules: Vec<Value>,
     pub(crate) metrics: Option<crate::traffic::MetricsEndpoint>,
@@ -68,12 +69,15 @@ impl Control {
             .splice(..0, rules.iter().cloned());
         Ok(Self {
             config: Arc::new(run),
-            address: address.to_string(),
+            address,
             password,
             rules,
             metrics,
             observation: Arc::default(),
         })
+    }
+    pub(crate) fn port(&self) -> u16 {
+        self.address.port()
     }
     pub fn routing(&self, routing: &Value) -> Value {
         let mut routing = routing.clone();

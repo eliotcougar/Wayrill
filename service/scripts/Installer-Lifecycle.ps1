@@ -71,7 +71,8 @@ function Get-WayrillStartupError {
 function Start-WayrillInstalledService {
     try {
         Start-Service -Name WayrillService
-        (Get-Service WayrillService).WaitForStatus('Running',[TimeSpan]::FromSeconds(120))
+        # Service startup can re-enumerate both retained TUN adapters.
+        (Get-Service WayrillService).WaitForStatus('Running',[TimeSpan]::FromSeconds(300))
     } catch { throw (Get-WayrillStartupError) }
 }
 function Invoke-WayrillInstallerApi {

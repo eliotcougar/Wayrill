@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { serviceCall, desktopServiceAvailable, errorText } from '../serviceClient';
 export interface WindowsCatalog {
   ownerSid: string;
@@ -16,18 +17,23 @@ export interface WindowsCatalog {
   excludedCaptureInterfaces?: string[];
   captureInterfaces?: { id: string; name: string; monitored: boolean }[];
 }
-export function useWindowsCatalog() {
+export function useWindowsCatalog(enabled = true) {
+  const pool = document.documentElement.dataset.app === 'pool';
+  const available = pool ? isTauri() : desktopServiceAvailable();
   const [catalog, setCatalog] = useState<WindowsCatalog | null>(null),
     [error, setError] = useState(''),
     [loading, setLoading] = useState(false),
     [generation, setGeneration] = useState(0),
     [receivedAt, setReceivedAt] = useState<number | null>(null);
   useEffect(() => {
-    if (!desktopServiceAvailable()) return;
+    if (!enabled || !available) return;
     let active = true;
     setLoading(true);
     setError('');
-    void serviceCall<WindowsCatalog>('windows.catalog')
+    const read = pool
+      ? invoke<WindowsCatalog>('pool_windows_catalog')
+      : serviceCall<WindowsCatalog>('windows.catalog');
+    void read
       .then((value) => {
         if (active) {
           setCatalog(value);
@@ -43,6 +49,13 @@ export function useWindowsCatalog() {
     return () => {
       active = false;
     };
-  }, [generation]);
-  return { catalog, error, loading, receivedAt, refresh: () => setGeneration((v) => v + 1) };
+  }, [available, enabled, generation, pool]);
+  return {
+    available,
+    catalog,
+    error,
+    loading,
+    receivedAt,
+    refresh: () => setGeneration((v) => v + 1),
+  };
 }

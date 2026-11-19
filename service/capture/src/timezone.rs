@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Cached owner-scoped process discovery, shared with the attribution worker.
 use crate::{
-    native::{self, owned_handle, read_wide, wide},
+    native::{self, owned_handle, read_wide},
     process::ProcessKey,
     Result,
 };
@@ -142,6 +142,20 @@ impl Scanner {
     }
 }
 fn owner_session(key: ProcessKey, owner: &str, path: &str) -> Option<OwnedApplication> {
+    let (session, process) = owned_interactive_process(key, owner)?;
+    Some(OwnedApplication {
+        session,
+        package_application: package_application(process.as_raw_handle(), path),
+        role: arguments(process.as_raw_handle()).map_or(Role::Unknown, |args| role(path, &args)),
+    })
+}
+pub(crate) fn owns_process(key: ProcessKey, owner: &str) -> bool {
+    owned_interactive_process(key, owner).is_some()
+}
+fn owned_interactive_process(
+    key: ProcessKey,
+    owner: &str,
+) -> Option<(u32, std::os::windows::io::OwnedHandle)> {
     // SAFETY: query-only handles and stack outputs, all handles owned below.
     unsafe {
         // Timezone policies apply only to interactive applications. Exclude
@@ -200,12 +214,7 @@ fn owner_session(key: ProcessKey, owner: &str, path: &str) -> Option<OwnedApplic
         let length = (0..184).find(|i| *sid.add(*i) == 0).unwrap_or(184);
         let matches = String::from_utf16_lossy(std::slice::from_raw_parts(sid, length)) == owner;
         LocalFree(sid.cast());
-        matches.then(|| OwnedApplication {
-            session,
-            package_application: package_application(process.as_raw_handle(), path),
-            role: arguments(process.as_raw_handle())
-                .map_or(Role::Unknown, |args| role(path, &args)),
-        })
+        matches.then_some((session, process))
     }
 }
 fn role(image: &str, args: &[String]) -> Role {
@@ -321,23 +330,7 @@ fn package_application(process: windows_sys::Win32::Foundation::HANDLE, image: &
         Path::new(&image.to_lowercase()).starts_with(read_wide(&path).to_lowercase())
     }
 }
-fn registry(root: HKEY, key: &str, name: &str, view: u32) -> Option<String> {
-    let mut data = vec![0u16; 32768];
-    let mut size = (data.len() * 2) as u32;
-    // SAFETY: NUL-terminated keys and a bounded writable WCHAR buffer; no retained pointers.
-    let status = unsafe {
-        RegGetValueW(
-            root,
-            wide(key).as_ptr(),
-            wide(name).as_ptr(),
-            RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | view,
-            ptr::null_mut(),
-            data.as_mut_ptr().cast(),
-            &mut size,
-        )
-    };
-    (status == 0).then(|| read_wide(&data))
-}
+use native::application_catalog::registry;
 fn browsers(owner: &str, running: &[Value]) -> Value {
     let profile = registry(
         HKEY_LOCAL_MACHINE,

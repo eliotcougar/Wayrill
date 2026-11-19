@@ -1,17 +1,20 @@
 import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { exportFile } from '../exportFile';
-import { errorText } from '../serviceClient';
+import { errorText, serviceCall } from '../serviceClient';
 import { applicationChoices } from '../components/applicationChoices';
 import { useWindowsCatalog } from '../components/useWindowsCatalog';
 import {
   readApplicationIdentity,
   readPoolApplication,
+  readPoolExecutable,
   writeApplicationIdentity,
   type PoolApplicationBinding,
   type PoolApplicationChanges,
+  type PoolApplicationDetection,
   type PoolApplicationIdentity,
   type PoolApplicationSelector,
+  type PoolExecutable,
 } from '../graph/applications';
 
 export function exportApplicationIdentity(identity: PoolApplicationIdentity) {
@@ -30,10 +33,17 @@ export function PoolApplicationPicker({
   const file = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
+  const [match, setMatch] = useState<'automatic' | 'subscriber' | 'identity'>('automatic');
+  const [executable, setExecutable] = useState<PoolExecutable>({ name: '' });
+  const [describing, setDescribing] = useState(false);
   const [packages, setPackages] = useState('');
   const [services, setServices] = useState('');
   const [requireLocal, setRequireLocal] = useState(false);
   const [failure, setFailure] = useState('');
+  const { available, catalog, loading, error, refresh } = useWindowsCatalog(
+    creating && match !== 'subscriber',
+  );
+  const identityKinds = ['package', 'service'] as const;
   const used = new Set(rows.map(({ identity }) => identity.id));
   const choices = known.filter(({ id }) => !used.has(id));
 
@@ -49,26 +59,63 @@ export function PoolApplicationPicker({
   function create() {
     try {
       const entries = (text: string, kind: 'package' | 'service') =>
-        text
-          .split(/\r?\n/)
-          .map((value) => value.trim())
+        [
+          ...new Map(
+            text.split(/\r?\n/).map((line) => {
+              const value = line.trim();
+              return [value.toLowerCase(), value];
+            }),
+          ).values(),
+        ]
           .filter(Boolean)
           .map((value) => ({ kind, value }));
+      const identities =
+        match === 'identity'
+          ? [...entries(packages, 'package'), ...entries(services, 'service')]
+          : [];
+      if (match === 'identity' && !identities.length)
+        throw new Error('Add a package family name or a service name.');
       add(
         readPoolApplication({
           id: crypto.randomUUID(),
           name,
-          identities: [...entries(packages, 'package'), ...entries(services, 'service')],
-          ...(!packages.trim() && !services.trim() && requireLocal ? { requireLocal: true } : {}),
+          identities,
+          ...(match === 'automatic' && {
+            executable: { ...executable, name: executable.name.trim() },
+          }),
+          ...(match !== 'identity' && requireLocal ? { requireLocal: true } : {}),
         }),
       );
       setCreating(false);
       setName('');
+      setMatch('automatic');
+      setExecutable({ name: '' });
       setPackages('');
       setServices('');
       setRequireLocal(false);
     } catch (error) {
       setFailure(errorText(error));
+    }
+  }
+
+  async function describe(path?: string) {
+    setDescribing(true);
+    setFailure('');
+    try {
+      const selected = path ?? (await invoke<string | null>('process_picker', { mode: 'path' }));
+      if (!selected) return;
+      const label = selected.split(/[\\/]/).at(-1) ?? '';
+      setExecutable({ name: label });
+      setName((current) => current || label.replace(/\.exe$/i, ''));
+      const descriptor =
+        document.documentElement.dataset.app === 'pool'
+          ? await invoke<unknown>('pool_describe_executable', { path: selected })
+          : await serviceCall<unknown>('windows.describeExecutable', { path: selected });
+      setExecutable(readPoolExecutable(descriptor));
+    } catch (error) {
+      setFailure(errorText(error));
+    } finally {
+      setDescribing(false);
     }
   }
 
@@ -95,7 +142,15 @@ export function PoolApplicationPicker({
             ))}
           </select>
         )}
-        <button type="button" className="secondary-button" onClick={() => setCreating(!creating)}>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={describing}
+          onClick={() => {
+            setCreating(!creating);
+            setFailure('');
+          }}
+        >
           {creating ? 'Cancel new application' : 'New application…'}
         </button>
         <button type="button" className="secondary-button" onClick={() => file.current?.click()}>
@@ -119,50 +174,189 @@ export function PoolApplicationPicker({
         />
       </div>
       {creating && (
-        <fieldset>
+        <fieldset className="editor-panel editor-stack" disabled={describing}>
           <legend>New Pool application</legend>
           <label className="editor-field">
-            <span>Name</span>
+            <span>Name shown to subscribers</span>
             <input
               value={name}
               maxLength={128}
+              placeholder="e.g. Calculator"
               onChange={(event) => setName(event.currentTarget.value)}
             />
           </label>
           <label className="editor-field">
-            <span>Windows package family names</span>
-            <textarea
-              value={packages}
-              rows={2}
-              onChange={(event) => setPackages(event.currentTarget.value)}
-            />
+            <span>How to match on the subscriber’s PC</span>
+            <select
+              value={match}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setMatch(value === 'identity' || value === 'subscriber' ? value : 'automatic');
+                setFailure('');
+              }}
+            >
+              <option value="automatic">Find the executable on each PC</option>
+              <option value="subscriber">Let each subscriber choose</option>
+              <option value="identity">Match a Windows package or service</option>
+            </select>
           </label>
-          <label className="editor-field">
-            <span>Internal Windows service names</span>
-            <textarea
-              value={services}
-              rows={2}
-              onChange={(event) => setServices(event.currentTarget.value)}
-            />
-          </label>
-          <p className="field-help">
-            Enter one identity per line. Leave both fields blank to let each subscriber choose their
-            app.
-          </p>
-          {!packages.trim() && !services.trim() && (
-            <label className="check-control">
-              <input
-                type="checkbox"
-                checked={requireLocal}
-                onChange={(event) => setRequireLocal(event.currentTarget.checked)}
-              />
-              Require a local choice before applying
-            </label>
+          {match === 'automatic' && (
+            <>
+              <label className="editor-field">
+                <span>Executable filename</span>
+                <input
+                  value={executable.name}
+                  placeholder="Example.exe"
+                  onChange={(event) => setExecutable({ name: event.currentTarget.value })}
+                />
+              </label>
+              {available && (
+                <div className="pool-dialog-actions">
+                  {catalog && (
+                    <select
+                      aria-label="Choose a running executable"
+                      value=""
+                      onChange={(event) => {
+                        if (event.currentTarget.value) void describe(event.currentTarget.value);
+                      }}
+                    >
+                      <option value="">Choose a running executable…</option>
+                      {[
+                        ...new Map(
+                          applicationChoices(catalog, [], 'process', 'path').map((choice) => [
+                            choice.value.toLowerCase(),
+                            choice,
+                          ]),
+                        ).values(),
+                      ].map(({ name, value }) => (
+                        <option key={value} value={value}>
+                          {name} · {value}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void describe()}
+                  >
+                    Browse for executable…
+                  </button>
+                </div>
+              )}
+              <p className="field-help">
+                Choose a file to identify its product and publisher, or enter its filename. The
+                publisher’s full path stays on this PC.
+              </p>
+            </>
+          )}
+          {match === 'subscriber' && (
+            <p className="field-help">
+              Subscribers select the actual app under Applications on this PC.
+            </p>
+          )}
+          {match !== 'identity' ? (
+            <>
+              <label className="check-control">
+                <input
+                  type="checkbox"
+                  checked={requireLocal}
+                  onChange={(event) => setRequireLocal(event.currentTarget.checked)}
+                />
+                Require a match before subscribers can apply the graph
+              </label>
+            </>
+          ) : (
+            <>
+              <p className="field-help">
+                Any listed identity matches. Use one identity per line for alternate editions. If
+                the app is on another PC, you can also export its identity there and import it here.
+              </p>
+              {identityKinds.map((kind) => {
+                const isPackage = kind === 'package';
+                const value = isPackage ? packages : services;
+                const setValue = isPackage ? setPackages : setServices;
+                const added = new Set(
+                  value
+                    .toLowerCase()
+                    .split(/\r?\n/)
+                    .map((line) => line.trim()),
+                );
+                const installed = applicationChoices(catalog, [], kind, 'name').filter(
+                  (item) => !added.has(item.value.toLowerCase()),
+                );
+                return (
+                  <div className="editor-stack" key={kind}>
+                    <label className="editor-field">
+                      <span>{isPackage ? 'Package family names' : 'Windows service names'}</span>
+                      <textarea
+                        value={value}
+                        rows={2}
+                        placeholder={
+                          isPackage ? 'Microsoft.WindowsCalculator_8wekyb3d8bbwe' : 'Dnscache'
+                        }
+                        onChange={(event) => setValue(event.currentTarget.value)}
+                      />
+                      <small className="field-help">
+                        {isPackage
+                          ? 'Use the package family name, such as the one shown after the app in the picker.'
+                          : 'Use the Service name from Windows Services → Properties.'}
+                      </small>
+                    </label>
+                    {!!installed.length && (
+                      <select
+                        aria-label={
+                          isPackage ? 'Add a package from this PC' : 'Add a service from this PC'
+                        }
+                        value=""
+                        onChange={(event) => {
+                          const choice = installed.find(
+                            ({ value }) => value === event.currentTarget.value,
+                          );
+                          if (!choice) return;
+                          setValue([value.trim(), choice.value].filter(Boolean).join('\n'));
+                          if (!name.trim()) setName(choice.name.slice(0, 128));
+                        }}
+                      >
+                        <option value="">
+                          {isPackage
+                            ? 'Add a package from this PC…'
+                            : 'Add a service from this PC…'}
+                        </option>
+                        {installed.map(({ name, value }) => (
+                          <option key={value} value={value}>
+                            {name} · {value}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
+              {available && (loading || error) && (
+                <div>
+                  <p className="field-help" role="status">
+                    {loading
+                      ? 'Reading installed apps and services…'
+                      : 'Couldn’t read this PC. You can still enter an identity manually.'}
+                  </p>
+                  {error && (
+                    <button type="button" className="secondary-button" onClick={refresh}>
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           )}
           <button
             type="button"
             className="secondary-button"
-            disabled={!name.trim()}
+            disabled={
+              !name.trim() ||
+              (match === 'automatic' && !executable.name.trim()) ||
+              (match === 'identity' && !packages.trim() && !services.trim())
+            }
             onClick={create}
           >
             Add application
@@ -174,7 +368,8 @@ export function PoolApplicationPicker({
           <li key={row.identity.id}>
             <strong>{row.identity.name}</strong>
             <span>
-              {row.identity.identities.map(({ value }) => value).join(', ') ||
+              {row.identity.executable?.name ||
+                row.identity.identities.map(({ value }) => value).join(', ') ||
                 (row.identity.requireLocal ? 'Local choice required' : 'Choose on each PC')}
             </span>
             {(!row.identity.identities.length ||
@@ -222,7 +417,10 @@ export function PoolApplicationPicker({
   );
 }
 
-type BoundApplication = PoolApplicationIdentity & { binding?: PoolApplicationBinding };
+type BoundApplication = PoolApplicationIdentity & {
+  binding?: PoolApplicationBinding;
+  detection?: PoolApplicationDetection[string];
+};
 
 export function PoolApplicationBindingEditor({
   applications,
@@ -255,8 +453,10 @@ export function PoolApplicationBindingEditor({
       className="editor-advanced"
       open={
         applications.some(
-          ({ identities, binding, id }) =>
-            !identities.length && !(Object.hasOwn(changes, id) ? changes[id] : binding),
+          ({ identities, binding, detection, id }) =>
+            !identities.length &&
+            !detection?.path &&
+            !(Object.hasOwn(changes, id) ? changes[id] : binding),
         ) || undefined
       }
     >
@@ -281,15 +481,21 @@ export function PoolApplicationBindingEditor({
               <strong>{app.name}</strong>
               <span>
                 {binding?.value ||
-                  (app.identities.length
-                    ? catalog
-                      ? installed
-                        ? 'Found on this PC'
-                        : 'Not installed on this PC'
-                      : 'Uses published identities'
-                    : app.requireLocal
-                      ? 'Local choice required'
-                      : 'No local app selected')}
+                  (app.detection?.path
+                    ? `Found automatically · ${app.detection.path}`
+                    : app.executable
+                      ? app.detection?.candidates.length
+                        ? 'Review possible matches'
+                        : 'Executable not found'
+                      : app.identities.length
+                        ? catalog
+                          ? installed
+                            ? 'Found on this PC'
+                            : 'Not installed on this PC'
+                          : 'Uses published identities'
+                        : app.requireLocal
+                          ? 'Local choice required'
+                          : 'No local app selected')}
               </span>
               <button
                 type="button"
@@ -301,7 +507,7 @@ export function PoolApplicationBindingEditor({
                   setFailure('');
                 }}
               >
-                {binding ? 'Change local app…' : 'Choose on this PC…'}
+                {binding || app.detection?.path ? 'Change local app…' : 'Choose on this PC…'}
               </button>
               {binding && (
                 <button
@@ -312,7 +518,7 @@ export function PoolApplicationBindingEditor({
                     setEditing(undefined);
                   }}
                 >
-                  Clear local choice
+                  {app.executable ? 'Use automatic matching' : 'Clear local choice'}
                 </button>
               )}
               {editing === app.id && (
@@ -355,6 +561,17 @@ export function PoolApplicationBindingEditor({
                     </select>
                     {choices.length > 100 && <small>Search to narrow the list.</small>}
                   </label>
+                  {kind === 'process' && !!app.detection?.candidates.length && (
+                    <label className="editor-field">
+                      <span>Possible matches</span>
+                      <select value="" onChange={(event) => bind(app, event.currentTarget.value)}>
+                        <option value="">Choose an executable…</option>
+                        {app.detection.candidates.map((path) => (
+                          <option key={path}>{path}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <div className="pool-dialog-actions">
                     {kind === 'process' && (
                       <button
@@ -363,9 +580,8 @@ export function PoolApplicationBindingEditor({
                         onClick={() => {
                           void invoke<string | null>('process_picker', { mode: 'path' })
                             .then((path) => {
-                              if (path) onChange(app.id, { kind: 'process', value: path });
+                              if (path) bind(app, path);
                             })
-                            .then(() => setEditing(undefined))
                             .catch((problem) => setFailure(errorText(problem)));
                         }}
                       >

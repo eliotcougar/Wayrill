@@ -15,9 +15,12 @@ import {
 } from './model';
 import { readRuleTable, tableSettings } from '../graph/rules';
 import { detachTrafficSource } from '../graph/trafficRuleSource';
+import { isDeviceLayer, readDeviceLayer, type DeviceLayerData } from './deviceLayers';
+import { generatedTag } from '../graph/tags';
 
 export type LayerData =
   | { kind: 'stash'; stash: string }
+  | DeviceLayerData
   | { kind: 'traffic'; filter: FilterExport }
   | { kind: 'dns'; nodeId: string; filter: DnsFilter };
 export type PoolLayer = { id: string; name: string; data: LayerData };
@@ -28,7 +31,12 @@ export const layerNames = {
   stash: 'Stash',
   traffic: 'Traffic filter',
   dns: 'DNS filter',
+  loopback: 'Loopback exemptions',
+  'app-protection': 'App protection',
 };
+
+export const linkedStashGroupId = (layerId: string, groupId: string) =>
+  generatedTag('pool-layer', JSON.stringify([layerId, groupId]));
 
 export function isBundle(value: unknown): value is PoolBundle {
   return (
@@ -44,6 +52,14 @@ export function isBundle(value: unknown): value is PoolBundle {
 
 export function isLayer(value: unknown): value is LayerData {
   if (!jsonRecord(value)) return false;
+  if (value.kind === 'loopback' || value.kind === 'app-protection') {
+    try {
+      readDeviceLayer(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   if (value.kind === 'stash') return typeof value.stash === 'string';
   if (value.kind === 'traffic')
     return (
@@ -79,6 +95,7 @@ export function parseTransfer(text: string): PoolTransfer {
     return { name, kind: 'graph', bundle };
   }
   if (!isLayer(value)) throw new Error('This file is not a Wayrill Pool export.');
+  if (isDeviceLayer(value)) return { name, ...readDeviceLayer(value) };
   if (value.kind === 'stash') {
     parseStash(value.stash);
     return { kind: 'stash', name, stash: value.stash };
@@ -108,7 +125,7 @@ export function layerTargets(
   byName = false,
   graph?: GraphState,
 ) {
-  if (data.kind === 'stash') return [];
+  if (data.kind === 'stash' || isDeviceLayer(data)) return [];
   if (data.kind === 'traffic') return poolFilterTargets(bundle, data.filter, byName, graph);
   const ids = new Set(data.filter.outputs.map((output) => output.id));
   return (graph ?? parseGraph(bundle.graph)).nodes.filter((node) => {
@@ -133,9 +150,14 @@ export function composePoolLayers(
   bundle: PoolBundle,
   layers: readonly PoolLayer[],
   assignments: readonly LayerAssignment[],
-  selectable = false,
 ) {
-  if (!assignments.length) return bundle;
+  const stashAliases = new Map<string, string[]>();
+  if (!assignments.length) return { bundle, stashAliases };
+  function alias(from: string, to: string) {
+    const aliases = stashAliases.get(from) ?? [];
+    if (!aliases.includes(to)) aliases.push(to);
+    stashAliases.set(from, aliases);
+  }
   let result = bundle;
   const filterTargets = new Set<string>(),
     stashGroups = new Set<string>();
@@ -145,10 +167,20 @@ export function composePoolLayers(
     const layer = layers.find((item) => item.id === assignment.id);
     if (!layer) throw new Error('An assigned layer is missing.');
     const { data } = layer;
+    if (isDeviceLayer(data)) continue;
     if (data.kind === 'stash') {
       for (const group of parseStash(data.stash).groups.filter((group) => group.entries.length)) {
+        const linked = linkedStashGroupId(layer.id, group.id);
+        if (groups.has(linked)) {
+          // The graph already carries this layer. Keep its group ID and let
+          // existing subscribers resolve choices saved against the old copy.
+          alias(group.id, linked);
+          continue;
+        }
+        // A graph may later unlink the layer while it remains assigned to the user.
+        alias(linked, group.id);
         const previous = groups.get(group.id);
-        if (selectable && stashGroups.has(group.id) && previous) {
+        if (stashGroups.has(group.id) && previous) {
           const entries = new Map(previous.entries.map((entry) => [entry.id, entry]));
           for (const entry of group.entries) {
             const old = entries.get(entry.id);
@@ -161,19 +193,17 @@ export function composePoolLayers(
           groups.set(group.id, { ...previous, entries: [...entries.values()] });
           continue;
         }
-        if (stashGroups.has(group.id))
-          throw new Error(`Multiple Stash layers supply ${group.name}. Choose one.`);
         stashGroups.add(group.id);
         groups.set(group.id, group);
       }
       continue;
     }
     const target = assignment.target;
-    if (!target || !layerTargets(result, data, selectable).some((node) => node.id === target))
+    if (!target || !layerTargets(result, data, true).some((node) => node.id === target))
       throw new Error(`Choose a compatible destination filter for ${layer.name}.`);
     if (filterTargets.has(target)) throw new Error('Choose one layer for each destination filter.');
     filterTargets.add(target);
-    if (data.kind === 'traffic') result = withPoolFilter(result, data.filter, target, selectable);
+    if (data.kind === 'traffic') result = withPoolFilter(result, data.filter, target, true);
     else {
       const graph = parseGraph(result.graph);
       const node = graph.nodes.find((node) => node.id === target)!;
@@ -193,5 +223,5 @@ export function composePoolLayers(
     const graph = syncStashEdits(parseGraph(result.graph), base, stash, stashGroups);
     result = { ...result, graph: JSON.stringify(toDocument(graph)), stash: serializeStash(stash) };
   }
-  return result;
+  return { bundle: result, stashAliases };
 }

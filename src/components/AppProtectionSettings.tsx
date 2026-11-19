@@ -18,22 +18,27 @@ export type ProtectionSnapshot = {
   phase: 'idle' | 'restart' | 'recovery' | 'upgrade';
   blocked: boolean;
   error: { message: string } | null;
+  poolApplicationCount?: number;
 };
 const identity = (target: ProtectionTarget) => `${target.kind}:${target.value.toLowerCase()}`;
 
 export default function AppProtectionSettings({
   onBusyChange,
   onRuntimeRefresh,
+  layer,
 }: {
-  onBusyChange: (busy: boolean) => void;
-  onRuntimeRefresh: () => Promise<unknown>;
+  onBusyChange?: (busy: boolean) => void;
+  onRuntimeRefresh?: () => Promise<unknown>;
+  layer?: { config: ProtectionConfig; onChange: (config: ProtectionConfig) => void };
 }) {
   const { catalog, loading, error: catalogError, refresh: refreshCatalog } = useWindowsCatalog();
   const [snapshot, setSnapshot] = useState<ProtectionSnapshot | null>(null);
-  const [draft, setDraft] = useState<ProtectionConfig>({
+  const [localDraft, setLocalDraft] = useState<ProtectionConfig>({
     enabled: false,
     applications: [],
   });
+  const draft = layer?.config ?? localDraft;
+  const setDraft = layer?.onChange ?? setLocalDraft;
   const [version, setVersion] = useState('');
   const [kind, setKind] = useState<ProtectionTarget['kind']>('executable');
   const [value, setValue] = useState('');
@@ -44,7 +49,7 @@ export default function AppProtectionSettings({
     loaded = useRef(false),
     edited = useRef(false),
     readVersion = useRef(0);
-  const desktop = desktopServiceAvailable();
+  const desktop = !layer && desktopServiceAvailable();
   const listLocked = snapshot !== null && snapshot.phase !== 'idle';
   useEffect(() => {
     alive.current = true;
@@ -60,7 +65,7 @@ export default function AppProtectionSettings({
         if (!active || !alive.current || request !== readVersion.current) return;
         setSnapshot(current);
         if (initial || !loaded.current || !edited.current) {
-          setDraft(current.config);
+          setLocalDraft(current.config);
           setVersion(current.version);
           loaded.current = true;
         }
@@ -84,7 +89,7 @@ export default function AppProtectionSettings({
     working.current = true;
     readVersion.current += 1;
     setBusy(true);
-    onBusyChange(true);
+    onBusyChange?.(true);
     setError('');
     try {
       await operation();
@@ -94,7 +99,7 @@ export default function AppProtectionSettings({
       working.current = false;
       if (alive.current) {
         setBusy(false);
-        onBusyChange(false);
+        onBusyChange?.(false);
       }
     }
   }
@@ -124,34 +129,44 @@ export default function AppProtectionSettings({
         ];
   return (
     <section className="app-protection-settings">
-      <div className="capture-current" role="status">
-        <strong>
-          {!snapshot
-            ? 'Loading app protection…'
-            : snapshot.error
-              ? 'App protection needs attention'
-              : snapshot.blocked
-                ? 'Applications blocked while routing recovers'
-                : snapshot?.config.enabled
-                  ? 'Restart protection enabled'
-                  : 'Restart protection off'}
-        </strong>
-        <p className="field-help">
-          Selected apps cannot connect directly during routing restarts or Wayrill updates. Stop
-          releases them. Versioned installations follow app updates automatically.
-        </p>
-        {snapshot?.error && (
-          <p role="alert" className="notice notice--error">
-            {snapshot.error.message}
+      {!layer && (
+        <div className="capture-current" role="status">
+          <strong>
+            {!snapshot
+              ? 'Loading app protection…'
+              : snapshot.error
+                ? 'App protection needs attention'
+                : snapshot.blocked
+                  ? 'Applications blocked while routing recovers'
+                  : snapshot.config.enabled || !!snapshot.poolApplicationCount
+                    ? 'Restart protection enabled'
+                    : 'Restart protection off'}
+          </strong>
+          {!!snapshot?.poolApplicationCount && (
+            <p className="field-help">
+              {snapshot.poolApplicationCount} additional targets from opted-in Pool layers.
+            </p>
+          )}
+          <p className="field-help">
+            Selected apps cannot connect directly during routing restarts or Wayrill updates. Stop
+            releases them. Versioned installations follow app updates automatically.
           </p>
-        )}
-      </div>
-      {(error || catalogError) && (
+          {snapshot?.error && (
+            <p role="alert" className="notice notice--error">
+              {snapshot.error.message}
+            </p>
+          )}
+        </div>
+      )}
+      {(error || (!layer && catalogError)) && (
         <p role="alert" className="notice notice--error">
           {error || catalogError}
         </p>
       )}
-      <fieldset className="capture-settings-fields" disabled={!desktop || busy || !snapshot}>
+      <fieldset
+        className="capture-settings-fields"
+        disabled={!layer && (!desktop || busy || !snapshot)}
+      >
         <label className="check-control">
           <input
             type="checkbox"
@@ -185,7 +200,7 @@ export default function AppProtectionSettings({
             placeholder={kind === 'executable' ? 'Full executable path' : 'Package family'}
             onChange={(e) => setValue(e.target.value)}
           />
-          {kind === 'executable' && (
+          {desktop && kind === 'executable' && (
             <button
               className="secondary-button icon-button"
               title="Choose executable"
@@ -213,34 +228,42 @@ export default function AppProtectionSettings({
             <Plus size={15} />
           </button>
         </div>
-        <div className="form-row app-protection-catalog">
-          <select
-            className="text-control"
-            aria-label="Choose protected application from this PC"
-            disabled={listLocked || draft.applications.length >= 256}
-            value=""
-            onChange={(e) => {
-              if (e.target.value) add({ kind, value: e.target.value });
-            }}
-          >
-            <option value="">Choose from this PC…</option>
-            {choices
-              .filter((p) => !selected.has(identity({ kind, value: p.value })))
-              .map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-          </select>
-          <button
-            className="secondary-button icon-button"
-            aria-label="Refresh protected application choices"
-            disabled={loading}
-            onClick={refreshCatalog}
-          >
-            <RefreshCw size={15} />
-          </button>
-        </div>
+        {(desktop || (layer && catalog)) && (
+          <div className="form-row app-protection-catalog">
+            <select
+              className="text-control"
+              aria-label="Choose protected application from this PC"
+              disabled={listLocked || draft.applications.length >= 256}
+              value=""
+              onChange={(e) => {
+                if (e.target.value) add({ kind, value: e.target.value });
+              }}
+            >
+              <option value="">Choose from this PC…</option>
+              {choices
+                .filter((p) => !selected.has(identity({ kind, value: p.value })))
+                .map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+            </select>
+            <button
+              className="secondary-button icon-button"
+              aria-label="Refresh protected application choices"
+              disabled={loading}
+              onClick={refreshCatalog}
+            >
+              <RefreshCw size={15} />
+            </button>
+          </div>
+        )}
+        {layer && (
+          <p className="field-help">
+            Enter an exact package family or the full executable path on the subscriber’s PC. The
+            app can be absent on this PC.
+          </p>
+        )}
         <p className="field-help">
           {kind === 'package'
             ? 'Covers executables installed with the package. Add any networking helpers installed separately.'
@@ -272,50 +295,52 @@ export default function AppProtectionSettings({
         {snapshot && snapshot.version !== version && (
           <p role="alert">Settings changed elsewhere. Refresh before saving.</p>
         )}
-        <div className="action-row capture-actions">
-          <button
-            className="primary-button"
-            disabled={
-              !version ||
-              snapshot?.version !== version ||
-              (listLocked && draft.enabled) ||
-              (draft.enabled && !draft.applications.length)
-            }
-            onClick={() =>
-              void run(async () => {
-                const saved = await serviceCall<ProtectionSnapshot>('appProtection.set', {
-                  expectedVersion: version,
-                  config: draft,
-                });
-                if (alive.current) {
-                  setSnapshot(saved);
-                  setDraft(saved.config);
-                  edited.current = false;
-                  setVersion(saved.version);
-                }
-                await onRuntimeRefresh();
-              })
-            }
-          >
-            Save
-          </button>
-          <button
-            className="secondary-button"
-            onClick={() =>
-              void run(async () => {
-                const current = await serviceCall<ProtectionSnapshot>('appProtection.get');
-                if (alive.current) {
-                  setSnapshot(current);
-                  setDraft(current.config);
-                  edited.current = false;
-                  setVersion(current.version);
-                }
-              })
-            }
-          >
-            Refresh
-          </button>
-        </div>
+        {!layer && (
+          <div className="action-row capture-actions">
+            <button
+              className="primary-button"
+              disabled={
+                !version ||
+                snapshot?.version !== version ||
+                (listLocked && draft.enabled) ||
+                (draft.enabled && !draft.applications.length)
+              }
+              onClick={() =>
+                void run(async () => {
+                  const saved = await serviceCall<ProtectionSnapshot>('appProtection.set', {
+                    expectedVersion: version,
+                    config: draft,
+                  });
+                  if (alive.current) {
+                    setSnapshot(saved);
+                    setDraft(saved.config);
+                    edited.current = false;
+                    setVersion(saved.version);
+                  }
+                  await onRuntimeRefresh?.();
+                })
+              }
+            >
+              Save
+            </button>
+            <button
+              className="secondary-button"
+              onClick={() =>
+                void run(async () => {
+                  const current = await serviceCall<ProtectionSnapshot>('appProtection.get');
+                  if (alive.current) {
+                    setSnapshot(current);
+                    setDraft(current.config);
+                    edited.current = false;
+                    setVersion(current.version);
+                  }
+                })
+              }
+            >
+              Refresh
+            </button>
+          </div>
+        )}
       </fieldset>
     </section>
   );

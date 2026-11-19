@@ -9,9 +9,11 @@ import { applicationChoices } from './applicationChoices';
 export default function ApplicationSelectors({
   rows,
   onChange,
+  portableNamesOnly = false,
 }: {
   rows: ApplicationSelector[];
   onChange: (rows: ApplicationSelector[]) => void;
+  portableNamesOnly?: boolean;
 }) {
   const latest = useRef({ rows, onChange });
   latest.current = { rows, onChange };
@@ -25,7 +27,7 @@ export default function ApplicationSelectors({
   const [loopbackBusy, setLoopbackBusy] = useState(false),
     [bulkError, setBulkError] = useState('');
   const [packageNames, setPackageNames] = useState<Record<string, string>>({});
-  const { catalog, error, loading, refresh } = useWindowsCatalog();
+  const { available, catalog, error, loading, refresh } = useWindowsCatalog();
   const [kind, setKind] = useState<ApplicationSelector['kind']>('process');
   const [mode, setMode] = useState<ApplicationSelector['mode']>('name');
   const [children, setChildren] = useState(false),
@@ -145,6 +147,8 @@ export default function ApplicationSelectors({
           value={kind}
           onChange={(e) => {
             setKind(e.target.value as typeof kind);
+            setValue('');
+            setSearch('');
             setPage(0);
           }}
         >
@@ -152,13 +156,14 @@ export default function ApplicationSelectors({
           <option value="package">Windows app</option>
           <option value="service">Windows service</option>
         </select>
-        {kind === 'process' && (
+        {kind === 'process' && !portableNamesOnly && (
           <select
             className="text-control"
             aria-label="Process match"
             value={mode}
             onChange={(e) => {
               setMode(e.target.value as typeof mode);
+              setValue('');
               setPage(0);
             }}
           >
@@ -178,22 +183,18 @@ export default function ApplicationSelectors({
             Include child processes
           </label>
         )}
-        <button
-          className="secondary-button"
-          disabled={loading || !desktopServiceAvailable()}
-          onClick={refresh}
-        >
+        <button className="secondary-button" disabled={loading || !available} onClick={refresh}>
           <RefreshCw size={13} /> Refresh
         </button>
       </div>
       {(error || pickerError || bulkError) && (
         <p role="alert">{bulkError || pickerError || error}</p>
       )}
-      {kind === 'package' && (
+      {kind === 'package' && desktopServiceAvailable() && (
         <div className="form-row capture-picker-header">
           <button
             className="secondary-button"
-            disabled={loopbackBusy || !desktopServiceAvailable()}
+            disabled={loopbackBusy}
             onClick={() => void addExemptPackages()}
           >
             Add loopback-exempt apps
@@ -211,8 +212,8 @@ export default function ApplicationSelectors({
                 ? 'example.exe'
                 : 'Absolute path'
               : kind === 'package'
-                ? 'Package family'
-                : 'Service name'
+                ? 'Microsoft.WindowsCalculator_8wekyb3d8bbwe'
+                : 'Service name, e.g. Dnscache'
           }
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -220,12 +221,10 @@ export default function ApplicationSelectors({
         {kind === 'process' && (
           <button
             className="secondary-button"
-            disabled={picking || !desktopServiceAvailable()}
+            disabled={picking || !available}
             onClick={() => void browse()}
             title={
-              desktopServiceAvailable()
-                ? 'Select an executable or folder'
-                : 'Available in the Windows desktop app'
+              available ? 'Select an executable or folder' : 'Available in the Windows desktop app'
             }
           >
             <FolderOpen size={13} /> Browse…
@@ -292,6 +291,19 @@ export default function ApplicationSelectors({
           </button>
         </div>
         <div className="choice-list capture-picker-list">
+          {!filtered.length && (
+            <p className="field-help" role="status">
+              {!available
+                ? 'Open the Windows desktop app to browse this PC.'
+                : loading
+                  ? 'Reading apps on this PC…'
+                  : error
+                    ? 'Refresh to try again, or enter an identity above.'
+                    : kind === 'process' && !search
+                      ? 'No available processes. Open the app and refresh, or use Browse.'
+                      : 'No matching apps available.'}
+            </p>
+          )}
           {filtered.slice(currentPage * 50, currentPage * 50 + 50).map((p) => (
             <label
               key={`${p.name}|${p.detail}`}

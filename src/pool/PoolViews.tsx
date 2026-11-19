@@ -100,7 +100,7 @@ export default function PoolViews({
       ...(pool.layers ?? []).map(({ id, name, data }) => ({ id, name, kind: data.kind })),
     ];
     const visible = layers.filter(({ name, kind }) => matches(name + ' ' + layerNames[kind]));
-    const kinds = ['graph', 'stash', 'traffic', 'dns'] as const;
+    const kinds = ['graph', 'stash', 'traffic', 'dns', 'loopback', 'app-protection'] as const;
     const assignedCounts = new Map<string, number>();
     for (const member of pool.members) {
       for (const id of new Set([...memberGraphs(member), ...memberLayers(member)]))
@@ -121,8 +121,8 @@ export default function PoolViews({
           </button>
         </Actions>
         <p className="field-help">
-          Graphs define routing and its default rules. Optional Stash and filter layers give
-          subscribers more choices.
+          Graphs define routing and its default rules. Assign other layers to give subscribers more
+          choices, including Windows loopback exemptions and app protection.
         </p>
         {layers.length > 0 && search('Find layers')}
         {layers.length > 0 && (
@@ -139,6 +139,8 @@ export default function PoolViews({
                           stash: 'Stashes',
                           traffic: 'Traffic filters',
                           dns: 'DNS filters',
+                          loopback: layerNames.loopback,
+                          'app-protection': layerNames['app-protection'],
                         }[kind]
                       }
                     </h3>
@@ -155,7 +157,9 @@ export default function PoolViews({
                                     ? 'edit-graph'
                                     : kind === 'stash'
                                       ? 'edit-stash'
-                                      : 'edit-filter',
+                                      : kind === 'traffic' || kind === 'dns'
+                                        ? 'edit-filter'
+                                        : 'edit-device',
                                 id,
                               })
                             }
@@ -164,7 +168,9 @@ export default function PoolViews({
                               ? 'Edit graph'
                               : kind === 'stash'
                                 ? 'Edit Stash'
-                                : 'Edit rules'}
+                                : kind === 'traffic' || kind === 'dns'
+                                  ? 'Edit rules'
+                                  : 'Edit settings'}
                           </button>
                           <button
                             className="secondary-button"

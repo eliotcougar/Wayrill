@@ -167,21 +167,20 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
         'timezone.probeStart',
         selected ? { selection: selected } : {},
       );
-      const deadline = Date.now() + 30000;
       let completed = false;
       try {
         for (;;) {
-          if (!alive.current || Date.now() >= deadline)
-            throw new Error('Timezone lookup was canceled or timed out.');
+          // The service bounds each stage, including Xray startup on a cold PC.
+          if (!alive.current) throw new Error('Timezone lookup was canceled.');
           const current = await serviceCall<{
             busy: boolean;
-            results: { timezone?: string; ip?: string; name?: string }[];
+            results: { timezone?: string; ip?: string; name?: string; error?: string }[];
           }>('outbounds.testGet', { job: started.job });
           if (!current.busy) {
             completed = true;
             const result = current.results[0];
             if (!result?.timezone || !result.ip)
-              throw new Error('Cannot determine the outbound’s exit timezone.');
+              throw new Error(result?.error || 'Cannot determine the outbound’s exit timezone.');
             const config = await serviceCall<{ revision: number }>('config.get');
             const stash = selected
               ? await serviceCall<{ version: number }>('subscriptions.status')

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pub mod adapters;
+pub mod application_catalog;
+mod application_metadata;
 pub mod attribution_source;
 #[cfg(feature = "windivert")]
 pub mod capture_availability;

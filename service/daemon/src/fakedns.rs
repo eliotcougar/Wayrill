@@ -95,7 +95,7 @@ pub(crate) fn prepare(
         None,
         0,
     )?;
-    let deadline = Instant::now() + Duration::from_secs(6);
+    let deadline = Instant::now() + native::XRAY_CONFIG_LOAD_TIMEOUT;
     loop {
         if process.exit_code()?.is_some() {
             return Err(failure(
@@ -109,7 +109,7 @@ pub(crate) fn prepare(
             .iter()
             .find_map(|line| readiness(line, &secret));
         if let Some((endpoint, pools)) = ready {
-            let monitor = health::Monitor::start(&endpoint, &pools)?;
+            let monitor = health::Monitor::start(&endpoint, &pools, deadline)?;
             let pool = Arc::new(Pool {
                 monitor,
                 process,

@@ -33,7 +33,7 @@ pub struct Config {
     pub applications: Vec<Target>,
 }
 impl Config {
-    fn validate(&mut self) -> Result<()> {
+    pub(crate) fn validate(&mut self) -> Result<()> {
         if self.applications.len() > 256 || self.enabled && self.applications.is_empty() {
             return Err(invalid("Choose between 1 and 256 applications to protect."));
         }
@@ -123,9 +123,21 @@ pub enum Phase {
 struct State {
     owner_sid: String,
     config: Config,
+    #[serde(default, skip_serializing_if = "pool_empty")]
+    pool: Config,
     phase: Phase,
     #[serde(default)]
     targets: Vec<Target>,
+}
+
+fn pool_empty(config: &Config) -> bool {
+    !config.enabled && config.applications.is_empty()
+}
+
+impl State {
+    fn enabled(&self) -> bool {
+        self.config.enabled || self.pool.enabled
+    }
 }
 
 #[derive(Deserialize)]
@@ -179,6 +191,7 @@ impl<B: Backend> Manager<B> {
         let mut state = storage::read::<State>(&path)?.unwrap_or(State {
             owner_sid: owner.into(),
             config: Config::default(),
+            pool: Config::default(),
             phase: Phase::Idle,
             targets: Vec::new(),
         });
@@ -189,6 +202,7 @@ impl<B: Backend> Manager<B> {
             ));
         }
         state.config.validate()?;
+        state.pool.validate()?;
         // Upgrade pause belongs only to the retiring service. A new instance
         // adopts the same durable barrier while its normal recovery runs.
         if state.phase == Phase::Upgrade {
@@ -208,11 +222,13 @@ impl<B: Backend> Manager<B> {
     }
     pub fn snapshot(&self) -> Value {
         json!({"version":version(&self.state.config), "config":self.state.config,
+            "poolApplicationCount":self.state.pool.applications.len(),
             "phase":self.state.phase,"blocked":self.state.phase != Phase::Idle && self.error.is_none(),
             "error":self.error})
     }
     pub fn summary(&self) -> Value {
-        json!({"enabled":self.state.config.enabled,"applicationCount":self.state.config.applications.len(),
+        json!({"enabled":self.enabled(),"applicationCount":self.state.config.applications.len(),
+            "poolApplicationCount":self.state.pool.applications.len(),
             "phase":self.state.phase,"blocked":self.blocked() && self.error.is_none(),"error":self.error})
     }
     pub fn upgrading(&self) -> bool {
@@ -222,7 +238,7 @@ impl<B: Backend> Manager<B> {
         self.state.phase != Phase::Idle
     }
     pub fn enabled(&self) -> bool {
-        self.state.config.enabled
+        self.state.enabled()
     }
     pub fn set(&mut self, request: Set, base: &Path) -> Result<Value> {
         if request.expected_version != version(&self.state.config) {
@@ -233,48 +249,60 @@ impl<B: Backend> Manager<B> {
         }
         let mut config = request.config;
         config.validate()?;
-        if self.state.phase != Phase::Idle && config.enabled {
+        if self.blocked() && (config.enabled || self.state.pool.enabled) {
             return Err(ApiError::new("BUSY", "Routing is recovering. Disable protection to release its applications, or wait before changing the list."));
         }
-        let resolved = if config.enabled {
-            resolve(&self.backend, &config.applications)?
-        } else {
-            versions::Resolved {
-                applications: config.applications.clone(),
-                targets: vec![],
-            }
-        };
-        for target in config.applications.iter().chain(&resolved.targets) {
+        let mut next = self.state.clone();
+        next.config = config;
+        self.update_config(next, base)?;
+        Ok(self.snapshot())
+    }
+    pub fn set_pool(&mut self, mut config: Config, base: &Path) -> Result<bool> {
+        config.validate()?;
+        if self.state.pool == config {
+            return Ok(false);
+        }
+        if self.blocked() {
+            return Err(ApiError::new(
+                "BUSY",
+                "Wait for routing recovery to finish before changing Pool protection.",
+            ));
+        }
+        let mut next = self.state.clone();
+        next.pool = config;
+        self.update_config(next, base)?;
+        Ok(true)
+    }
+    fn update_config(&mut self, mut next: State, base: &Path) -> Result<()> {
+        let targets = self.resolve_targets(&mut next)?;
+        let base = format!(
+            "{}\\",
+            base.to_string_lossy().trim_end_matches('\\').to_lowercase()
+        );
+        for target in next
+            .config
+            .applications
+            .iter()
+            .chain(&next.pool.applications)
+            .chain(&targets)
+        {
             if let Target::Executable { value } = target {
                 // Blocking a routing helper would prevent recovery itself.
-                if value.to_lowercase().starts_with(&format!(
-                    "{}\\",
-                    base.to_string_lossy().trim_end_matches('\\').to_lowercase()
-                )) {
+                if value.to_lowercase().starts_with(&base) {
                     return Err(invalid("Wayrill's service and routing components cannot be protected applications."));
                 }
             }
         }
-        config.applications = resolved.applications;
-        config.validate()?;
-        if config.enabled {
-            self.backend.validate(&resolved.targets)?;
+        self.backend.validate(&targets)?;
+        next.targets = targets;
+        if !next.enabled() {
+            next.phase = Phase::Idle;
         }
-        let state = State {
-            phase: if config.enabled {
-                self.state.phase
-            } else {
-                Phase::Idle
-            },
-            config,
-            targets: resolved.targets,
-            ..self.state.clone()
-        };
-        self.save(state)?;
-        if !self.state.config.enabled {
+        self.save(next)?;
+        if !self.enabled() {
             self.sync()?;
         }
-        Ok(self.snapshot())
+        Ok(())
     }
     fn save(&mut self, state: State) -> Result<()> {
         storage::write(&self.path, &state)?;
@@ -282,7 +310,7 @@ impl<B: Backend> Manager<B> {
         Ok(())
     }
     pub fn arm(&mut self, phase: Phase) -> Result<()> {
-        if !self.state.config.enabled {
+        if !self.enabled() {
             return Ok(());
         }
         let previous = self.state.clone();
@@ -320,7 +348,7 @@ impl<B: Backend> Manager<B> {
         self.release()
     }
     pub fn reconcile(&mut self, now: Instant) -> bool {
-        if self.state.config.enabled && now >= self.refresh_at {
+        if self.enabled() && now >= self.refresh_at {
             self.refresh_at = now + Duration::from_secs(30);
             match self.refresh_targets() {
                 Ok(false) => {}
@@ -349,7 +377,7 @@ impl<B: Backend> Manager<B> {
     fn sync_at(&mut self, now: Instant) -> Result<()> {
         // Releasing protection must remain possible even if an installation or
         // drive has disappeared. Discovery is a prerequisite only for arming.
-        let result = if !self.state.config.enabled || self.state.phase == Phase::Idle {
+        let result = if !self.enabled() || self.state.phase == Phase::Idle {
             self.backend.replace(&[])
         } else {
             self.refresh_targets()
@@ -358,23 +386,35 @@ impl<B: Backend> Manager<B> {
         self.record_result(result, now)
     }
     fn refresh_targets(&mut self) -> Result<bool> {
-        if !self.state.config.enabled {
+        if !self.enabled() {
             return Ok(false);
         }
-        let mut resolved = resolve(&self.backend, &self.state.config.applications)?;
-        if self.state.phase != Phase::Idle {
-            resolved.targets.extend(self.state.targets.iter().cloned());
-            normalize_targets(&mut resolved.targets)?;
-        }
         let mut next = self.state.clone();
-        next.config.applications = resolved.applications;
-        next.config.validate()?;
-        next.targets = resolved.targets;
+        let mut targets = self.resolve_targets(&mut next)?;
+        if self.state.phase != Phase::Idle {
+            targets.extend(self.state.targets.iter().cloned());
+            normalize_targets(&mut targets)?;
+        }
+        next.targets = targets;
         if next == self.state {
             return Ok(false);
         }
         self.save(next)?;
         Ok(true)
+    }
+    fn resolve_targets(&self, state: &mut State) -> Result<Vec<Target>> {
+        let mut targets = Vec::new();
+        if state.config.enabled {
+            let resolved = resolve(&self.backend, &state.config.applications)?;
+            state.config.applications = resolved.applications;
+            state.config.validate()?;
+            targets.extend(resolved.targets);
+        }
+        if state.pool.enabled {
+            targets.extend(resolve(&self.backend, &state.pool.applications)?.targets);
+        }
+        normalize_targets(&mut targets)?;
+        Ok(targets)
     }
     fn record_result(&mut self, result: Result<()>, now: Instant) -> Result<()> {
         self.error = result.as_ref().err().cloned();
@@ -430,15 +470,20 @@ pub fn prepare_installed_upgrade() -> Result<()> {
     .join("Wayrill/app-protection.json");
     let state = storage::read::<State>(&path)?
         .ok_or_else(|| invalid("App-protection settings are missing."))?;
-    if state.phase != Phase::Upgrade || !state.config.enabled {
+    if state.phase != Phase::Upgrade || !state.enabled() {
         return Err(invalid(
             "The retiring service has not requested an app-protection upgrade barrier.",
         ));
     }
-    let mut config = state.config;
-    config.validate()?;
-    let resolved = resolve(&Windows, &config.applications)?;
-    wfp::replace(&resolved.targets)
+    let mut targets = state.targets;
+    for mut config in [state.config, state.pool] {
+        config.validate()?;
+        if config.enabled {
+            targets.extend(resolve(&Windows, &config.applications)?.targets);
+        }
+    }
+    normalize_targets(&mut targets)?;
+    wfp::replace(&targets)
 }
 
 #[cfg(test)]
@@ -507,6 +552,34 @@ mod tests {
             )
             .unwrap();
         manager
+    }
+    #[test]
+    fn pool_protection_survives_restart_and_withdrawing_it_preserves_local_targets() {
+        let path = path();
+        let native = Fake::default();
+        let base = Path::new("C:\\Wayrill");
+        let mut manager = configured(&path, native.clone());
+        let local_version = manager.snapshot()["version"].clone();
+        let pool = Config {
+            enabled: true,
+            applications: vec![Target::Package {
+                value: "Example.App_123456789abcd".into(),
+            }],
+        };
+        manager.set_pool(pool, base).unwrap();
+        manager.arm(Phase::Upgrade).unwrap();
+        drop(manager);
+        let mut manager = Manager::open_with("owner", path.clone(), native.clone()).unwrap();
+        assert_eq!(native.0.borrow().0.len(), 2);
+        assert!(manager.set_pool(Config::default(), base).is_err());
+        assert_eq!(native.0.borrow().0.len(), 2);
+        manager.ready().unwrap();
+        manager.set_pool(Config::default(), base).unwrap();
+        assert_eq!(manager.snapshot()["version"], local_version);
+        manager.arm(Phase::Restart).unwrap();
+        assert_eq!(native.0.borrow().0, manager.state.config.applications);
+        manager.ready().unwrap();
+        storage::remove(&path).unwrap();
     }
     #[test]
     fn upgrade_barrier_survives_a_new_service_and_only_readiness_releases_it() {
