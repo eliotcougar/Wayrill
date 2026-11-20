@@ -14,6 +14,7 @@ import {
 import { Handle } from '@xyflow/react';
 import { activityPortKey, noGraphActivity, type GraphActivity } from '../graph/activity';
 import useGraphActivity, { type GraphActivitySource } from '../useGraphActivity';
+import { useLiveSnapshot } from '../useRuntime';
 
 type DecorationKind = keyof GraphActivity;
 type Listener = () => void;
@@ -58,16 +59,16 @@ class ActivityStore {
 }
 
 const GraphActivityContext = createContext<ActivityStore | null>(null);
-const idleLevel = () => 0;
+const idleLevel = () => undefined;
 const noSubscription = () => {};
 
-export function useGraphActivityLevel(kind: DecorationKind, id: string): number {
+export function useGraphActivityLevel(kind: DecorationKind, id: string): number | undefined {
   const store = useContext(GraphActivityContext);
   const subscribe = useCallback(
     (listener: Listener) => store?.subscribe(kind, id, listener) ?? noSubscription,
     [store, kind, id],
   );
-  return useSyncExternalStore(subscribe, () => store?.level(kind, id) ?? 0, idleLevel);
+  return useSyncExternalStore(subscribe, () => store?.level(kind, id), idleLevel);
 }
 
 /** Polling state belongs to the decorations, not the entire editor. */
@@ -75,7 +76,8 @@ export function GraphActivityProvider({
   children,
   ...source
 }: GraphActivitySource & { children: ReactNode }) {
-  const activity = useGraphActivity(source);
+  const snapshot = useLiveSnapshot(source.runtime.snapshot, source.enabled);
+  const activity = useGraphActivity({ ...source, runtime: { ...source.runtime, snapshot } });
   const [store] = useState(() => new ActivityStore());
   useLayoutEffect(() => store.update(activity), [store, activity]);
   return (
@@ -96,7 +98,8 @@ export const ActivityHandle = memo(function ActivityHandle({
     activityPortKey(nodeId, props.type, props.id ?? ''),
   );
   const glowStyle = useMemo(
-    () => ({ ...style, '--traffic-glow': activity }) as CSSProperties,
+    () =>
+      activity === undefined ? style : ({ ...style, '--traffic-glow': activity } as CSSProperties),
     [style, activity],
   );
   return <Handle {...props} style={glowStyle} />;
@@ -112,6 +115,7 @@ export const EdgeActivity = memo(function EdgeActivity({
   color: CSSProperties['stroke'];
 }) {
   const activity = useGraphActivityLevel('edges', id);
+  if (activity === undefined) return null;
   return (
     <g
       className="edge-activity"

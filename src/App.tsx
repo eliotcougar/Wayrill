@@ -31,18 +31,15 @@ import {
 import { hasNodeEditor } from './graph/editorNavigation';
 import type { Diagnostic } from './graph/types';
 import useOutboundTests, { OutboundTestsContext } from './useOutboundTests';
-import {
-  ObservatoryContext,
-  compatibleObservedGroups,
-  observedGroupSummaries,
-} from './observatorySummary';
+import { compatibleObservedGroups } from './observatorySummary';
+import { GraphProbeStatus, LiveTrafficRates } from './components/LiveGraphStatus';
 import OutboundTestSettings from './components/OutboundTestSettings';
 import OutboundTestResults from './components/OutboundTestResults';
 import useExecutionGraph from './useExecutionGraph';
 import useWorkspaceViewport from './useWorkspaceViewport';
-import useEdgeRouting from './useEdgeRouting';
+import { ConnectionLayoutProvider, ConnectionLayoutStatus } from './components/ConnectionLayout';
 import { connectionTypes, sourceConnectionKind } from './graph/connectionTypes';
-import SchematicEdge, { EdgeRoutesContext } from './components/SchematicEdge';
+import SchematicEdge from './components/SchematicEdge';
 import { GraphActivityProvider } from './components/GraphActivity';
 import { useGraphActivityPreference } from './useGraphActivity';
 import { appVersion } from './version';
@@ -54,13 +51,13 @@ import {
   SelectionMode,
   useReactFlow,
   useStore,
+  useStoreApi,
   type Connection,
   type Edge,
   type Viewport,
 } from '@xyflow/react';
 import {
   AlertCircle,
-  Activity,
   Gauge,
   Timer,
   Check,
@@ -106,10 +103,7 @@ import GraphRuntimeToolbar from './components/GraphRuntimeToolbar';
 import GraphCheckDialog from './components/GraphCheckDialog';
 import createGraphRuntimeActions from './createGraphRuntimeActions';
 import TrafficMonitor from './components/TrafficPanel';
-import { useTrafficUnits } from './trafficUnits';
-import { formatRate } from './traffic';
 import { automaticFakeDns } from './graph/fakeDns';
-import { FakeDnsUsageContext, fakeDnsUsageSummary } from './fakeDnsUsage';
 import { NodeEditorContext } from './components/NodeEditorContext';
 import { availableNodes, getDefinition, portLabel, getOutputPorts } from './graph/catalog';
 import { bundledExamples } from './graph/examples';
@@ -129,7 +123,7 @@ import {
 } from './graph/connectionEditing';
 import ConnectionEditor, { type ConnectionRequest } from './components/ConnectionEditor';
 import useGraphAnalysis from './useGraphAnalysis';
-import useRuntime from './useRuntime';
+import useRuntime, { LiveSnapshotContext } from './useRuntime';
 import useClosePersistence from './useClosePersistence';
 import useStash from './profiles/useStash';
 import useAppliedSubscriptionGraph from './profiles/useAppliedSubscriptionGraph';
@@ -199,13 +193,19 @@ type SimulationWorkspace = Pick<LayerWorkspace, 'graph' | 'stash'> & {
   onReview: () => void;
 };
 
-export default function App({
-  layer,
-  simulation,
-}: { layer?: LayerWorkspace; simulation?: SimulationWorkspace } = {}) {
+type AppProps = { layer?: LayerWorkspace; simulation?: SimulationWorkspace };
+
+export default function App(props: AppProps) {
+  return (
+    <ConnectionLayoutProvider>
+      <GraphEditor {...props} />
+    </ConnectionLayoutProvider>
+  );
+}
+
+function GraphEditor({ layer, simulation }: AppProps) {
   const [savingLayer, setSavingLayer] = useState(false);
   const layerOperation = useRef(false);
-  const trafficUnits = useTrafficUnits();
   const theme = useTheme();
   const trafficGlow = useGraphActivityPreference();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
@@ -215,7 +215,7 @@ export default function App({
 
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
   const stash = useStash((layer ?? simulation)?.stash);
-  const runtime = useRuntime();
+  const { runtime, session } = useRuntime();
   const poolStatus = usePoolStatus(
     !layer && runtime.connected && runtime.capabilities.includes('pool.managed'),
     poolOpen === 'connect',
@@ -238,11 +238,13 @@ export default function App({
   const [switchingOutbound, setSwitchingOutbound] = useState(false);
   const switching = useRef(false);
   const graphBlocked = !!progress || switchingOutbound || savingLayer;
+  const flowStore = useStoreApi<RuleNodeType, RuleEdge>();
   const editor = useGraphEditor(
     stash.ready ? stash.stash : undefined,
     stash.ready ? stash : undefined,
     graphBlocked,
     (layer ?? simulation)?.graph,
+    (nodes) => flowStore.getState().setNodes(nodes),
   );
   const graphFileRead = useFileRead();
   // Opening a different graph supersedes any file read still in progress.
@@ -293,8 +295,6 @@ export default function App({
   } | null>(null);
   const [xrayImportOpen, setXrayImportOpen] = useState(false);
   const flow = useReactFlow<RuleNodeType, RuleEdge>();
-  const edgeLayout = useEdgeRouting();
-  const edgeRoutes = edgeLayout.paths;
   const canvas = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const reconnectingEdge = useRef<string | null>(null);
@@ -344,14 +344,17 @@ export default function App({
     };
   }, [portIssue, flow, inspectorVisible]);
   const editingNode = editingGraph?.nodes.find((node) => node.id === editingNodeId);
-  const openNodeEditor = (id: string, tab?: 'log' | 'export') => {
+  const editorActions = useRef(editor);
+  editorActions.current = editor;
+  const openNodeEditor = useCallback((id: string, tab?: 'log' | 'export') => {
+    const editor = editorActions.current;
     setEditorInitialTab(tab);
     setDiagnosticFocus(null);
     editor.selectNode(id);
     setEditingGraph(editor.getGraph());
     setSpaceHeld(false);
     setEditingNodeId(id);
-  };
+  }, []);
   const closeNodeEditor = () => {
     setEditingNodeId(null);
     setEditingGraph(null);
@@ -582,15 +585,6 @@ export default function App({
         graphCompilation?.displayNames?.observed,
       ),
     [graphCompilation?.config, graphCompilation?.displayNames?.observed, runtime.savedConfig],
-  );
-  const observationSummaries = useMemo(
-    () =>
-      observedGroupSummaries(
-        runtime.connected ? runtime.snapshot : null,
-        compatibleObservations,
-        runtime.savedRevision,
-      ),
-    [runtime.connected, runtime.snapshot, compatibleObservations, runtime.savedRevision],
   );
   const runtimeView = graphActions.view;
   if (analysis.pending) {
@@ -923,61 +917,56 @@ export default function App({
       notify('Selection deleted. Undo restores it.');
     }
   };
-  const decoratedEdges = useMemo(
-    () =>
-      editor.graph.edges
-        .map((edge) => {
-          const source = editor.graph.nodes.find((node) => node.id === edge.source);
-          const kind = source
-            ? sourceConnectionKind(source.data, edge.sourceHandle ?? '')
-            : 'traffic';
-          const connectionType = connectionTypes[kind];
-          const color = connectionType.color;
-          return {
-            ...edge,
-            type: 'schematic',
-            className: [
-              edge.className,
-              source && isDisabledInbound(source.data) ? 'is-disabled-inbound' : '',
-            ]
-              .filter(Boolean)
-              .join(' '),
-            data: { ...edge.data, connectionKind: kind },
-            label: (() => {
-              const source = editor.graph.nodes.find((node) => node.id === edge.source);
-              return source &&
-                (isRuleTableKind(source.data.kind) ||
-                  source.data.kind === 'fakedns' ||
-                  isDnsEditor(source.data) ||
-                  isPolicyKind(source.data.kind) ||
-                  isNativeConfigEditor(source.data.kind))
-                ? portLabel(edge.sourceHandle ?? '', source.data)
-                : edge.sourceHandle === 'match'
-                  ? 'matches'
-                  : edge.sourceHandle === 'otherwise'
-                    ? 'otherwise'
-                    : undefined;
-            })(),
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              width: 17,
-              height: 17,
-              color,
-            },
-            style: {
-              stroke: color,
-              strokeWidth: edge.selected ? 2.6 : 1.8,
-              ...(connectionType.dash ? { strokeDasharray: connectionType.dash } : {}),
-            },
-            labelStyle: { fill: color, fontSize: 10, fontWeight: 500 },
-            labelBgStyle: { fill: 'var(--surface-sunken)', fillOpacity: 1 },
-            labelBgPadding: [7, 4] as [number, number],
-            labelBgBorderRadius: 4,
-          };
-        })
-        .sort((a, b) => a.id.localeCompare(b.id)),
-    [editor.graph.edges, editor.graph.nodes],
-  );
+  const decoratedEdges = useMemo(() => {
+    const nodes = new Map(executionGraph.nodes.map((node) => [node.id, node.data]));
+    return editor.graph.edges
+      .map((edge) => {
+        const source = nodes.get(edge.source);
+        const kind = source ? sourceConnectionKind(source, edge.sourceHandle ?? '') : 'traffic';
+        const connectionType = connectionTypes[kind];
+        const color = connectionType.color;
+        return {
+          ...edge,
+          type: 'schematic',
+          className: [
+            edge.className,
+            source && isDisabledInbound(source) ? 'is-disabled-inbound' : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+          data: { ...edge.data, connectionKind: kind },
+          label:
+            source &&
+            (isRuleTableKind(source.kind) ||
+              source.kind === 'fakedns' ||
+              isDnsEditor(source) ||
+              isPolicyKind(source.kind) ||
+              isNativeConfigEditor(source.kind))
+              ? portLabel(edge.sourceHandle ?? '', source)
+              : edge.sourceHandle === 'match'
+                ? 'matches'
+                : edge.sourceHandle === 'otherwise'
+                  ? 'otherwise'
+                  : undefined,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 17,
+            height: 17,
+            color,
+          },
+          style: {
+            stroke: color,
+            strokeWidth: edge.selected ? 2.6 : 1.8,
+            ...(connectionType.dash ? { strokeDasharray: connectionType.dash } : {}),
+          },
+          labelStyle: { fill: color, fontSize: 10, fontWeight: 500 },
+          labelBgStyle: { fill: 'var(--surface-sunken)', fillOpacity: 1 },
+          labelBgPadding: [7, 4] as [number, number],
+          labelBgBorderRadius: 4,
+        };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [editor.graph.edges, executionGraph.nodes]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -1347,7 +1336,7 @@ export default function App({
     <OutboundInterfacesContext.Provider value={outboundInterfaces}>
       <SubscriptionMaintenanceContext.Provider value={subscriptionMaintenance}>
         <OutboundTestsContext.Provider value={outboundTests}>
-          <ObservatoryContext.Provider value={observationSummaries}>
+          <LiveSnapshotContext.Provider value={session}>
             <MainOutboundContext.Provider value={editor.graph.mainOutboundId}>
               <GraphDiagnosticsContext.Provider value={issuesByNode}>
                 <NodeEditorContext.Provider value={openNodeEditor}>
@@ -1802,7 +1791,7 @@ export default function App({
                             }
                             runtime={runtime}
                           >
-                            <EdgeRoutesContext.Provider value={edgeRoutes}>
+                            <>
                               {!hasIcsCapture(editor.graph) &&
                                 sharingDismissed !== sharingKey &&
                                 (sharing.value?.pair || sharing.value?.recoveryPending) && (
@@ -1838,14 +1827,10 @@ export default function App({
                                     </button>
                                   </div>
                                 )}
-                              <FakeDnsUsageContext.Provider
-                                value={fakeDnsUsageSummary(
-                                  runtime.connected,
-                                  runtime.snapshot,
-                                  graphCompilation?.config,
-                                  runtime.savedConfig,
-                                  runtime.savedRevision,
-                                )}
+                              <GraphProbeStatus
+                                runtime={runtime}
+                                draft={graphCompilation?.config}
+                                compatibleObservations={compatibleObservations}
                               >
                                 <div className="canvas-flow" ref={canvas}>
                                   <ReactFlow<RuleNodeType, RuleEdge>
@@ -1981,8 +1966,8 @@ export default function App({
                                     </div>
                                   )}
                                 </div>
-                              </FakeDnsUsageContext.Provider>
-                            </EdgeRoutesContext.Provider>
+                              </GraphProbeStatus>
+                            </>
                           </GraphActivityProvider>
                         </main>
                         {inspectorVisible && (
@@ -2061,24 +2046,7 @@ export default function App({
                                 : 'Capture check failed'}
                             </button>
                           )}
-                        {edgeLayout.error && (
-                          <button
-                            className="graph-status has-errors"
-                            onClick={edgeLayout.retry}
-                            title={edgeLayout.error}
-                          >
-                            Retry connection layout
-                          </button>
-                        )}
-                        {[...edgeRoutes.values()].some((route) => route.blocked) && (
-                          <span
-                            className="graph-status has-errors"
-                            role="status"
-                            title="A connection cannot be routed clearly in this layout. Move overlapping nodes or increase the space between them."
-                          >
-                            Connections need more space
-                          </span>
-                        )}
+                        <ConnectionLayoutStatus />
                         <span className="status-help">
                           {pan
                             ? 'Drag to pan the canvas'
@@ -2139,38 +2107,7 @@ export default function App({
                                     : 'Save failed'}
                         </span>
                         {!simulation && !layer && (
-                          <div
-                            className="status-traffic"
-                            role="group"
-                            aria-label="Live traffic rates"
-                          >
-                            <span>
-                              ↑{' '}
-                              {formatRate(
-                                runtime.connected
-                                  ? runtime.snapshot?.traffic?.uploadPerSecond
-                                  : null,
-                                trafficUnits.rate,
-                              )}
-                            </span>
-                            <span>
-                              ↓{' '}
-                              {formatRate(
-                                runtime.connected
-                                  ? runtime.snapshot?.traffic?.downloadPerSecond
-                                  : null,
-                                trafficUnits.rate,
-                              )}
-                            </span>
-                            <button
-                              className="icon-button"
-                              title="Traffic statistics"
-                              aria-label="Open live traffic statistics"
-                              onClick={() => setTrafficOpen(true)}
-                            >
-                              <Activity size={15} aria-hidden="true" />
-                            </button>
-                          </div>
+                          <LiveTrafficRates runtime={runtime} onOpen={() => setTrafficOpen(true)} />
                         )}
                       </footer>
                       <input
@@ -2800,7 +2737,7 @@ export default function App({
                 </NodeEditorContext.Provider>
               </GraphDiagnosticsContext.Provider>
             </MainOutboundContext.Provider>
-          </ObservatoryContext.Provider>
+          </LiveSnapshotContext.Provider>
         </OutboundTestsContext.Provider>
       </SubscriptionMaintenanceContext.Provider>
     </OutboundInterfacesContext.Provider>

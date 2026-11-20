@@ -1,6 +1,6 @@
 [package]
 name = "wayrill"
-version = "0.39.0"
+version = "0.39.1"
 description = "Wayrill routing workspace"
 edition = "2021"
 rust-version = "1.77.2"
@@ -16,6 +16,7 @@ serde = { version = "1", features = ["derive"] }
 url = "2"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Controls_Dialogs", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Networking_WinHttp"] }
+webview2-com = "0.39.1"
 tokio = { version = "1.53", features = ["time", "sync"] }
 wayrill-ipc = { path = "../service/ipc" }
 wayrill-protocol = { path = "../service/protocol" }

@@ -1,10 +1,24 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import { desktopServiceAvailable, errorText, serviceCall, serviceEvents } from './serviceClient';
+import type { ServiceSnapshot } from './serviceClient';
 import { RuntimeSession } from './runtimeSession';
+
+export const LiveSnapshotContext = createContext<RuntimeSession | null>(null);
+const idleSubscribe = () => () => {};
+
+// Only the live widgets need every telemetry sample. Keep this subscription
+// below the editor so incoming IPC never makes the entire canvas redraw.
+export function useLiveSnapshot(fallback: ServiceSnapshot | null, enabled = true) {
+  const session = useContext(LiveSnapshotContext);
+  return useSyncExternalStore(
+    enabled && session ? session.subscribe : idleSubscribe,
+    enabled && session ? session.getLiveSnapshot : () => fallback,
+  );
+}
 
 export default function useRuntime() {
   const [session] = useState(() => new RuntimeSession(serviceCall));
-  const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const state = useSyncExternalStore(session.subscribe, session.getEditorState);
   const desktop = desktopServiceAvailable();
   useEffect(() => {
     if (!desktop) return;
@@ -30,7 +44,7 @@ export default function useRuntime() {
       remove?.();
     };
   }, [desktop, session]);
-  return {
+  const runtime = {
     ...state,
     desktop,
     refresh: session.refresh,
@@ -41,6 +55,7 @@ export default function useRuntime() {
     subscribeEvents: session.subscribeEvents,
     clearEvents: session.clearEvents,
   };
+  return { runtime, session };
 }
 
-export type RuntimeController = ReturnType<typeof useRuntime>;
+export type RuntimeController = ReturnType<typeof useRuntime>['runtime'];

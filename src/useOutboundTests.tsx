@@ -45,6 +45,7 @@ interface Job {
   total: number;
   completed: number;
   results: OutboundTestResult[];
+  previews?: OutboundTestResult[];
   cancelled: boolean;
   planReady?: boolean;
   totalRows?: number;
@@ -245,11 +246,16 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
             plan: mergeTestPlans(current[testMode].plan, plan),
           },
         }));
-      const publishResults = (fresh: OutboundTestResult[]) => {
-        if (!fresh.length) return;
+      const publishResults = (fresh: OutboundTestResult[], previews: OutboundTestResult[] = []) => {
+        if (!fresh.length && !previews.length) return;
         setRecords((current) => {
-          const results = new Map(current[testMode].results);
-          for (const result of fresh)
+          const previous = current[testMode].results;
+          const changed = previews.filter(
+            ({ id, latencyMs }) => previous.get(id)?.latencyMs !== latencyMs,
+          );
+          if (!fresh.length && !changed.length) return current;
+          const results = new Map(previous);
+          for (const result of [...changed, ...fresh])
             results.set(result.id, { ...result, udp: result.udp ?? results.get(result.id)?.udp });
           return { ...current, [testMode]: { ...current[testMode], results } };
         });
@@ -303,7 +309,7 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
         let offset = 0,
           planPublished = false;
         while (!signal.aborted) {
-          publishResults(job.results);
+          publishResults(job.results, job.previews);
           offset += job.results.length;
           if (job.error) throw new Error(job.error.message);
           if (job.cancelled) {

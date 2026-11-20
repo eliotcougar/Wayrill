@@ -1099,10 +1099,11 @@ impl Kernel {
             "routing.log" => {
                 let p: crate::routing_log::Request = params(input)?;
                 p.validate()?;
-                Ok(self
-                    .events
-                    .routing
-                    .snapshot(&p.filter_id, &self.events.instance_id))
+                Ok(self.events.routing.page(
+                    &p.filter_id,
+                    &self.events.instance_id,
+                    p.since.as_deref(),
+                ))
             }
             "companion.routes" => {
                 let p: wayrill_protocol::companion::Lookup = params(input)?;

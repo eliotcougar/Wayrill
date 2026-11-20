@@ -16,7 +16,7 @@ use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
     time::Duration,
@@ -135,6 +135,7 @@ struct State {
     published: RwLock<Published>,
     changed: Arc<Notify>,
     udp_changed: Notify,
+    ownership_requested: AtomicBool,
     snapshot_ready: Notify,
     secret: [u8; 32],
     zero: String,
@@ -258,13 +259,13 @@ impl State {
         let arrived = clock::milliseconds();
         let mut reason = "no fresh ownership snapshot";
         loop {
+            let ready = self.snapshot_ready.notified();
             let now = clock::milliseconds();
             if now.saturating_sub(arrived) >= 1400 {
                 return Err(Error::invalid(format!(
                     "TUN flow ownership could not be established: {reason}."
                 )));
             }
-            self.changed.notify_one();
             let snapshot = self.snapshot()?;
             if let Some(snapshot) = snapshot.filter(|s| s.is_fresh(now, arrived)) {
                 match self.local_ownership(&snapshot, flow) {
@@ -281,7 +282,20 @@ impl State {
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(40)).await;
+            self.request_ownership(false);
+            tokio::select! {
+                _ = ready => {},
+                _ = tokio::time::sleep(Duration::from_millis(40)) => {},
+            }
+        }
+    }
+
+    fn request_ownership(&self, udp: bool) {
+        self.ownership_requested.store(true, Ordering::Release);
+        if udp {
+            self.udp_changed.notify_one();
+        } else {
+            self.changed.notify_one();
         }
     }
 
@@ -415,7 +429,7 @@ impl State {
                 std::mem::swap(&mut flows, &mut pending);
             }
             if !flows.is_empty() {
-                self.udp_changed.notify_one();
+                self.request_ownership(true);
                 tokio::select! {
                     _ = ready => {},
                     _ = tokio::time::sleep(Duration::from_millis(40)) => {},
@@ -494,6 +508,7 @@ impl TunApplications {
             published: RwLock::new(Published::default()),
             changed: Arc::new(Notify::new()),
             udp_changed: Notify::new(),
+            ownership_requested: AtomicBool::new(false),
             snapshot_ready: Notify::new(),
             secret,
             zero,
@@ -518,14 +533,23 @@ impl TunApplications {
                     if *worker_stop.borrow() {
                         break;
                     }
-                    let snapshot = Arc::new(source.read(Some(rules.clone()), &[], flush)?);
-                    let read_at = snapshot.read_at;
-                    worker_state
-                        .published
-                        .write()
-                        .map_err(|_| Error::invalid("TUN attribution state poisoned."))?
-                        .snapshot = Some(snapshot);
-                    worker_state.snapshot_ready.notify_waiters();
+                    let mut read_at = clock::milliseconds();
+                    if flush
+                        || worker_state
+                            .ownership_requested
+                            .swap(false, Ordering::AcqRel)
+                    {
+                        let snapshot = Arc::new(source.read(Some(rules.clone()), &[], flush)?);
+                        read_at = snapshot.read_at;
+                        worker_state
+                            .published
+                            .write()
+                            .map_err(|_| Error::invalid("TUN attribution state poisoned."))?
+                            .snapshot = Some(snapshot);
+                        worker_state.snapshot_ready.notify_waiters();
+                    } else {
+                        source.maintain_tun(&rules)?;
+                    }
                     if let Some(ready) = ready.take() {
                         if ready.send(Ok(())).is_err() {
                             break;
@@ -1133,6 +1157,7 @@ mod tests {
             published: RwLock::new(Published::default()),
             changed: Arc::new(Notify::new()),
             udp_changed: Notify::new(),
+            ownership_requested: AtomicBool::new(false),
             snapshot_ready: Notify::new(),
             secret: [0; 32],
             zero: "0".into(),
@@ -1183,6 +1208,7 @@ mod tests {
             published: RwLock::new(Published::default()),
             changed: Arc::new(Notify::new()),
             udp_changed: Notify::new(),
+            ownership_requested: AtomicBool::new(false),
             snapshot_ready: Notify::new(),
             secret: [0; 32],
             zero: "0".into(),

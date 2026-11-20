@@ -56,17 +56,27 @@ pub fn validate_metadata(names: &DisplayNames, config: &Value) -> Result<()> {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Request {
     pub filter_id: String,
+    pub since: Option<String>,
 }
 impl Request {
     pub fn validate(&self) -> Result<()> {
-        if printable(&self.filter_id, 160) {
-            Ok(())
-        } else {
-            Err(ApiError::new(
+        if !printable(&self.filter_id, 160) {
+            return Err(ApiError::new(
                 "INVALID_PARAMS",
                 "A routing filter ID is required.",
-            ))
+            ));
         }
+        if self
+            .since
+            .as_ref()
+            .is_some_and(|since| !printable(since, 160))
+        {
+            return Err(ApiError::new(
+                "INVALID_PARAMS",
+                "Invalid routing log cursor.",
+            ));
+        }
+        Ok(())
     }
 }
 #[derive(Clone)]
@@ -349,7 +359,7 @@ struct RelayObservations {
     order: VecDeque<Arc<str>>,
 }
 impl RelayObservations {
-    fn record(&mut self, id: &str, next: RelayObservation) {
+    fn record(&mut self, id: &str, next: RelayObservation) -> Option<u64> {
         if let Some(previous) = self.by_id.get_mut(id) {
             let pair = match (previous.as_ref(), &next) {
                 (Some(RelayObservation::Rule(_)), RelayObservation::Selection(_))
@@ -361,13 +371,13 @@ impl RelayObservations {
             match (pair, next) {
                 (Some(RelayObservation::Rule(row)), RelayObservation::Selection(selection))
                 | (Some(RelayObservation::Selection(selection)), RelayObservation::Rule(row)) => {
-                    if let Some(row) = row.upgrade() {
-                        let _ = row.selection.set(selection);
-                    }
+                    let row = row.upgrade()?;
+                    row.selection.set(selection).ok()?;
+                    return Some(row.id);
                 }
                 _ => {}
             }
-            return;
+            return None;
         }
         if self.order.len() == CAPACITY {
             if let Some(old) = self.order.pop_front() {
@@ -377,6 +387,7 @@ impl RelayObservations {
         let id: Arc<str> = id.into();
         self.order.push_back(id.clone());
         self.by_id.insert(id, Some(next));
+        None
     }
 }
 #[derive(Default)]
@@ -386,8 +397,10 @@ struct State {
     monitored: VecDeque<u64>,
     collecting: bool,
     sequence: u64,
+    expired_through: u64,
     bytes: usize,
     rows: VecDeque<Arc<Row>>,
+    late_selections: VecDeque<(u64, u64)>,
     // Retain one last host decision per destination independently of log churn.
     // Shared clients must neither replace nor evict this Companion history.
     // Both stores have explicit row and byte bounds.
@@ -482,9 +495,19 @@ impl Log {
                             outbound: outbound.to_owned(),
                             blocked: session.blocked.contains(tag),
                         };
-                        state
+                        if let Some(row_id) = state
                             .relays
-                            .record(id, RelayObservation::Selection(selection));
+                            .record(id, RelayObservation::Selection(selection))
+                        {
+                            // Already displayed rows can acquire their final outbound later.
+                            state.sequence += 1;
+                            let sequence = state.sequence;
+                            state.late_selections.push_back((sequence, row_id));
+                            if state.late_selections.len() > CAPACITY {
+                                let (expired, _) = state.late_selections.pop_front().unwrap();
+                                state.expired_through = state.expired_through.max(expired);
+                            }
+                        }
                     }
                 }
                 return true;
@@ -577,7 +600,7 @@ impl Log {
         state.bytes += weight;
         let row = Arc::new(row);
         if let Some(id) = decision.relay_id.filter(|_| relay) {
-            state
+            let _ = state
                 .relays
                 .record(id, RelayObservation::Rule(Arc::downgrade(&row)));
         }
@@ -606,6 +629,7 @@ impl Log {
         state.rows.push_back(row);
         while state.rows.len() > CAPACITY || state.bytes > BYTES {
             if let Some(old) = state.rows.pop_front() {
+                state.expired_through = state.expired_through.max(old.id);
                 state.bytes -= old.weight;
                 if let Some(event) = &old.event {
                     state.seen.remove(event);
@@ -638,12 +662,67 @@ impl Log {
             "revision":session.map(|s|s.revision),"state":if state.collecting {"collecting"} else {"stopped"},
             "rules":matches.into_iter().map(|(index, matches)|json!({"index":index,"matches":matches})).collect::<Vec<_>>()})
     }
-    pub fn snapshot(&self, filter: &str, instance: &str) -> Value {
+    #[cfg(test)]
+    fn snapshot(&self, filter: &str, instance: &str) -> Value {
+        self.page(filter, instance, None)
+    }
+
+    pub fn page(&self, filter: &str, instance: &str, since: Option<&str>) -> Value {
         let state = self.state.lock().unwrap();
+        let after = since
+            .and_then(|cursor| {
+                cursor
+                    .strip_prefix(instance)?
+                    .strip_prefix(':')?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .filter(|after| (state.expired_through..=state.sequence).contains(after));
+        let sequence = state.sequence;
+        let oldest = state.rows.front().map(|row| row.id);
         let session = state.session.as_ref();
         let configured = session.is_some_and(|s| s.filters.contains(filter));
-        let mut rows: Vec<_> = state.rows.iter().rev().filter_map(|row| {
-            let hop = row.trail.iter().find(|h| h.filter_id == filter)?;
+        let generation = session.map(|s| s.generation);
+        let revision = session.map(|s| s.revision);
+        let status = if !configured {
+            "unconfigured"
+        } else if state.collecting {
+            "collecting"
+        } else {
+            "stopped"
+        };
+        let belongs = |row: &Row| row.trail.iter().position(|hop| hop.filter_id == filter);
+        let mut rows: Vec<_> = state
+            .rows
+            .iter()
+            .rev()
+            .take_while(|row| after.is_none_or(|after| row.id > after))
+            .filter_map(|row| Some((row.clone(), belongs(row)?)))
+            .take(PAGE)
+            .collect();
+        if let Some(after) = after.filter(|_| rows.len() < PAGE) {
+            rows.extend(
+                state
+                    .late_selections
+                    .iter()
+                    .rev()
+                    .take_while(|(sequence, _)| *sequence > after)
+                    .filter_map(|&(_, id)| {
+                        // New rows already appear above. Skip edits of evicted rows.
+                        if id > after || oldest.is_none_or(|oldest| id < oldest) {
+                            return None;
+                        }
+                        let index = state.rows.partition_point(|row| row.id < id);
+                        let row = state.rows.get(index).filter(|row| row.id == id)?;
+                        Some((row.clone(), belongs(row)?))
+                    }),
+            );
+            rows.sort_unstable_by_key(|(row, _)| std::cmp::Reverse(row.id));
+            rows.truncate(PAGE);
+        }
+        drop(state);
+        let rows: Vec<_> = rows.into_iter().rev().map(|(row, index)| {
+            let hop = &row.trail[index];
             let mut item = json!({"id":row.id.to_string(),"timestampMs":row.timestamp,"revision":row.revision,"destination":row.destination,"outbound":row.outbound(),"output":hop.output,"outputId":hop.output_id,"rule":hop.rule,"ruleId":hop.rule_id,"connectionId":row.connection_id,"transport":row.transport,"source":row.source});
             if let Some(balancer) = &row.balancer {
                 item["balancer"] = json!(balancer);
@@ -652,9 +731,9 @@ impl Log {
                 item["applicationMatch"] = json!(application);
             }
             Some(item)
-        }).take(PAGE).collect();
-        rows.reverse();
-        json!({"instanceId":instance,"generation":session.map(|s|s.generation),"revision":session.map(|s|s.revision),"state":if state.collecting && configured {"collecting"} else if configured {"stopped"} else {"unconfigured"},"capacity":PAGE,"rows":rows})
+        }).collect();
+        json!({"instanceId":instance,"generation":generation,"revision":revision,"state":status,"capacity":PAGE,"rows":rows,
+            "cursor":format!("{instance}:{sequence}"),"reset":after.is_none(),"oldestRetainedId":oldest.map(|id| id.to_string())})
     }
     /// Host destination correlation, never proof about a browser tab or socket.
     /// Keep last known decisions in a bounded per-destination history, including Block.
@@ -1361,10 +1440,8 @@ mod tests {
         log.ingest_from(1, 201, "Xray", &selection("second", "block"));
         log.ingest_from(1, 102, "ICS TUN", &worker("second"));
         log.ingest_from(2, 202, "Xray", &selection("first", "block"));
-        assert_eq!(
-            log.snapshot("parent", "test")["rows"][0]["outbound"],
-            "Auto US"
-        );
+        let before = log.snapshot("parent", "test");
+        assert_eq!(before["rows"][0]["outbound"], "Auto US");
         log.ingest_from(1, 201, "Xray", &selection("first", "member"));
         log.ingest_from(1, 201, "Xray", &selection("first", "block"));
         log.ingest(1, &line(1, "tcp:example.org:443", "member"));
@@ -1376,6 +1453,15 @@ mod tests {
         assert_eq!(rows[0]["outbound"], "US server");
         assert_eq!(rows[1]["outbound"], "Block");
         assert_eq!(rows[2]["outbound"], "US server");
+        let delta = log.page("parent", "test", before["cursor"].as_str());
+        assert_eq!(delta["reset"], false);
+        assert_eq!(delta["rows"], json!([rows[0], rows[2]]));
+        let idle = log.page("parent", "test", delta["cursor"].as_str());
+        assert_eq!(idle["reset"], false);
+        assert_eq!(idle["rows"], json!([]));
+        let restarted = log.page("parent", "new-instance", delta["cursor"].as_str());
+        assert_eq!(restarted["reset"], true);
+        assert_eq!(restarted["rows"], snapshot["rows"]);
     }
     #[test]
     fn instrumentation_does_not_change_author_profile_and_fallback_is_last() {
@@ -1477,6 +1563,7 @@ mod tests {
     fn bounded_rollover_and_retired_generation_never_relabels_held_rows() {
         let log = Log::default();
         log.begin(instrument(&mut config(), &names(), 1, 7));
+        let initial = log.snapshot("parent", "test");
         for i in 0..CAPACITY + 100 {
             log.ingest(1, &line(1, &format!("udp:host{i}.example:53"), "direct"));
         }
@@ -1485,12 +1572,18 @@ mod tests {
         assert!(log.state.lock().unwrap().known_bytes <= BYTES);
         let before = log.snapshot("parent", "test");
         assert_eq!(before["rows"].as_array().unwrap().len(), PAGE);
+        let rolled = log.page("parent", "test", initial["cursor"].as_str());
+        assert_eq!(rolled["reset"], true);
+        assert_eq!(rolled["rows"], before["rows"]);
         let mut updated = names();
         updated.routing.get_mut("0").unwrap()[0].rule = "Renamed draft".into();
         log.begin(instrument(&mut config(), &updated, 2, 8));
         assert!(log.ingest(1, &line(1, "tcp:late.example:443", "direct")));
         log.ingest(2, &line(2, "tcp:current.example:443", "direct"));
         let after = log.snapshot("parent", "test");
+        let delta = log.page("parent", "test", before["cursor"].as_str());
+        assert_eq!(delta["reset"], false);
+        assert_eq!(delta["rows"], json!([after["rows"][999]]));
         assert_eq!(after["rows"][998]["rule"], "Web 🌍");
         assert_eq!(after["rows"][999]["rule"], "Renamed draft");
         log.stop();
@@ -1526,7 +1619,8 @@ mod tests {
             serde_json::from_value(json!({"filterId":"x","query":"raw"}));
         assert!(request.is_err());
         assert!(Request {
-            filter_id: "\n".into()
+            filter_id: "\n".into(),
+            since: None,
         }
         .validate()
         .is_err());

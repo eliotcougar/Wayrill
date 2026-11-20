@@ -87,6 +87,22 @@ impl AttributionSource {
     ) -> Result<AttributionSnapshot> {
         let read_at = clock::milliseconds();
         self.tree.set_rules(rules.clone(), excluded.iter().copied());
+        self.refresh_processes(rules.as_deref(), read_at, flush)?;
+        self.read_sockets(rules.as_deref(), read_at, flush)
+    }
+
+    /// Drain process events and reconcile native identities without enumerating
+    /// socket owners. TUN requests require ownership read after their arrival.
+    pub fn maintain_tun(&mut self, rules: &SharedPolicy) -> Result<()> {
+        self.refresh_processes(Some(rules), clock::milliseconds(), false)
+    }
+
+    fn refresh_processes(
+        &mut self,
+        rules: Option<&SharedPolicy>,
+        read_at: u64,
+        flush: bool,
+    ) -> Result<()> {
         let mut updates = Vec::new();
         let events = self
             .process_events
@@ -94,7 +110,7 @@ impl AttributionSource {
             .map(|events| events.drain(flush))
             .transpose()?;
         let reconcile = events.as_ref().is_some_and(|batch| batch.discontinuity);
-        let has_packages = rules.as_ref().is_some_and(|r| r.has_packages);
+        let has_packages = rules.is_some_and(|r| r.has_packages);
         let read_processes = self.process_events.is_none()
             || read_at.saturating_sub(self.last_process_read) >= 1000
             || flush
@@ -149,26 +165,36 @@ impl AttributionSource {
             }
             self.tree.refresh(super::now_filetime())?;
         }
-        let has_services = rules.as_ref().is_some_and(|r| !r.service_names.is_empty());
-        if has_services
-            && (self.last_service_read == 0
+        Ok(())
+    }
+
+    fn read_sockets(
+        &mut self,
+        rules: Option<&SharedPolicy>,
+        read_at: u64,
+        flush: bool,
+    ) -> Result<AttributionSnapshot> {
+        if let Some(rules) = rules.filter(|rule| !rule.service_names.is_empty()) {
+            let names = &rules.service_names;
+            if self.last_service_read == 0
                 || read_at.saturating_sub(self.last_service_read) >= 1000
                 || flush
-                || self.service_names != rules.as_ref().unwrap().service_names)
-        {
-            let names = &rules.as_ref().unwrap().service_names;
-            self.services = Some(ServiceSnapshot::new(
-                &service_catalog::read()?,
-                self.tree
-                    .processes()
-                    .filter(|p| self.tree.is_current(p.key)),
-                names,
-            ));
-            self.service_names.clone_from(names);
-            self.last_service_read = read_at;
-        } else if !has_services {
+                || &self.service_names != names
+            {
+                self.services = Some(ServiceSnapshot::new(
+                    &service_catalog::read()?,
+                    self.tree
+                        .processes()
+                        .filter(|p| self.tree.is_current(p.key)),
+                    names,
+                ));
+                self.service_names.clone_from(names);
+                self.last_service_read = read_at;
+            }
+        } else {
             self.services = None;
             self.service_names.clear();
+            self.last_service_read = 0;
         }
         // Preserve the generations paired with the SCM read; rebinding cached
         // service PIDs to the latest process table would misidentify reused IDs.

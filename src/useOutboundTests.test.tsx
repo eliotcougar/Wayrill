@@ -322,6 +322,47 @@ it('reads the final plan and results across multiple pages from one service job'
     'outbounds.testGet',
   ]);
 });
+
+it('shows a measured delay while details are pending and replaces it with the final result', async () => {
+  vi.useFakeTimers();
+  const preview = { id: 'test-1', latencyMs: 42, ip: null };
+  vi.mocked(serviceCall).mockImplementation(async (method, params) => {
+    const progress = { job: 10, planReady: true, total: 1, totalRows: 1, cancelled: false };
+    if (method === 'outbounds.testPlanStart') {
+      return {
+        ...progress,
+        busy: true,
+        completed: 0,
+        rows: [{ key: 'node:direct', name: 'Direct', kind: 'outbound', targets: [preview.id] }],
+        targets: [{ id: preview.id, name: 'Direct' }],
+        results: [],
+        previews: [preview],
+      };
+    }
+    expect(method).toBe('outbounds.testGet');
+    expect(params?.offset).toBe(0);
+    return {
+      ...progress,
+      busy: false,
+      completed: 1,
+      results: [{ ...preview, latencyMs: 38, ip: '203.0.113.4' }],
+    };
+  });
+  await act(() => root.render(<Probe />));
+  let work!: Promise<void>;
+  await act(async () => {
+    work = latest.start();
+  });
+  expect(latest.summaries.get('node:direct')?.text).toBe('42 ms');
+  expect(latest.busy).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(400);
+    await work;
+  });
+  expect(latest.results.get(preview.id)).toMatchObject({ latencyMs: 38, ip: '203.0.113.4' });
+  expect(latest.busy).toBe(false);
+});
+
 it('updates the group UDP verdict when one member is retested and retains results after a staging failure', async () => {
   respondToTests((id, round, index) => ({
     id,

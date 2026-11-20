@@ -32,10 +32,50 @@ export type RoutingLogSnapshot = {
   state: 'collecting' | 'stopped' | 'unconfigured';
   capacity: number;
   rows: RoutingLogRow[];
+  cursor?: string;
+  reset?: boolean;
+  oldestRetainedId?: string | null;
 };
 const rowHeight = 32;
 const overscan = 6;
 const emptyRows: RoutingLogRow[] = [];
+
+// Row IDs are decimal u64 strings, so comparisons stay exact at every service age.
+function precedes(a: string, b: string): boolean {
+  return a.length === b.length ? a < b : a.length < b.length;
+}
+
+function applyPage(
+  previous: RoutingLogSnapshot | null,
+  page: RoutingLogSnapshot,
+): RoutingLogSnapshot {
+  if (!previous || page.reset !== false || previous.instanceId !== page.instanceId) return page;
+  const { oldestRetainedId, capacity } = page;
+  let rows = previous.rows;
+  if (oldestRetainedId === null) rows = emptyRows;
+  else if (oldestRetainedId && rows.length && precedes(rows[0].id, oldestRetainedId)) {
+    const first = rows.findIndex((row) => !precedes(row.id, oldestRetainedId));
+    rows = first < 0 ? emptyRows : rows.slice(first);
+  }
+  if (page.rows.length) {
+    const last = rows.at(-1)?.id;
+    const incoming = new Map(page.rows.map((row) => [row.id, row]));
+    rows = rows.map((row) => incoming.get(row.id) ?? row);
+    // Older corrections update a visible row by ID. Rows that have already
+    // fallen out of this filter's 1,000-entry window stay out of the display.
+    for (const row of page.rows) if (last === undefined || precedes(last, row.id)) rows.push(row);
+  }
+  if (rows.length > capacity) rows = rows.slice(-capacity);
+  if (
+    rows === previous.rows &&
+    page.generation === previous.generation &&
+    page.revision === previous.revision &&
+    page.state === previous.state &&
+    capacity === previous.capacity
+  )
+    return previous;
+  return { ...page, rows };
+}
 
 function outputLabel({ output, balancer, outbound }: RoutingLogRow): string {
   const path = balancer ? [output, balancer, outbound] : [output, outbound];
@@ -84,21 +124,35 @@ function FilterRoutingLog({
   const [transferring, setTransferring] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const cursor = useRef<string | undefined>(undefined);
+  const inFlight = useRef<Promise<RoutingLogSnapshot> | null>(null);
+  const scrolled = useRef({ rows: emptyRows, top: 0, instanceId: undefined as string | undefined });
   const [position, setPosition] = useState({ top: 0, height: 320 });
   useEffect(() => {
-    if (!desktopServiceAvailable()) return;
+    if (paused || !desktopServiceAvailable()) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
+      // A pause/resume can happen while a pipe response is still in flight.
+      // Wait for it without applying data requested before the pause.
+      if (inFlight.current) await inFlight.current.catch(() => {});
+      if (disposed) return;
       try {
-        const snapshot = await serviceCall<RoutingLogSnapshot>('routing.log', { filterId });
+        const request = serviceCall<RoutingLogSnapshot>('routing.log', {
+          filterId,
+          ...(cursor.current === undefined ? {} : { since: cursor.current }),
+        });
+        inFlight.current = request;
+        const page = await request;
         if (!disposed) {
-          setLive(snapshot);
+          cursor.current = page.cursor;
+          setLive((previous) => applyPage(previous, page));
           setError(null);
         }
       } catch (failure) {
         if (!disposed) setError(errorText(failure));
       } finally {
+        inFlight.current = null;
         if (!disposed) timer = setTimeout(() => void poll(), 1000);
       }
     };
@@ -107,7 +161,7 @@ function FilterRoutingLog({
       disposed = true;
       clearTimeout(timer);
     };
-  }, [filterId]);
+  }, [filterId, paused]);
   const display = paused ? held : live;
   const retained = display?.rows ?? emptyRows;
   const filtered =
@@ -179,15 +233,27 @@ function FilterRoutingLog({
     const element = viewport.current;
     if (!element) return;
     const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
-    element.scrollTop = !paused && following.current ? bottom : Math.min(element.scrollTop, bottom);
+    const instanceId = display?.instanceId;
+    const previous = scrolled.current;
+    let top = element.scrollTop;
+    if (!paused && following.current) {
+      top = bottom;
+    } else if (previous.rows !== rows && previous.instanceId === instanceId) {
+      const anchor = previous.rows[Math.floor(previous.top / rowHeight)];
+      const index = anchor ? rows.findIndex((row) => !precedes(row.id, anchor.id)) : -1;
+      if (index >= 0) top = index * rowHeight + (previous.top % rowHeight);
+    }
+    element.scrollTop = Math.min(top, bottom);
+    scrolled.current = { rows, top: element.scrollTop, instanceId };
     setPosition({ top: element.scrollTop, height: element.clientHeight || 320 });
-  }, [rows, paused]);
+  }, [rows, paused, display?.instanceId]);
   useEffect(() => {
     const element = viewport.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => {
       if (!paused && following.current)
         element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      scrolled.current.top = element.scrollTop;
       setPosition({ top: element.scrollTop, height: element.clientHeight || 320 });
     });
     observer.observe(element);
@@ -200,15 +266,17 @@ function FilterRoutingLog({
   );
   const status = !desktopServiceAvailable()
     ? 'Available in the Windows app.'
-    : error
-      ? error
-      : !live
-        ? 'Connecting…'
-        : live.state === 'unconfigured'
-          ? 'Apply this graph to collect its routing log.'
-          : live.state === 'stopped'
-            ? 'Routing stopped.'
-            : 'Collecting';
+    : paused
+      ? 'Paused'
+      : error
+        ? error
+        : !live
+          ? 'Connecting…'
+          : live.state === 'unconfigured'
+            ? 'Apply this graph to collect its routing log.'
+            : live.state === 'stopped'
+              ? 'Routing stopped.'
+              : 'Collecting';
   return (
     <section className="routing-log" aria-label="Traffic log">
       <div className="action-row action-row--spread routing-log-controls">
@@ -309,6 +377,7 @@ function FilterRoutingLog({
             const element = event.currentTarget;
             following.current =
               element.scrollHeight - element.clientHeight - element.scrollTop <= 4;
+            scrolled.current.top = element.scrollTop;
             setPosition({ top: element.scrollTop, height: element.clientHeight || 320 });
           }}
         >

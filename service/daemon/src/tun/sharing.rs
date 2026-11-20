@@ -15,6 +15,10 @@ use std::{
 };
 use wayrill_protocol::{ApiError, Result};
 
+// IP notifications are hints only. Sharing roles and mappings can change
+// without producing one, so recheck the complete Windows state periodically.
+const ACTIVE_INSPECTION_INTERVAL: Duration = Duration::from_secs(10);
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Options {
@@ -710,6 +714,7 @@ pub struct Manager {
     last_error: Option<ApiError>,
     recovery_until: Option<Instant>,
     recovery_checked: Instant,
+    active_inspected: Option<Instant>,
     idle: IdleMonitor,
     changes: Option<super::notifications::Changes>,
 }
@@ -771,6 +776,7 @@ impl Manager {
             last_error: None,
             recovery_until,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: super::notifications::Changes::new()
                 .inspect_err(|e| {
@@ -791,6 +797,7 @@ impl Manager {
     }
     fn reload_journal(&mut self) -> Result<()> {
         self.idle.invalidate();
+        self.active_inspected = None;
         let journal: Option<Journal> = storage::read(&self.path)?;
         if journal.as_ref().is_some_and(|j| !valid(j)) {
             return Err(error(
@@ -1171,6 +1178,7 @@ impl Manager {
         } else {
             None
         };
+        self.active_inspected = None;
         self.journal = Some(Journal {
             version: 3,
             original_public: public.clone(),
@@ -1301,6 +1309,7 @@ impl Manager {
                 crate::diagnostics::error!("Withdraw shared IPv6 advertisement: {}", e.message);
             }
         }
+        self.active_inspected = None;
         self.journal = Some(next);
         Ok(())
     }
@@ -1678,7 +1687,7 @@ impl Manager {
         } else {
             self.idle.invalidate();
         }
-        if let Some(j) = self.journal.clone() {
+        if let Some(j) = &self.journal {
             if let Some(lease) = &j.ipv6_clients {
                 lease.poll(&j.private.id)?;
             }
@@ -1695,7 +1704,18 @@ impl Manager {
                 self.last_error = Some(e.clone());
                 return Err(e);
             }
+            if let Some(changes) = &mut self.changes {
+                if !changes.take()
+                    && self
+                        .active_inspected
+                        .is_some_and(|at| at.elapsed() < ACTIVE_INSPECTION_INTERVAL)
+                {
+                    return Ok(());
+                }
+            }
+            let j = j.clone();
             let snapshot = self.read()?;
+            self.active_inspected = Some(Instant::now());
             if sharing_disabled(&j, &snapshot, false) {
                 self.set_native_intent(false)?;
                 let j = self.journal.as_mut().unwrap();
@@ -1714,6 +1734,8 @@ impl Manager {
                 self.last_error = Some(e.clone());
                 return Err(e);
             }
+        } else {
+            self.active_inspected = None;
         }
         Ok(())
     }
@@ -1794,6 +1816,7 @@ mod tests {
             last_error: None,
             recovery_until: None,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         }
@@ -1913,6 +1936,7 @@ mod tests {
             last_error: None,
             recovery_until: None,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         };
@@ -1947,6 +1971,7 @@ mod tests {
             last_error: None,
             recovery_until: Some(Instant::now()),
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         };
@@ -1987,6 +2012,7 @@ mod tests {
             last_error: None,
             recovery_until: None,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         };
@@ -2025,6 +2051,7 @@ mod tests {
             last_error: None,
             recovery_until: None,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         };
@@ -2066,6 +2093,7 @@ mod tests {
             last_error: None,
             recovery_until: None,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         };
@@ -2165,6 +2193,7 @@ mod tests {
             last_error: None,
             recovery_until: None,
             recovery_checked: Instant::now(),
+            active_inspected: None,
             idle: IdleMonitor::default(),
             changes: None,
         };

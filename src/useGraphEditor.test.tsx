@@ -41,12 +41,14 @@ function Harness({
   stash,
   store,
   blocked = false,
+  drawDrag,
 }: {
   stash?: Stash;
   store?: Parameters<typeof useGraphEditor>[1];
   blocked?: boolean;
+  drawDrag?: Parameters<typeof useGraphEditor>[4];
 }) {
-  editor = useGraphEditor(stash, store, blocked);
+  editor = useGraphEditor(stash, store, blocked, undefined, drawDrag);
   return null;
 }
 beforeEach(async () => {
@@ -236,6 +238,8 @@ describe('layout history', () => {
   });
 
   it('records one transaction for multiple nodes moved across several drag frames', async () => {
+    const drawDrag = vi.fn<NonNullable<Parameters<typeof useGraphEditor>[4]>>();
+    await act(() => root.render(<Harness drawDrag={drawDrag} />));
     const ids = ['routes', 'dns'];
     const positions = ids.map((id) => editor.graph.nodes.find((n) => n.id === id)!.position);
     await act(() => editor.beginDrag());
@@ -252,6 +256,22 @@ describe('layout history', () => {
       );
     }
     expect(editor.canUndo).toBe(false);
+    expect(drawDrag).toHaveBeenCalledTimes(3);
+    expect(editor.graph.nodes.find((node) => node.id === ids[0])!.position).toEqual(positions[0]);
+    expect(editor.getGraph().nodes.find((node) => node.id === ids[0])!.position.x).toBe(
+      positions[0].x + 48,
+    );
+    expect(
+      parseGraph(editor.serialize()).nodes.find((node) => node.id === ids[0])!.position.x,
+    ).toBe(positions[0].x + 48);
+    await act(() =>
+      editor.onNodesChange(ids.map((id) => ({ id, type: 'position', dragging: false }))),
+    );
+    // A cancelled gesture sends the final batch even if drag-stop is absent.
+    expect(editor.graph.nodes.find((node) => node.id === ids[0])!.dragging).toBe(false);
+    expect(editor.graph.nodes.find((node) => node.id === ids[0])!.position.x).toBe(
+      positions[0].x + 48,
+    );
     await act(() => editor.endDrag());
     expect(editor.canUndo).toBe(true);
     await act(() => editor.undo());

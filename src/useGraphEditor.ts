@@ -75,6 +75,7 @@ export default function useGraphEditor(
   store?: Pick<ReturnType<typeof useStash>, 'get' | 'update'>,
   blocked = false,
   initial?: GraphState,
+  drawDrag?: (nodes: RuleNode[]) => void,
 ) {
   const [history, setHistory] = useState(() =>
     initialWorkspaceHistory(initial ?? createProxyStarter()),
@@ -91,10 +92,7 @@ export default function useGraphEditor(
   const dragStart = useRef<WorkspaceRevision | null>(null);
   const editStart = useRef<WorkspaceRevision | null>(null);
   // Serialize only when saving or exporting; pooled profiles must not block drag frames.
-  const serialize = useCallback(
-    () => serializeGraph(history.present.graph),
-    [history.present.graph],
-  );
+  const serialize = useCallback(() => serializeGraph(current.current.present.graph), []);
   const poolBaseHash =
     poolBase.current?.id === history.present.graph.poolId ? poolBase.current?.hash : undefined;
   const serializeWorkspace = useMemo(() => {
@@ -196,6 +194,25 @@ export default function useGraphEditor(
   }, [stash, storage.ready, publish, blocked]);
 
   function onNodesChange(changes: NodeChange<RuleNode>[]) {
+    if (
+      drawDrag &&
+      dragStart.current &&
+      changes.length &&
+      changes.every((item) => item.type === 'position' && item.dragging === true)
+    ) {
+      if (storage.loading || locked.current) return;
+      const previous = current.current;
+      const graph = previous.present.graph;
+      const nodes = applyNodeChanges(changes, graph.nodes);
+      // Keep the current draft available to synchronous commands, but only
+      // publish to the rest of the editor and save when the gesture ends.
+      current.current = {
+        ...previous,
+        present: { ...previous.present, graph: { ...graph, nodes } },
+      };
+      drawDrag(nodes);
+      return;
+    }
     const record = changes.some(
       (item) =>
         item.type === 'remove' ||
@@ -204,6 +221,13 @@ export default function useGraphEditor(
         (item.type === 'position' && dragStart.current === null),
     );
     change((graph) => ({ ...graph, nodes: applyNodeChanges(changes, graph.nodes) }), record);
+    // React Flow sends the final positions first. Its aborted drag path can
+    // emit this batch without calling the drag-stop callback.
+    if (
+      dragStart.current &&
+      changes.some((item) => item.type === 'position' && item.dragging === false)
+    )
+      endDrag();
   }
   function onEdgesChange(changes: EdgeChange<RuleEdge>[]) {
     const record = changes.some(
@@ -253,11 +277,24 @@ export default function useGraphEditor(
     editStart.current = null;
   }
   function beginDrag() {
-    dragStart.current = current.current.present;
+    dragStart.current ??= current.current.present;
   }
   function endDrag() {
-    finishInteraction(dragStart.current);
+    const before = dragStart.current;
+    if (!before) return;
     dragStart.current = null;
+    const previous = current.current;
+    const graph = previous.present.graph;
+    if (graph.nodes.some((node) => node.dragging)) {
+      const nodes = graph.nodes.map((node) =>
+        node.dragging ? { ...node, dragging: false } : node,
+      );
+      current.current = {
+        ...previous,
+        present: { ...previous.present, graph: { ...graph, nodes } },
+      };
+    }
+    finishInteraction(before);
   }
   function addNode(kind: NodeKind, position: { x: number; y: number }) {
     if (kind === 'ics-tun') {

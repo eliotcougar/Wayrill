@@ -541,7 +541,9 @@ async fn run_service(
                         let mut k = lock_state(&k)?;
                         if !STOPPING.load(Ordering::SeqCst) {
                             if let Some(sample) = sample { k.accept_traffic(sample); }
-                            k.events.publish("service.snapshot", k.snapshot());
+                            if k.events.has_subscribers() {
+                                k.events.publish_snapshot(k.snapshot());
+                            }
                         }
                         Ok(())
                     }).await.map_err(|_| ApiError::new("SERVICE_FAULT", "Snapshot monitor failed."))??;
@@ -744,7 +746,11 @@ async fn client(
             }
             loop {
                 match receiver.recv().await {
-                    Ok(message) => wayrill_ipc::write_message(pipe.get_mut(), &message).await?,
+                    Ok(delivery) => {
+                        if let Some(message) = events.resolve(delivery) {
+                            wayrill_ipc::write_message(pipe.get_mut(), &message).await?;
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         return Err(ApiError::new(
                             "EVENT_GAP",

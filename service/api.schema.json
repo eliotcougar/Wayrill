@@ -1983,6 +1983,11 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 160
+                },
+                "since": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
                 }
               }
             }

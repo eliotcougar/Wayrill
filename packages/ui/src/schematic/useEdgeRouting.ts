@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { previewEdgePaths } from './edgeRoutePreview';
 import type { RoutingGeometry } from './edgeRoutingClient';
 import { EdgeRoutingClient } from './edgeRoutingClient';
@@ -58,7 +58,9 @@ export function edgeGeometry(state: Pick<ReactFlowState, 'edges' | 'nodeLookup'>
 
 export function routingGeometry(state: Pick<ReactFlowState, 'edges' | 'nodeLookup'>) {
   const nodes: NodeBounds[] = [];
+  let dragging = false;
   for (const node of state.nodeLookup.values()) {
+    if (node.dragging) dragging = true;
     const { width, height } = node.measured;
     const { x, y } = node.internals.positionAbsolute;
     if (
@@ -72,13 +74,14 @@ export function routingGeometry(state: Pick<ReactFlowState, 'edges' | 'nodeLooku
       nodes.push({ id: node.id, x, y, width, height });
     }
   }
-  return { edges: edgeGeometry(state), nodes };
+  return { edges: edgeGeometry(state), nodes, dragging };
 }
 
 const sameGeometry = (
   a: ReturnType<typeof routingGeometry>,
   b: ReturnType<typeof routingGeometry>,
 ) =>
+  a.dragging === b.dragging &&
   a.edges.length === b.edges.length &&
   a.nodes.length === b.nodes.length &&
   a.edges.every(
@@ -110,6 +113,7 @@ export default function useEdgeRouting() {
   const geometry = useStore(routingGeometry, sameGeometry);
   const client = useRef<EdgeRoutingClient | null>(null);
   const [retry, setRetry] = useState(0);
+  const retryLayout = useCallback(() => setRetry((current) => current + 1), []);
   const alive = useRef(false);
   const latestGeometry = useRef(geometry);
   latestGeometry.current = geometry;
@@ -130,6 +134,9 @@ export default function useEdgeRouting() {
     };
   }, []);
   useEffect(() => {
+    // Project endpoints onto the last layout while the pointer is moving.
+    // Only settled geometry needs another whole-graph worker transaction.
+    if (geometry.dragging) return;
     if (!geometry.edges.length) {
       setState({ paths: new Map(), geometry, attempt: retry, error: '' });
       return;
@@ -165,6 +172,6 @@ export default function useEdgeRouting() {
     paths,
     pending: pending && geometry.edges.length > 0,
     error: pending ? '' : state.error,
-    retry: () => setRetry((current) => current + 1),
+    retry: retryLayout,
   };
 }

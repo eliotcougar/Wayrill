@@ -121,20 +121,26 @@ function finish(index: number) {
   };
   jobs[index].complete(new Map([['wire', p]]), '');
 }
-it('never clears visible links while worker layouts trail a drag, then installs the exact final result', async () => {
+it('moves visible endpoints during a drag and sends only the final geometry to the worker', async () => {
   await act(() => root.render(<Harness tick={0} />));
   await act(() => finish(0));
   const mark = frames.length;
-  store.nodeLookup.get('a')!.internals.positionAbsolute.x = 16;
+  const moving = store.nodeLookup.get('a')!;
+  moving.dragging = true;
+  moving.internals.positionAbsolute.x = 16;
   await act(() => root.render(<Harness tick={1} />));
   expect(current.pending).toBe(true);
   expect(current.paths.get('wire')!.points[0].x).toBe(222);
-  store.nodeLookup.get('a')!.internals.positionAbsolute.x = 32;
+  moving.internals.positionAbsolute.x = 32;
   await act(() => root.render(<Harness tick={2} />));
-  await act(() => finish(1));
+  expect(jobs).toHaveLength(1);
   expect(current.pending).toBe(true);
   expect(current.paths.get('wire')!.points[0].x).toBe(238);
-  await act(() => finish(2));
+  moving.dragging = false;
+  await act(() => root.render(<Harness tick={3} />));
+  expect(jobs).toHaveLength(2);
+  expect(jobs[1].geometry.edges[0].sourceX).toBe(238);
+  await act(() => finish(1));
   expect(current.pending).toBe(false);
   expect(current.paths.get('wire')!.path).toBe('ready');
   expect(frames.slice(mark).every((n) => n === 1)).toBe(true);

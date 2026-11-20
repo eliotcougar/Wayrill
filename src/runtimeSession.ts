@@ -2,7 +2,7 @@ import type { SubscriptionStatus } from './profiles/serviceSubscriptions';
 import { runtimeOperation, type RuntimeOperation, type NativeActivity } from './runtimeProgress';
 import { mutationOutcomeUnknown } from './serviceClient';
 import { resourceDependencies } from './graph/resources';
-import { jsonRecord } from './graph/xrayJson';
+import { jsonEqual, jsonRecord } from './graph/xrayJson';
 import type { CapturePlan } from './graph/capture';
 import type { DisplayNames } from './graph/displayNames';
 import {
@@ -99,6 +99,20 @@ function isRuntimeSnapshot(value: unknown, instanceId: string): value is Service
   );
 }
 
+function editorStatus(snapshot: ServiceSnapshot | null) {
+  return (
+    snapshot && {
+      ...snapshot,
+      uptimeSeconds: undefined,
+      traffic: undefined,
+      observation: undefined,
+      fakeDns: undefined,
+      winDivert: { ...snapshot.winDivert, packets: undefined, bytes: undefined },
+      capture: snapshot.capture && { ...snapshot.capture, packets: undefined, bytes: undefined },
+    }
+  );
+}
+
 // Command replies and subscription events arrive independently. An event snapshot
 // must never be replaced by an older status request that was already in flight.
 export class RuntimeSession {
@@ -117,6 +131,8 @@ export class RuntimeSession {
     limits: null,
   };
   private listeners = new Set<() => void>();
+  private editorState = this.state;
+  private editorStatus = editorStatus(this.state.snapshot);
   private events: ServiceEvent[] = [];
   private eventListeners = new Set<() => void>();
   private epoch = 0;
@@ -128,6 +144,8 @@ export class RuntimeSession {
   constructor(private request: ServiceRequest) {}
 
   getSnapshot = () => this.state;
+  getLiveSnapshot = () => this.state.snapshot;
+  getEditorState = () => this.editorState;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {
@@ -149,11 +167,30 @@ export class RuntimeSession {
     for (const listener of this.eventListeners) listener();
   }
   update = (patch: Partial<RuntimeState>) => {
+    const before = this.state;
     this.state = {
       ...this.state,
       ...('error' in patch ? { errorAction: undefined } : {}),
       ...patch,
     };
+    // Polling snapshots also carry real lifecycle and ownership transitions.
+    // Compare those fields by value, and leave rate/probe consumers on the live store.
+    const { snapshot } = this.state;
+    if (snapshot !== before.snapshot) {
+      const status = editorStatus(snapshot);
+      if (!jsonEqual(this.editorStatus, status)) {
+        this.editorStatus = status;
+        this.editorState = this.state;
+      }
+    }
+    if (
+      before.errorAction !== this.state.errorAction ||
+      Object.keys(patch).some((key) => {
+        const field = key as keyof RuntimeState;
+        return field !== 'snapshot' && this.state[field] !== before[field];
+      })
+    )
+      this.editorState = this.state;
     for (const listener of this.listeners) listener();
   };
 

@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
@@ -8,6 +8,7 @@ use std::sync::{
 mod aquifer;
 mod companion;
 mod diagnostics;
+mod editor_memory;
 mod export;
 mod picker;
 mod pool_open;
@@ -31,7 +32,7 @@ async fn export_json(
         .map_err(|_| "Export task failed.")?
 }
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 struct VaultLock {
     write: Mutex<()>,
     // Held for the process lifetime, including across Windows sessions.
@@ -132,7 +133,6 @@ fn service_events_start(app: tauri::AppHandle, worker: tauri::State<shutdown::Sh
                 let event_established = established.clone();
                 let result =
                     wayrill_ipc::windows::subscribe(cursor, previous_instance, move |message| {
-                        tray::message(&event_app, &message);
                         match &message {
                             Message::Event { sequence, kind, .. } => {
                                 event_sequence.fetch_max(*sequence, Ordering::SeqCst);
@@ -156,22 +156,16 @@ fn service_events_start(app: tauri::AppHandle, worker: tauri::State<shutdown::Sh
                                 event_established.store(true, Ordering::SeqCst);
                                 wayrill_ipc::windows::refresh_environment();
                                 wayrill_ipc::windows::refresh_proxy_cache();
-                                let _ = event_app
-                                    .emit("wayrill-service-transport", json!({"connected":true}));
                             }
                             _ => {}
                         }
-                        let _ = event_app.emit("wayrill-service-event", message);
+                        editor_memory::forward(&event_app, message);
                     })
                     .await;
                 if established.load(Ordering::SeqCst) {
                     delay = 1;
                 }
-                tray::disconnected(&app);
-                let _ = app.emit(
-                    "wayrill-service-transport",
-                    json!({"connected":false,"error":result.err()}),
-                );
+                editor_memory::disconnected(&app, result.err());
                 tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
                 delay = (delay * 2).min(10);
             }
@@ -187,6 +181,7 @@ fn main() {
     }
     tauri::Builder::default()
         .manage(companion::Requests::default())
+        .manage(editor_memory::EditorMemory::default())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if args.iter().skip(1).any(|arg| arg == "--exit") {
                 if let Err(error) = shutdown::desktop_exit(app.clone()) {
@@ -248,9 +243,18 @@ fn main() {
                 if window.app_handle().tray_by_id(tray::ID).is_some() {
                     if let Err(error) = window.hide() {
                         wayrill_diagnostics::log("desktop", "error", &error.to_string());
+                    } else if let Some(editor) = window.app_handle().get_webview_window("main") {
+                        editor_memory::refresh(&editor);
                     }
                 } else if let Err(error) = shutdown::desktop_exit(window.app_handle().clone()) {
                     wayrill_diagnostics::log("shutdown", "error", &error);
+                }
+            }
+            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_)
+                if window.label() == "main" =>
+            {
+                if let Some(editor) = window.app_handle().get_webview_window("main") {
+                    editor_memory::refresh(&editor);
                 }
             }
             tauri::WindowEvent::Destroyed => {

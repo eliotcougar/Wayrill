@@ -29,6 +29,7 @@ pub fn show(app: &tauri::AppHandle) {
                 wayrill_diagnostics::log("desktop", "error", &error.to_string());
             }
         }
+        crate::editor_memory::refresh(&window);
     }
 }
 fn render(app: &tauri::AppHandle) {
@@ -163,6 +164,7 @@ fn choose_outbound(app: &tauri::AppHandle, id: &str) {
     if id.ends_with("-stash") {
         show(app);
     }
+    crate::editor_memory::flush(app);
     if let Err(error) = app.emit_to("main", "wayrill-tray-replace", selection) {
         wayrill_diagnostics::log("tray", "error", &error.to_string());
         show(app);

@@ -9,11 +9,19 @@ type SchematicEdgeProps = EdgeProps & {
   renderActivity?: (route: EdgePath, props: EdgeProps) => ReactNode;
 };
 
-function SchematicEdge({ renderActivity, ...props }: SchematicEdgeProps) {
+function SchematicEdge(props: SchematicEdgeProps) {
   const route = useContext(EdgeRoutesContext).get(props.id);
   // Measurements may not be ready during the initial layout. Do not briefly
   // draw a different, obstacle-blind route underneath the real schematic.
   if (!route || route.blocked) return null;
+  return <EdgeDrawing {...props} route={route} />;
+}
+
+const EdgeDrawing = memo(function EdgeDrawing({
+  route,
+  renderActivity,
+  ...props
+}: SchematicEdgeProps & { route: EdgePath }) {
   return (
     <>
       {renderActivity?.(route, props)}
@@ -70,6 +78,6 @@ function SchematicEdge({ renderActivity, ...props }: SchematicEdgeProps) {
       />
     </>
   );
-}
+});
 
 export default memo(SchematicEdge);

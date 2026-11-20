@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { RuntimeController } from '../useRuntime';
+import { useLiveSnapshot, type RuntimeController } from '../useRuntime';
 import useTrafficHistory from '../useTrafficHistory';
 import useTrafficEndpoints from '../useTrafficEndpoints';
 import { LIMITS } from '../limits';
@@ -62,8 +62,10 @@ export default function TrafficMonitor({
   open: boolean;
   onClose: () => void;
 }) {
-  const history = useTrafficHistory(runtime);
-  return open ? <TrafficPanel runtime={runtime} history={history} onClose={onClose} /> : null;
+  const snapshot = useLiveSnapshot(runtime.snapshot);
+  const live = { ...runtime, snapshot };
+  const history = useTrafficHistory(live);
+  return open ? <TrafficPanel runtime={live} history={history} onClose={onClose} /> : null;
 }
 
 function TrafficPanel({

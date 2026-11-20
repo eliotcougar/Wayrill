@@ -1010,9 +1010,10 @@ mod output_tests {
         output.observe(failed.into(), Some(&events), 1);
         let (_, _, replay, _) = events.subscribe(0, None);
         assert!(
-            matches!(replay.as_slice(), [wayrill_protocol::Message::Event { kind, payload, .. }]
+            matches!(replay.first().map(Arc::as_ref), Some(wayrill_protocol::Message::Event { kind, payload, .. })
             if kind == "core.log" && payload["message"] == failed)
         );
+        assert_eq!(replay.len(), 1);
     }
     #[test]
     fn keeper_output_retains_only_bounded_routing_decisions() {

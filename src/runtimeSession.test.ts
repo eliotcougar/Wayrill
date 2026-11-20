@@ -67,6 +67,7 @@ describe('runtime synchronization', () => {
     const env = service();
     await env.session.refresh();
     const before = env.session.getSnapshot().snapshot;
+    const editorBefore = env.session.getEditorState();
     const failure = {
       type: 'event' as const,
       apiVersion: 1,
@@ -85,16 +86,26 @@ describe('runtime synchronization', () => {
     };
     env.session.message(failure);
     expect(env.session.getSnapshot().snapshot).toBe(before);
+    expect(env.session.getEditorState()).toBe(editorBefore);
     const history = env.session.getEvents();
-    for (let sequence = 2; sequence <= 202; sequence++)
+    const send = (sequence: number) =>
       env.session.message({
         ...failure,
         sequence,
         kind: 'service.snapshot',
-        payload: { ...snapshot(1, 'running'), uptimeSeconds: sequence },
+        payload: {
+          ...snapshot(1, 'running'),
+          uptimeSeconds: sequence,
+          winDivert: { ...snapshot().winDivert, packets: sequence },
+        },
       });
+    send(2);
+    const editorRunning = env.session.getEditorState();
+    expect(editorRunning.snapshot?.core.state).toBe('running');
+    for (let sequence = 3; sequence <= 202; sequence++) send(sequence);
+    expect(env.session.getEditorState()).toBe(editorRunning);
     env.session.message(failure);
-    expect(env.session.getSnapshot().snapshot).toMatchObject({
+    expect(env.session.getLiveSnapshot()).toMatchObject({
       uptimeSeconds: 202,
       core: { state: 'running' },
     });

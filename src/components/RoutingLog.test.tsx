@@ -75,24 +75,62 @@ it('shows the socket owner and matching ancestor in the Rule column', async () =
   expect(cells[1].textContent).toContain('opera.exe');
   expect(cells[1].textContent).not.toContain('via');
 });
-it('collects while paused, freezes inspection and resumes newest buffer together', async () => {
-  vi.mocked(serviceCall).mockResolvedValue(snapshot(2));
+it('stops requests while paused and resumes with only the new decisions', async () => {
+  vi.mocked(serviceCall).mockResolvedValue({ ...snapshot(2), cursor: 'service1:2', reset: true });
   await render();
   expect(host.textContent).toContain('host2.example');
   await click('Pause updates');
-  vi.mocked(serviceCall).mockResolvedValue(snapshot(8));
+  vi.mocked(serviceCall).mockResolvedValue({
+    ...snapshot(8),
+    cursor: 'service1:8',
+    reset: false,
+    rows: snapshot(8).rows.slice(2),
+  });
   await poll();
+  await poll();
+  expect(serviceCall).toHaveBeenCalledTimes(1);
   expect(serviceCall).toHaveBeenLastCalledWith('routing.log', { filterId: 'filter' });
   expect(host.textContent).not.toContain('host8.example');
   expect(host.textContent).toContain('host2.example');
   await click('Resume updates');
+  expect(serviceCall).toHaveBeenLastCalledWith('routing.log', {
+    filterId: 'filter',
+    since: 'service1:2',
+  });
   expect(host.textContent).toContain('host8.example');
   expect(host.querySelectorAll('[role="row"]')).toHaveLength(9);
+});
+it('keeps the same row in view when an incremental update rolls over the retained window', async () => {
+  vi.mocked(serviceCall).mockResolvedValue({
+    ...snapshot(8),
+    capacity: 8,
+    cursor: 'service1:8',
+    reset: true,
+  });
+  await render();
+  const viewport = host.querySelector('.routing-log-viewport') as HTMLDivElement;
+  Object.defineProperty(viewport, 'clientHeight', { value: 96 });
+  Object.defineProperty(viewport, 'scrollHeight', { value: 9 * 32 });
+  await act(() => {
+    viewport.scrollTop = 3 * 32 + 8;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  vi.mocked(serviceCall).mockResolvedValue({
+    ...snapshot(9),
+    capacity: 8,
+    cursor: 'service1:9',
+    reset: false,
+    rows: snapshot(9).rows.slice(-1),
+  });
+  await poll();
+  expect(viewport.scrollTop).toBe(2 * 32 + 8);
 });
 it('updates a policy-group row when its selected member arrives and copies the complete route', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
   const data = snapshot(1);
+  data.cursor = 'service1:1';
+  data.reset = true;
   data.rows[0] = { ...data.rows[0], output: 'To US', balancer: 'Auto US', outbound: 'Auto US' };
   vi.mocked(serviceCall).mockResolvedValue(data);
   await render();
@@ -101,6 +139,8 @@ it('updates a policy-group row when its selected member arrives and copies the c
   expect(row?.textContent).not.toContain('Auto US → Auto US');
   vi.mocked(serviceCall).mockResolvedValue({
     ...data,
+    cursor: 'service1:2',
+    reset: false,
     rows: [{ ...data.rows[0], outbound: 'US server' }],
   });
   await poll();

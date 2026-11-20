@@ -1,10 +1,8 @@
 //! One bounded HTTP download per route; retain byte counts, never the payload.
-use super::{checked_url, invalid};
+use super::{invalid, Client, HTTP_RESPONSE_TIMEOUT};
 use serde::Serialize;
-use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
-};
+use std::{sync::atomic::AtomicBool, time::Duration};
+use tokio::time::{timeout_at, Instant};
 use wayrill_protocol::Result;
 
 const WINDOW: Duration = Duration::from_secs(5);
@@ -20,55 +18,24 @@ pub(super) struct Measurement {
 }
 
 pub(super) fn test(port: u16, password: &str, url: &str, stop: &AtomicBool) -> Result<Measurement> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| invalid("Cannot start the speed test client."))?
-        .block_on(download(port, password, url, stop, WINDOW))
+    let client = Client::new(port, password)?;
+    client.run(stop, download(&client, url, WINDOW))
 }
 
-async fn download(
-    port: u16,
-    password: &str,
-    text: &str,
-    stop: &AtomicBool,
-    window: Duration,
-) -> Result<Measurement> {
-    if stop.load(Ordering::SeqCst) {
-        return Err(invalid("Test cancelled."));
-    }
-    let url = checked_url(text)?;
-    let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{port}"))
-        .map_err(|_| invalid("Cannot select the private test proxy."))?
-        .basic_auth("wayrill-test", password);
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .proxy(proxy)
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(5) + window)
-        .pool_max_idle_per_host(0)
-        .user_agent("Wayrill speed test")
-        .build()
-        .map_err(|_| invalid("Cannot create the speed test client."))?;
-    let mut cancellation = tokio::time::interval(Duration::from_millis(100));
-    let send = client
-        .get(url)
-        .header("Accept-Encoding", "identity")
-        .header("Cache-Control", "no-cache, no-store")
-        .send();
-    tokio::pin!(send);
-    let headers = tokio::time::sleep(Duration::from_secs(5));
-    tokio::pin!(headers);
-    let mut response = loop {
-        tokio::select! {
-            result = &mut send => break result.map_err(|e| invalid(if e.is_timeout() {
-                "Speed test connection timed out."
-            } else { "Cannot download through this outbound." }))?,
-            _ = &mut headers => return Err(invalid("Speed test connection timed out.")),
-            _ = cancellation.tick() => if stop.load(Ordering::SeqCst) { return Err(invalid("Test cancelled.")); },
-        }
-    };
+async fn download(client: &Client, text: &str, window: Duration) -> Result<Measurement> {
+    let startup_deadline = Instant::now() + HTTP_RESPONSE_TIMEOUT;
+    let mut response = timeout_at(
+        startup_deadline,
+        client
+            .get(text)?
+            .header("User-Agent", "Wayrill speed test")
+            .header("Accept-Encoding", "identity")
+            .header("Cache-Control", "no-cache, no-store")
+            .send(),
+    )
+    .await
+    .map_err(|_| invalid("Speed test timed out waiting for a response."))?
+    .map_err(|_| invalid("Cannot download through this outbound."))?;
     if !response.status().is_success() {
         return Err(invalid(&format!(
             "Speed test URL returned HTTP {}; use a download URL without redirects.",
@@ -84,28 +51,42 @@ async fn download(
             "The speed test server returned compressed data; choose an uncompressed download URL.",
         ));
     }
-    let start = Instant::now();
-    let deadline = tokio::time::sleep(window);
-    tokio::pin!(deadline);
-    let mut bytes = 0u64;
-    loop {
-        tokio::select! {
-            _ = &mut deadline => break,
-            _ = cancellation.tick() => if stop.load(Ordering::SeqCst) { return Err(invalid("Test cancelled.")); },
-            next = response.chunk() => {
-                let Some(chunk) = next.map_err(|_| invalid("The speed test download was interrupted."))? else { break };
-                bytes += (chunk.len() as u64).min(MAX_BYTES - bytes);
-                if bytes == MAX_BYTES { break; }
+
+    let interrupted = || invalid("The speed test download was interrupted.");
+    let too_small = || {
+        invalid("Speed test needs at least 64 KiB of measured data. Choose a larger download file.")
+    };
+    let first_bytes = timeout_at(startup_deadline, async {
+        while let Some(chunk) = response.chunk().await? {
+            if !chunk.is_empty() {
+                return Ok(chunk.len() as u64);
             }
         }
+        Ok::<_, reqwest::Error>(0)
+    })
+    .await
+    .map_err(|_| invalid("Speed test timed out waiting for download data."))?
+    .map_err(|_| interrupted())?;
+    if first_bytes == 0 {
+        return Err(too_small());
     }
-    if stop.load(Ordering::SeqCst) {
-        return Err(invalid("Test cancelled."));
+    // The first chunk establishes where to start counting. Its bytes arrived
+    // before the clock started and must not inflate the measured transfer rate.
+    let start = Instant::now();
+    let deadline = start + window;
+    let limit = MAX_BYTES.saturating_sub(first_bytes);
+    let mut bytes = 0u64;
+    while bytes < limit && Instant::now() < deadline {
+        let Ok(chunk) = timeout_at(deadline, response.chunk()).await else {
+            break;
+        };
+        match chunk.map_err(|_| interrupted())? {
+            Some(chunk) => bytes += (chunk.len() as u64).min(limit - bytes),
+            None => break,
+        }
     }
     if bytes < MIN_BYTES {
-        return Err(invalid(
-            "Speed test response is too small; choose a download file of at least 64 KiB.",
-        ));
+        return Err(too_small());
     }
     let elapsed = start.elapsed();
     Ok(Measurement {
@@ -118,13 +99,18 @@ async fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::{
         io::{Read, Write},
         net::TcpListener,
-        sync::Arc,
+        sync::{atomic::Ordering, Arc},
     };
 
-    fn server(body: Vec<u8>, delay: Duration) -> (u16, std::thread::JoinHandle<String>) {
+    fn server(
+        body: Vec<u8>,
+        body_delay: Duration,
+        delay: Duration,
+    ) -> (u16, std::thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
@@ -164,6 +150,7 @@ mod tests {
                     body.len()
                 )
                 .unwrap();
+                std::thread::sleep(body_delay);
                 for bytes in body.chunks(32768) {
                     if stream.write_all(bytes).is_err() {
                         break;
@@ -178,7 +165,7 @@ mod tests {
     #[test]
     fn measures_a_stream_through_the_authenticated_proxy_without_buffering_it() {
         let body = vec![0x55; 256 * 1024];
-        let (port, peer) = server(body, Duration::from_millis(20));
+        let (port, peer) = server(body, Duration::ZERO, Duration::from_millis(20));
         let measurement = test(
             port,
             "fixture",
@@ -190,7 +177,7 @@ mod tests {
         assert!(request.starts_with("get http://127.9.8.7:1/data http/1.1"));
         assert!(request.contains("proxy-authorization: basic "));
         assert!(request.contains("accept-encoding: identity"));
-        assert_eq!(measurement.bytes, 256 * 1024);
+        assert!((MIN_BYTES..256 * 1024).contains(&measurement.bytes));
         assert!(measurement.elapsed_ms >= 100);
         assert!(
             (measurement.bytes_per_second
@@ -201,27 +188,43 @@ mod tests {
     }
 
     #[test]
-    fn the_measurement_window_closes_a_stream_without_waiting_for_the_whole_file() {
-        let (port, peer) = server(vec![0; 1024 * 1024], Duration::from_millis(100));
-        let measurement = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(download(
-                port,
-                "fixture",
-                "http://download.example/data",
+    fn a_slow_first_byte_does_not_use_up_the_measurement_window() {
+        let (port, peer) = server(
+            vec![0; 1024 * 1024],
+            Duration::from_millis(5250),
+            Duration::from_millis(100),
+        );
+        let client = Client::new(port, "fixture").unwrap();
+        let measurement = client
+            .run(
                 &AtomicBool::new(false),
-                Duration::from_millis(350),
-            ))
+                download(
+                    &client,
+                    "http://download.example/data",
+                    Duration::from_millis(350),
+                ),
+            )
             .unwrap();
         assert!(measurement.bytes >= MIN_BYTES && measurement.bytes < 1024 * 1024);
         assert!(measurement.elapsed_ms >= 300 && measurement.elapsed_ms < 1500);
         peer.join().unwrap();
     }
     #[test]
-    fn cancellation_interrupts_a_waiting_body_and_small_pages_are_not_speed_results() {
-        let (port, peer) = server(vec![0; 1024], Duration::ZERO);
+    fn latency_accepts_a_response_that_outlasts_the_old_http_deadline() {
+        let (port, peer) = server(vec![0x55; 512], Duration::from_millis(5250), Duration::ZERO);
+        let body = Client::new(port, "fixture")
+            .unwrap()
+            .fetch("http://probe.example/check", &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(body, vec![0x55; 512]);
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn cancellation_interrupts_startup_and_small_pages_are_not_speed_results() {
+        // A 64 KiB response passes the old total-byte minimum even if much of
+        // it was already buffered when the measurement began.
+        let (port, peer) = server(vec![0; MIN_BYTES as usize], Duration::ZERO, Duration::ZERO);
         assert!(test(
             port,
             "fixture",
@@ -230,9 +233,13 @@ mod tests {
         )
         .unwrap_err()
         .message
-        .contains("too small"));
+        .contains("64 KiB of measured data"));
         peer.join().unwrap();
-        let (port, peer) = server(vec![0; 1024 * 1024], Duration::from_millis(100));
+        let (port, peer) = server(
+            vec![0; 1024 * 1024],
+            Duration::from_millis(700),
+            Duration::from_millis(100),
+        );
         let stop = Arc::new(AtomicBool::new(false));
         let cancel = stop.clone();
         let timer = std::thread::spawn(move || {

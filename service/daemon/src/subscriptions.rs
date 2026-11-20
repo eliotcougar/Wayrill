@@ -1356,11 +1356,14 @@ mod tests {
         });
         thread.join().unwrap();
         let mut views = Vec::new();
-        while let Ok(wayrill_protocol::Message::Event {
-            sequence, payload, ..
-        }) = receiver.try_recv()
-        {
-            views.push((sequence, payload));
+        while let Ok(delivery) = receiver.try_recv() {
+            let message = manager.events.resolve(delivery).unwrap();
+            if let wayrill_protocol::Message::Event {
+                sequence, payload, ..
+            } = message.as_ref()
+            {
+                views.push((*sequence, payload.clone()));
+            }
         }
         assert_eq!(views.len(), 2);
         assert_eq!(views[0].0, 1);
@@ -1385,15 +1388,23 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
         manager.finish(9, Some(worker::cancelled()));
+        let started = manager
+            .events
+            .resolve(receiver.try_recv().unwrap())
+            .unwrap();
         let wayrill_protocol::Message::Event {
             payload: started, ..
-        } = receiver.try_recv().unwrap()
+        } = started.as_ref()
         else {
             panic!("missing start event")
         };
+        let finished = manager
+            .events
+            .resolve(receiver.try_recv().unwrap())
+            .unwrap();
         let wayrill_protocol::Message::Event {
             payload: finished, ..
-        } = receiver.try_recv().unwrap()
+        } = finished.as_ref()
         else {
             panic!("missing terminal event")
         };

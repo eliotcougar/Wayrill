@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
-    io::Read,
+    future::Future,
     net::TcpListener,
     path::PathBuf,
     ptr,
@@ -20,6 +20,7 @@ use windows_sys::Win32::Security::Cryptography::{
 };
 
 const MAX_BATCH: usize = 8;
+const HTTP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 const RESULT_PAGE: usize = 128;
 const PLAN_PAGE: usize = 256;
 const PLAN_PAGE_BYTES: usize = 2 * 1024 * 1024;
@@ -179,6 +180,7 @@ struct State {
     busy: bool,
     total: usize,
     results: Vec<TestResult>,
+    previews: BTreeMap<String, TestResult>,
     planned: bool,
     plan: Option<Plan>,
     error: Option<ApiError>,
@@ -190,6 +192,7 @@ impl Drop for Completion {
     fn drop(&mut self) {
         let mut state = self.0.lock().unwrap();
         state.busy = false;
+        state.previews.clear();
         state.reservation = None;
         if state.planned && std::thread::panicking() {
             state.error = Some(ApiError::new(
@@ -244,6 +247,9 @@ impl Manager {
             s.results.len()
         };
         let mut snapshot = json!({"job":s.job,"busy":s.busy,"total":s.total,"completed":s.results.len(),"cancelled":job.stop.load(Ordering::SeqCst),"results":&s.results[offset..end]});
+        if !s.previews.is_empty() {
+            snapshot["previews"] = json!(s.previews.values().collect::<Vec<_>>());
+        }
         if s.planned {
             snapshot["error"] = json!(s.error);
             if let Some(plan) = &s.plan {
@@ -467,6 +473,13 @@ impl Manager {
                                         active,
                                         udp_url,
                                     },
+                                    |result| {
+                                        state
+                                            .lock()
+                                            .unwrap()
+                                            .previews
+                                            .insert(result.id.clone(), result.clone());
+                                    },
                                 )
                             });
                             let mut result = match checked {
@@ -475,7 +488,9 @@ impl Manager {
                                 Err(_) => failed(id, "Outbound test failed."),
                             };
                             result.name = name.cloned();
-                            state.lock().unwrap().results.push(result);
+                            let mut state = state.lock().unwrap();
+                            state.previews.remove(&result.id);
+                            state.results.push(result);
                         };
                         // A failed thread allocation must not panic the job
                         // coordinator and leave busy=true indefinitely.
@@ -757,7 +772,7 @@ fn wait_for_test_listeners(
     }
 }
 
-fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
+fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Result<TestResult> {
     let Probe {
         test,
         country,
@@ -815,7 +830,11 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     if let Some(udp_port) = udp_port {
         udp::add_inbound(&mut config, udp_port, &password, &target.outbound_tag)?;
     }
-    let policy_source = (mode != Mode::Latency).then(|| config.clone());
+    let policy_source = (mode != Mode::Latency
+        && config["routing"]["balancers"]
+            .as_array()
+            .is_some_and(|groups| !groups.is_empty()))
+    .then(|| config.clone());
     bind_probe(&mut config, egress)?;
     let loopback = match egress {
         Some(selection) => selection.loopback.clone(),
@@ -823,20 +842,18 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     };
     // The authored fragment was validated before bounded runtime expansion.
     crate::loopback::Policy::apply(&mut config, &loopback)?;
-    let unavailable = if mode != Mode::Latency {
-        // Keep failed groups isolated without aborting a different healthy path.
-        // A fresh initial also excludes this helper from authored prefix selectors.
-        let tag = format!("{}unavailable", crate::loopback::private_prefix(&config)?);
-        config["outbounds"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"tag":tag,"protocol":"blackhole"}));
-        Some(tag)
-    } else {
-        None
-    };
-    let control = (mode != Mode::Latency)
-        .then(|| crate::live::Control::new(&config))
+    let policy = policy_source
+        .map(|source| {
+            // Keep failed groups isolated without aborting a different healthy path.
+            // A fresh initial also excludes this helper from authored prefix selectors.
+            let tag = format!("{}unavailable", crate::loopback::private_prefix(&config)?);
+            config["outbounds"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"tag":tag,"protocol":"blackhole"}));
+            let control = crate::live::Control::new(&config)?;
+            Ok::<_, ApiError>((source, tag, control))
+        })
         .transpose()?;
     if stop.load(Ordering::Acquire) {
         return Err(invalid("Test cancelled."));
@@ -850,9 +867,9 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
         } else {
             CoreIdentity::Owner(owner)
         },
-        control
+        policy
             .as_ref()
-            .map(|c| c.config.as_ref())
+            .map(|(_, _, control)| control.config.as_ref())
             .unwrap_or(&config),
         false,
         None,
@@ -862,22 +879,24 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
     let ports: Vec<_> = [
         Some(port),
         udp_port,
-        control.as_ref().map(crate::live::Control::port),
+        policy.as_ref().map(|(_, _, control)| control.port()),
     ]
     .into_iter()
     .flatten()
     .collect();
     wait_for_test_listeners(core.pid, &ports, stop, || core.exit_code())?;
-    if let Some(control) = &control {
+    if let Some((source, unavailable, control)) = &policy {
         policy::prepare(
             control,
             active,
-            policy_source.as_ref().unwrap(),
+            source,
             &target.outbound_tag,
-            unavailable.as_deref().unwrap(),
+            unavailable,
             stop,
         )?;
-        if mode == Mode::Timezone {
+    }
+    match mode {
+        Mode::Timezone => {
             let client = Client::new(port, &password)?;
             let bytes = client.fetch(test, stop)?;
             let (ip, country) = country_info(&bytes)?;
@@ -889,55 +908,111 @@ fn run(target: &Target, probe: &Probe<'_>) -> Result<TestResult> {
                 ..failed(target.id.clone(), "")
             });
         }
-        let speed = speed::test(port, &password, speed_url, stop)?;
-        return Ok(TestResult {
-            speed: Some(speed),
-            error: None,
-            ..failed(target.id.clone(), "")
-        });
+        Mode::Speed => {
+            let speed = speed::test(port, &password, speed_url, stop)?;
+            return Ok(TestResult {
+                speed: Some(speed),
+                error: None,
+                ..failed(target.id.clone(), "")
+            });
+        }
+        Mode::Latency => {}
     }
     let client = Client::new(port, &password)?;
-    let mut measurements = Vec::new();
-    let mut last_error = None;
-    for _ in 0..2 {
-        if stop.load(Ordering::SeqCst) {
-            return Err(invalid("Test cancelled."));
-        }
+    let delay = || client.run(stop, measure_delay(&client, target, test, country, preview));
+    match (udp_endpoint, udp_port) {
+        (Some(endpoint), Some(udp_port)) => std::thread::scope(|scope| {
+            let nonce: [u8; 12] = random[32..].try_into().unwrap();
+            let udp = std::thread::Builder::new()
+                .name("wayrill-outbound-udp".into())
+                .spawn_scoped(scope, move || {
+                    udp::test(udp_port, &password, &endpoint, &nonce, stop)
+                });
+            let mut result = delay()?;
+            let udp = udp
+                .map_err(|e| ApiError::io("Start UDP test worker", e))
+                .and_then(|worker| {
+                    worker
+                        .join()
+                        .map_err(|_| invalid("UDP test worker failed."))
+                })
+                .and_then(|result| result);
+            result.udp = Some(udp.unwrap_or_else(|error| udp::Measurement {
+                reachable: false,
+                error: Some(error.message),
+            }));
+            Ok(result)
+        }),
+        _ => delay(),
+    }
+}
+
+async fn measure_delay(
+    client: &Client,
+    target: &Target,
+    test: &str,
+    country: &str,
+    preview: impl Fn(&TestResult),
+) -> Result<TestResult> {
+    let deadline = Instant::now() + HTTP_RESPONSE_TIMEOUT;
+    let sample = |until| async move {
         let start = Instant::now();
-        match client.fetch(test, stop) {
-            Ok(_) => measurements.push(start.elapsed().as_millis().max(1) as u64),
-            Err(e) => last_error = Some(e.message),
-        }
-    }
-    let mut result = if let Some(latency) = measurements.iter().min().copied() {
-        TestResult {
-            latency_ms: Some(latency),
-            error: None,
-            ..failed(target.id.clone(), "")
-        }
-    } else {
-        failed(
-            target.id.clone(),
-            last_error.as_deref().unwrap_or("No HTTP response."),
-        )
+        client.fetch_before(test, until).await?;
+        Ok::<_, ApiError>(start.elapsed())
     };
-    if result.latency_ms.is_some() && !country.is_empty() && !stop.load(Ordering::SeqCst) {
-        match client
-            .fetch(country, stop)
-            .and_then(|bytes| country_info(&bytes))
-        {
-            Ok((ip, country)) => {
-                result.ip = Some(ip);
-                result.country = country;
+    let (first, can_repeat) = match sample(deadline).await {
+        Ok(elapsed) => (elapsed, true),
+        Err(error) => {
+            if Instant::now() >= deadline {
+                return Ok(failed(target.id.clone(), &error.message));
             }
-            Err(e) => result.country_error = Some(e.message),
+            match sample(deadline).await {
+                Ok(elapsed) => (elapsed, false),
+                Err(error) => return Ok(failed(target.id.clone(), &error.message)),
+            }
         }
+    };
+    let millis = |elapsed: Duration| elapsed.as_millis().max(1) as u64;
+    let mut result = TestResult {
+        latency_ms: Some(millis(first)),
+        error: None,
+        ..failed(target.id.clone(), "")
+    };
+    preview(&result);
+    let (repeat, details) = tokio::join!(
+        async {
+            let now = Instant::now();
+            // A repeat longer than the first sample cannot improve the minimum.
+            if can_repeat && now < deadline {
+                sample(deadline.min(now + first)).await.ok()
+            } else {
+                None
+            }
+        },
+        async {
+            if country.is_empty() {
+                None
+            } else {
+                Some(
+                    client
+                        .fetch_before(country, Instant::now() + HTTP_RESPONSE_TIMEOUT)
+                        .await
+                        .and_then(|bytes| country_info(&bytes)),
+                )
+            }
+        }
+    );
+    if let Some(repeat) = repeat {
+        result.latency_ms = Some(millis(first.min(repeat)));
     }
-    if let (Some(endpoint), Some(udp_port)) = (udp_endpoint, udp_port) {
-        let nonce: [u8; 12] = random[32..].try_into().unwrap();
-        result.udp = Some(udp::test(udp_port, &password, &endpoint, &nonce, stop)?);
+    match details {
+        Some(Ok((ip, country))) => {
+            result.ip = Some(ip);
+            result.country = country;
+        }
+        Some(Err(error)) => result.country_error = Some(error.message),
+        None => {}
     }
-    drop(core);
     Ok(result)
 }
 fn country_info(bytes: &[u8]) -> Result<(String, Option<String>)> {
@@ -959,78 +1034,92 @@ fn country_info(bytes: &[u8]) -> Result<(String, Option<String>)> {
         .map(String::from);
     Ok((parsed.to_string(), country))
 }
-// An explicit proxy client must never bypass its private listener for literal
-// loopback URLs. WinHTTP's local-IP bypass can otherwise report false success.
-struct Client(reqwest::blocking::Client);
+// The explicit authenticated proxy is also required for local-origin URLs.
+struct Client {
+    http: reqwest::Client,
+    runtime: tokio::runtime::Runtime,
+}
 impl Client {
     fn new(port: u16, password: &str) -> Result<Self> {
         let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{port}"))
             .map_err(|_| invalid("Cannot select the private test proxy."))?
             .basic_auth("wayrill-test", password);
-        reqwest::blocking::Client::builder()
+        let http = reqwest::Client::builder()
             .no_proxy()
             .proxy(proxy)
             .user_agent("Wayrill outbound test")
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(5))
-            .connect_timeout(Duration::from_secs(5))
             .pool_max_idle_per_host(0)
             .build()
-            .map(Self)
-            .map_err(|_| invalid("Cannot create the test HTTP client."))
+            .map_err(|_| invalid("Cannot create the test HTTP client."))?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| invalid("Cannot start the outbound test client."))?;
+        Ok(Self { http, runtime })
+    }
+    fn run<T>(&self, stop: &AtomicBool, work: impl Future<Output = Result<T>>) -> Result<T> {
+        self.runtime.block_on(async {
+            tokio::select! {
+                biased;
+                _ = async {
+                    while !stop.load(Ordering::Acquire) {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                } => Err(invalid("Test cancelled.")),
+                result = work => result,
+            }
+        })
+    }
+    fn get(&self, text: &str) -> Result<reqwest::RequestBuilder> {
+        Ok(self.http.get(checked_url(text)?))
     }
     fn fetch(&self, text: &str, stop: &AtomicBool) -> Result<Vec<u8>> {
-        let url = checked_url(text)?;
-        if stop.load(Ordering::SeqCst) {
-            return Err(invalid("Test cancelled."));
-        }
-        // Blocking-client timeouts restart per read; the request timeout also
-        // bounds the complete streaming body so slow peers cannot hold a job.
-        let mut response = self
-            .0
-            .get(url)
-            .timeout(Duration::from_secs(5))
-            .send()
-            .map_err(|error| {
-                invalid(if error.is_timeout() {
-                    "HTTP test timed out."
-                } else if error.is_connect() {
+        self.run(
+            stop,
+            self.fetch_before(text, Instant::now() + HTTP_RESPONSE_TIMEOUT),
+        )
+    }
+    async fn fetch_before(&self, text: &str, deadline: Instant) -> Result<Vec<u8>> {
+        tokio::time::timeout_at(deadline.into(), async {
+            let mut response = self.get(text)?.send().await.map_err(|error| {
+                invalid(if error.is_connect() {
                     "Cannot connect through this outbound."
                 } else {
                     "The connection closed before the test response."
                 })
             })?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(invalid(&format!(
-                "Test URL returned HTTP {}; use a URL that returns 2xx without redirects.",
-                status.as_u16()
-            )));
-        }
-        let mut body = Vec::new();
-        let mut chunk = [0; 8192];
-        loop {
-            if stop.load(Ordering::SeqCst) {
-                return Err(invalid("Test cancelled."));
+            let status = response.status();
+            if !status.is_success() {
+                return Err(invalid(&format!(
+                    "Test URL returned HTTP {}; use a URL that returns 2xx without redirects.",
+                    status.as_u16()
+                )));
             }
-            let read = response
-                .read(&mut chunk)
-                .map_err(|_| invalid("Test response was interrupted or timed out."))?;
-            if read == 0 {
-                return Ok(body);
+            let mut body = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|_| invalid("Test response was interrupted."))?
+            {
+                if body.len() + chunk.len() > 65536 {
+                    return Err(invalid(
+                        "Test response exceeds 64 KiB; choose a small test endpoint.",
+                    ));
+                }
+                body.extend_from_slice(&chunk);
             }
-            if body.len() + read > 65536 {
-                return Err(invalid(
-                    "Test response exceeds 64 KiB; choose a small test endpoint.",
-                ));
-            }
-            body.extend_from_slice(&chunk[..read]);
-        }
+            Ok(body)
+        })
+        .await
+        .map_err(|_| invalid("HTTP test timed out waiting for the response."))?
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
 
     #[tokio::test]
     async fn waits_for_a_local_relay_that_loads_after_the_old_deadline() {
@@ -1123,9 +1212,14 @@ mod tests {
                 }
             }
         });
-        let result = Client::new(port, "fixture")
-            .unwrap()
-            .fetch("http://streaming.example/check", &AtomicBool::new(false));
+        let client = Client::new(port, "fixture").unwrap();
+        let result = client.run(
+            &AtomicBool::new(false),
+            client.fetch_before(
+                "http://streaming.example/check",
+                Instant::now() + Duration::from_secs(5),
+            ),
+        );
         server.join().unwrap();
         assert!(result.unwrap_err().message.contains("timed out"));
     }
