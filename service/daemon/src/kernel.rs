@@ -537,6 +537,11 @@ impl Kernel {
             return Err(ApiError::new("BUSY", "Resource files are being updated."));
         }
         let egress = self.outbound_egress().ok();
+        if method == "outbounds.testStart" {
+            return self
+                .outbound_tests
+                .start_health(input, self.exe.clone(), egress);
+        }
         self.outbound_tests
             .handle(method, input, self.exe.clone(), String::new(), egress, None)
     }

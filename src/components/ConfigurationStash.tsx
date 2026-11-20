@@ -836,7 +836,7 @@ export default function ConfigurationStash({
                               ? 'Last test unreachable'
                               : entry.health.status === 'unavailable'
                                 ? 'Health test unavailable'
-                                : `${entry.health.latencyMs ?? '—'} ms`}
+                                : 'Last test reachable'}
                           </small>
                         )}
                         {entry.retained && <small>Retained · referenced by this setup</small>}

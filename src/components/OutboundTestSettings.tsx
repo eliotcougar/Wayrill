@@ -57,6 +57,9 @@ export default function OutboundTestSettings({
               value={draft.testUrl}
               onChange={(testUrl) => setDraft({ ...draft, testUrl })}
             />
+            <p className="field-help">
+              Use a small 2xx response from an endpoint that keeps the connection open.
+            </p>
           </div>
           <label className="check-control">
             <input

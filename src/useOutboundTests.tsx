@@ -32,6 +32,7 @@ export type TestMode = 'latency' | 'speed';
 export interface OutboundTestResult {
   id: string;
   latencyMs: number | null;
+  delayUnavailable?: boolean;
   ip: string | null;
   country: string | null;
   error: string | null;
@@ -96,20 +97,27 @@ export function summarizeTest(
           state: 'failed',
         };
   }
-  const live = checked.filter((r) => r.latencyMs !== null);
+  const timed = checked.flatMap(({ latencyMs }) => (latencyMs === null ? [] : [latencyMs]));
+  const live = checked.filter((r) => r.delayUnavailable || r.latencyMs !== null).length;
   const group = row.kind === 'policy-group';
   if (!checked.length) return { text: 'Not tested', title: '', state: 'untested' };
   const best = ['leastPing', 'leastLoad'].includes(row.strategy ?? '');
-  const latency = live.length
-    ? best
-      ? Math.min(...live.map((r) => r.latencyMs!))
-      : Math.round(live.reduce((n, r) => n + r.latencyMs!, 0) / live.length)
-    : null;
-  const text = group
-    ? `${latency === null ? 'Failed' : `${best ? 'Min' : 'Avg'} ${latency} ms`} · ${live.length}/${row.targets.length} live`
-    : `${live[0]?.latencyMs === undefined ? 'Failed' : `${live[0].latencyMs} ms`}`;
+  const delay = !group
+    ? timed[0]
+    : !timed.length
+      ? undefined
+      : best
+        ? Math.min(...timed)
+        : Math.round(timed.reduce((sum, value) => sum + value, 0) / timed.length);
+  const value =
+    delay === undefined
+      ? live
+        ? 'Delay unavailable'
+        : 'Failed'
+      : `${group ? (best ? 'Min ' : 'Avg ') : ''}${delay} ms`;
+  const text = group ? `${value} · ${live}/${row.targets.length} live` : value;
   const title = group
-    ? `${checked.length}/${row.targets.length} checked.`
+    ? `${checked.length}/${row.targets.length} checked.${live > timed.length ? ` ${live - timed.length} reachable without a reusable response.` : ''}`
     : [
         [checked[0]?.ip, checked[0]?.country].filter(Boolean).join(' · '),
         checked[0]?.error,
@@ -130,7 +138,7 @@ export function summarizeTest(
   return {
     text,
     title,
-    state: live.length ? 'passed' : 'failed',
+    state: delay !== undefined ? 'passed' : live ? 'untested' : 'failed',
     udp: udpSummary,
   };
 }
@@ -251,7 +259,9 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
         setRecords((current) => {
           const previous = current[testMode].results;
           const changed = previews.filter(
-            ({ id, latencyMs }) => previous.get(id)?.latencyMs !== latencyMs,
+            ({ id, latencyMs, delayUnavailable }) =>
+              previous.get(id)?.latencyMs !== latencyMs ||
+              previous.get(id)?.delayUnavailable !== delayUnavailable,
           );
           if (!fresh.length && !changed.length) return current;
           const results = new Map(previous);

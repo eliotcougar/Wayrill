@@ -1,5 +1,5 @@
 import { enabledInboundGraph } from './inboundState';
-import { generatedTag, GENERATED_DNS_TAG, resolverActivityId } from './tags';
+import { dnsParallelTag, generatedTag, GENERATED_DNS_TAG, resolverActivityId } from './tags';
 import { setRoutingInput, type RoutingInput } from './routingTrace';
 import { capturesSystemDns } from './dnsCapture';
 import { jsonArray, jsonRecord, parseJson } from './xrayJson';
@@ -698,6 +698,14 @@ export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = 
     return tag;
   };
   const selector = connected(handler.id, 'resolver');
+  let f: DnsFilter | undefined;
+  if (selector.data.kind === 'dns-routing-filter') {
+    check(selector.data);
+    f = readDnsFilter(selector.data.settings);
+  }
+  const synthetic =
+    f && graph.edges.find((e) => e.source === selector.id && e.sourceHandle === FAKE_DNS_PORT);
+  const parallel = !synthetic && !!f?.parallel;
   const servers: Record<string, unknown>[] = [];
   const resolverActivity: DnsFragment['resolverActivity'] = options.includeResolverActivity
     ? {}
@@ -740,35 +748,37 @@ export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = 
       throw new Error('A DNS preference must connect to DNS server(s).');
     check(group.data);
     const active = readDnsServers(group.data.settings).filter((e) => e.enabled);
-    let destination: Record<string, string> = {};
-    if (active.some((e) => !isLocalResolver(e.address))) {
+    const routed = active.filter((e) => !isLocalResolver(e.address));
+    const tagFor = (entry: DnsServer) => generatedTag('wds', id, entry.id);
+    if (routed.length) {
       const target = connected(id, 'queries');
-      destination =
+      const destination =
         target.data.kind === 'policy-group'
           ? { balancerTag: String(target.data.settings.tag) }
           : { outboundTag: addOutbound(target.data) };
+      const tags = routed.map(tagFor);
+      // Xray includes the input tag in DNS policy equivalence. Share it per
+      // query path in parallel mode and keep the individual tags as aliases.
+      const inputs = parallel ? [[dnsParallelTag(id, false), ...tags]] : tags.map((tag) => [tag]);
+      for (const inboundTag of inputs)
+        if (!routing.some((r) => jsonArray(r.inboundTag) && r.inboundTag.includes(inboundTag[0])))
+          routing.push(
+            setRoutingInput(
+              { type: 'field', inboundTag, ...destination },
+              { nodeId: id, port: 'queries' },
+            ),
+          );
     }
     for (const [index, entry] of active.entries()) {
       if (capturedSystemDns && entry.address.toLowerCase() === 'localhost')
         throw new Error(
           `${group.data.label}: localhost uses Windows DNS, which returns to this captured handler. Use a real DNS server, or a local service address such as 127.0.0.1.`,
         );
-      const tag = generatedTag('wds', id, entry.id);
-      if (
-        !isLocalResolver(entry.address) &&
-        !routing.some((r) => jsonArray(r.inboundTag) && r.inboundTag.includes(tag))
-      )
-        routing.push(
-          setRoutingInput(
-            { type: 'field', inboundTag: [tag], ...destination },
-            { nodeId: id, port: 'queries' },
-          ),
-        );
       trackResolver(output);
       servers.push({
         address: entry.address,
         ...(literal(entry.address) ? { port: entry.port } : {}),
-        tag,
+        tag: parallel ? dnsParallelTag(id, isLocalResolver(entry.address)) : tagFor(entry),
         ...(entry.queryStrategy !== 'inherit' ? { queryStrategy: entry.queryStrategy } : {}),
         ...(entry.clientIP ? { clientIp: entry.clientIP } : {}),
         timeoutMs: entry.timeoutMs,
@@ -790,12 +800,7 @@ export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = 
     }
   };
   let resolverOptions: Record<string, unknown> = {};
-  if (selector.data.kind === 'dns-routing-filter') {
-    check(selector.data);
-    const f = readDnsFilter(selector.data.settings);
-    const synthetic = graph.edges.find(
-      (e) => e.source === selector.id && e.sourceHandle === FAKE_DNS_PORT,
-    );
+  if (f) {
     if (synthetic && graph.nodes.find((n) => n.id === synthetic.target)?.data.kind !== 'fakedns')
       throw new Error('Connect the FakeDNS output to a FakeDNS node.');
     const fallbackOutput = f.outputs.find((o) => o.fallback)!;
@@ -825,7 +830,7 @@ export function compileDnsGraph(graph: GraphState, options: DnsCompileOptions = 
       disableFallbackIfMatch: !synthetic && f.fallbackMode === 'when-unmatched',
       // Xray parallel mode starts fallback requests eagerly, even when the
       // synthetic client answer wins. Preserve the authored preference in graph.
-      enableParallelQuery: !synthetic && f.parallel,
+      enableParallelQuery: parallel,
     };
   } else addGroup(selector.id);
   if (!servers.length || servers.length > 1024)

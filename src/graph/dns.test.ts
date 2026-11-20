@@ -10,6 +10,7 @@ import {
   readDnsPolicies,
   readDnsServers,
 } from './dns';
+import { dnsContextPreview } from './configPreview';
 import { compileDnsGraph } from './dnsCompilation';
 import { createDnsExample } from './example';
 import {
@@ -52,6 +53,38 @@ describe('Native Xray DNS graph', () => {
         outboundTag: 'preferred',
       },
     ]);
+  });
+  it('shares a query path for equivalent parallel resolvers and keeps prior routing references', () => {
+    const graph = createDnsExample();
+    const filter = graph.nodes.find((n) => n.id === 'dns-routes')!;
+    filter.data.settings.parallel = true;
+    const remote = graph.nodes.find((n) => n.id === 'remote-dns')!;
+    const rows = readDnsServers(remote.data.settings);
+    rows.push({ ...newDnsServer('local'), address: 'https+local://1.0.0.1/dns-query' });
+    remote.data.settings.servers = JSON.stringify(rows);
+    const config = compileDnsGraph(graph);
+    const [preference, first, second, native] = config.dns.servers;
+    expect(config.dns.enableParallelQuery).toBe(true);
+    expect(first.tag).toBe(second.tag);
+    expect(first.tag).not.toBe(preference.tag);
+    expect(first.tag).not.toBe(native.tag);
+    expect(preference).toMatchObject({ skipFallback: true, finalQuery: true });
+    expect(
+      config.routing.rules.find((r) => (r.inboundTag as string[]).includes(String(first.tag))),
+    ).toMatchObject({
+      inboundTag: [
+        first.tag,
+        generatedTag('wds', remote.id, 'cloudflare'),
+        generatedTag('wds', remote.id, 'quad9'),
+      ],
+      outboundTag: 'preferred',
+    });
+    const preview = dnsContextPreview(
+      { dns: config.dns, routing: config.routing },
+      remote.data,
+      remote.id,
+    );
+    expect(preview.dns.servers).toEqual([first, second, native]);
   });
   it('maps request policies to DNS outbound actions, omitting disabled drafts', () => {
     const graph = createDnsExample(),

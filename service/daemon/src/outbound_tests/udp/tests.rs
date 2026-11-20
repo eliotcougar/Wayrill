@@ -1,5 +1,9 @@
 use super::*;
-use std::net::TcpListener;
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, UdpSocket},
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 fn stun(nonce: &[u8; 12]) -> Vec<u8> {
     [
@@ -62,10 +66,18 @@ fn stun_requires_a_matching_complete_binding_response_and_unfragmented_source() 
     let mut too_long = good.clone();
     too_long.push(0);
     assert!(!valid_reply(&too_long, &endpoint, &nonce));
+    let denied = [
+        &[1, 0x11, 0, 8][..],
+        &COOKIE,
+        &nonce,
+        &[0, 9, 0, 4, 0, 0, 4, 1],
+    ]
+    .concat();
+    assert!(valid_reply(&framed(&endpoint, &denied), &endpoint, &nonce));
 }
 
 #[test]
-fn dns_requires_the_matching_question_and_a_valid_answer_without_tcp_fallback() {
+fn dns_validates_the_reply_without_requiring_an_address_answer() {
     let nonce = [0x43; 12];
     let mut good = request(Kind::Dns, &nonce);
     good[2] = 0x81;
@@ -76,23 +88,25 @@ fn dns_requires_the_matching_question_and_a_valid_answer_without_tcp_fallback() 
     for cut in 0..good.len() {
         assert!(!dns_reply(&good[..cut], &nonce));
     }
-    for offset in [0, 1, 4, 5, 13, 31, 33, 40] {
+    for offset in [0, 1, 4, 5, 13, 27, 40] {
         let mut bad = good.clone();
         bad[offset] ^= 1;
         assert!(!dns_reply(&bad, &nonce), "accepted altered byte {offset}");
     }
     let mut truncated = good.clone();
     truncated[2] |= 2;
-    assert!(!dns_reply(&truncated, &nonce));
+    assert!(dns_reply(&truncated[..29], &nonce));
     let mut error = good.clone();
     error[3] |= 3;
+    error[7] = 0;
+    assert!(dns_reply(&error[..29], &nonce));
     assert!(!dns_reply(&error, &nonce));
     let mut pos = 0;
     assert!(dns_name(&[0xc0, 0], &mut pos).is_none());
 }
 
-#[test]
-fn exchange_authenticates_and_sends_only_to_the_private_relay() {
+#[tokio::test]
+async fn exchange_retries_lost_packets_through_the_authenticated_relay() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let endpoint = Endpoint::parse("stun://192.0.2.1:3478").unwrap();
@@ -101,7 +115,7 @@ fn exchange_authenticates_and_sends_only_to_the_private_relay() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(2)))
+            .set_read_timeout(Some(Duration::from_secs(8)))
             .unwrap();
         let mut hello = [0; 3];
         stream.read_exact(&mut hello).unwrap();
@@ -116,7 +130,7 @@ fn exchange_authenticates_and_sends_only_to_the_private_relay() {
         assert_eq!(&assoc[..8], &[5, 3, 0, 1, 127, 0, 0, 1]);
         let relay = UdpSocket::bind("127.0.0.1:0").unwrap();
         relay
-            .set_read_timeout(Some(Duration::from_secs(2)))
+            .set_read_timeout(Some(Duration::from_secs(8)))
             .unwrap();
         stream
             .write_all(
@@ -128,6 +142,10 @@ fn exchange_authenticates_and_sends_only_to_the_private_relay() {
             )
             .unwrap();
         let mut packet = [0; 128];
+        // Lose the first three packets. The fourth retry keeps the same association and ID.
+        for _ in 0..3 {
+            relay.recv_from(&mut packet).unwrap();
+        }
         let (n, from) = relay.recv_from(&mut packet).unwrap();
         assert_eq!(from.port(), u16::from_be_bytes([assoc[8], assoc[9]]));
         assert_eq!(
@@ -141,8 +159,9 @@ fn exchange_authenticates_and_sends_only_to_the_private_relay() {
         wrong[18] ^= 1;
         relay.send_to(&wrong, from).unwrap();
         relay.send_to(&response, from).unwrap();
+        assert_eq!(stream.read(&mut [0]).unwrap(), 0);
     });
-    let result = test(port, "secret", &endpoint, &nonce, &AtomicBool::new(false)).unwrap();
+    let result = test(port, "secret", &endpoint, &nonce).await;
     server.join().unwrap();
     assert!(result.reachable, "{:?}", result.error);
 }
@@ -159,13 +178,11 @@ fn cancellation_interrupts_a_stalled_local_handshake() {
             std::thread::sleep(Duration::from_millis(250));
         });
         let start = Instant::now();
-        let result = test(
-            port,
-            "secret",
-            &Endpoint::parse("stun://192.0.2.1").unwrap(),
-            &[0; 12],
-            &stop,
-        );
+        let client = crate::outbound_tests::Client::new(port, "secret").unwrap();
+        let endpoint = Endpoint::parse("stun://192.0.2.1").unwrap();
+        let result = client.run(&stop, async {
+            Ok(test(port, "secret", &endpoint, &[0; 12]).await)
+        });
         assert!(result.is_err());
         assert!(start.elapsed() < Duration::from_secs(1));
     });

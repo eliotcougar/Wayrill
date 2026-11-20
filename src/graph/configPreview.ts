@@ -1,5 +1,5 @@
 import { jsonArray, jsonRecord, parseJson } from './xrayJson';
-import { generatedTag } from './tags';
+import { dnsParallelTag, generatedTag } from './tags';
 import type { RuleNodeData } from './types';
 
 /** A node preview is a config fragment, not another whole-graph export. */
@@ -17,11 +17,13 @@ export function dnsContextPreview(config: Record<string, unknown>, data: RuleNod
   const servers = jsonArray(dns.servers) ? dns.servers : [];
   if (data.kind === 'dns-servers') {
     const entries = parseJson(String(data.settings.servers));
-    const tags = new Set(
-      (jsonArray(entries) ? entries : [])
+    const tags = new Set([
+      dnsParallelTag(id, false),
+      dnsParallelTag(id, true),
+      ...(jsonArray(entries) ? entries : [])
         .filter(jsonRecord)
         .map((server) => generatedTag('wds', id, String(server.id))),
-    );
+    ]);
     const routing = jsonRecord(config.routing) ? config.routing : {};
     return {
       dns: {

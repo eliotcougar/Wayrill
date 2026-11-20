@@ -20,6 +20,9 @@ use crate::{
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Notify;
 
+const ACTIVE_PROCESS_READ_MS: u64 = 1000;
+const IDLE_TUN_PROCESS_READ_MS: u64 = 5000;
+
 pub struct AttributionSource {
     processes: ProcessSnapshot,
     tree: ProcessTree,
@@ -87,14 +90,21 @@ impl AttributionSource {
     ) -> Result<AttributionSnapshot> {
         let read_at = clock::milliseconds();
         self.tree.set_rules(rules.clone(), excluded.iter().copied());
-        self.refresh_processes(rules.as_deref(), read_at, flush)?;
+        self.refresh_processes(rules.as_deref(), read_at, flush, ACTIVE_PROCESS_READ_MS)?;
         self.read_sockets(rules.as_deref(), read_at, flush)
     }
 
     /// Drain process events and reconcile native identities without enumerating
     /// socket owners. TUN requests require ownership read after their arrival.
     pub fn maintain_tun(&mut self, rules: &SharedPolicy) -> Result<()> {
-        self.refresh_processes(Some(rules), clock::milliseconds(), false)
+        // Keep draining ETW on the regular wakeup. Full inventories backstop
+        // missing events and expiry; ownership requests still use the active cadence.
+        self.refresh_processes(
+            Some(rules),
+            clock::milliseconds(),
+            false,
+            IDLE_TUN_PROCESS_READ_MS,
+        )
     }
 
     fn refresh_processes(
@@ -102,6 +112,7 @@ impl AttributionSource {
         rules: Option<&SharedPolicy>,
         read_at: u64,
         flush: bool,
+        inventory_interval_ms: u64,
     ) -> Result<()> {
         let mut updates = Vec::new();
         let events = self
@@ -112,7 +123,7 @@ impl AttributionSource {
         let reconcile = events.as_ref().is_some_and(|batch| batch.discontinuity);
         let has_packages = rules.is_some_and(|r| r.has_packages);
         let read_processes = self.process_events.is_none()
-            || read_at.saturating_sub(self.last_process_read) >= 1000
+            || read_at.saturating_sub(self.last_process_read) >= inventory_interval_ms
             || flush
             || reconcile
             || has_packages && !self.read_packages;
@@ -137,8 +148,7 @@ impl AttributionSource {
             self.last_socket_reconciliation = 0;
             eprintln!("Process event loss reconciled with a fresh Windows process snapshot.");
         }
-        // Quiet socket refreshes need no ancestry rebuild. Native polling still
-        // maintains expiry at least once a second, even without ETW events.
+        // In the absence of events, the native inventory also maintains expiry.
         if read_processes || !updates.is_empty() {
             let started = if read_processes {
                 HashSet::new()

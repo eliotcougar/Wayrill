@@ -429,6 +429,10 @@ fn probe(
     result
 }
 
+fn probe_succeeded(result: &Value) -> bool {
+    result.get("error").is_some_and(Value::is_null)
+}
+
 fn health_observations(
     plan: &Value,
     results: &BTreeMap<String, Value>,
@@ -445,11 +449,11 @@ fn health_observations(
         let targets=row["targets"].as_array()?;
         let unavailable=row["error"].is_string() || targets.is_empty();
         if !unavailable && !targets.iter().all(|id|id.as_str().is_some_and(|id|results.contains_key(id))){return None;}
-        let latency=targets.iter().filter_map(|id|results.get(id.as_str()?).and_then(|r|r["latencyMs"].as_u64())).min();
-        if !unavailable && latency.is_none() && !last_attempt{return None;}
+        let reachable=targets.iter().filter_map(|id|results.get(id.as_str()?)).any(probe_succeeded);
+        if !unavailable && !reachable && !last_attempt{return None;}
         published.insert(id.into());
         Some(json!({"entryId":id,"health":{"profileId":plan["identities"][id],"checkedAt":now(),
-            "status":if unavailable{"unavailable"}else if latency.is_some(){"alive"}else{"dead"},"latencyMs":latency}}))
+            "status":if unavailable{"unavailable"}else if reachable{"alive"}else{"dead"},"latencyMs":null}}))
     }).collect())
 }
 fn publish_health(
@@ -581,7 +585,7 @@ fn test(
                 .filter(|target| {
                     results
                         .get(target["id"].as_str().unwrap_or(""))
-                        .is_some_and(|r| r["latencyMs"].is_null())
+                        .is_some_and(|r| !probe_succeeded(r))
                 })
                 .cloned()
                 .collect();
@@ -1313,15 +1317,15 @@ mod tests {
         let plan = json!({"plan":{"rows":[row("dead",json!(["a"])),row("alive",json!(["b","c"])),row("incomplete",json!(["d"]))]},
             "identities":{"dead":"id1","alive":"id2","incomplete":"id3"}});
         let results = BTreeMap::from([
-            ("a".into(), json!({"latencyMs":null})),
-            ("b".into(), json!({"latencyMs":null})),
-            ("c".into(), json!({"latencyMs":42})),
+            ("a".into(), json!({"error":"Cannot connect"})),
+            ("b".into(), json!({"error":"Cannot connect"})),
+            ("c".into(), json!({"error":null})),
         ]);
         let mut published = BTreeSet::new();
         let first = health_observations(&plan, &results, &mut published, false).unwrap();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0]["entryId"], "alive");
-        assert_eq!(first[0]["health"]["latencyMs"], 42);
+        assert_eq!(first[0]["health"]["status"], "alive");
         let last = health_observations(&plan, &results, &mut published, true).unwrap();
         assert_eq!(last.len(), 1);
         assert_eq!(last[0]["entryId"], "dead");

@@ -13,10 +13,10 @@ it. Testing a subset retains other entries' earlier results.
 
 | Test | What the result tells you |
 | --- | --- |
-| Delay | Time for the configured HTTP test request through that route. |
+| Delay | Time to receive HTTP response headers over an already established connection. |
 | Country / exit IP | The address and country reported by the selected lookup service. |
 | Optional UDP | Whether the chosen UDP probe received an acceptable response. |
-| Speed | Download throughput from the configured file URL during the bounded test. |
+| Speed | Download throughput measured after the connection is established and the first download data arrives. |
 
 The main-screen test expands the graph's policy candidates, deduplicates
 outbounds and tests chains as assembled routes. Stash actions let you test
@@ -32,10 +32,12 @@ come from the chosen endpoint being blocked or unavailable.
 
 Open **Settings → Outbound tests…**:
 
-- **Latency test URL** should return a successful response without a redirect.
+- **Latency test URL** should return a small successful response and keep the
+  connection open for the measured request. **Delay unavailable** means the first
+  request succeeded but the established connection could not provide a measurement.
 - **Test UDP with delay tests** adds the UDP probe. Choose a **UDP test
-  destination**: STUN checks UDP connectivity, while DNS tests UDP to that
-  resolver only.
+  destination**. The UDP badge shows whether the selected STUN server or DNS
+  resolver replied over UDP. The delay column uses only HTTP response time.
 - **Country / exit IP URL** expects a supported JSON response. Leave it blank
   to disable that lookup.
 - **Speed test URL** should point to a download file.

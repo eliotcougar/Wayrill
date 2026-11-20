@@ -30,10 +30,10 @@
   flex-direction: column;
   min-height: 0;
 }
+/* A plain backdrop avoids full-window filter work while the dialog scrolls. */
 .app-dialog::backdrop,
 .rule-editor-window::backdrop {
   background: var(--backdrop);
-  backdrop-filter: blur(3px);
 }
 .dialog-header,
 .rule-editor-titlebar {

@@ -35,6 +35,13 @@ enum Mode {
     Latency,
     Speed,
     Timezone,
+    #[serde(skip)]
+    Health,
+}
+#[derive(Clone, Copy)]
+enum ProbeProxy {
+    Http,
+    Socks { udp: bool },
 }
 #[derive(Clone)]
 pub(crate) struct ActivePolicy {
@@ -161,6 +168,8 @@ struct JobInput {
 struct TestResult {
     id: String,
     latency_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delay_unavailable: Option<bool>,
     ip: Option<String>,
     country: Option<String>,
     error: Option<String>,
@@ -172,7 +181,7 @@ struct TestResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     speed: Option<speed::Measurement>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    udp: Option<udp::Measurement>,
+    udp: Option<udp::Reachability>,
 }
 #[derive(Default)]
 struct State {
@@ -288,6 +297,16 @@ impl Manager {
             egress,
             active,
         )
+    }
+    pub(crate) fn start_health(
+        &mut self,
+        value: Value,
+        exe: PathBuf,
+        egress: Option<crate::tun::OutboundEgress>,
+    ) -> Result<Value> {
+        let mut input: Input = params(value)?;
+        input.mode = Mode::Health;
+        self.start(input, None, exe, String::new(), egress, None)
     }
     pub(crate) fn stash_timezone(
         &mut self,
@@ -563,6 +582,7 @@ fn failed(id: String, message: &str) -> TestResult {
     TestResult {
         id,
         latency_ms: None,
+        delay_unavailable: None,
         ip: None,
         country: None,
         error: Some(message.into()),
@@ -660,7 +680,7 @@ fn prepare_outbounds(source: String, mode: Mode, stop: &AtomicBool) -> Result<Pr
     }
     Ok(prepared)
 }
-fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
+fn test_config(target: &Target, port: u16, password: &str, proxy: ProbeProxy) -> Result<Value> {
     let mut config = target.config.clone();
     let root = config
         .as_object_mut()
@@ -686,7 +706,15 @@ fn test_config(target: &Target, port: u16, password: &str) -> Result<Value> {
     // Give this listener its own identity so those routes can still use theirs.
     let inbound_tag = crate::tun::random_id()?;
     config["log"] = json!({"loglevel":"none","access":"none"});
-    config["inbounds"] = json!([{"tag":inbound_tag,"listen":"127.0.0.1","port":port,"protocol":"http","settings":{"accounts":[{"user":"wayrill-test","pass":password}]}}]);
+    let accounts = json!([{"user":"wayrill-test","pass":password}]);
+    let (protocol, settings) = match proxy {
+        ProbeProxy::Http => ("http", json!({"accounts":accounts})),
+        ProbeProxy::Socks { udp } => (
+            "socks",
+            json!({"auth":"password","udp":udp,"accounts":accounts}),
+        ),
+    };
+    config["inbounds"] = json!([{"tag":inbound_tag,"listen":"127.0.0.1","port":port,"protocol":protocol,"settings":settings}]);
     config = normalize_config(config)?;
     let outputs = config["outbounds"]
         .as_array()
@@ -807,30 +835,18 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
         .local_addr()
         .map_err(|_| invalid("Cannot select a test port."))?
         .port();
-    let mut config = test_config(target, port, &password)?;
     let udp_endpoint = (mode == Mode::Latency && !udp_url.is_empty())
         .then(|| udp::Endpoint::parse(udp_url))
         .transpose()?;
-    let udp_reservation = udp_endpoint
-        .as_ref()
-        .map(|_| {
-            TcpListener::bind("127.0.0.1:0")
-                .map_err(|_| invalid("No local UDP relay port is available."))
-        })
-        .transpose()?;
-    let udp_port = udp_reservation
-        .as_ref()
-        .map(|listener| {
-            listener
-                .local_addr()
-                .map(|a| a.port())
-                .map_err(|_| invalid("Cannot select a UDP relay port."))
-        })
-        .transpose()?;
-    if let Some(udp_port) = udp_port {
-        udp::add_inbound(&mut config, udp_port, &password, &target.outbound_tag)?;
-    }
-    let policy_source = (mode != Mode::Latency
+    let proxy = if mode == Mode::Latency {
+        ProbeProxy::Socks {
+            udp: udp_endpoint.is_some(),
+        }
+    } else {
+        ProbeProxy::Http
+    };
+    let mut config = test_config(target, port, &password, proxy)?;
+    let policy_source = (matches!(mode, Mode::Speed | Mode::Timezone)
         && config["routing"]["balancers"]
             .as_array()
             .is_some_and(|groups| !groups.is_empty()))
@@ -859,7 +875,6 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
         return Err(invalid("Test cancelled."));
     }
     drop(reservation);
-    drop(udp_reservation);
     let core = spawn_core(
         exe,
         if owner.is_empty() {
@@ -876,14 +891,9 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
         0,
     )?;
     // The UDP SOCKS association and policy RPC also start through TCP listeners.
-    let ports: Vec<_> = [
-        Some(port),
-        udp_port,
-        policy.as_ref().map(|(_, _, control)| control.port()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let ports: Vec<_> = std::iter::once(port)
+        .chain(policy.as_ref().map(|(_, _, control)| control.port()))
+        .collect();
     wait_for_test_listeners(core.pid, &ports, stop, || core.exit_code())?;
     if let Some((source, unavailable, control)) = &policy {
         policy::prepare(
@@ -916,96 +926,57 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
                 ..failed(target.id.clone(), "")
             });
         }
+        Mode::Health => {
+            let client = Client::new(port, &password)?;
+            client.run(
+                stop,
+                client.initial_response(test, Instant::now() + HTTP_RESPONSE_TIMEOUT),
+            )?;
+            return Ok(TestResult {
+                error: None,
+                ..failed(target.id.clone(), "")
+            });
+        }
         Mode::Latency => {}
     }
-    let client = Client::new(port, &password)?;
-    let delay = || client.run(stop, measure_delay(&client, target, test, country, preview));
-    match (udp_endpoint, udp_port) {
-        (Some(endpoint), Some(udp_port)) => std::thread::scope(|scope| {
-            let nonce: [u8; 12] = random[32..].try_into().unwrap();
-            let udp = std::thread::Builder::new()
-                .name("wayrill-outbound-udp".into())
-                .spawn_scoped(scope, move || {
-                    udp::test(udp_port, &password, &endpoint, &nonce, stop)
-                });
-            let mut result = delay()?;
-            let udp = udp
-                .map_err(|e| ApiError::io("Start UDP test worker", e))
-                .and_then(|worker| {
-                    worker
-                        .join()
-                        .map_err(|_| invalid("UDP test worker failed."))
-                })
-                .and_then(|result| result);
-            result.udp = Some(udp.unwrap_or_else(|error| udp::Measurement {
-                reachable: false,
-                error: Some(error.message),
-            }));
-            Ok(result)
-        }),
-        _ => delay(),
+    let (client, reuse_only) = Client::for_delay(port, &password)?;
+    // Optional probes must not compete with the timed request for transport state.
+    let mut result = client.run(stop, measure_delay(&client, &reuse_only, &target.id, test))?;
+    if result.latency_ms.is_some() || result.delay_unavailable == Some(true) {
+        preview(&result);
     }
-}
-
-async fn measure_delay(
-    client: &Client,
-    target: &Target,
-    test: &str,
-    country: &str,
-    preview: impl Fn(&TestResult),
-) -> Result<TestResult> {
-    let deadline = Instant::now() + HTTP_RESPONSE_TIMEOUT;
-    let sample = |until| async move {
-        let start = Instant::now();
-        client.fetch_before(test, until).await?;
-        Ok::<_, ApiError>(start.elapsed())
-    };
-    let (first, can_repeat) = match sample(deadline).await {
-        Ok(elapsed) => (elapsed, true),
-        Err(error) => {
-            if Instant::now() >= deadline {
-                return Ok(failed(target.id.clone(), &error.message));
-            }
-            match sample(deadline).await {
-                Ok(elapsed) => (elapsed, false),
-                Err(error) => return Ok(failed(target.id.clone(), &error.message)),
-            }
-        }
-    };
-    let millis = |elapsed: Duration| elapsed.as_millis().max(1) as u64;
-    let mut result = TestResult {
-        latency_ms: Some(millis(first)),
-        error: None,
-        ..failed(target.id.clone(), "")
-    };
-    preview(&result);
-    let (repeat, details) = tokio::join!(
-        async {
-            let now = Instant::now();
-            // A repeat longer than the first sample cannot improve the minimum.
-            if can_repeat && now < deadline {
-                sample(deadline.min(now + first)).await.ok()
-            } else {
-                None
-            }
-        },
-        async {
-            if country.is_empty() {
-                None
-            } else {
-                Some(
-                    client
-                        .fetch_before(country, Instant::now() + HTTP_RESPONSE_TIMEOUT)
-                        .await
-                        .and_then(|bytes| country_info(&bytes)),
-                )
-            }
-        }
-    );
-    if let Some(repeat) = repeat {
-        result.latency_ms = Some(millis(first.min(repeat)));
+    if stop.load(Ordering::Acquire) {
+        return Ok(result);
     }
-    match details {
+    let lookup_exit = (result.latency_ms.is_some() || result.delay_unavailable == Some(true))
+        && !country.is_empty();
+    let Ok((udp, exit)) = client.run(stop, async {
+        let udp = async {
+            match udp_endpoint {
+                Some(endpoint) => {
+                    let nonce: [u8; 12] = random[32..].try_into().unwrap();
+                    Some(udp::test(port, &password, &endpoint, &nonce).await)
+                }
+                None => None,
+            }
+        };
+        let exit = async {
+            if !lookup_exit {
+                return None;
+            }
+            Some(
+                client
+                    .fetch_before(country, Instant::now() + HTTP_RESPONSE_TIMEOUT)
+                    .await
+                    .and_then(|body| country_info(&body)),
+            )
+        };
+        Ok(tokio::join!(udp, exit))
+    }) else {
+        return Ok(result);
+    };
+    result.udp = udp;
+    match exit {
         Some(Ok((ip, country))) => {
             result.ip = Some(ip);
             result.country = country;
@@ -1013,7 +984,50 @@ async fn measure_delay(
         Some(Err(error)) => result.country_error = Some(error.message),
         None => {}
     }
+
     Ok(result)
+}
+
+async fn measure_delay(
+    client: &Client,
+    reuse_only: &AtomicBool,
+    id: &str,
+    test: &str,
+) -> Result<TestResult> {
+    let deadline = Instant::now() + HTTP_RESPONSE_TIMEOUT;
+    let response = match client.initial_response(test, deadline).await {
+        Ok(response) => response,
+        Err(error) => return Ok(failed(id.to_owned(), &error.message)),
+    };
+    let unavailable = |message| TestResult {
+        delay_unavailable: Some(true),
+        ..failed(id.to_owned(), message)
+    };
+    // The first body's end makes this exact SOCKS tunnel available for reuse.
+    match tokio::time::timeout_at(deadline.into(), Client::read_body(response)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => return Ok(unavailable(&error.message)),
+        Err(_) => {
+            return Ok(unavailable(
+                "The test endpoint did not finish the first response in time for connection reuse.",
+            ))
+        }
+    }
+    reuse_only.store(true, Ordering::Release);
+    let start = Instant::now();
+    let sample = client
+        .response_before(test, start + HTTP_RESPONSE_TIMEOUT)
+        .await;
+    let elapsed = start.elapsed();
+    reuse_only.store(false, Ordering::Release);
+    Ok(match sample {
+        Ok(_) => TestResult {
+            latency_ms: Some(elapsed.as_millis().max(1) as u64),
+            error: None,
+            ..failed(id.to_owned(), "")
+        },
+        Err(_) => unavailable("The test endpoint did not return a successful response on the established connection. Try a small HTTP(S) endpoint that supports connection reuse."),
+    })
 }
 fn country_info(bytes: &[u8]) -> Result<(String, Option<String>)> {
     let value: Value = serde_json::from_slice(bytes)
@@ -1041,15 +1055,38 @@ struct Client {
 }
 impl Client {
     fn new(port: u16, password: &str) -> Result<Self> {
-        let proxy = reqwest::Proxy::all(format!("http://127.0.0.1:{port}"))
+        Self::build(Self::builder(port, password, "http")?.pool_max_idle_per_host(0))
+    }
+    fn for_delay(port: u16, password: &str) -> Result<(Self, Arc<AtomicBool>)> {
+        let reuse_only = Arc::new(AtomicBool::new(false));
+        let gate = reuse_only.clone();
+        // SOCKS provides an end-to-end byte stream for HTTP as well as HTTPS.
+        // A reusable HTTP forward-proxy connection alone is insufficient.
+        let builder = Self::builder(port, password, "socks5h")?
+            .pool_max_idle_per_host(1)
+            .connector_layer(tower::filter::FilterLayer::new(move |request| {
+                if gate.load(Ordering::Acquire) {
+                    Err(std::io::Error::other(
+                        "Delay test requires an established connection",
+                    ))
+                } else {
+                    Ok(request)
+                }
+            }));
+        Ok((Self::build(builder)?, reuse_only))
+    }
+    fn builder(port: u16, password: &str, scheme: &str) -> Result<reqwest::ClientBuilder> {
+        let proxy = reqwest::Proxy::all(format!("{scheme}://127.0.0.1:{port}"))
             .map_err(|_| invalid("Cannot select the private test proxy."))?
             .basic_auth("wayrill-test", password);
-        let http = reqwest::Client::builder()
+        Ok(reqwest::Client::builder()
             .no_proxy()
             .proxy(proxy)
             .user_agent("Wayrill outbound test")
-            .redirect(reqwest::redirect::Policy::none())
-            .pool_max_idle_per_host(0)
+            .redirect(reqwest::redirect::Policy::none()))
+    }
+    fn build(builder: reqwest::ClientBuilder) -> Result<Self> {
+        let http = builder
             .build()
             .map_err(|_| invalid("Cannot create the test HTTP client."))?;
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1080,36 +1117,53 @@ impl Client {
             self.fetch_before(text, Instant::now() + HTTP_RESPONSE_TIMEOUT),
         )
     }
+    async fn response(&self, text: &str) -> Result<reqwest::Response> {
+        let response = self.get(text)?.send().await.map_err(|error| {
+            invalid(if error.is_connect() {
+                "Cannot connect through this outbound."
+            } else {
+                "The connection closed before the test response."
+            })
+        })?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(invalid(&format!(
+                "Test URL returned HTTP {}; use a URL that returns 2xx without redirects.",
+                status.as_u16()
+            )));
+        }
+        Ok(response)
+    }
+    async fn response_before(&self, text: &str, deadline: Instant) -> Result<reqwest::Response> {
+        tokio::time::timeout_at(deadline.into(), self.response(text))
+            .await
+            .map_err(|_| invalid("HTTP test timed out waiting for the response."))?
+    }
+    async fn initial_response(&self, text: &str, deadline: Instant) -> Result<reqwest::Response> {
+        match self.response_before(text, deadline).await {
+            Err(_) if Instant::now() < deadline => self.response_before(text, deadline).await,
+            result => result,
+        }
+    }
+    async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>> {
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| invalid("Test response was interrupted."))?
+        {
+            if body.len() + chunk.len() > 65536 {
+                return Err(invalid(
+                    "Test response exceeds 64 KiB; choose a small test endpoint.",
+                ));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
+    }
     async fn fetch_before(&self, text: &str, deadline: Instant) -> Result<Vec<u8>> {
         tokio::time::timeout_at(deadline.into(), async {
-            let mut response = self.get(text)?.send().await.map_err(|error| {
-                invalid(if error.is_connect() {
-                    "Cannot connect through this outbound."
-                } else {
-                    "The connection closed before the test response."
-                })
-            })?;
-            let status = response.status();
-            if !status.is_success() {
-                return Err(invalid(&format!(
-                    "Test URL returned HTTP {}; use a URL that returns 2xx without redirects.",
-                    status.as_u16()
-                )));
-            }
-            let mut body = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|_| invalid("Test response was interrupted."))?
-            {
-                if body.len() + chunk.len() > 65536 {
-                    return Err(invalid(
-                        "Test response exceeds 64 KiB; choose a small test endpoint.",
-                    ));
-                }
-                body.extend_from_slice(&chunk);
-            }
-            Ok(body)
+            Self::read_body(self.response(text).await?).await
         })
         .await
         .map_err(|_| invalid("HTTP test timed out waiting for the response."))?
@@ -1154,6 +1208,91 @@ mod tests {
         );
     }
 
+    async fn accept_delay_request(listener: &tokio::net::TcpListener) -> tokio::net::TcpStream {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut header = [0; 2];
+        socket.read_exact(&mut header).await.unwrap();
+        assert_eq!(header[0], 5);
+        let mut methods = vec![0; usize::from(header[1])];
+        socket.read_exact(&mut methods).await.unwrap();
+        assert!(methods.contains(&2));
+        socket.write_all(&[5, 2]).await.unwrap();
+        assert_eq!(socket.read_u8().await.unwrap(), 1);
+        for expected in [b"wayrill-test".as_slice(), b"fixture"] {
+            let mut input = vec![0; usize::from(socket.read_u8().await.unwrap())];
+            socket.read_exact(&mut input).await.unwrap();
+            assert_eq!(input, expected);
+        }
+        socket.write_all(&[1, 0]).await.unwrap();
+        let mut connect = [0; 5];
+        socket.read_exact(&mut connect).await.unwrap();
+        assert_eq!(&connect[..4], &[5, 1, 0, 3]);
+        let mut address = vec![0; usize::from(connect[4]) + 2];
+        socket.read_exact(&mut address).await.unwrap();
+        assert_eq!(&address[..address.len() - 2], b"latency.example.test");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        socket
+            .write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0])
+            .await
+            .unwrap();
+        socket
+    }
+
+    async fn read_headers(socket: &mut tokio::net::TcpStream) {
+        use tokio::io::AsyncReadExt;
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            request.push(socket.read_u8().await.unwrap());
+        }
+        assert!(request.starts_with(b"GET /check HTTP/1.1\r\n"));
+    }
+
+    #[test]
+    fn delay_requires_the_warmed_tunnel_and_reports_closure_without_dialing_again() {
+        use tokio::io::AsyncWriteExt;
+        for keep_open in [true, false] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let (client, gate) =
+                Client::for_delay(listener.local_addr().unwrap().port(), "fixture").unwrap();
+            client.run(&AtomicBool::new(false), async {
+                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                let server = async {
+                    let mut socket = accept_delay_request(&listener).await;
+                    read_headers(&mut socket).await;
+                    if keep_open {
+                        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK").await.unwrap();
+                        read_headers(&mut socket).await;
+                        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n").await.unwrap();
+                        // An unfinished timed body must not defer the result.
+                        let (next, _) = listener.accept().await.unwrap();
+                        drop(next);
+                    } else {
+                        socket.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").await.unwrap();
+                        drop(socket);
+                        let (next, _) = listener.accept().await.unwrap();
+                        drop(next);
+                    }
+                };
+                let result = tokio::time::timeout(Duration::from_secs(3), async {
+                    tokio::select! {
+                        result = measure_delay(&client, &gate, "test", "http://latency.example.test/check") => result,
+                        () = server => panic!("The latency test opened a second SOCKS connection"),
+                    }
+                }).await.unwrap().unwrap();
+                if keep_open {
+                    assert!(result.latency_ms.is_some_and(|ms| ms < 250));
+                    assert_eq!(result.error, None);
+                } else {
+                    assert_eq!(result.latency_ms, None);
+                    assert_eq!(result.delay_unavailable, Some(true));
+                }
+                Ok(())
+            }).unwrap();
+        }
+    }
+
     #[test]
     fn isolated_tests_keep_valid_listener_settings_and_reject_other_environment() {
         let mut target = Target {
@@ -1161,10 +1300,10 @@ mod tests {
             outbound_tag: "direct".into(),
             config: json!({"outbounds":[{"tag":"direct","protocol":"freedom"}],"env":{"WAYRILL_UDP_LISTENER_RECEIVE_BYTES":"524288"}}),
         };
-        let config = test_config(&target, 18777, "private").unwrap();
+        let config = test_config(&target, 18777, "private", ProbeProxy::Http).unwrap();
         assert_eq!(config["env"], target.config["env"]);
         target.config["env"]["WAYRILL_FAKEDNS"] = json!("not-allowed");
-        assert!(test_config(&target, 18777, "private").is_err());
+        assert!(test_config(&target, 18777, "private", ProbeProxy::Http).is_err());
     }
     #[test]
     fn test_http_deadline_includes_a_slow_streaming_response_body() {
@@ -1306,31 +1445,26 @@ mod tests {
             outbound_tag: "direct".into(),
             config: json!({"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"deny","protocol":"blackhole"}],"routing":{"rules":[{"type":"field","inboundTag":["wti","wtu"],"outboundTag":"deny"}]}}),
         };
-        let mut config = test_config(&target, 18777, "private").unwrap();
-        udp::add_inbound(&mut config, 18778, "private", "direct").unwrap();
-        assert_eq!(config["inbounds"][0]["listen"], "127.0.0.1");
-        assert_eq!(
-            config["inbounds"][0]["settings"]["accounts"][0]["pass"],
-            "private"
-        );
+        let config =
+            test_config(&target, 18777, "private", ProbeProxy::Socks { udp: true }).unwrap();
+        let listener = &config["inbounds"][0];
+        assert_eq!(listener["listen"], "127.0.0.1");
+        assert_eq!(listener["protocol"], "socks");
+        assert_eq!(listener["settings"]["accounts"][0]["pass"], "private");
+        assert_eq!(listener["settings"]["udp"], true);
         let rules = config["routing"]["rules"].as_array().unwrap();
-        assert_eq!(rules[2]["inboundTag"], json!(["wti", "wtu"]));
-        for (rule, listener) in rules
-            .iter()
-            .zip(config["inbounds"].as_array().unwrap().iter().rev())
-        {
-            assert_eq!(rule["inboundTag"][0], listener["tag"]);
-            assert_eq!(rule["outboundTag"], "direct");
-            assert!(!rules[2]["inboundTag"]
-                .as_array()
-                .unwrap()
-                .contains(&listener["tag"]));
-        }
+        assert_eq!(rules[0]["inboundTag"], json!([listener["tag"]]));
+        assert_eq!(rules[0]["outboundTag"], "direct");
+        assert_eq!(rules[1]["inboundTag"], json!(["wti", "wtu"]));
+        assert!(!rules[1]["inboundTag"]
+            .as_array()
+            .unwrap()
+            .contains(&listener["tag"]));
         let target = Target {
             config: json!({"inbounds":[],"outbounds":[]}),
             ..target
         };
-        assert!(test_config(&target, 18777, "private").is_err());
+        assert!(test_config(&target, 18777, "private", ProbeProxy::Http).is_err());
     }
     #[test]
     fn malformed_test_fragments_return_errors_without_panicking() {
@@ -1345,11 +1479,14 @@ mod tests {
                 outbound_tag: "direct".into(),
                 config: json!({"outbounds":[{"tag":"direct","protocol":"freedom"}],"routing":routing}),
             };
-            assert!(
-                std::panic::catch_unwind(|| test_config(&target, 18999, "secret"))
-                    .unwrap()
-                    .is_err()
-            );
+            assert!(std::panic::catch_unwind(|| test_config(
+                &target,
+                18999,
+                "secret",
+                ProbeProxy::Http
+            ))
+            .unwrap()
+            .is_err());
         }
     }
     #[test]
@@ -1359,7 +1496,7 @@ mod tests {
             outbound_tag: "unreachable".into(),
             config: json!({"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"unreachable","protocol":"socks","settings":{"address":"127.0.0.1","port":1}}],"routing":{"rules":[{"type":"field","network":"tcp,udp","outboundTag":"direct"}]}}),
         };
-        let c = test_config(&target, 18999, "secret").unwrap();
+        let c = test_config(&target, 18999, "secret", ProbeProxy::Http).unwrap();
         assert_eq!(c["routing"]["rules"][0]["outboundTag"], "unreachable");
         assert_eq!(c["routing"]["rules"][1]["outboundTag"], "direct");
     }
@@ -1419,7 +1556,7 @@ mod tests {
             outbound_tag: "direct".into(),
             config: json!({"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"peer","protocol":"socks","settings":{"address":"192.0.2.9","port":443}},{"tag":"explicit","protocol":"freedom","streamSettings":{"sockopt":{"interface":"OpenVPN","domainStrategy":"UseIPv4"}}}]}),
         };
-        let mut config = test_config(&target, 12345, "private").unwrap();
+        let mut config = test_config(&target, 12345, "private", ProbeProxy::Http).unwrap();
         let selection = crate::tun::OutboundEgress {
             uplink: "Ethernet".into(),
             loopback: "Loopback".into(),
@@ -1561,7 +1698,7 @@ mod tests {
                 .unwrap();
             assert_eq!(target.id, prepared.plan.targets[i]["id"]);
             assert_eq!(target.config["outbounds"][0]["tag"], target.outbound_tag);
-            assert!(test_config(&target, 19999, "test-password").is_ok());
+            assert!(test_config(&target, 19999, "test-password", ProbeProxy::Http).is_ok());
         }
     }
 }

@@ -2,17 +2,19 @@
 //! No native destination socket, system resolver or TCP fallback is used.
 use super::invalid;
 use serde::Serialize;
-use serde_json::{json, Value};
 use std::{
-    io::{Read, Write},
-    net::{IpAddr, SocketAddr, TcpStream, UdpSocket},
-    sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
+    time::{timeout, timeout_at, Instant},
 };
 use wayrill_protocol::Result;
 
-const TIMEOUT: Duration = Duration::from_secs(5);
-const POLL: Duration = Duration::from_millis(100);
+const ASSOCIATION_TIMEOUT: Duration = Duration::from_secs(10);
+const REPLY_WINDOWS_MS: [u64; 5] = [500, 1500, 3500, 7500, 10000];
 const COOKIE: [u8; 4] = [0x21, 0x12, 0xa4, 0x42];
 
 #[derive(Clone, Copy)]
@@ -71,55 +73,11 @@ impl Endpoint {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Measurement {
+pub(super) struct Reachability {
     pub reachable: bool,
     pub error: Option<String>,
 }
 
-pub(super) fn add_inbound(config: &mut Value, port: u16, password: &str, tag: &str) -> Result<()> {
-    let inbound_tag = crate::tun::random_id()?;
-    config["inbounds"].as_array_mut().unwrap().push(json!({
-        "tag":inbound_tag, "listen":"127.0.0.1", "port":port,
-        "protocol":"socks", "settings":{"auth":"password", "udp":true,
-            "accounts":[{"user":"wayrill-test","pass":password}]}
-    }));
-    config["routing"]["rules"].as_array_mut().unwrap().insert(
-        0,
-        json!({"type":"field","inboundTag":[inbound_tag],"outboundTag":tag}),
-    );
-    Ok(())
-}
-
-fn cancelled(stop: &AtomicBool, deadline: Instant) -> Result<()> {
-    if stop.load(Ordering::SeqCst) {
-        Err(invalid("Test cancelled."))
-    } else if Instant::now() >= deadline {
-        Err(invalid("No valid UDP reply within 5 seconds."))
-    } else {
-        Ok(())
-    }
-}
-fn read(
-    stream: &mut TcpStream,
-    mut bytes: &mut [u8],
-    stop: &AtomicBool,
-    deadline: Instant,
-) -> Result<()> {
-    while !bytes.is_empty() {
-        cancelled(stop, deadline)?;
-        match stream.read(bytes) {
-            Ok(0) => return Err(invalid("The private UDP relay closed the connection.")),
-            Ok(n) => bytes = &mut bytes[n..],
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(_) => return Err(invalid("Cannot read from the private UDP relay.")),
-        }
-    }
-    Ok(())
-}
 // Parse SOCKS address framing without trusting packet lengths. Domain names in
 // replies are retained as names; the service must never resolve them natively.
 fn address(bytes: &[u8]) -> Option<(Option<IpAddr>, u16, usize)> {
@@ -143,47 +101,38 @@ fn address(bytes: &[u8]) -> Option<(Option<IpAddr>, u16, usize)> {
     Some((ip, port, end + 2))
 }
 
-pub(super) fn test(
+pub(super) async fn test(
     port: u16,
     password: &str,
     endpoint: &Endpoint,
     nonce: &[u8; 12],
-    stop: &AtomicBool,
-) -> Result<Measurement> {
-    let checked = exchange(port, password, endpoint, nonce, stop);
-    if stop.load(Ordering::SeqCst) {
-        return Err(invalid("Test cancelled."));
-    }
-    Ok(Measurement {
+) -> Reachability {
+    let checked = exchange(port, password, endpoint, nonce).await;
+    Reachability {
         reachable: checked.is_ok(),
         error: checked.err().map(|e| e.message),
-    })
+    }
 }
-fn exchange(
-    port: u16,
-    password: &str,
-    endpoint: &Endpoint,
-    nonce: &[u8; 12],
-    stop: &AtomicBool,
-) -> Result<()> {
-    let deadline = Instant::now() + TIMEOUT;
-    cancelled(stop, deadline)?;
-    let mut control = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), POLL)
+
+async fn exchange(port: u16, password: &str, endpoint: &Endpoint, nonce: &[u8; 12]) -> Result<()> {
+    let (mut control, socket) = timeout(ASSOCIATION_TIMEOUT, associate(port, password))
+        .await
+        .map_err(|_| invalid("The private UDP relay took too long to open an association."))??;
+    // SOCKS uses a TCP control connection to keep the UDP association open.
+    tokio::select! {
+        biased;
+        result = probe(&socket, endpoint, nonce) => result,
+        _ = control.read_u8() => Err(invalid("The private UDP relay closed the association.")),
+    }
+}
+
+async fn associate(port: u16, password: &str) -> Result<(TcpStream, UdpSocket)> {
+    let mut control = TcpStream::connect(SocketAddr::from(([127, 0, 0, 1], port)))
+        .await
         .map_err(|_| invalid("Cannot connect to the private UDP relay."))?;
-    control
-        .set_read_timeout(Some(POLL))
-        .map_err(|_| invalid("Cannot configure the private UDP relay."))?;
-    control
-        .set_write_timeout(Some(POLL))
-        .map_err(|_| invalid("Cannot configure the private UDP relay."))?;
-    let write = |stream: &mut TcpStream, bytes: &[u8]| {
-        stream
-            .write_all(bytes)
-            .map_err(|_| invalid("Cannot write to the private UDP relay."))
-    };
-    write(&mut control, &[5, 1, 2])?;
+    write(&mut control, &[5, 1, 2]).await?;
     let mut reply = [0; 2];
-    read(&mut control, &mut reply, stop, deadline)?;
+    read(&mut control, &mut reply).await?;
     if reply != [5, 2] {
         return Err(invalid("The private UDP relay refused authentication."));
     }
@@ -191,12 +140,13 @@ fn exchange(
     auth.extend_from_slice(b"wayrill-test");
     auth.push(password.len() as u8);
     auth.extend_from_slice(password.as_bytes());
-    write(&mut control, &auth)?;
-    read(&mut control, &mut reply, stop, deadline)?;
+    write(&mut control, &auth).await?;
+    read(&mut control, &mut reply).await?;
     if reply != [1, 0] {
         return Err(invalid("The private UDP relay refused authentication."));
     }
     let socket = UdpSocket::bind("127.0.0.1:0")
+        .await
         .map_err(|_| invalid("No local UDP test port is available."))?;
     let mut associate = vec![5, 3, 0, 1, 127, 0, 0, 1];
     associate.extend_from_slice(
@@ -206,9 +156,9 @@ fn exchange(
             .port()
             .to_be_bytes(),
     );
-    write(&mut control, &associate)?;
+    write(&mut control, &associate).await?;
     let mut head = [0; 4];
-    read(&mut control, &mut head, stop, deadline)?;
+    read(&mut control, &mut head).await?;
     if head[..3] != [5, 0, 0] {
         return Err(invalid("The private relay does not accept UDP."));
     }
@@ -223,57 +173,65 @@ fn exchange(
     };
     let mut relay = vec![head[3]];
     relay.resize(size + 1, 0);
-    read(&mut control, &mut relay[1..], stop, deadline)?;
-    let (Some(ip), relay_port, _) =
-        address(&relay).ok_or_else(|| invalid("Invalid UDP relay address."))?
-    else {
+    read(&mut control, &mut relay[1..]).await?;
+    let Some((Some(ip), relay_port, _)) = address(&relay) else {
         return Err(invalid("Invalid UDP relay address."));
     };
-    // Only our authenticated local relay may receive the probe. Never accept an
-    // arbitrary remote relay address or fall back to sending to the target.
+    // Only our authenticated local relay may receive the probe.
     if !ip.is_loopback() || relay_port == 0 {
         return Err(invalid("The UDP test relay is not local."));
     }
     socket
         .connect(SocketAddr::new(ip, relay_port))
+        .await
         .map_err(|_| invalid("Cannot select the local UDP relay."))?;
-    socket
-        .set_read_timeout(Some(POLL))
-        .map_err(|_| invalid("Cannot configure the UDP test socket."))?;
-    socket
-        .set_write_timeout(Some(POLL))
-        .map_err(|_| invalid("Cannot configure the UDP test socket."))?;
-    let request = request(endpoint.kind, nonce);
-    let packet = [&[0, 0, 0][..], &endpoint.address(), &request].concat();
+    Ok((control, socket))
+}
+
+async fn read(control: &mut TcpStream, bytes: &mut [u8]) -> Result<()> {
+    control
+        .read_exact(bytes)
+        .await
+        .map_err(|_| invalid("Cannot read from the private UDP relay."))?;
+    Ok(())
+}
+
+async fn write(control: &mut TcpStream, bytes: &[u8]) -> Result<()> {
+    control
+        .write_all(bytes)
+        .await
+        .map_err(|_| invalid("Cannot write to the private UDP relay."))
+}
+
+async fn probe(socket: &UdpSocket, endpoint: &Endpoint, nonce: &[u8; 12]) -> Result<()> {
+    let packet = [
+        &[0, 0, 0][..],
+        &endpoint.address(),
+        &request(endpoint.kind, nonce),
+    ]
+    .concat();
     let start = Instant::now();
-    let mut sent = 0;
     let mut bytes = [0; 4096];
-    loop {
-        cancelled(stop, deadline)?;
-        if sent < 3
-            && start.elapsed()
-                >= [
-                    Duration::ZERO,
-                    Duration::from_millis(500),
-                    Duration::from_millis(1500),
-                ][sent]
-        {
-            socket
-                .send(&packet)
-                .map_err(|_| invalid("Cannot send through the private UDP relay."))?;
-            sent += 1;
+    // Reuse the transaction ID across retries so a late reply can still pass.
+    for elapsed in REPLY_WINDOWS_MS {
+        let deadline = start + Duration::from_millis(elapsed);
+        match timeout_at(deadline, socket.send(&packet)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) => return Err(invalid("Cannot send through the private UDP relay.")),
+            Err(_) => continue,
         }
-        match socket.recv(&mut bytes) {
-            Ok(n) if valid_reply(&bytes[..n], endpoint, nonce) => return Ok(()),
-            Ok(_) => {}
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(_) => return Err(invalid("The UDP test path closed without a valid reply.")),
+        while Instant::now() < deadline {
+            let Ok(received) = timeout_at(deadline, socket.recv(&mut bytes)).await else {
+                break;
+            };
+            let size =
+                received.map_err(|_| invalid("The UDP test path closed without a valid reply."))?;
+            if valid_reply(&bytes[..size], endpoint, nonce) {
+                return Ok(());
+            }
         }
     }
+    Err(invalid("No valid UDP reply within 10 seconds."))
 }
 
 fn request(kind: Kind, nonce: &[u8; 12]) -> Vec<u8> {
@@ -313,7 +271,11 @@ fn valid_reply(packet: &[u8], endpoint: &Endpoint, nonce: &[u8; 12]) -> bool {
     }
 }
 fn stun_reply(data: &[u8], nonce: &[u8; 12]) -> bool {
-    if data.len() < 20 || data[..2] != [1, 1] || data[4..8] != COOKIE || data[8..20] != *nonce {
+    if data.len() < 20
+        || !matches!(data[..2], [1, 1] | [1, 0x11])
+        || data[4..8] != COOKIE
+        || data[8..20] != *nonce
+    {
         return false;
     }
     let length = usize::from(u16::from_be_bytes([data[2], data[3]]));
@@ -322,6 +284,7 @@ fn stun_reply(data: &[u8], nonce: &[u8; 12]) -> bool {
     }
     let mut pos = 20;
     let mut mapped = false;
+    let mut error = false;
     while pos + 4 <= data.len() {
         let kind = u16::from_be_bytes([data[pos], data[pos + 1]]);
         let len = usize::from(u16::from_be_bytes([data[pos + 2], data[pos + 3]]));
@@ -331,9 +294,12 @@ fn stun_reply(data: &[u8], nonce: &[u8; 12]) -> bool {
         if kind == 0x20 {
             mapped |= (len == 8 && value[1] == 1) || (len == 20 && value[1] == 2);
         }
+        if kind == 0x09 && len >= 4 {
+            error |= (3..=6).contains(&(value[2] & 7)) && value[3] < 100;
+        }
         pos += 4 + len.next_multiple_of(4);
     }
-    mapped && pos == data.len()
+    pos == data.len() && if data[1] == 1 { mapped } else { error }
 }
 fn dns_name(data: &[u8], pos: &mut usize) -> Option<Vec<u8>> {
     let mut at = *pos;
@@ -375,11 +341,7 @@ fn dns_name(data: &[u8], pos: &mut usize) -> Option<Vec<u8>> {
     None
 }
 fn dns_reply(data: &[u8], nonce: &[u8; 12]) -> bool {
-    if data.len() < 12
-        || data[..2] != nonce[..2]
-        || data[2] & 0xfa != 0x80
-        || data[3] & 0xf != 0
-        || data[4..6] != [0, 1]
+    if data.len() < 12 || data[..2] != nonce[..2] || data[2] & 0xf8 != 0x80 || data[4..6] != [0, 1]
     {
         return false;
     }
@@ -389,9 +351,18 @@ fn dns_reply(data: &[u8], nonce: &[u8; 12]) -> bool {
     {
         return false;
     }
+    // A truncated reply or a DNS error still demonstrates UDP reachability.
+    if data[2] & 2 != 0 {
+        return true;
+    }
     pos += 4;
-    let mut found = false;
-    for _ in 0..u16::from_be_bytes([data[6], data[7]]) {
+    let records: usize = data[6..12]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|count| usize::from(u16::from_be_bytes(*count)))
+        .sum();
+    for _ in 0..records {
         if dns_name(data, &mut pos).is_none() {
             return false;
         }
@@ -399,14 +370,12 @@ fn dns_reply(data: &[u8], nonce: &[u8; 12]) -> bool {
             return false;
         };
         let len = usize::from(u16::from_be_bytes([record[8], record[9]]));
-        pos += 10;
-        if data.get(pos..pos + len).is_none() {
+        pos += 10 + len;
+        if pos > data.len() {
             return false;
         }
-        found |= record[..4] == [0, 1, 0, 1] && len == 4;
-        pos += len;
     }
-    found
+    pos == data.len()
 }
 
 #[cfg(test)]

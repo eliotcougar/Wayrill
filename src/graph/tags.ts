@@ -48,6 +48,8 @@ export function ensureNodeTags(graph: GraphState): GraphState {
   };
 }
 export const GENERATED_DNS_TAG = 'wdg-global';
+export const dnsParallelTag = (nodeId: string, local: boolean) =>
+  generatedTag('wds', nodeId, local ? 0 : 1);
 // The service installs these IDs on the running copy of this ordered server list.
 export const resolverActivityId = (index: number) =>
   `wra-${compactTagId(index.toString(16).padStart(32, '0'))}`;

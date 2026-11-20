@@ -47,7 +47,7 @@ The encoding changes representation, not identity strength. It is not a secret.
 | `wob-`, `woi-` | Observation alias and inner transport |
 | `wc-`, `wcr-` | Chain expansion and reinjection |
 | `wri-` | Fragmentation inner transport |
-| `wds-`, `wdg-` | DNS server and global DNS query source |
+| `wds-`, `wdg-` | DNS server or parallel query group, and global DNS query source |
 | `wte-`, `wti`, `wtu` | Test outbound root, HTTP test inbound, UDP test inbound |
 | `wtr-` | Private TUN relay |
 | `wdr-`, `wdr-n-`, `wdo-` | DNS resolver, native resolver, DNS outbound relay |
