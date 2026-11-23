@@ -1,4 +1,5 @@
 //! Service-backed routing controls remain available while the desktop is hidden.
+mod command;
 mod icon;
 mod quick_switch;
 mod state;
@@ -10,7 +11,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
-use wayrill_protocol::{ApiError, Message};
+use wayrill_protocol::Message;
 
 pub const ID: &str = "wayrill";
 struct Controller {
@@ -194,43 +195,69 @@ pub fn disconnected(app: &tauri::AppHandle) {
 fn routing(app: &tauri::AppHandle, action: Action) {
     let mut request = None;
     update(app, |m| request = m.begin(action));
-    let Some((revision, epoch)) = request else {
+    let Some(request) = request else {
         return;
     };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let params = if action == Action::Start {
-            serde_json::json!({"revision":revision})
-        } else {
-            serde_json::json!({})
-        };
-        let result = crate::service_request(action.method().into(), params).await;
-        if let Ok(snapshot) = &result {
-            update(&app, |m| m.finish(epoch, Some(snapshot)));
-        } else {
-            // A lost reply is not permission to repeat a mutation. Reconcile
-            // once, without replacing any newer event or reconnect snapshot.
-            let mut refresh_epoch = 0;
-            update(&app, |m| refresh_epoch = m.epoch());
-            let refreshed =
-                crate::service_request("service.status".into(), serde_json::json!({})).await;
-            update(&app, |m| {
-                if refreshed.is_err() && m.epoch() == refresh_epoch {
-                    m.disconnected();
-                }
-                m.finish(refresh_epoch, refreshed.as_ref().ok());
-            });
+        let result = command::execute(
+            &request,
+            |method, params| crate::service_request(method.into(), params),
+            || {
+                app.state::<Controller>()
+                    .model
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .instance_changed(&request.instance)
+            },
+            || update(&app, Model::verifying),
+        )
+        .await;
+        if let Ok(Some(snapshot)) = &result {
+            update(&app, |m| m.finish(request.epoch, Some(snapshot)));
+            return;
         }
-        if let Err(error) = result {
-            report_error(&app, action, error).await;
+        if matches!(result, Ok(None)) && action == Action::Stop {
+            wayrill_ipc::windows::refresh_environment();
+        }
+        let refresh_epoch = app
+            .state::<Controller>()
+            .model
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .epoch();
+        // Refresh only the display. The snapshot cannot prove the command's
+        // outcome and cannot overwrite a newer event or reconnection.
+        let refreshed = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            crate::service_request("service.status".into(), serde_json::json!({})),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        update(&app, |m| m.finish(refresh_epoch, refreshed.as_ref()));
+        if let Err(failure) = result {
+            report_problem(&app, action, failure).await;
         }
     });
 }
-async fn report_error(app: &tauri::AppHandle, action: Action, error: ApiError) {
+async fn report_problem(app: &tauri::AppHandle, action: Action, failure: command::Failure) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_ICONWARNING};
+    let (error, outcome, level, icon) = match failure {
+        command::Failure::Rejected(error) => (error, "failed", "error", MB_ICONERROR),
+        command::Failure::Unconfirmed(error) => {
+            (error, "could not be confirmed", "warning", MB_ICONWARNING)
+        }
+    };
     wayrill_diagnostics::log(
         "tray",
-        "error",
-        &format!("{} ({}): {}", action.label(), error.code, error.message),
+        level,
+        &format!(
+            "{} {outcome} ({}): {}",
+            action.label(),
+            error.code,
+            error.message
+        ),
     );
     show(app);
     let Some(owner) = app
@@ -241,7 +268,7 @@ async fn report_error(app: &tauri::AppHandle, action: Action, error: ApiError) {
         return;
     };
     let message = format!(
-        "{} failed ({}).\n\n{}",
+        "{} {outcome} ({}).\n\n{}",
         action.label(),
         error.code,
         error.message
@@ -260,12 +287,7 @@ async fn report_error(app: &tauri::AppHandle, action: Action, error: ApiError) {
         // SAFETY: fixed/terminated UTF-16 buffers live through the modal call;
         // the borrowed HWND identifies the app window, not the host service.
         unsafe {
-            MessageBoxW(
-                owner as _,
-                text.as_ptr(),
-                title.as_ptr(),
-                MB_OK | MB_ICONERROR,
-            );
+            MessageBoxW(owner as _, text.as_ptr(), title.as_ptr(), MB_OK | icon);
         }
     })
     .await;

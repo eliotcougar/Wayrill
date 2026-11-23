@@ -46,6 +46,18 @@ impl Action {
         }
     }
 }
+pub(super) struct Command {
+    pub action: Action,
+    pub revision: u64,
+    pub epoch: u64,
+    pub instance: String,
+}
+
+struct Pending {
+    action: Action,
+    epoch: u64,
+    verifying: bool,
+}
 struct Status {
     view: View,
     revision: u64,
@@ -124,7 +136,7 @@ pub(super) struct Model {
     instance: String,
     sequence: u64,
     epoch: u64,
-    pending: Option<(Action, u64)>,
+    pending: Option<Pending>,
 }
 impl Model {
     pub fn can_switch(&self) -> bool {
@@ -138,7 +150,13 @@ impl Model {
     pub fn view(&self) -> View {
         if self.connected != Some(true) {
             return View::new(
-                if self.connected.is_none() {
+                if self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|pending| pending.verifying)
+                {
+                    "Reconnecting to confirm routing command…"
+                } else if self.connected.is_none() {
                     "Connecting to service…"
                 } else {
                     "Service offline — routing state unknown"
@@ -146,19 +164,22 @@ impl Model {
                 Shade::Offline,
             );
         }
-        if let Some((action, epoch)) = self.pending {
-            if self.epoch != epoch {
+        if let Some(pending) = &self.pending {
+            if self.epoch != pending.epoch {
                 if let Some(status) = &self.status {
-                    let mut view = status.view;
-                    view.start = false;
-                    view.stop = false;
-                    return view;
+                    if !pending.verifying || status.view.shade == Shade::Busy {
+                        let mut view = status.view;
+                        view.start = false;
+                        view.stop = false;
+                        return view;
+                    }
                 }
             }
             return View::new(
-                match action {
-                    Action::Start => "Starting routing",
-                    Action::Stop => "Stopping routing",
+                match (pending.action, pending.verifying) {
+                    (Action::Start, false) => "Starting routing",
+                    (Action::Stop, false) => "Stopping routing",
+                    (_, true) => "Confirming routing command…",
                 },
                 Shade::Busy,
             );
@@ -172,8 +193,8 @@ impl Model {
         self.connected = Some(false);
         self.epoch += 1;
     }
-    fn snapshot(&mut self, snapshot: &Value) {
-        self.status = Status::read(snapshot);
+    fn snapshot(&mut self, status: Option<Status>) {
+        self.status = status;
         self.connected = Some(self.status.is_some());
         self.epoch += 1;
     }
@@ -195,7 +216,7 @@ impl Model {
                 }
                 self.instance = instance.into();
                 self.sequence = sequence;
-                self.snapshot(&result["snapshot"]);
+                self.snapshot(Status::read(&result["snapshot"]));
             }
             Message::Event {
                 instance_id,
@@ -204,14 +225,16 @@ impl Model {
                 ..
             } if *instance_id == self.instance && *sequence > self.sequence => {
                 self.sequence = *sequence;
-                if payload.get("core").is_some() {
-                    self.snapshot(payload);
+                if payload["instanceId"] == self.instance {
+                    if let Some(status) = Status::read(payload) {
+                        self.snapshot(Some(status));
+                    }
                 }
             }
             _ => {}
         }
     }
-    pub fn begin(&mut self, action: Action) -> Option<(u64, u64)> {
+    pub fn begin(&mut self, action: Action) -> Option<Command> {
         let view = self.view();
         if !(match action {
             Action::Start => view.start,
@@ -220,15 +243,34 @@ impl Model {
             return None;
         }
         let revision = self.status.as_ref()?.revision;
-        self.pending = Some((action, self.epoch));
-        Some((revision, self.epoch))
+        self.pending = Some(Pending {
+            action,
+            epoch: self.epoch,
+            verifying: false,
+        });
+        Some(Command {
+            action,
+            revision,
+            epoch: self.epoch,
+            instance: self.instance.clone(),
+        })
+    }
+    pub fn verifying(&mut self) {
+        if let Some(pending) = &mut self.pending {
+            pending.verifying = true;
+        }
+    }
+    pub fn instance_changed(&self, instance: &str) -> bool {
+        self.instance != instance
     }
     pub fn finish(&mut self, epoch: u64, snapshot: Option<&Value>) {
         // The service publishes sequenced events independently of command replies.
         // A late response must not replace a newer snapshot or reconnection state.
         if self.epoch == epoch && self.connected == Some(true) {
-            if let Some(snapshot) = snapshot {
-                self.snapshot(snapshot);
+            if let Some(snapshot) =
+                snapshot.filter(|snapshot| snapshot["instanceId"] == self.instance)
+            {
+                self.snapshot(Status::read(snapshot));
             }
         }
         self.pending = None;
@@ -243,16 +285,18 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn snapshot(core: &str) -> Value {
-        json!({"core":{"state":core},"config":{"present":true,"revision":7},"lifecycle":null,
+        json!({"instanceId":"a","core":{"state":core},"config":{"present":true,"revision":7},"lifecycle":null,
             "recovery":{"desiredState":if core == "running" {"running"} else {"stopped"},"state":"healthy"}})
     }
-    fn ack(model: &mut Model, instance: &str, sequence: u64, snapshot: Value) {
+    fn ack(model: &mut Model, instance: &str, sequence: u64, mut snapshot: Value) {
+        snapshot["instanceId"] = json!(instance);
         model.message(&Message::response(
             1,
             Ok(json!({"instanceId":instance,"sequence":sequence,"snapshot":snapshot})),
         ));
     }
-    fn event(model: &mut Model, instance: &str, sequence: u64, snapshot: Value) {
+    fn event(model: &mut Model, instance: &str, sequence: u64, mut snapshot: Value) {
+        snapshot["instanceId"] = json!(instance);
         model.message(&Message::Event {
             api_version: 1,
             instance_id: instance.into(),
@@ -323,10 +367,10 @@ mod tests {
     fn replay_and_late_command_replies_cannot_regress_live_state() {
         let mut m = Model::default();
         ack(&mut m, "a", 100, snapshot("stopped"));
-        let (_, epoch) = m.begin(Action::Start).unwrap();
+        let command = m.begin(Action::Start).unwrap();
         assert!(m.begin(Action::Start).is_none());
         event(&mut m, "a", 101, snapshot("running"));
-        m.finish(epoch, Some(&snapshot("stopped")));
+        m.finish(command.epoch, Some(&snapshot("stopped")));
         assert_eq!(m.view().shade, Shade::Running);
         event(&mut m, "a", 99, snapshot("stopped"));
         event(&mut m, "old", 999, snapshot("stopped"));
@@ -339,9 +383,9 @@ mod tests {
     fn disconnection_during_a_command_cannot_be_overwritten_by_its_reply() {
         let mut m = Model::default();
         ack(&mut m, "a", 1, snapshot("stopped"));
-        let (_, epoch) = m.begin(Action::Start).unwrap();
+        let command = m.begin(Action::Start).unwrap();
         m.disconnected();
-        m.finish(epoch, Some(&snapshot("running")));
+        m.finish(command.epoch, Some(&snapshot("running")));
         assert_eq!(m.view().shade, Shade::Offline);
         ack(&mut m, "b", 1, snapshot("running"));
         assert!(m.view().stop);
@@ -355,13 +399,13 @@ mod tests {
             s["config"]["revision"] = json!(revision);
             ack(&mut model, "a", revision, s);
         }
-        assert_eq!(model.begin(Action::Start).unwrap().0, 9);
+        assert_eq!(model.begin(Action::Start).unwrap().revision, 9);
     }
     #[test]
     fn pending_commands_follow_observed_rollback_and_terminal_states() {
         let mut model = Model::default();
         ack(&mut model, "a", 1, snapshot("stopped"));
-        let (_, epoch) = model.begin(Action::Start).unwrap();
+        let command = model.begin(Action::Start).unwrap();
         assert_eq!(model.view().label, "Starting routing");
         let mut rolling_back = snapshot("running");
         rolling_back["lifecycle"] = json!({"operation":"start","recovering":true});
@@ -371,7 +415,7 @@ mod tests {
         event(&mut model, "a", 3, snapshot("failed"));
         assert_eq!(model.view().shade, Shade::Failed);
         assert!(!model.view().start);
-        model.finish(epoch, None);
+        model.finish(command.epoch, None);
         assert!(model.view().start);
     }
     #[test]
@@ -380,10 +424,10 @@ mod tests {
         assert!(!model.can_switch());
         ack(&mut model, "a", 1, snapshot("stopped"));
         assert!(model.can_switch());
-        let (_, epoch) = model.begin(Action::Start).unwrap();
+        let command = model.begin(Action::Start).unwrap();
         event(&mut model, "a", 2, snapshot("running"));
         assert!(!model.can_switch());
-        model.finish(epoch, None);
+        model.finish(command.epoch, None);
         assert!(model.can_switch());
         let mut recovering = snapshot("running");
         recovering["lifecycle"] = json!({"operation":"restart"});
@@ -391,5 +435,26 @@ mod tests {
         assert!(!model.can_switch());
         model.disconnected();
         assert!(!model.can_switch());
+    }
+
+    #[test]
+    fn observed_routing_cannot_release_a_command_while_confirmation_is_pending() {
+        let mut model = Model::default();
+        ack(&mut model, "service-a", 1, snapshot("stopped"));
+        let command = model.begin(Action::Start).unwrap();
+        model.verifying();
+        event(&mut model, "service-a", 2, snapshot("running"));
+        assert_eq!(model.view().label, "Confirming routing command…");
+        assert!(!model.view().stop);
+        model.disconnected();
+        assert_eq!(
+            model.view().label,
+            "Reconnecting to confirm routing command…"
+        );
+        assert!(!model.instance_changed(&command.instance));
+        ack(&mut model, "service-b", 1, snapshot("stopped"));
+        assert!(model.instance_changed(&command.instance));
+        model.finish(command.epoch, None);
+        assert!(model.view().start);
     }
 }
