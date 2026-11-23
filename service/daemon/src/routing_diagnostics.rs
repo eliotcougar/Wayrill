@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -37,46 +37,108 @@ pub(crate) struct Input {
     #[serde(skip)]
     pub resource_warnings: Vec<String>,
 }
-struct State {
+// Admission and the worker share one terminal transition. A ticket can cancel
+// the work before there is a job ID, while a completed result wins the same CAS.
+#[repr(u8)]
+enum Decision {
+    Open,
+    Cancelled,
+    Completed,
+}
+
+#[derive(Default)]
+pub(crate) struct Cancellation(AtomicU8);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        let _ = self.0.compare_exchange(
+            Decision::Open as u8,
+            Decision::Cancelled as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    fn cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire) == Decision::Cancelled as u8
+    }
+
+    pub fn check(&self) -> Result<()> {
+        check_cancelled(self.cancelled())
+    }
+
+    fn settle(&self, result: Result<Value>) -> Outcome {
+        let previous = self.0.compare_exchange(
+            Decision::Open as u8,
+            Decision::Completed as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        if previous == Err(Decision::Cancelled as u8) {
+            return Outcome::Cancelled;
+        }
+        match result {
+            Ok(value) => Outcome::Succeeded(value),
+            Err(error) => Outcome::Failed(error),
+        }
+    }
+}
+
+enum Outcome {
+    Succeeded(Value),
+    Failed(ApiError),
+    Cancelled,
+}
+
+enum Phase {
+    Running(Option<crate::operation_gate::Foreground>),
+    Complete(Outcome),
+}
+
+struct Job {
     job: u64,
     ticket: Option<String>,
-    busy: bool,
-    result: Option<Value>,
-    error: Option<ApiError>,
-    reservation: Option<crate::operation_gate::Foreground>,
+    cancellation: Arc<Cancellation>,
+    phase: Phase,
 }
+
+impl Job {
+    fn finish(&mut self, result: Result<Value>) {
+        self.phase = Phase::Complete(self.cancellation.settle(result));
+    }
+
+    fn snapshot(&self) -> Value {
+        let (busy, result, error, cancelled) = match &self.phase {
+            Phase::Running(_) => (true, None, None, self.cancellation.cancelled()),
+            Phase::Complete(Outcome::Succeeded(result)) => (false, Some(result), None, false),
+            Phase::Complete(Outcome::Failed(error)) => (false, None, Some(error), false),
+            Phase::Complete(Outcome::Cancelled) => (false, None, None, true),
+        };
+        json!({"job":self.job,"busy":busy,"result":result,"error":error,"cancelled":cancelled})
+    }
+}
+
 pub(crate) struct Manager {
-    state: Arc<Mutex<State>>,
-    stop: Arc<AtomicBool>,
+    current: Option<Arc<Mutex<Job>>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Manager {
     pub fn new() -> Self {
         Self {
-            state: Arc::new(Mutex::new(State {
-                job: 0,
-                ticket: None,
-                busy: false,
-                result: None,
-                error: None,
-                reservation: None,
-            })),
-            stop: Arc::new(AtomicBool::new(false)),
+            current: None,
             worker: None,
         }
     }
     pub fn busy(&self) -> bool {
-        self.state.lock().unwrap().busy
+        self.current
+            .as_ref()
+            .is_some_and(|job| matches!(job.lock().unwrap().phase, Phase::Running(_)))
     }
     pub fn retain_reservation(&mut self, reservation: Option<crate::operation_gate::Foreground>) {
-        let mut state = self.state.lock().unwrap();
-        if state.busy {
-            state.reservation = reservation;
+        let Some(job) = &self.current else { return };
+        if let Phase::Running(held) = &mut job.lock().unwrap().phase {
+            *held = reservation;
         }
-    }
-    fn snapshot(&self) -> Value {
-        let state = self.state.lock().unwrap();
-        json!({"job":state.job,"busy":state.busy,"result":state.result,"error":state.error,"cancelled":self.stop.load(Ordering::Acquire)})
     }
     pub fn get(&self, method: &str, value: Value) -> Result<Value> {
         #[derive(Deserialize)]
@@ -86,21 +148,24 @@ impl Manager {
             ticket: Option<String>,
         }
         let query: Query = params(value)?;
-        let matches = {
-            let state = self.state.lock().unwrap();
-            match (query.job, query.ticket.as_ref()) {
-                (Some(job), None) => job != 0 && job == state.job,
-                (None, Some(ticket)) => state.ticket.as_ref() == Some(ticket),
-                _ => false,
-            }
+        let job = self
+            .current
+            .as_ref()
+            .ok_or_else(|| invalid("This diagnostic is no longer available."))?
+            .lock()
+            .unwrap();
+        let matches = match (query.job, query.ticket.as_ref()) {
+            (Some(id), None) => id == job.job,
+            (None, Some(ticket)) => job.ticket.as_ref() == Some(ticket),
+            _ => false,
         };
         if !matches {
             return Err(invalid("This diagnostic is no longer available."));
         }
-        if method == "routing.diagnosticCancel" && self.busy() {
-            self.stop.store(true, Ordering::Release);
+        if method == "routing.diagnosticCancel" {
+            job.cancellation.cancel();
         }
-        Ok(self.snapshot())
+        Ok(job.snapshot())
     }
     pub fn start(
         &mut self,
@@ -108,7 +173,7 @@ impl Manager {
         exe: PathBuf,
         owner: String,
         egress: Option<crate::tun::OutboundEgress>,
-        cancel: Option<Arc<AtomicBool>>,
+        cancel: Option<Arc<Cancellation>>,
     ) -> Result<Value> {
         if self.busy() {
             return Err(ApiError::new(
@@ -131,44 +196,36 @@ impl Manager {
         let id = u64::from_str_radix(&crate::tun::random_id()?[..12], 16)
             .map_err(|_| invalid("Cannot create diagnostic job."))?
             .max(1);
-        let stop = cancel.unwrap_or_default();
-        check_cancelled(&stop)?;
-        self.stop = stop;
-        self.state = Arc::new(Mutex::new(State {
+        let cancellation = cancel.unwrap_or_default();
+        cancellation.check()?;
+        let job = Arc::new(Mutex::new(Job {
             job: id,
             ticket: input.ticket.clone(),
-            busy: true,
-            result: None,
-            error: None,
-            reservation: None,
+            cancellation: cancellation.clone(),
+            phase: Phase::Running(None),
         }));
-        let state = self.state.clone();
-        let stop = self.stop.clone();
-        match std::thread::Builder::new()
-            .name("wayrill-routing-diagnostic".into())
-            .spawn(move || {
-                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run(input, &exe, &owner, egress.as_ref(), &stop)
-                }));
-                let mut state = state.lock().unwrap();
-                match outcome {
-                    Ok(Ok(result)) => state.result = Some(result),
-                    Ok(Err(error)) => state.error = Some(error),
-                    Err(_) => state.error = Some(invalid("Diagnostic worker failed.")),
-                }
-                state.busy = false;
-                state.reservation = None;
-            }) {
-            Ok(worker) => self.worker = Some(worker),
-            Err(error) => {
-                self.state.lock().unwrap().busy = false;
-                return Err(ApiError::io("Start diagnostic", error));
-            }
-        }
-        Ok(self.snapshot())
+        let worker_job = job.clone();
+        self.worker = Some(
+            std::thread::Builder::new()
+                .name("wayrill-routing-diagnostic".into())
+                .spawn(move || {
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run(input, &exe, &owner, egress.as_ref(), &cancellation)
+                    }));
+                    worker_job.lock().unwrap().finish(
+                        outcome.unwrap_or_else(|_| Err(invalid("Diagnostic worker failed."))),
+                    );
+                })
+                .map_err(|error| ApiError::io("Start diagnostic", error))?,
+        );
+        let reply = job.lock().unwrap().snapshot();
+        self.current = Some(job);
+        Ok(reply)
     }
     pub fn shutdown(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        if let Some(job) = &self.current {
+            job.lock().unwrap().cancellation.cancel();
+        }
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -183,8 +240,8 @@ fn invalid(message: impl Into<String>) -> ApiError {
     ApiError::new("ROUTING_DIAGNOSTIC", message)
 }
 
-pub(crate) fn check_cancelled(stop: &AtomicBool) -> Result<()> {
-    if stop.load(Ordering::Acquire) {
+fn check_cancelled(cancelled: bool) -> Result<()> {
+    if cancelled {
         Err(ApiError::new("CANCELLED", "The diagnostic was cancelled."))
     } else {
         Ok(())
@@ -401,9 +458,9 @@ fn run(
     exe: &std::path::Path,
     owner: &str,
     egress: Option<&crate::tun::OutboundEgress>,
-    stop: &AtomicBool,
+    cancellation: &Cancellation,
 ) -> Result<Value> {
-    check_cancelled(stop)?;
+    cancellation.check()?;
     let root = exe
         .parent()
         .and_then(std::path::Path::parent)
@@ -425,7 +482,7 @@ fn run(
     {
         warnings.push("Loopback destinations use local Direct sockets after the routing decision. Explicit Block rules remain effective.".into());
     }
-    check_cancelled(stop)?;
+    cancellation.check()?;
     if input.mode == "dns" {
         input.config = dns_config(&input.config, &input.handler, &input.server, egress)?;
         if input.config["observatory"].is_object() || input.config["burstObservatory"].is_object() {
@@ -437,7 +494,7 @@ fn run(
         exe.parent().unwrap(),
         CoreIdentity::Owner(owner),
         &request,
-        stop,
+        || cancellation.cancelled(),
     )?;
     reply["warnings"] = json!(warnings);
     Ok(reply)
@@ -455,7 +512,7 @@ pub(crate) fn geosite(
         assets,
         CoreIdentity::LocalService,
         &json!({"mode":"geosite","file":file,"domain":domain,"offset":offset,"limit":limit}),
-        stop,
+        || stop.load(Ordering::Acquire),
     )?;
     if let Some(error) = reply["error"].as_str() {
         return Err(invalid(error));
@@ -467,9 +524,9 @@ fn query_core(
     assets: &std::path::Path,
     identity: CoreIdentity<'_>,
     request: &Value,
-    stop: &AtomicBool,
+    cancelled: impl Fn() -> bool,
 ) -> Result<Value> {
-    check_cancelled(stop)?;
+    check_cancelled(cancelled())?;
     let root = assets
         .parent()
         .ok_or_else(|| invalid("Invalid assets path."))?;
@@ -492,7 +549,7 @@ fn query_core(
     // transfer the request and drain its response.
     let deadline = Instant::now() + native::XRAY_CONFIG_LOAD_TIMEOUT + Duration::from_secs(15);
     loop {
-        check_cancelled(stop)?;
+        check_cancelled(cancelled())?;
         if let Some(code) = process.exit_code()? {
             if code != 0 {
                 return Err(invalid("The isolated Xray diagnostic failed."));
@@ -511,6 +568,61 @@ fn query_core(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cancel_ticket_can_win_before_completion_but_cannot_rewrite_a_terminal_result() {
+        for cancel_first in [true, false] {
+            for fail in [true, false] {
+                let receipts = crate::operation_receipts::Receipts::default();
+                let mut query = receipts.prepare_diagnostic(json!({})).unwrap();
+                let admission = receipts
+                    .admit("routing.diagnosticStart", &mut query)
+                    .unwrap()
+                    .unwrap();
+                admission.begin().unwrap();
+                let ticket = query["ticket"].as_str().unwrap();
+                let cancellation = receipts.diagnostic_stop(ticket).unwrap();
+                let job = Arc::new(Mutex::new(Job {
+                    job: 1,
+                    ticket: Some(ticket.into()),
+                    cancellation,
+                    phase: Phase::Running(None),
+                }));
+                let manager = Manager {
+                    current: Some(job.clone()),
+                    worker: None,
+                };
+                admission.finish(Ok(()));
+                let cancel = || {
+                    receipts
+                        .diagnostic("routing.diagnosticCancel", &query)
+                        .unwrap()
+                };
+                if cancel_first {
+                    cancel();
+                    let running = manager.get("routing.diagnosticGet", query.clone()).unwrap();
+                    assert_eq!(running["busy"], true);
+                    assert_eq!(running["cancelled"], true);
+                }
+                let result = if fail {
+                    Err(invalid("Fixture error."))
+                } else {
+                    Ok(json!({"outboundTag":"direct"}))
+                };
+                job.lock().unwrap().finish(result);
+                let settled = manager.get("routing.diagnosticGet", query.clone()).unwrap();
+                cancel();
+                assert_eq!(
+                    manager.get("routing.diagnosticGet", query).unwrap(),
+                    settled
+                );
+                assert_eq!(settled["busy"], false);
+                assert_eq!(settled["cancelled"], cancel_first);
+                assert_eq!(settled["result"].is_object(), !cancel_first && !fail);
+                assert_eq!(settled["error"].is_object(), !cancel_first && fail);
+            }
+        }
+    }
     #[test]
     fn dns_isolation_respects_native_field_spelling_and_removes_webhooks() {
         let original = wayrill_protocol::normalize_config(json!({

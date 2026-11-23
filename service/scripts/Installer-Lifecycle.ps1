@@ -177,7 +177,7 @@ function Assert-WayrillRecoveryComplete {
         }
     }
 }
-function Stop-WayrillInstalledService {
+function Stop-WayrillInstalledService([switch]$RecoveringInstallation) {
     $taskOriginalMode=(Get-CimInstance Win32_Service -Filter "Name='WayrillService'").StartMode
     # Prevent failure-action restarts of the old executable during replacement,
     # including an older service repeatedly failing profile initialization.
@@ -193,7 +193,7 @@ function Stop-WayrillInstalledService {
             }
             $taskController.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(180))
         }
-        Assert-WayrillRecoveryComplete
+        if (-not $RecoveringInstallation) { Assert-WayrillRecoveryComplete }
     } catch {
         $taskFailure=$_
         $taskMode=switch($taskOriginalMode){'Auto'{'auto'};'Manual'{'demand'};default{'disabled'}}

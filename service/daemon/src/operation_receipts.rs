@@ -1,13 +1,11 @@
 //! Bounded receipts for desktop mutations and diagnostic admission. They belong
 //! to one service instance and can be inspected even while the kernel is busy.
+use crate::routing_diagnostics::Cancellation;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::VecDeque,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use wayrill_protocol::{params, ApiError, Result};
@@ -46,6 +44,7 @@ enum Phase {
     Running,
     Finished(Result<()>),
     NotSubmitted,
+    Cancelled,
     Indeterminate,
 }
 
@@ -53,7 +52,7 @@ struct Entry {
     ticket: String,
     method: String,
     phase: Phase,
-    cancel: Option<Arc<AtomicBool>>,
+    cancel: Option<Arc<Cancellation>>,
 }
 
 #[derive(Default)]
@@ -104,7 +103,10 @@ impl Receipts {
                 .position(|entry| {
                     matches!(
                         entry.phase,
-                        Phase::Finished(_) | Phase::NotSubmitted | Phase::Indeterminate
+                        Phase::Finished(_)
+                            | Phase::NotSubmitted
+                            | Phase::Cancelled
+                            | Phase::Indeterminate
                     ) && book.current_diagnostic.as_ref() != Some(&entry.ticket)
                 })
                 .ok_or_else(|| ApiError::new("BUSY", "Too many service operations are pending."))?;
@@ -114,7 +116,7 @@ impl Receipts {
             ticket: ticket.clone(),
             method: method.into(),
             phase: Phase::Prepared(Instant::now()),
-            cancel: (method == DIAGNOSTIC).then(|| Arc::new(AtomicBool::new(false))),
+            cancel: (method == DIAGNOSTIC).then(Arc::default),
         });
         Ok(json!({ "ticket": ticket }))
     }
@@ -141,6 +143,7 @@ impl Receipts {
                 entry.phase = Phase::Queued
             }
             Phase::Finished(Err(error)) => return Err(error.clone()),
+            Phase::Cancelled => return Err(cancelled()),
             _ => return Err(unavailable()),
         }
         let ticket = ticket.to_owned();
@@ -168,7 +171,7 @@ impl Receipts {
                     entry.phase = Phase::NotSubmitted;
                     json!({"state":"notSubmitted"})
                 }
-                Phase::NotSubmitted => json!({"state":"notSubmitted"}),
+                Phase::NotSubmitted | Phase::Cancelled => json!({"state":"notSubmitted"}),
                 Phase::Queued | Phase::Running => json!({"state":"pending"}),
                 Phase::Finished(Ok(())) => json!({"state":"succeeded"}),
                 Phase::Finished(Err(error)) => json!({"state":"failed","error":error}),
@@ -192,25 +195,20 @@ impl Receipts {
             .find(|entry| entry.ticket == query.ticket && entry.method == DIAGNOSTIC)
             .ok_or_else(unavailable)?;
         if method == "routing.diagnosticCancel" {
-            entry
-                .cancel
-                .as_ref()
-                .unwrap()
-                .store(true, Ordering::Release);
             if matches!(entry.phase, Phase::Prepared(_) | Phase::Queued) {
-                entry.phase = Phase::NotSubmitted;
+                entry.phase = Phase::Cancelled;
+            } else if matches!(entry.phase, Phase::Running | Phase::Finished(Ok(()))) {
+                entry.cancel.as_ref().unwrap().cancel();
             }
             return Ok(Some(Value::Null));
         }
         match &entry.phase {
             Phase::Prepared(_) => {
                 entry.phase = Phase::NotSubmitted;
-                Err(ApiError::new(
-                    "DIAGNOSTIC_NOT_STARTED",
-                    "The diagnostic did not reach the service. Run it again.",
-                ))
+                Err(diagnostic_not_started())
             }
-            Phase::NotSubmitted => Ok(Some(json!({"busy":false,"cancelled":true}))),
+            Phase::NotSubmitted => Err(diagnostic_not_started()),
+            Phase::Cancelled => Ok(Some(json!({"busy":false,"cancelled":true}))),
             Phase::Queued | Phase::Running => Ok(Some(json!({"busy":true}))),
             Phase::Finished(Err(error)) => Err(error.clone()),
             Phase::Finished(Ok(())) => Ok(None),
@@ -218,7 +216,7 @@ impl Receipts {
         }
     }
 
-    pub fn diagnostic_stop(&self, ticket: &str) -> Result<Arc<AtomicBool>> {
+    pub fn diagnostic_stop(&self, ticket: &str) -> Result<Arc<Cancellation>> {
         self.0
             .lock()
             .unwrap()
@@ -256,6 +254,17 @@ fn unavailable() -> ApiError {
     )
 }
 
+fn cancelled() -> ApiError {
+    ApiError::new("CANCELLED", "The diagnostic was cancelled.")
+}
+
+fn diagnostic_not_started() -> ApiError {
+    ApiError::new(
+        "DIAGNOSTIC_NOT_STARTED",
+        "The diagnostic did not reach the service. Run it again.",
+    )
+}
+
 pub struct Admission {
     receipts: Receipts,
     ticket: String,
@@ -275,9 +284,7 @@ impl Admission {
                 Ok(())
             }
             Phase::Finished(Err(error)) => Err(error.clone()),
-            Phase::NotSubmitted if entry.method == DIAGNOSTIC => {
-                Err(ApiError::new("CANCELLED", "The diagnostic was cancelled."))
-            }
+            Phase::Cancelled => Err(cancelled()),
             _ => Err(unavailable()),
         }
     }
@@ -373,6 +380,14 @@ mod tests {
     #[test]
     fn diagnostics_cancel_before_admission_and_after_start_without_the_start_reply() {
         let receipts = Receipts::default();
+        let mut not_admitted = receipts.prepare(DIAGNOSTIC).unwrap();
+        receipts
+            .diagnostic("routing.diagnosticCancel", &not_admitted)
+            .unwrap();
+        assert!(
+            matches!(receipts.admit(DIAGNOSTIC, &mut not_admitted), Err(error) if error.code == "CANCELLED")
+        );
+
         let mut delayed = receipts.prepare(DIAGNOSTIC).unwrap();
         let queued = receipts.admit(DIAGNOSTIC, &mut delayed).unwrap().unwrap();
         receipts
@@ -395,6 +410,6 @@ mod tests {
         receipts
             .diagnostic("routing.diagnosticCancel", &started)
             .unwrap();
-        assert!(stop.load(Ordering::Acquire));
+        assert_eq!(stop.check().unwrap_err().code, "CANCELLED");
     }
 }

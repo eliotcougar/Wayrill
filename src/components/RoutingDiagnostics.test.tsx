@@ -190,6 +190,40 @@ it('loads the result after a lost diagnostic start reply using the same ticket',
   ).toHaveLength(1);
 });
 
+it('shows a completed result when a cancellation request reaches the service too late', async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(serviceCall).mockImplementation(async (method) => {
+      if (method === 'routing.diagnosticPrepare') return { ticket: 'probe-ticket' } as never;
+      if (method === 'routing.diagnosticStart') return { job: 11, busy: true } as never;
+      if (method === 'routing.diagnosticCancel') return null as never;
+      return {
+        job: 11,
+        busy: false,
+        result: { ruleIndex: 0, outboundTag: 'direct' },
+        error: null,
+        cancelled: false,
+      } as never;
+    });
+    await render(draft, {
+      ...runtime,
+      capabilities: ['routing.diagnostics', 'routing.commandReceipts'],
+    });
+    await destination('example.com');
+    await act(() => button('Evaluate route').click());
+    await act(() => button('Cancel test').click());
+    expect(serviceCall).toHaveBeenCalledWith('routing.diagnosticCancel', {
+      ticket: 'probe-ticket',
+    });
+    expect(button('Cancelling…').disabled).toBe(true);
+    await act(() => vi.advanceTimersByTimeAsync(150));
+    expect(host.querySelector('[aria-label="Diagnostic result"]')?.textContent).toContain('Direct');
+    expect(host.textContent).not.toContain('Test cancelled.');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('does not bypass unavailable-service guards when Enter is pressed in the destination', async () => {
   await render(draft, { ...runtime, connected: false });
   await destination('example.com');

@@ -130,6 +130,32 @@ impl Journal {
     }
 }
 
+pub(crate) const LOOPBACK_JOURNAL: &str = "pool-loopback.json";
+
+pub(crate) fn uninstall_loopback(owner: &str) -> Result<()> {
+    crate::native::require_offline_installer()?;
+    let data =
+        PathBuf::from(std::env::var_os("ProgramData").ok_or_else(|| {
+            ApiError::new("INSTALLER_STATE", "Windows ProgramData is unavailable.")
+        })?)
+        .join("Wayrill");
+    let path = data.join(LOOPBACK_JOURNAL);
+    let executable = std::env::current_exe()
+        .map_err(|error| ApiError::io("Locate the Loopback cleanup worker", error))?;
+    let attribution = executable.parent().unwrap().join("attribution");
+    match Loopback::apply(&path, &attribution, &[], owner) {
+        // An external change can be reported after all verified ownership has
+        // been released. Keep that edit and permit the uninstall to finish.
+        Err(error)
+            if error.code == "LOOPBACK_CONFLICT" && storage::read::<Journal>(&path)?.is_none() =>
+        {
+            crate::diagnostics::log("service", "warn", &error.message);
+            Ok(())
+        }
+        result => result,
+    }
+}
+
 pub struct Loopback {
     path: PathBuf,
     attribution: PathBuf,
@@ -155,6 +181,17 @@ impl Loopback {
         self.active.as_ref().is_some_and(|job| !job.is_finished())
     }
 
+    pub fn drain(&mut self) -> Option<Result<()>> {
+        self.active.take().map(|job| {
+            job.join().unwrap_or_else(|_| {
+                Err(ApiError::new(
+                    "POOL",
+                    "The Loopback settings job ended unexpectedly.",
+                ))
+            })
+        })
+    }
+
     pub fn reconcile(
         &mut self,
         desired: Vec<String>,
@@ -164,13 +201,7 @@ impl Loopback {
         if self.busy() {
             return None;
         }
-        if let Some(job) = self.active.take() {
-            let result = job.join().unwrap_or_else(|_| {
-                Err(ApiError::new(
-                    "POOL",
-                    "The Loopback settings job ended unexpectedly.",
-                ))
-            });
+        if let Some(result) = self.drain() {
             self.idle = result.is_ok() && self.desired.is_empty();
             return Some(result);
         }

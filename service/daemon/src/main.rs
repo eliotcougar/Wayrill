@@ -215,6 +215,21 @@ fn main() {
         }
         return;
     }
+    if args.len() == 3 && args[1] == "--clear-pool-loopback" {
+        let result = if valid_owner(&args[2]) {
+            pool_device::uninstall_loopback(&args[2])
+        } else {
+            Err(ApiError::new(
+                "INVALID_PARAMS",
+                "Invalid installation owner SID.",
+            ))
+        };
+        if let Err(error) = result {
+            crate::diagnostics::error!("Remove Pool Loopback exemptions: {}", error.message);
+            std::process::exit(1);
+        }
+        return;
+    }
     if args.len() == 2 && args[1] == "--clear-timezones" {
         if let Err(error) = timezone_startup::uninstall() {
             crate::diagnostics::error!("Remove startup timezone settings: {}", error.message);

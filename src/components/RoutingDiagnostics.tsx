@@ -32,7 +32,11 @@ type Job = {
 };
 
 type Selector = { ticket: string } | { job: number };
-type DiagnosticRun = { controller: AbortController; selector?: Selector };
+type DiagnosticRun = {
+  controller: AbortController;
+  phase: 'preparing' | 'submitted' | 'cancelling';
+  selector?: Selector;
+};
 
 function serviceCode(error: unknown, code: string) {
   return !!error && typeof error === 'object' && 'code' in error && error.code === code;
@@ -53,6 +57,7 @@ async function cancelDiagnostic(request: typeof serviceCall, selector: Selector)
 function useDiagnosticJob(request: typeof serviceCall, tickets: boolean) {
   const [state, setState] = useState<{
     busy: boolean;
+    cancelling?: boolean;
     result?: RoutingDiagnosticResult;
     error?: string;
   }>({ busy: false });
@@ -66,13 +71,21 @@ function useDiagnosticJob(request: typeof serviceCall, tickets: boolean) {
   }, [request]);
   useEffect(() => retire, [retire]);
   const cancel = () => {
-    retire();
-    setState({ busy: false, error: 'Test cancelled.' });
+    const job = current.current;
+    if (!job || job.phase === 'cancelling') return;
+    if (job.phase === 'preparing') {
+      retire();
+      setState({ busy: false, error: 'Test cancelled.' });
+      return;
+    }
+    job.phase = 'cancelling';
+    if (job.selector) void cancelDiagnostic(request, job.selector);
+    setState({ busy: true, cancelling: true });
   };
 
   const run = async (input: Record<string, unknown>) => {
     if (current.current) return;
-    const job: DiagnosticRun = { controller: new AbortController() };
+    const job: DiagnosticRun = { controller: new AbortController(), phase: 'preparing' };
     current.current = job;
     const signal = job.controller.signal;
     setState({ busy: true });
@@ -107,13 +120,15 @@ function useDiagnosticJob(request: typeof serviceCall, tickets: boolean) {
         }
       }
       signal.throwIfAborted();
+      job.phase = 'submitted';
       const start = request<Job>('routing.diagnosticStart', { ...input, ...job.selector });
       if (!job.selector) {
         void start.then(
           (reply) => {
             if (!reply.busy) return;
             job.selector = { job: reply.job };
-            if (signal.aborted) void cancelDiagnostic(request, job.selector);
+            if (signal.aborted || job.phase === 'cancelling')
+              void cancelDiagnostic(request, job.selector);
           },
           () => {},
         );
@@ -145,10 +160,13 @@ function useDiagnosticJob(request: typeof serviceCall, tickets: boolean) {
     } catch (error) {
       if (current.current !== job) return;
       retire();
-      setState({ busy: false, error: errorText(error) });
+      setState({
+        busy: false,
+        error: serviceCode(error, 'CANCELLED') ? 'Test cancelled.' : errorText(error),
+      });
     }
   };
-  return { ...state, run, cancel, clear: () => setState({ busy: false }) };
+  return { ...state, run, cancel, retire, clear: () => setState({ busy: false }) };
 }
 
 export default function RoutingDiagnostics({
@@ -234,7 +252,8 @@ export default function RoutingDiagnostics({
   useEffect(() => {
     if (previous.current !== plan) {
       previous.current = plan;
-      test.cancel();
+      test.retire();
+      test.clear();
       setTested(null);
     }
   }, [plan, test]);
@@ -334,8 +353,8 @@ export default function RoutingDiagnostics({
               : 'Isolated test · no configuration changes'}
           </span>
           {test.busy ? (
-            <button className="secondary-button" onClick={test.cancel}>
-              Cancel test
+            <button className="secondary-button" disabled={test.cancelling} onClick={test.cancel}>
+              {test.cancelling ? 'Cancelling…' : 'Cancel test'}
             </button>
           ) : (
             <button className="primary-button" disabled={!canRun} onClick={() => void run()}>

@@ -119,6 +119,14 @@ ownership is independent of process/job lifetime. Explicit Stop releases it;
 installer retirement retains it across SCM Stop and replacement. This does not
 provide continuous containment between transitions; see SYSTEM-TRAFFIC-CAPTURE.md.
 
+Before an in-place upgrade retires the service, setup saves the installed
+service payload and its startup mode under protected ProgramData. A Windows
+scheduled task takes over if that setup process exits during replacement. It
+restores the verified backup or starts the verified replacement if setup reached
+that point. It uses the existing routing handoff and leaves mutable geodata and
+the applied profile in place. Successful setup or recovery retires the task and
+backup.
+
 Setup writes the upgrade intent before retiring the old service. The replacement
 service retries that intent independently of ordinary routing recovery. It
 atomically replaces the intent with a completion receipt after routing and its
@@ -129,7 +137,9 @@ Pool-managed Loopback changes journal the affected package families before the
 native write. Recovery checks those packages individually so unrelated changes
 cannot discard Wayrill's ownership. The full Windows list is still checked before
 each write. If a package's attributes conflict with the pending change, Wayrill
-preserves the native exception and reports the conflict.
+preserves the native exception and reports the conflict. Uninstall waits for
+the service to drain its Loopback work and releases verified Pool ownership
+before deleting the worker or its journal.
 
 ## Cleanup contract
 

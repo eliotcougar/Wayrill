@@ -47,6 +47,7 @@ FunctionEnd
 
 !include TextFunc.nsh
 !define WAYRILL_HOOK_DIR "${__FILEDIR__}"
+Var WayrillInstallerPid
 !macro WayrillReadInstallerLog Action LogPath
   Pop $0
   StrCpy $1 ""
@@ -94,11 +95,15 @@ FunctionEnd
   SetOutPath "$PLUGINSDIR"
   File /oname=Installer-Service.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Installer-Service.ps1"
   File /oname=Installer-Lifecycle.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Installer-Lifecycle.ps1"
+  File /oname=Installer-Recovery.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Installer-Recovery.ps1"
+  File /oname=Package-Files.ps1 "${WAYRILL_HOOK_DIR}\..\service\scripts\Package-Files.ps1"
   File /oname=installer-manifest.json "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\manifest.json"
   File /oname=upgrade-protection.exe "${WAYRILL_HOOK_DIR}\..\.tools\installer-service\wayrill-service.exe"
   Delete "$PLUGINSDIR\Wayrill-Service.log"
   ${DisableX64FSRedirection}
-  nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Installer-Service.ps1" -Action Prepare -LogPath "$PLUGINSDIR\Wayrill-Service.log"'
+  System::Call 'kernel32::GetCurrentProcessId() i.r4'
+  StrCpy $WayrillInstallerPid $4
+  nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Installer-Service.ps1" -Action Prepare -LogPath "$PLUGINSDIR\Wayrill-Service.log" -InstallerPid $WayrillInstallerPid'
   ${EnableX64FSRedirection}
   !insertmacro WayrillCheckExit Prepare
   SetOutPath "$INSTDIR"
@@ -133,7 +138,7 @@ FunctionEnd
   SetOverwrite on
   Delete "$PLUGINSDIR\Wayrill-Service.log"
   ${DisableX64FSRedirection}
-  nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Service\scripts\Installer-Service.ps1" -Action Install -PreviousManifest "$PLUGINSDIR\previous-manifest.json" -LogPath "$PLUGINSDIR\Wayrill-Service.log"'
+  nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Service\scripts\Installer-Service.ps1" -Action Install -PreviousManifest "$PLUGINSDIR\previous-manifest.json" -LogPath "$PLUGINSDIR\Wayrill-Service.log" -InstallerPid $WayrillInstallerPid'
   ${EnableX64FSRedirection}
   !insertmacro WayrillCheckExit Install
   ${If} $WayrillResourcesRequested = 1
@@ -154,6 +159,8 @@ FunctionEnd
   !insertmacro WayrillRemoveToolShortcuts "Pool" "Pool\wayrill-pool.exe"
   InitPluginsDir
   CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Service.ps1" "$PLUGINSDIR\Installer-Service.ps1"
+  CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Recovery.ps1" "$PLUGINSDIR\Installer-Recovery.ps1"
+  CopyFiles /SILENT "$INSTDIR\Service\scripts\Package-Files.ps1" "$PLUGINSDIR\Package-Files.ps1"
   CopyFiles /SILENT "$INSTDIR\Service\scripts\Installer-Lifecycle.ps1" "$PLUGINSDIR\Installer-Lifecycle.ps1"
   Delete "$PLUGINSDIR\Wayrill-Service.log"
   ${DisableX64FSRedirection}

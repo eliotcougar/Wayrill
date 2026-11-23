@@ -1066,51 +1066,7 @@ fn set_enabled(index: u32, enabled: bool) -> Result<()> {
 }
 
 pub(crate) fn uninstall() -> Result<()> {
-    use windows_service::{
-        service::{ServiceAccess, ServiceState},
-        service_manager::{ServiceManager, ServiceManagerAccess},
-    };
-    use windows_sys::Win32::{Security::*, System::Threading::*};
-    let mut token = ptr::null_mut();
-    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
-        return Err(native::os_error("Identify adapter cleanup caller"));
-    }
-    let token = native::Handle(token);
-    let mut elevation = TOKEN_ELEVATION::default();
-    let mut size = 0;
-    if unsafe {
-        GetTokenInformation(
-            token.0,
-            TokenElevation,
-            (&mut elevation as *mut TOKEN_ELEVATION).cast(),
-            std::mem::size_of_val(&elevation) as u32,
-            &mut size,
-        )
-    } == 0
-        || elevation.TokenIsElevated == 0
-    {
-        return Err(error(
-            "Run adapter cleanup from an Administrator installer.",
-        ));
-    }
-    let services = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
-        .map_err(|e| error(e.to_string()))?;
-    match services.open_service("WayrillService", ServiceAccess::QUERY_STATUS) {
-        Ok(service)
-            if service
-                .query_status()
-                .map_err(|e| error(e.to_string()))?
-                .current_state
-                != ServiceState::Stopped =>
-        {
-            return Err(error(
-                "Stop the Wayrill service before removing its adapters.",
-            ))
-        }
-        Ok(_) => {}
-        Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(1060) => {}
-        Err(e) => return Err(error(e.to_string())),
-    }
+    native::require_offline_installer().map_err(|failure| error(failure.message))?;
     let data =
         PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".into()))
             .join("Wayrill");

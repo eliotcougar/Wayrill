@@ -1,7 +1,7 @@
 //! Read-only, paged DAT browsing. Parsing/search run on one lazy worker, never
 //! under the networking coordinator lock. One indexed file and eight page results.
 mod ip;
-use crate::resources::{fields, validate_dat, MAX};
+use crate::resources::{fields, validate_dat_interruptible, MAX};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     thread,
     time::UNIX_EPOCH,
@@ -26,6 +26,8 @@ fn invalid(message: &str) -> ApiError {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Query {
+    #[serde(default)]
+    pub track: bool,
     pub file: String,
     pub kind: String,
     #[serde(default)]
@@ -123,6 +125,20 @@ fn stamp(root: &Path, q: &Query, generation: u64) -> Result<Stamp> {
         generation,
     })
 }
+
+fn changed() -> ApiError {
+    ApiError::new(
+        "RESOURCE_CHANGED",
+        "Resource data changed. Retry the lookup.",
+    )
+}
+
+fn check_stopped(stop: &AtomicBool) -> Result<()> {
+    if stop.load(Ordering::Relaxed) {
+        return Err(invalid("Resource browsing stopped."));
+    }
+    Ok(())
+}
 struct Group {
     records: Vec<(u32, u32)>,
     attributes: BTreeSet<String>,
@@ -183,18 +199,24 @@ fn record_value<'a>(record: &'a [u8], kind: &str) -> Result<(&'a [u8], u64)> {
 impl Index {
     fn load(root: &Path, q: &Query, key: Stamp, stop: &AtomicBool) -> Result<Self> {
         let mut data = Vec::new();
-        File::open(root.join(&q.file))
+        let mut file = File::open(root.join(&q.file))
             .map_err(|_| invalid("Cannot read resource file."))?
-            .take(MAX as u64 + 1)
-            .read_to_end(&mut data)
-            .map_err(|_| invalid("Cannot read resource file."))?;
-        if stamp(root, q, key.generation)? != key {
-            return Err(ApiError::new(
-                "RESOURCE_CHANGED",
-                "Resource data changed. Retry the browser request.",
-            ));
+            .take(MAX as u64 + 1);
+        let mut chunk = [0; 64 * 1024];
+        loop {
+            check_stopped(stop)?;
+            let n = file
+                .read(&mut chunk)
+                .map_err(|_| invalid("Cannot read resource file."))?;
+            if n == 0 {
+                break;
+            }
+            data.extend_from_slice(&chunk[..n]);
         }
-        validate_dat(&data, &q.kind)?;
+        if stamp(root, q, key.generation)? != key {
+            return Err(changed());
+        }
+        validate_dat_interruptible(&data, &q.kind, || check_stopped(stop))?;
         let mut groups = BTreeMap::new();
         let mut count = 0usize;
         for field in fields(&data) {
@@ -202,9 +224,7 @@ impl Index {
             if n != 1 || w != 2 {
                 continue;
             }
-            if stop.load(Ordering::Relaxed) {
-                return Err(invalid("Resource browsing stopped."));
-            }
+            check_stopped(stop)?;
             let mut code = String::new();
             let mut group = Group {
                 records: Vec::new(),
@@ -219,8 +239,8 @@ impl Index {
                         if count > 4_000_000 {
                             return Err(invalid("Resource dataset has too many records."));
                         }
-                        if count.is_multiple_of(1024) && stop.load(Ordering::Relaxed) {
-                            return Err(invalid("Resource browsing stopped."));
+                        if count.is_multiple_of(1024) {
+                            check_stopped(stop)?;
                         }
                         group.records.push((
                             (record.as_ptr() as usize - data.as_ptr() as usize) as u32,
@@ -332,7 +352,10 @@ impl Index {
                 total += 1;
             }
         } else {
-            for (code, g) in &self.groups {
+            for (i, (code, g)) in self.groups.iter().enumerate() {
+                if i.is_multiple_of(1024) {
+                    check_stopped(stop)?;
+                }
                 if !code.to_lowercase().contains(&needle) {
                     continue;
                 }
@@ -348,122 +371,228 @@ impl Index {
         )
     }
 }
-type Cached = VecDeque<(Query, Stamp, Option<Result<Value>>)>;
+enum Phase {
+    Queued,
+    Running(Arc<AtomicBool>),
+    Complete(Result<Value>),
+}
+
+struct Page {
+    job: String,
+    query: Query,
+    stamp: Stamp,
+    phase: Phase,
+}
+
+struct Work {
+    job: String,
+    query: Query,
+    stamp: Stamp,
+    stop: Arc<AtomicBool>,
+}
+
+#[derive(Default)]
+struct Queue {
+    closed: bool,
+    pages: VecDeque<Page>,
+}
+
+impl Queue {
+    fn start_next(&mut self) -> Option<Work> {
+        let page = self
+            .pages
+            .iter_mut()
+            .find(|page| matches!(page.phase, Phase::Queued))?;
+        let stop = Arc::new(AtomicBool::new(false));
+        page.phase = Phase::Running(stop.clone());
+        Some(Work {
+            job: page.job.clone(),
+            query: page.query.clone(),
+            stamp: page.stamp.clone(),
+            stop,
+        })
+    }
+
+    fn complete(&mut self, job: &str, result: Result<Value>) {
+        if let Some(page) = self.pages.iter_mut().find(|page| page.job == job) {
+            page.phase = Phase::Complete(result);
+        }
+    }
+
+    fn retire(&mut self, index: usize) {
+        if let Phase::Running(stop) = self.pages.remove(index).unwrap().phase {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn tracked(&self, job: &str) -> Option<usize> {
+        self.pages
+            .iter()
+            .position(|page| page.query.track && page.job == job)
+    }
+
+    fn reply(&mut self, index: usize) -> Result<Value> {
+        match &self.pages[index].phase {
+            Phase::Complete(Ok(page)) => Ok(page.clone()),
+            Phase::Complete(Err(error)) => {
+                let error = error.clone();
+                self.retire(index);
+                Err(error)
+            }
+            _ => Ok(json!({"ready":false})),
+        }
+    }
+}
+
 pub struct Browser {
     root: PathBuf,
-    cache: Arc<Mutex<Cached>>,
-    stop: Arc<AtomicBool>,
-    sender: Option<mpsc::SyncSender<(Query, Stamp)>>,
+    queue: Arc<(Mutex<Queue>, Condvar)>,
     worker: Option<thread::JoinHandle<()>>,
 }
 impl Browser {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            cache: Arc::new(Mutex::new(VecDeque::new())),
-            stop: Arc::new(AtomicBool::new(false)),
-            sender: None,
+            queue: Arc::default(),
             worker: None,
         }
     }
     pub fn shutdown(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        self.sender.take();
+        let (queue, wake) = self.queue.as_ref();
+        {
+            let mut queue = queue.lock().unwrap();
+            queue.closed = true;
+            while !queue.pages.is_empty() {
+                queue.retire(0);
+            }
+        }
+        wake.notify_one();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
     }
     pub fn browse(&mut self, q: Query, generation: u64) -> Result<Value> {
-        if self.stop.load(Ordering::Relaxed) {
-            return Err(invalid("Resource browsing stopped."));
-        }
         q.validate()?;
         let key = stamp(&self.root, &q, generation)?;
-        {
-            let mut cache = self.cache.lock().unwrap();
-            if let Some(i) = cache
-                .iter()
-                .position(|(request, k, _)| *request == q && *k == key)
-            {
-                let result = cache[i].2.clone();
-                // Report a failed lookup once, then let Retry perform new work.
-                // A sharing violation or rolled-back update need not change the stamp.
-                if matches!(result, Some(Err(_))) {
-                    cache.remove(i);
-                }
-                return result.unwrap_or_else(|| Ok(json!({"ready":false})));
-            }
+        let (queue, wake) = self.queue.as_ref();
+        let mut queue = queue.lock().unwrap();
+        if queue.closed {
+            return Err(invalid("Resource browsing stopped."));
         }
-        if self.sender.is_none() {
-            let (sender, receiver) = mpsc::sync_channel::<(Query, Stamp)>(8);
-            let cache = self.cache.clone();
-            let stop = self.stop.clone();
+        // A tracked request owns its pending work. Completed pages can be reused.
+        if let Some(i) = queue.pages.iter().position(|page| {
+            page.query == q
+                && page.stamp == key
+                && (!q.track || matches!(page.phase, Phase::Complete(Ok(_))))
+        }) {
+            return queue.reply(i);
+        }
+        if queue.pages.len() >= 8 {
+            let i = queue
+                .pages
+                .iter()
+                .position(|page| matches!(page.phase, Phase::Complete(_)))
+                .ok_or_else(|| ApiError::new("BUSY", "Resource browser is busy. Retry shortly."))?;
+            queue.retire(i);
+        }
+        if self.worker.is_none() {
+            let work = self.queue.clone();
             let root = self.root.clone();
             self.worker = Some(
                 thread::Builder::new()
                     .name("wayrill-geodata".into())
                     .spawn(move || {
+                        let (queue, wake) = work.as_ref();
                         let mut index: Option<Index> = None;
-                        while let Ok((q, key)) = receiver.recv() {
-                            if stop.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            let result = (|| {
-                                if !q.domain.is_empty() {
-                                    let result = crate::routing_diagnostics::geosite(
-                                        &root, &q.file, &q.domain, q.offset, q.limit, &stop,
-                                    )?;
-                                    if stamp(&root, &q, key.generation)? != key {
-                                        return Err(ApiError::new(
-                                            "RESOURCE_CHANGED",
-                                            "Resource data changed. Retry the lookup.",
-                                        ));
-                                    }
-                                    return Ok(result);
+                        loop {
+                            let page = {
+                                let mut queue = wake
+                                    .wait_while(queue.lock().unwrap(), |queue| {
+                                        !queue.closed
+                                            && !queue
+                                                .pages
+                                                .iter()
+                                                .any(|page| matches!(page.phase, Phase::Queued))
+                                    })
+                                    .unwrap();
+                                if queue.closed {
+                                    return;
                                 }
-                                if !q.cidr.is_empty() {
-                                    return ip::page(&[ip::Prefix::parse(&q.cidr)?], &q, &stop);
-                                }
-                                if index.as_ref().is_none_or(|i| i.stamp != key) {
-                                    index = Some(Index::load(&root, &q, key.clone(), &stop)?)
-                                }
-                                index.as_ref().unwrap().page(&q, &stop)
-                            })();
-                            if let Some((_, _, slot)) = cache
-                                .lock()
-                                .unwrap()
-                                .iter_mut()
-                                .find(|(r, k, _)| *r == q && *k == key)
-                            {
-                                *slot = Some(result)
-                            }
+                                queue.start_next().unwrap()
+                            };
+                            let result =
+                                load_page(&root, &page.query, &page.stamp, &mut index, &page.stop);
+                            queue.lock().unwrap().complete(&page.job, result);
                         }
                     })
                     .map_err(|_| invalid("Cannot start the resource browser."))?,
             );
-            self.sender = Some(sender);
         }
-        let mut cache = self.cache.lock().unwrap();
-        if cache.len() >= 8 {
-            if let Some(i) = cache.iter().position(|(_, _, r)| r.is_some()) {
-                cache.remove(i);
-            } else {
-                return Err(ApiError::new(
-                    "BUSY",
-                    "Resource browser is busy. Retry shortly.",
-                ));
+        let job = crate::tun::random_id()?;
+        let reply = if q.track {
+            json!({"ready":false,"job":job})
+        } else {
+            json!({"ready":false})
+        };
+        queue.pages.push_back(Page {
+            job,
+            query: q,
+            stamp: key,
+            phase: Phase::Queued,
+        });
+        wake.notify_one();
+        Ok(reply)
+    }
+
+    pub fn read(&self, job: &str, generation: impl FnOnce(&str) -> u64) -> Result<Value> {
+        let mut queue = self.queue.0.lock().unwrap();
+        let i = queue.tracked(job).ok_or_else(|| {
+            ApiError::new(
+                "RESOURCE_BROWSE_EXPIRED",
+                "This resource lookup is no longer available.",
+            )
+        })?;
+        let page = &queue.pages[i];
+        let latest = stamp(&self.root, &page.query, generation(&page.query.file));
+        match latest {
+            Ok(stamp) if stamp == page.stamp => queue.reply(i),
+            other => {
+                queue.retire(i);
+                Err(other.err().unwrap_or_else(changed))
             }
         }
-        cache.push_back((q.clone(), key.clone(), None));
-        if self.sender.as_ref().unwrap().try_send((q, key)).is_err() {
-            cache.pop_back();
-            return Err(ApiError::new(
-                "BUSY",
-                "Resource browser is busy. Retry shortly.",
-            ));
-        }
-        Ok(json!({"ready":false}))
     }
+
+    pub fn cancel(&self, job: &str) {
+        let mut queue = self.queue.0.lock().unwrap();
+        if let Some(i) = queue.tracked(job) {
+            queue.retire(i);
+        }
+    }
+}
+
+fn load_page(
+    root: &Path,
+    q: &Query,
+    key: &Stamp,
+    index: &mut Option<Index>,
+    stop: &AtomicBool,
+) -> Result<Value> {
+    check_stopped(stop)?;
+    let result = if !q.domain.is_empty() {
+        crate::routing_diagnostics::geosite(root, &q.file, &q.domain, q.offset, q.limit, stop)?
+    } else if !q.cidr.is_empty() {
+        ip::page(&[ip::Prefix::parse(&q.cidr)?], q, stop)?
+    } else {
+        if index.as_ref().is_none_or(|i| i.stamp != *key) {
+            *index = Some(Index::load(root, q, key.clone(), stop)?);
+        }
+        index.as_ref().unwrap().page(q, stop)?
+    };
+    if stamp(root, q, key.generation)? != *key {
+        return Err(changed());
+    }
+    Ok(result)
 }
 impl Drop for Browser {
     fn drop(&mut self) {
@@ -524,6 +653,7 @@ mod tests {
     }
     pub(super) fn query(kind: &str) -> Query {
         Query {
+            track: false,
             file: format!("{kind}.dat"),
             kind: kind.into(),
             group: String::new(),
@@ -535,6 +665,38 @@ mod tests {
             offset: 0,
             limit: 100,
         }
+    }
+
+    #[test]
+    fn cancelling_one_lookup_retires_only_its_work_and_skips_queued_searches() {
+        let mut query = query("geoip");
+        query.track = true;
+        query.cidr = "192.0.2.0/24".into();
+        let key = stamp(Path::new(""), &query, 0).unwrap();
+        let mut queue = Queue::default();
+        for job in ["running", "superseded", "current"] {
+            queue.pages.push_back(Page {
+                job: job.into(),
+                query: query.clone(),
+                stamp: key.clone(),
+                phase: Phase::Queued,
+            });
+        }
+        let running = queue.start_next().unwrap();
+        queue.retire(queue.tracked("superseded").unwrap());
+        assert!(!running.stop.load(Ordering::Relaxed));
+        queue.retire(queue.tracked(&running.job).unwrap());
+        assert!(running.stop.load(Ordering::Relaxed));
+        queue.complete(&running.job, Ok(json!({"ready":true,"total":999})));
+        let current = queue.start_next().unwrap();
+        assert_eq!(current.job, "current");
+        assert!(!current.stop.load(Ordering::Relaxed));
+        assert!(queue.start_next().is_none());
+        queue.complete(&current.job, Ok(json!({"ready":true,"total":1})));
+        assert_eq!(
+            queue.reply(queue.tracked("current").unwrap()).unwrap()["total"],
+            1
+        );
     }
     fn index(kind: &str) -> Index {
         let data = dataset(kind);

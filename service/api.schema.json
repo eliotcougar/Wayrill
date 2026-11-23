@@ -111,12 +111,29 @@
       "required": ["apiVersion", "id", "method", "params"],
       "additionalProperties": false
     },
+    "resourceBrowseJob": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "const": 1 },
+        "id": { "type": "integer", "minimum": 0 },
+        "method": { "enum": ["resources.browseGet", "resources.browseCancel"] },
+        "params": {
+          "type": "object",
+          "properties": { "job": { "type": "string", "pattern": "^[a-fA-F0-9]{32}$" } },
+          "required": ["job"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["apiVersion", "id", "method", "params"],
+      "additionalProperties": false
+    },
     "request": {
       "oneOf": [
         { "$ref": "#/$defs/routingActivity" },
         { "$ref": "#/$defs/companionRoutes" },
         { "$ref": "#/$defs/diagnosticStart" },
         { "$ref": "#/$defs/diagnosticJob" },
+        { "$ref": "#/$defs/resourceBrowseJob" },
         {
           "type": "object",
           "properties": {
@@ -2016,6 +2033,10 @@
             "params": {
               "type": "object",
               "properties": {
+                "track": {
+                  "type": "boolean",
+                  "description": "Return a cancellable job ID if the page is still being prepared."
+                },
                 "file": {
                   "type": "string",
                   "pattern": "^[a-zA-Z0-9_-]+\\.dat$",

@@ -106,6 +106,45 @@ it.each(['groups', 'entries'] as const)(
 async function wait() {
   await act(async () => vi.advanceTimersByTimeAsync(150));
 }
+
+it('cancels a superseded search even when its job ID arrives after the replacement page', async () => {
+  let reply: (result: { ready: boolean; job: string }) => void = () => {};
+  vi.mocked(serviceCall).mockImplementation(async (method, params = {}) => {
+    if (method === 'resources.status') return { generation: 0, files: [] } as never;
+    if (method === 'resources.browseCancel') return null as never;
+    if (params.query === '')
+      return new Promise((resolve) => {
+        reply = resolve;
+      }) as never;
+    return { ready: true, total: 1, rows: [{ code: 'replacement', count: 1 }] } as never;
+  });
+  await act(() =>
+    root.render(
+      <GeodataBrowser
+        kind="geosite"
+        resources={factoryResources()}
+        onInsert={() => null}
+        onClose={vi.fn()}
+      />,
+    ),
+  );
+  await wait();
+  await act(() => {
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Search groups"]')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'replace',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await wait();
+  expect(host.textContent).toContain('replacement');
+  await act(() => reply({ ready: false, job: 'old-query' }));
+  expect(serviceCall).toHaveBeenCalledWith('resources.browseCancel', { job: 'old-query' });
+  expect(serviceCall).not.toHaveBeenCalledWith('resources.browseGet', { job: 'old-query' });
+  expect(host.textContent).toContain('replacement');
+});
+
 it('selects a group from its count cell and keeps cursor insertion independent of modal focus', async () => {
   const change = vi.fn();
   const input = document.createElement('textarea');

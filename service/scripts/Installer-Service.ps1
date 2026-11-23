@@ -1,4 +1,4 @@
-﻿param([ValidateSet('Prepare','Install','Uninstall')][string]$Action,[string]$PreviousManifest,[string]$LogPath)
+﻿param([ValidateSet('Prepare','Install','Uninstall')][string]$Action,[string]$PreviousManifest,[string]$LogPath,[int]$InstallerPid)
 $ErrorActionPreference='Stop'
 if ($LogPath) {
  # NSIS reads this fixed UTF-16LE boundary. Do not send localized PowerShell
@@ -6,7 +6,7 @@ if ($LogPath) {
  $taskLog=[IO.StreamWriter]::new($LogPath,$false,[Text.Encoding]::Unicode)
  $taskExit=0
  try {
-  & $PSCommandPath -Action $Action -PreviousManifest $PreviousManifest *>&1 |
+ & $PSCommandPath -Action $Action -PreviousManifest $PreviousManifest -InstallerPid $InstallerPid *>&1 |
    Out-String -Stream | ForEach-Object { $taskLog.WriteLine($_) }
  } catch {
   $taskLog.WriteLine($_.Exception.Message)
@@ -15,6 +15,8 @@ if ($LogPath) {
  exit $taskExit
 }
 . (Join-Path $PSScriptRoot 'Installer-Lifecycle.ps1')
+. (Join-Path $PSScriptRoot 'Installer-Recovery.ps1')
+. (Join-Path $PSScriptRoot 'Package-Files.ps1')
 $taskRoot=Join-Path $env:ProgramFiles 'Wayrill'
 $taskTarget=Join-Path $taskRoot 'Service'
 $taskSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
@@ -30,12 +32,16 @@ foreach($taskDir in @($taskRoot,(Join-Path $env:ProgramData 'Wayrill'))) {
 }
 $taskService=Get-CimInstance Win32_Service -Filter "Name='WayrillService'"
 if($taskService -and $taskService.PathName -ne ('"'+$taskTarget+'\wayrill-service.exe" --owner-sid '+$taskOwner)) { throw 'An existing service belongs to a different installation or user.' }
+$taskInstallerLock=Lock-WayrillInstallerRecovery
+try {
+if ($Action -ne 'Install' -and (Read-WayrillInstallerRecovery)) { throw 'An interrupted Wayrill installation is awaiting recovery. Retry after recovery completes.' }
 switch($Action) {
  'Prepare' {
   $taskManifest=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'installer-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   $taskDriver=$taskManifest.files | Where-Object path -eq 'windivert\WinDivert64.sys'
   $taskSys=Join-Path $taskTarget 'windivert\WinDivert64.sys'
   if((Test-Path -LiteralPath $taskSys) -and (Get-FileHash -LiteralPath $taskSys -Algorithm SHA256).Hash -ne $taskDriver.sha256) { throw 'A different shared WinDivert driver needs explicit maintenance before this upgrade.' }
+  if ($taskService -and $InstallerPid) { Start-WayrillInstallerRecovery $InstallerPid $taskOwner $taskService }
   Invoke-WayrillWithoutCompanion -Path (Join-Path $taskTarget 'wayrill-companion.exe') -OwnerSid $taskOwner -Action {
   Close-WayrillDesktop $taskOwner
   $taskResume=Join-Path $env:ProgramData 'Wayrill\upgrade-resume.json'
@@ -70,6 +76,7 @@ switch($Action) {
     $taskIntent=[ordered]@{version=1;transactionId=$taskId;ownerSid=$taskOwner;revision=$taskBefore.config.revision;profileSha256=$taskProfileHash;resumeRouting=$taskResumeRouting;settings=@($taskBindings)}
     # Write intent before retirement. A canceled installer must not lose the
     # information needed to resume routing and its protected applications.
+    if ($InstallerPid) { Set-WayrillInstallerRecoveryPhase $InstallerPid $taskOwner 'replacing' }
     Save-WayrillUpgradeHandoff $taskIntent $taskResume
     Stop-WayrillRouting -OwnerSid $taskOwner -ForUpgrade
     $taskAfter=Invoke-WayrillInstallerApi -Method system.capture.get -OwnerSid $taskOwner
@@ -86,6 +93,9 @@ switch($Action) {
     $taskIntent.settings=@($taskBindings)
     Save-WayrillUpgradeHandoff $taskIntent $taskResume
    }
+   else {
+    if ($InstallerPid) { Set-WayrillInstallerRecoveryPhase $InstallerPid $taskOwner 'replacing' }
+   }
    Stop-WayrillInstalledService
   }
   Assert-WayrillRecoveryComplete
@@ -98,6 +108,12 @@ switch($Action) {
   }
  }
  'Install' {
+  $taskRecovery=Read-WayrillInstallerRecovery
+  if ($taskRecovery -and ($taskRecovery.installerPid -ne $InstallerPid -or $taskRecovery.ownerSid -ne $taskOwner -or
+       -not (Test-WayrillInstallerAlive $taskRecovery) -or $taskRecovery.phase -ne 'replacing')) {
+   throw 'Installer recovery does not belong to this setup process.'
+  }
+  $taskRecoveryPid=if($taskRecovery){$InstallerPid}else{0}
   foreach($taskKind in @('geoip','geosite')) {
    $taskOld=Join-Path $taskTarget ('xray\russian-'+$taskKind+'.dat')
    $taskNew=Join-Path $taskTarget ('xray\ru-'+$taskKind+'.dat')
@@ -106,19 +122,25 @@ switch($Action) {
      Copy-Item -LiteralPath $taskOld -Destination $taskNew -Force
      if((Get-FileHash -LiteralPath $taskOld).Hash -ne (Get-FileHash -LiteralPath $taskNew).Hash) { throw 'Resource rename verification failed.' }
     }
-    Remove-Item -LiteralPath $taskOld -Force
    }
   }
   $taskTransaction=if($PreviousManifest){Join-Path (Split-Path $PreviousManifest -Parent) 'upgrade-transaction.txt'}else{''}
   $taskTransactionId=if($taskTransaction -and (Test-Path -LiteralPath $taskTransaction)){(Get-Content -LiteralPath $taskTransaction -Raw).Trim()}else{''}
-  & (Join-Path $taskTarget 'scripts\Install-Service.ps1') -OwnerSid $taskOwner -UpgradeTransaction $taskTransactionId
+  & (Join-Path $taskTarget 'scripts\Install-Service.ps1') -OwnerSid $taskOwner -UpgradeTransaction $taskTransactionId -RecoveryInstallerPid $taskRecoveryPid
+  if ($taskRecovery) { Remove-WayrillInstallerRecovery }
+  foreach ($taskKind in @('geoip','geosite')) {
+   $taskOld=Join-Path $taskTarget ('xray\russian-'+$taskKind+'.dat')
+   if (Test-Path -LiteralPath $taskOld) { Remove-Item -LiteralPath $taskOld -Force -ErrorAction SilentlyContinue }
+  }
   if ($PreviousManifest -and (Test-Path -LiteralPath $PreviousManifest)) {
    try {
-    . (Join-Path $taskTarget 'scripts\Package-Files.ps1')
     $taskCleanup=Remove-WayrillObsoletePackageFiles -Target $taskTarget -PreviousManifest $PreviousManifest -CurrentManifest (Join-Path $taskTarget 'manifest.json')
     Write-Output ("Obsolete package files removed: "+$taskCleanup.removed+"; modified or locked files preserved: "+$taskCleanup.preserved)
    } catch { Write-Warning 'Previous package cleanup was skipped. The installed service remains available.' }
   }
  }
  'Uninstall' { & (Join-Path $taskTarget 'scripts\Uninstall-Service.ps1') }
+}
+} finally {
+ if ($taskInstallerLock) { $taskInstallerLock.Dispose() }
 }

@@ -89,19 +89,22 @@ it('preselects an observed filter and supports every entry mode and exact core-b
   await choose('Entry', 'full:custom.test');
   expect(field('Entry type').value).toBe('custom');
   const file = field('Resource file').value;
-  call.mockResolvedValue({
+  call.mockRejectedValueOnce({ code: 'INVALID_PARAMS', message: 'Unknown query field.' });
+  call.mockResolvedValueOnce({
     ready: true,
     total: 1,
     rows: [{ code: 'work', count: 12, matchedBy: 'domain:test' }],
   });
   await click('Find groups');
-  expect(call).toHaveBeenCalledExactlyOnceWith('resources.browse', {
+  const lookup = {
     file,
     kind: 'geosite',
     domain: 'page.test',
     offset: 0,
     limit: 100,
-  });
+  };
+  expect(call).toHaveBeenNthCalledWith(1, 'resources.browse', { ...lookup, track: true });
+  expect(call).toHaveBeenNthCalledWith(2, 'resources.browse', lookup);
   await choose('Matching groups', 'work');
   expect(field('Entry').value).toBe('geosite:work');
   expect(host.textContent).toContain('Adds the entire group.');

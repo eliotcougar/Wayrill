@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Dialog from './Dialog';
 import {
@@ -8,8 +8,9 @@ import {
 } from '../companionRules';
 import { readRuleTable } from '../graph/rules';
 import { readGraphResources } from '../graph/resources';
-import { geoSources, type GeoGroup, type GeoPage } from '../geodata';
-import { errorText, serviceCall } from '../serviceClient';
+import { geoSources, type GeoGroup } from '../geodata';
+import { errorText } from '../serviceClient';
+import { useGeodataPage } from '../useGeodataPage';
 import type { GraphState } from '../graph/types';
 import './CompanionRuleDialog.css';
 
@@ -52,50 +53,21 @@ export default function CompanionRuleDialog({
   const [lookup, setLookup] = useState<{ file: string; offset: number; attempt: number } | null>(
     null,
   );
-  const lookupKey = JSON.stringify(lookup);
-  const [result, setResult] = useState<{ key: string; page?: GeoPage; error?: string }>({
-    key: '',
-  });
-  useEffect(() => {
-    if (!lookup) return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const read = async () => {
-      try {
-        const page = await serviceCall<GeoPage>('resources.browse', {
-          file: lookup.file,
-          kind: 'geosite',
-          domain: request.host,
-          offset: lookup.offset,
-          limit: 100,
-        });
-        if (!active) return;
-        if (!page.ready) {
-          timer = setTimeout(() => void read(), 250);
-          return;
-        }
-        setResult({ key: lookupKey, page });
-      } catch (failure) {
-        if (!active) return;
-        if (
-          failure &&
-          typeof failure === 'object' &&
-          'code' in failure &&
-          ['BUSY', 'RESOURCE_CHANGED'].includes(String(failure.code))
-        ) {
-          timer = setTimeout(() => void read(), 350);
-          return;
-        }
-        setResult({ key: lookupKey, error: errorText(failure) });
-      }
-    };
-    void read();
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [lookup, lookupKey, request.host]);
-  const page = result.key === lookupKey ? result.page : undefined;
+  const {
+    page,
+    loading,
+    error: lookupError,
+  } = useGeodataPage(
+    lookup && {
+      file: lookup.file,
+      kind: 'geosite',
+      domain: request.host,
+      offset: lookup.offset,
+      limit: 100,
+    },
+    String(lookup?.attempt ?? 0),
+    0,
+  );
   const groups = (page?.rows ?? []) as MatchGroup[];
   const [group, setGroup] = useState('');
   const selectedGroup = groups.find((row) => row.code === group);
@@ -260,7 +232,7 @@ export default function CompanionRuleDialog({
               </label>
               <button
                 className="secondary-button"
-                disabled={!source || (!!lookup && result.key !== lookupKey)}
+                disabled={!source || loading}
                 onClick={() => {
                   setGroup('');
                   setLookup({ file, offset: 0, attempt: (lookup?.attempt ?? 0) + 1 });
@@ -269,12 +241,10 @@ export default function CompanionRuleDialog({
                 Find groups
               </button>
             </div>
-            {lookup && !page && result.key !== lookupKey && (
-              <p role="status">Finding matching groups…</p>
-            )}
-            {result.key === lookupKey && result.error && (
+            {loading && <p role="status">Finding matching groups…</p>}
+            {lookupError && (
               <p role="alert" className="notice error">
-                {result.error}
+                {lookupError}
               </p>
             )}
             {page && (

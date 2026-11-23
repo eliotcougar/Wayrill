@@ -6,70 +6,35 @@ import {
   parseGeoExpression,
   type GeoGroup,
   type GeoEntry,
-  type GeoPage,
 } from '../geodata';
 import { resourceFilename, type ResourceKind, type ResourceSet } from '../graph/resources';
-import { errorText, serviceCall } from '../serviceClient';
+import { serviceCall } from '../serviceClient';
+import { useGeodataPage } from '../useGeodataPage';
 import useModalDialog from './useModalDialog';
 
 function usePage(
-  params: (Record<string, unknown> & { offset: number; limit: number }) | null,
+  params: (Record<string, unknown> & { file: string; offset: number; limit: number }) | null,
   revision: string,
   changeOffset: (offset: number) => void,
 ) {
-  const key = JSON.stringify([params, revision]);
-  const [state, setState] = useState<{ key: string; page?: GeoPage; error?: string }>({ key: '' });
+  const { page, error, settled } = useGeodataPage(params, revision);
+  const total = page?.total ?? 0;
+  const correctedOffset =
+    page && params && params.offset > 0 && params.offset >= total
+      ? Math.max(0, Math.ceil(total / params.limit) - 1) * params.limit
+      : undefined;
   useEffect(() => {
-    const [input] = JSON.parse(key) as [typeof params, string];
-    if (!input) return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const read = async () => {
-      try {
-        const page = await serviceCall<GeoPage>('resources.browse', input);
-        if (!active) return;
-        if (!page.ready) {
-          timer = setTimeout(() => void read(), 250);
-          return;
-        }
-        const total = page.total ?? 0;
-        if (input.offset > 0 && input.offset >= total) {
-          changeOffset(Math.max(0, Math.ceil(total / input.limit) - 1) * input.limit);
-          return;
-        }
-        setState({ key, page });
-      } catch (error) {
-        if (!active) return;
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          ['BUSY', 'RESOURCE_CHANGED'].includes(String(error.code))
-        ) {
-          timer = setTimeout(() => void read(), 350);
-          return;
-        }
-        setState({ key, error: errorText(error) });
-      }
-    };
-    timer = setTimeout(() => void read(), 150);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [key, changeOffset]);
-  const previous = state.key
-    ? (JSON.parse(state.key) as [Record<string, unknown> | null, string])[0]
-    : null;
+    if (correctedOffset !== undefined) changeOffset(correctedOffset);
+  }, [changeOffset, correctedOffset]);
+  const previous = settled?.input;
   const sameGroup =
     previous &&
     params &&
     ['file', 'kind', 'group'].every((name) => previous[name] === params[name]);
   return {
-    key,
-    page: state.key === key ? state.page : undefined,
-    error: state.key === key ? state.error : undefined,
-    group: sameGroup ? state.page?.group : undefined,
+    page: correctedOffset === undefined ? page : undefined,
+    error,
+    group: sameGroup ? settled?.page?.group : undefined,
   };
 }
 function Pages({

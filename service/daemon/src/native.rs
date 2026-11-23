@@ -26,6 +26,56 @@ pub fn wide(text: &str) -> Vec<u16> {
 pub fn os_error(context: &str) -> ApiError {
     ApiError::io(context, std::io::Error::last_os_error())
 }
+/// An offline installer may reconcile native ownership after the service exits.
+pub(crate) fn require_offline_installer() -> Result<()> {
+    use windows_service::{
+        service::{ServiceAccess, ServiceState},
+        service_manager::{ServiceManager, ServiceManagerAccess},
+    };
+    let invalid = |message| ApiError::new("INSTALLER_STATE", message);
+    let mut token = ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(os_error("Identify installer caller"));
+    }
+    let token = Handle(token);
+    let mut elevation = TOKEN_ELEVATION::default();
+    let mut size = 0;
+    if unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenElevation,
+            (&mut elevation as *mut TOKEN_ELEVATION).cast(),
+            std::mem::size_of_val(&elevation) as u32,
+            &mut size,
+        )
+    } == 0
+        || elevation.TokenIsElevated == 0
+    {
+        return Err(invalid("Run this cleanup from an Administrator installer."));
+    }
+    let scm_error =
+        |error: windows_service::Error| ApiError::new("INSTALLER_STATE", error.to_string());
+    let services = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(scm_error)?;
+    match services.open_service(wayrill_protocol::SERVICE_NAME, ServiceAccess::QUERY_STATUS) {
+        Ok(service)
+            if service.query_status().map_err(scm_error)?.current_state
+                != ServiceState::Stopped =>
+        {
+            Err(invalid(
+                "Stop the Wayrill service before running offline cleanup.",
+            ))
+        }
+        Ok(_) => Ok(()),
+        Err(windows_service::Error::Winapi(error))
+            if error.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(scm_error(error)),
+    }
+}
+
 pub struct Handle(pub HANDLE);
 unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}

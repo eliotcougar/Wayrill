@@ -603,7 +603,7 @@ impl Kernel {
                 data.join("app-protection.json"),
             )?,
             pool_loopback: crate::pool_device::Loopback::new(
-                data.join("pool-loopback.json"),
+                data.join(crate::pool_device::LOOPBACK_JOURNAL),
                 base.join("attribution"),
             ),
             pool_protection_retry: None,
@@ -829,7 +829,7 @@ impl Kernel {
                 .map(|id| self.events.receipts.diagnostic_stop(id))
                 .transpose()?;
             if let Some(stop) = &cancel {
-                crate::routing_diagnostics::check_cancelled(stop)?;
+                stop.check()?;
             }
             request.config = normalize_config(request.config)?;
             let projection = self.resources.project(&request.config)?;
@@ -2913,6 +2913,9 @@ impl Kernel {
             return Ok(());
         }
         self.shutting_down = true;
+        if let Some(Err(error)) = self.pool_loopback.drain() {
+            crate::diagnostics::log("service", "warn", &error.message);
+        }
         let boot = if reason == crate::lifecycle::ServiceExit::WindowsShutdown {
             // Also covers Windows Fast Startup, which can retain volatile hives.
             crate::startup::session::Session::prepare_shutdown()

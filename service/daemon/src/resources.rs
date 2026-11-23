@@ -265,6 +265,14 @@ impl<'a> Iterator for Fields<'a> {
     }
 }
 pub fn validate_dat(data: &[u8], kind: &str) -> Result<usize> {
+    validate_dat_interruptible(data, kind, || Ok(()))
+}
+
+pub(crate) fn validate_dat_interruptible(
+    data: &[u8],
+    kind: &str,
+    check: impl Fn() -> Result<()>,
+) -> Result<usize> {
     if data.is_empty() || data.len() > MAX {
         return Err(invalid("DAT files must be nonempty and at most 128 MiB."));
     }
@@ -273,6 +281,7 @@ pub fn validate_dat(data: &[u8], kind: &str) -> Result<usize> {
     }
     let mut records = 0;
     for item in fields(data) {
+        check()?;
         let (field, wire, entry, _) = item?;
         if field != 1 {
             continue;
@@ -281,7 +290,10 @@ pub fn validate_dat(data: &[u8], kind: &str) -> Result<usize> {
             return Err(invalid("Invalid DAT dataset."));
         }
         let mut code = false;
-        for item in fields(entry) {
+        for (index, item) in fields(entry).enumerate() {
+            if index.is_multiple_of(1024) {
+                check()?;
+            }
             let (f, w, content, _) = item?;
             if f == 1 {
                 code = w == 2
@@ -305,6 +317,9 @@ pub fn validate_dat(data: &[u8], kind: &str) -> Result<usize> {
                 for (index, item) in fields(content).enumerate() {
                     if index >= 65536 {
                         return Err(invalid("DAT record has too many fields."));
+                    }
+                    if index > 0 && index.is_multiple_of(1024) {
+                        check()?;
                     }
                     let (field, wire, bytes, n) = item?;
                     if field == value_field {
@@ -1114,6 +1129,11 @@ impl Manager {
         struct Token {
             upload: String,
         }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct BrowseJob {
+            job: String,
+        }
         if matches!(
             method,
             "resources.browse" | "resources.ensure" | "resources.uploadBegin"
@@ -1144,6 +1164,24 @@ impl Manager {
                     .map_or(0, |m| m.content_generation);
                 drop(s);
                 self.browser.browse(q, generation)
+            }
+            "resources.browseGet" | "resources.browseCancel" => {
+                let BrowseJob { job } = params(input)?;
+                if job.len() != 32 || !job.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(invalid("Invalid resource lookup ID."));
+                }
+                if method == "resources.browseCancel" {
+                    self.browser.cancel(&job);
+                    return Ok(Value::Null);
+                }
+                let state = self.state.lock().unwrap();
+                self.browser.read(&job, |file| {
+                    state
+                        .stored
+                        .metadata
+                        .get(file)
+                        .map_or(0, |m| m.content_generation)
+                })
             }
             "resources.status" => {
                 if input != json!({}) {
@@ -1681,6 +1719,57 @@ mod transactional_tests {
                 .is_err());
             manager.shutdown();
         }
+    }
+
+    #[test]
+    fn tracked_resource_pages_cancel_independently_and_expire_when_the_data_changes() {
+        let lab = Lab::new();
+        fs::write(lab.root.join("assets/geoip.dat"), dat()).unwrap();
+        let mut manager = lab.manager();
+        let mut start = |query| {
+            let page = manager.handle("resources.browse", json!({"file":"geoip.dat","kind":"geoip","group":"us","query":query,"track":true})).unwrap();
+            json!({"job":page["job"].as_str().unwrap()})
+        };
+        let removed = start("obsolete");
+        let current = start("");
+        manager
+            .handle("resources.browseCancel", removed.clone())
+            .unwrap();
+        assert_eq!(
+            manager
+                .handle("resources.browseGet", removed)
+                .unwrap_err()
+                .code,
+            "RESOURCE_BROWSE_EXPIRED"
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let reply = manager
+                .handle("resources.browseGet", current.clone())
+                .unwrap();
+            if reply["ready"] == true {
+                assert_eq!(reply["rows"][0]["value"], "1.2.3.0/24");
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        manager
+            .state
+            .lock()
+            .unwrap()
+            .stored
+            .metadata
+            .entry("geoip.dat".into())
+            .or_default()
+            .content_generation += 1;
+        assert_eq!(
+            manager
+                .handle("resources.browseGet", current)
+                .unwrap_err()
+                .code,
+            "RESOURCE_CHANGED"
+        );
     }
     #[test]
     fn shutdown_joins_the_resource_transaction() {

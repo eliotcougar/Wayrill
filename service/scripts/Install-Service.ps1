@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidatePattern('^S-1-(5-21|12-1)-[0-9-]+$')][string]$OwnerSid,[ValidatePattern('^([a-f0-9]{32})?$')][string]$UpgradeTransaction='')
+param([Parameter(Mandatory=$true)][ValidatePattern('^S-1-(5-21|12-1)-[0-9-]+$')][string]$OwnerSid,[ValidatePattern('^([a-f0-9]{32})?$')][string]$UpgradeTransaction='',[int]$RecoveryInstallerPid)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Installer-Lifecycle.ps1')
 $taskIdentity=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -77,7 +77,6 @@ foreach ($taskEntry in $taskManifest.files | Where-Object path -Match '^timezone
 }
 if (-not $taskExisting) { New-Service -Name WayrillService -DisplayName 'Wayrill Networking Service' -BinaryPathName $taskCommand -StartupType Automatic -Description 'Wayrill networking coordinator. Routing starts on request or when explicitly enabled for Windows startup.' | Out-Null }
 foreach ($taskArguments in @(
-    @('config','WayrillService','start=','auto'),
     @('sidtype','WayrillService','unrestricted'),
     @('privs','WayrillService','SeChangeNotifyPrivilege/SeImpersonatePrivilege/SeTcbPrivilege/SeAssignPrimaryTokenPrivilege/SeIncreaseQuotaPrivilege/SeLoadDriverPrivilege/SeDebugPrivilege'),
     @('failure','WayrillService','reset=','86400','actions=','restart/3000/restart/10000/restart/30000'),
@@ -86,6 +85,12 @@ foreach ($taskArguments in @(
 )) { & sc.exe @taskArguments | Out-Null; if ($LASTEXITCODE -ne 0) { throw "SCM configuration failed: $($taskArguments[0])" } }
 & $taskExe --configure-service
 if ($LASTEXITCODE -ne 0) { throw 'SCM pre-shutdown configuration failed.' }
+if ($RecoveryInstallerPid) {
+    . (Join-Path $PSScriptRoot 'Installer-Recovery.ps1')
+    Set-WayrillInstallerRecoveryPhase $RecoveryInstallerPid $OwnerSid 'ready'
+}
+& sc.exe config WayrillService start= auto | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'SCM startup configuration failed.' }
 $taskResumeFailure=$null
 $taskHandoff=Join-Path $taskData 'upgrade-resume.json'
 Start-WayrillInstalledService

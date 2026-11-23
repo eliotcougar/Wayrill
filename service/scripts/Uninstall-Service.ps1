@@ -23,6 +23,13 @@ if ($taskService) {
     Assert-WayrillRecoveryComplete
 }
 Assert-WayrillRecoveryComplete
+if (Test-Path -LiteralPath (Join-Path $taskData 'pool-loopback.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $taskTarget 'wayrill-service.exe'))) {
+        throw 'Repair the missing service binary before restoring Pool-owned Loopback exemptions.'
+    }
+    & (Join-Path $taskTarget 'wayrill-service.exe') --clear-pool-loopback $taskOwner
+    if ($LASTEXITCODE -ne 0) { throw 'Pool-owned Loopback exemptions could not be restored. Installed files and ownership records were preserved.' }
+}
 if (Test-Path -LiteralPath (Join-Path $taskTarget 'wayrill-service.exe')) {
     & (Join-Path $taskTarget 'wayrill-service.exe') --clear-timezones
     if ($LASTEXITCODE -ne 0) { throw 'Startup timezone settings could not be removed. Installed files were preserved.' }
