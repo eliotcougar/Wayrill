@@ -28,9 +28,9 @@ into the official release binary. Exact current hashes belong in the manifests
 above rather than a second manually maintained hash table here.
 
 The shared FakeDNS patch includes real-DNS cancellation, allocator
-correctness and telemetry as well as shared FakeDNS. The patch currently covers
-**35 paths**, including tests and generated bindings. The file index below also
-lists the Go files and hooks that the builder adds to the private worker.
+correctness, dispatch and telemetry as well as shared FakeDNS. The file index
+below also lists the Go files and hooks that the builder adds to the private
+worker.
 
 ## Active changes
 
@@ -126,7 +126,9 @@ have the same effect even when the client sends no more packets. Ordinary
 local FullCone sockets can still receive unsolicited replies.
 
 Attributed destinations refresh their Windows socket ownership or NAT proof
-within a two-second lease. Sends and replies both require a current proof. A
+within a two-second lease. Outbound dequeue and replies both check the
+destination's current proof. An expired alias can lose queued packets while
+compatible destinations on the same socket continue. A
 changed owner retires the association and discards packets held for its old
 owner. The next packet is dispatched independently. A brief snapshot failure
 withholds traffic and allows a retry on the existing socket. Native ownership
@@ -147,8 +149,10 @@ WinDivert already routes each UDP datagram before choosing a relay.
 The server scopes XUDP resumption to the initial target, inbound and
 authenticated user as well as the wire ID. Each independently dispatched TUN
 association uses its own resume ID, including when the peer uses an older
-server. Resumption detaches the previous downlink reader without closing or
-draining the shared pipe, so the association can retain its remote socket.
+server. Expiry is enforced when the server admits a resume. During the handoff
+the old downlink reader is detached under the pipe's dequeue lock. It owns any
+buffers already dequeued, and the replacement takes unread buffers without
+closing the shared pipe or remote socket.
 
 Freedom uses full-size pooled scratch storage for native TUN replies. Paths
 that use smaller legacy frame buffers keep a small read buffer, detect
@@ -196,7 +200,9 @@ See [UDP buffers](xray-customizations.md) and [Global Defaults](../reference/def
 
 Native DNS work is coalesced per nameserver, domain and address family. Each
 waiter retains its own deadline; the shared work survives while another waiter
-needs it. The last waiter leaving cancels foreground work. Stale cache hits
+needs it. Each transport attempt owns its reply channel, so a late reply from a
+retired attempt cannot complete its replacement or overwrite the cache. The
+last waiter leaving cancels foreground work. Stale cache hits
 start or retain one refresh per name and address family, using the nameserver
 budget without a separate waiter. DNS shutdown cancels both kinds of work.
 The default shared deadline is eight seconds and extends for longer configured
@@ -241,9 +247,8 @@ are bounded. Consumer shutdown cancels pending work and closes its connection
 without closing the authority.
 
 The Rust service owns authority retention across compatible Apply/restart and
-rollback, and retirement on explicit Stop or pool replacement. Its health
-supervision and unresolved-synthetic-address guard are app behavior outside the
-core patch. See [FakeDNS](../guide/dns.md) and [lifecycle](lifecycle.md).
+rollback, retirement on explicit Stop or pool replacement, and health
+supervision. See [FakeDNS](../guide/dns.md) and [lifecycle](lifecycle.md).
 
 ### X05 — Request-aware FakeDNS allocation and recovery
 
@@ -252,10 +257,11 @@ errors through allocation and reverse lookup. Native FakeDNS DNS handling and
 metadata sniffing use it when present; old context-free local engines continue
 working. Metadata sniffer errors propagate instead of being discarded there.
 
-Legacy methods cannot carry request cancellation or distinguish an RPC failure
-from a missing mapping. The small native call-site changes preserve those
-distinctions for remote engines; the service's synthetic-address guard remains
-responsible for rejecting unresolved synthetic traffic.
+The dispatcher identifies synthetic destinations independently of the reverse
+lookup. It permits payload sniffing to recover a name when enabled. If the
+destination remains synthetic when FakeDNS recovery was requested, dispatch
+ends before selecting an outbound. The service also guards synthetic ranges
+in generated routing rules.
 
 ### X06 — Native resolver bridge
 
@@ -402,8 +408,10 @@ file containing more than one responsibility.
 
 | Upstream path | Change IDs |
 | --- | --- |
+| `app/dispatcher/default.go` | X05 |
 | `app/dispatcher/fakednssniffer.go` | X05 |
 | `app/dispatcher/sniffer.go` | X05 |
+| `app/dispatcher/wayrill_fakedns_dispatch_test.go` | X05 tests |
 | `app/dns/cache_controller.go` | X02 |
 | `app/dns/dns.go` | X02, X03 |
 | `app/dns/fakedns/address_width_test.go` | X07 tests |
@@ -424,8 +432,11 @@ file containing more than one responsibility.
 | `app/dns/fakedns/wayrill_usage_test.go` | X04, X08 tests |
 | `app/dns/nameserver.go` | X02, X06 |
 | `app/dns/nameserver_cached.go` | X02 |
+| `app/dns/nameserver_doh.go` | X02 |
 | `app/dns/nameserver_fakedns.go` | X05 |
+| `app/dns/nameserver_quic.go` | X02 |
 | `app/dns/nameserver_tcp.go` | X02 |
+| `app/dns/nameserver_udp.go` | X02 |
 | `app/dns/query_group.go` | X02 |
 | `app/dns/script.go` | X03 |
 | `app/dns/wayrill_cached_context_test.go` | X02, X03 tests |

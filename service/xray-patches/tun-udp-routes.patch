@@ -297,7 +297,7 @@ index b6314bf..f6aa31c 100644
  		s.icmp.close()
  	}
 diff --git a/proxy/tun/udp_fullcone.go b/proxy/tun/udp_fullcone.go
-index 6a71f4b..f47d27f 100644
+index 6a71f4b..6af95c9 100644
 --- a/proxy/tun/udp_fullcone.go
 +++ b/proxy/tun/udp_fullcone.go
 @@ -4,6 +4,7 @@ import (
@@ -346,28 +346,25 @@ index 6a71f4b..f47d27f 100644
  
  	queue *packetQueue
  	src   net.Destination
-@@ -90,6 +101,10 @@ func (c *udpConn) ReadMultiBuffer() (buf.MultiBuffer, error) {
+@@ -86,7 +97,7 @@ type udpConn struct {
+ }
+ 
+ func (c *udpConn) ReadMultiBuffer() (buf.MultiBuffer, error) {
+-	b, ok := c.queue.pop()
++	b, ok := c.readPacket()
  	if !ok {
  		return nil, io.EOF
  	}
-+	if c.wayrill != nil && !c.wayrill.active() {
-+		b.Release()
-+		return nil, io.EOF
-+	}
- 	return buf.MultiBuffer{b}, nil
- }
+@@ -95,7 +106,7 @@ func (c *udpConn) ReadMultiBuffer() (buf.MultiBuffer, error) {
  
-@@ -100,6 +115,9 @@ func (c *udpConn) Read(p []byte) (int, error) {
+ // Read packets from the connection
+ func (c *udpConn) Read(p []byte) (int, error) {
+-	b, ok := c.queue.pop()
++	b, ok := c.readPacket()
+ 	if !ok {
  		return 0, io.EOF
  	}
- 	defer b.Release()
-+	if c.wayrill != nil && !c.wayrill.active() {
-+		return 0, io.EOF
-+	}
- 	n := copy(p, b.Bytes())
- 	if n != int(b.Len()) {
- 		return 0, io.ErrShortBuffer
-@@ -117,7 +135,7 @@ func (c *udpConn) WriteMultiBuffer(mb buf.MultiBuffer) error {
+@@ -117,7 +128,7 @@ func (c *udpConn) WriteMultiBuffer(mb buf.MultiBuffer) error {
  				dst = *b.UDP
  			}
  		}
@@ -376,7 +373,7 @@ index 6a71f4b..f47d27f 100644
  		if err != nil {
  			buf.ReleaseMulti(mb[i:])
  			return err
-@@ -130,7 +148,7 @@ func (c *udpConn) WriteMultiBuffer(mb buf.MultiBuffer) error {
+@@ -130,7 +141,7 @@ func (c *udpConn) WriteMultiBuffer(mb buf.MultiBuffer) error {
  // Write returning packets back
  func (c *udpConn) Write(p []byte) (int, error) {
  	// sending packets back mean sending payload with source/destination reversed
@@ -385,7 +382,7 @@ index 6a71f4b..f47d27f 100644
  	if err != nil {
  		return 0, err
  	}
-@@ -138,6 +156,13 @@ func (c *udpConn) Write(p []byte) (int, error) {
+@@ -138,6 +149,13 @@ func (c *udpConn) Write(p []byte) (int, error) {
  	return len(p), nil
  }
  
@@ -399,7 +396,7 @@ index 6a71f4b..f47d27f 100644
  func (c *udpConn) Close() error {
  	c.handler.connectionFinished(c)
  
-@@ -176,6 +201,7 @@ type packetQueue struct {
+@@ -176,6 +194,7 @@ type packetQueue struct {
  	limit  int
  	notify chan struct{}
  	closed bool
@@ -407,7 +404,7 @@ index 6a71f4b..f47d27f 100644
  }
  
  func newPacketQueue(limit int) *packetQueue {
-@@ -189,6 +215,13 @@ func (q *packetQueue) push(b *buf.Buffer) bool {
+@@ -189,6 +208,13 @@ func (q *packetQueue) push(b *buf.Buffer) bool {
  	if q.closed || len(q.items) >= q.limit {
  		return false
  	}
@@ -421,7 +418,7 @@ index 6a71f4b..f47d27f 100644
  	q.items = append(q.items, b)
  	select {
  	case q.notify <- struct{}{}:
-@@ -208,6 +241,9 @@ func (q *packetQueue) pop() (*buf.Buffer, bool) {
+@@ -208,6 +234,9 @@ func (q *packetQueue) pop() (*buf.Buffer, bool) {
  			if len(q.items) == 0 {
  				q.items = nil
  			}
@@ -431,7 +428,7 @@ index 6a71f4b..f47d27f 100644
  			q.mu.Unlock()
  			return b, true
  		}
-@@ -220,6 +256,12 @@ func (q *packetQueue) pop() (*buf.Buffer, bool) {
+@@ -220,6 +249,12 @@ func (q *packetQueue) pop() (*buf.Buffer, bool) {
  	}
  }
  

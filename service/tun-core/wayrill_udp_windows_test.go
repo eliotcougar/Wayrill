@@ -220,6 +220,34 @@ func TestWayrillUDPDirectKeepsSocketWhenAliasesAreEvicted(t *testing.T) {
 
 type udpTestErrors chan error
 
+func TestWayrillUDPDequeueRequiresCurrentDestinationOwnership(t *testing.T) {
+	flows := newWayrillUDPFlows()
+	defer flows.close()
+	src := net.UDPDestination(net.ParseAddress("192.0.2.1"), 5000)
+	primary := net.UDPDestination(net.ParseAddress("192.0.2.2"), 5001)
+	alias := net.UDPDestination(net.ParseAddress("192.0.2.3"), 5002)
+	conn := &udpConn{
+		handler: &udpConnectionHandler{wayrill: flows},
+		src:     src, dst: primary, queue: newPacketQueue(2),
+		wayrill: &wayrillUDPFlow{key: udpFlowKey{src, primary}},
+	}
+	flows.flows[conn.wayrill.key] = conn
+	flows.addAliasLocked(udpFlowKey{src, alias}, conn, wayrillUDPBinding{until: time.Now().Add(-time.Second)})
+	for _, destination := range []net.Destination{alias, primary} {
+		b := buf.FromBytes([]byte("packet"))
+		b.UDP = &destination
+		if !conn.queue.push(b) {
+			b.Release()
+			t.Fatal("queue setup failed")
+		}
+	}
+	packets, err := conn.ReadMultiBuffer()
+	defer buf.ReleaseMulti(packets)
+	if err != nil || len(packets) != 1 || *packets[0].UDP != primary {
+		t.Fatalf("shared socket dequeued a packet after its destination proof expired: %v", err)
+	}
+}
+
 func TestWayrillUDPForwardedReplyExpiryAndAccounting(t *testing.T) {
 	flows := newWayrillUDPFlows()
 	t.Cleanup(flows.close)
@@ -237,7 +265,7 @@ func TestWayrillUDPForwardedReplyExpiryAndAccounting(t *testing.T) {
 	})
 	h.wayrill = flows
 	downlink, unverified, full := new(stats.Counter), new(stats.Counter), new(stats.Counter)
-	flow := &wayrillUDPFlow{key: udpFlowKey{src, primary}, epoch: flows.epoch, binding: wayrillUDPBinding{user: "wr-nat", until: time.Now().Add(time.Minute)},
+	flow := &wayrillUDPFlow{key: udpFlowKey{src, primary}, binding: wayrillUDPBinding{user: "wr-nat", until: time.Now().Add(time.Minute)},
 		replies: &wayrillUDPReplyStats{downlink, unverified, full}}
 	conn := &udpConn{handler: h, src: src, dst: primary, queue: newPacketQueue(10), wayrill: flow}
 	flows.flows[flow.key] = conn

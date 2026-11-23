@@ -1,5 +1,5 @@
 diff --git a/common/mux/server.go b/common/mux/server.go
-index c23a378..77ce88b 100644
+index 8dd48a1..c27777b 100644
 --- a/common/mux/server.go
 +++ b/common/mux/server.go
 @@ -110,7 +110,11 @@ func NewServerWorker(ctx context.Context, d routing.Dispatcher, link *transport.
@@ -31,40 +31,42 @@ index c23a378..77ce88b 100644
  func (w *ServerWorker) monitor() {
  	defer w.timer.Stop()
  
-@@ -197,28 +210,40 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
+@@ -197,28 +210,30 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
  		if err != nil {
  			return err
  		}
+-		XUDPManager.Lock()
+-		x := XUDPManager.Map[meta.GlobalID]
 +		// Resume only for the same initial target and authenticated inbound.
 +		// Per-packet addresses still work within a single association.
 +		key := xudpKey{id: meta.GlobalID, target: meta.Target}
 +		if inbound := session.InboundFromContext(ctx); inbound != nil {
 +			key.inbound, key.user = inbound.Tag, inbound.User
 +		}
- 		XUDPManager.Lock()
--		x := XUDPManager.Map[meta.GlobalID]
-+		x := XUDPManager.Map[key]
-+		var input buf.Reader
-+		var output buf.Writer
++		x, previous := beginXUDP(key, time.Now())
  		if x == nil {
 -			x = &XUDP{GlobalID: meta.GlobalID}
 -			XUDPManager.Map[meta.GlobalID] = x
-+			x = &XUDP{key: key}
-+			XUDPManager.Map[key] = x
- 			XUDPManager.Unlock()
- 		} else {
- 			if x.Status == Initializing { // nearly impossible
- 				XUDPManager.Unlock()
-+				buf.ReleaseMulti(mb)
- 				errors.LogWarningInner(ctx, errors.New("conflict"), "XUDP hit ", meta.GlobalID)
- 				// It's not a good idea to return an err here, so just let client wait.
- 				// Client will receive an End frame after sending a Keep frame.
- 				return nil
- 			}
- 			x.Status = Initializing
-+			previous := x.Mux
- 			XUDPManager.Unlock()
+-			XUDPManager.Unlock()
+-		} else {
+-			if x.Status == Initializing { // nearly impossible
+-				XUDPManager.Unlock()
+-				errors.LogWarningInner(ctx, errors.New("conflict"), "XUDP hit ", meta.GlobalID)
+-				// It's not a good idea to return an err here, so just let client wait.
+-				// Client will receive an End frame after sending a Keep frame.
+-				return nil
+-			}
+-			x.Status = Initializing
+-			XUDPManager.Unlock()
 -			x.Mux.Close(false) // detach from previous Mux
++			buf.ReleaseMulti(mb)
++			errors.LogWarningInner(ctx, errors.New("conflict"), "XUDP hit ", meta.GlobalID)
++			// The client receives an End frame if it sends a Keep frame.
++			return nil
++		}
++		var input buf.Reader
++		var output buf.Writer
++		if previous != nil {
 +			previous.Close(false) // detach from previous Mux
 +			input, output = previous.input, previous.output
  			b := buf.New()
@@ -78,7 +80,7 @@ index c23a378..77ce88b 100644
  				mb = buf.MultiBuffer{b}
  			} else {
  				b.Release()
-@@ -231,33 +256,35 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
+@@ -231,33 +246,35 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
  			// Actually, it won't return an error in Xray-core's implementations.
  			link, err := w.dispatcher.Dispatch(ctx, meta.Target)
  			if err != nil {
@@ -127,7 +129,7 @@ index c23a378..77ce88b 100644
  	}
  
 diff --git a/common/mux/session.go b/common/mux/session.go
-index 53bc535..2efdd63 100644
+index 53bc535..6305455 100644
 --- a/common/mux/session.go
 +++ b/common/mux/session.go
 @@ -2,8 +2,6 @@ package mux
@@ -139,15 +141,7 @@ index 53bc535..2efdd63 100644
  	"sync"
  	"time"
  
-@@ -13,7 +11,6 @@ import (
- 	"github.com/xtls/xray-core/common/net"
- 	"github.com/xtls/xray-core/common/protocol"
- 	"github.com/xtls/xray-core/common/signal/done"
--	"github.com/xtls/xray-core/transport/pipe"
- )
- 
- type SessionManager struct {
-@@ -84,6 +81,12 @@ func (m *SessionManager) Add(s *Session) bool {
+@@ -84,6 +82,12 @@ func (m *SessionManager) Add(s *Session) bool {
  
  	m.count++
  	m.sessions[s.ID] = s
@@ -160,7 +154,18 @@ index 53bc535..2efdd63 100644
  	return true
  }
  
-@@ -185,17 +188,12 @@ func (s *Session) Close(locked bool) error {
+@@ -179,23 +183,22 @@ func (s *Session) Close(locked bool) error {
+ 	}
+ 	s.closed = true
+ 	if s.done != nil {
+-		s.done.Close()
++		if s.XUDP != nil {
++			s.input.(*pipe.Reader).Detach(s.done)
++		} else {
++			s.done.Close()
++		}
+ 	}
+ 	if s.XUDP == nil {
  		common.Interrupt(s.input)
  		common.Close(s.output)
  	} else {
@@ -175,14 +180,27 @@ index 53bc535..2efdd63 100644
 -		if s.XUDP.Status == Active {
 +		if s.XUDP.Mux == s && s.XUDP.Status == Active {
  			s.XUDP.Expire = time.Now().Add(time.Minute)
- 			s.XUDP.Status = Expiring
+-			s.XUDP.Status = Expiring
 -			errors.LogDebug(context.Background(), "XUDP put ", s.XUDP.GlobalID)
++			s.XUDP.Status = Detached
 +			errors.LogDebug(context.Background(), "XUDP put ", s.XUDP.key.id)
  		}
  		XUDPManager.Unlock()
  	}
-@@ -217,11 +215,18 @@ const (
- 	Expiring     = 2
+@@ -211,17 +214,27 @@ func (s *Session) NewReader(reader *buf.BufferedReader, dest *net.Destination) b
+ 	return NewPacketReader(reader, dest)
+ }
+ 
++type xudpStatus uint8
++
+ const (
+-	Initializing = 0
+-	Active       = 1
+-	Expiring     = 2
++	Initializing xudpStatus = iota
++	Active
++	Detached
++	Resuming
  )
  
 +type xudpKey struct {
@@ -198,18 +216,40 @@ index 53bc535..2efdd63 100644
 -	Expire   time.Time
 -	Mux      *Session
 +	key    xudpKey
-+	Status uint64
++	Status xudpStatus
 +	Expire time.Time
 +	Mux    *Session
  }
  
  func (x *XUDP) Interrupt() {
-@@ -231,11 +236,11 @@ func (x *XUDP) Interrupt() {
+@@ -231,21 +244,43 @@ func (x *XUDP) Interrupt() {
  
  var XUDPManager struct {
  	sync.Mutex
 -	Map map[[8]byte]*XUDP
 +	Map map[xudpKey]*XUDP
++}
++
++func beginXUDP(key xudpKey, now time.Time) (*XUDP, *Session) {
++	XUDPManager.Lock()
++	x := XUDPManager.Map[key]
++	if x == nil || x.Status == Detached && !now.Before(x.Expire) {
++		fresh := &XUDP{key: key}
++		XUDPManager.Map[key] = fresh
++		XUDPManager.Unlock()
++		if x != nil {
++			x.Interrupt()
++		}
++		return fresh, nil
++	}
++	if x.Status == Initializing || x.Status == Resuming {
++		XUDPManager.Unlock()
++		return nil, nil
++	}
++	x.Status = Resuming
++	previous := x.Mux
++	XUDPManager.Unlock()
++	return x, previous
  }
  
  func init() {
@@ -218,8 +258,11 @@ index 53bc535..2efdd63 100644
  	go func() {
  		for {
  			time.Sleep(time.Minute)
-@@ -245,7 +250,7 @@ func init() {
- 				if x.Status == Expiring && now.After(x.Expire) {
+ 			now := time.Now()
+ 			XUDPManager.Lock()
+ 			for id, x := range XUDPManager.Map {
+-				if x.Status == Expiring && now.After(x.Expire) {
++				if x.Status == Detached && !now.Before(x.Expire) {
  					x.Interrupt()
  					delete(XUDPManager.Map, id)
 -					errors.LogDebug(context.Background(), "XUDP del ", id)
@@ -229,10 +272,10 @@ index 53bc535..2efdd63 100644
  			XUDPManager.Unlock()
 diff --git a/common/mux/xudp_scope_test.go b/common/mux/xudp_scope_test.go
 new file mode 100644
-index 0000000..34c3c7b
+index 0000000..b2f501f
 --- /dev/null
 +++ b/common/mux/xudp_scope_test.go
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,128 @@
 +package mux
 +
 +import (
@@ -271,6 +314,34 @@ index 0000000..34c3c7b
 +	defer buf.ReleaseMulti(packets)
 +	if err != nil || packets.String() != "next reply" {
 +		t.Fatalf("replacement reader lost its reply: %v", err)
++	}
++}
++
++func TestExpiredXUDPStartsWithFreshPipes(t *testing.T) {
++	down, _ := pipe.New()
++	up, write := pipe.New()
++	manager := NewSessionManager()
++	key := xudpKey{id: [8]byte{44}}
++	x, _ := beginXUDP(key, time.Now())
++	t.Cleanup(func() {
++		XUDPManager.Lock()
++		delete(XUDPManager.Map, key)
++		XUDPManager.Unlock()
++	})
++	old := &Session{input: down, output: write, parent: manager, ID: 1, done: done.New(), XUDP: x}
++	if !manager.Add(old) {
++		t.Fatal("could not start association")
++	}
++	old.Close(false)
++	XUDPManager.Lock()
++	expires := x.Expire
++	XUDPManager.Unlock()
++	fresh, previous := beginXUDP(key, expires)
++	if fresh == nil || fresh == x || previous != nil {
++		t.Fatal("an expired association was still eligible for resumption")
++	}
++	if _, err := up.ReadMultiBufferTimeout(time.Second); err != io.EOF {
++		t.Fatalf("expired association retained its old pipes: %v", err)
 +	}
 +}
 +
@@ -595,18 +666,18 @@ index 8117290..8e53890 100644
  			p.writeSignal.Signal()
  			return data, err
 diff --git a/transport/pipe/reader.go b/transport/pipe/reader.go
-index 79f0ac0..17c049d 100644
+index 79f0ac0..13d6ee2 100644
 --- a/transport/pipe/reader.go
 +++ b/transport/pipe/reader.go
-@@ -1,6 +1,7 @@
- package pipe
- 
- import (
-+	"io"
+@@ -4,6 +4,7 @@ import (
  	"time"
  
  	"github.com/xtls/xray-core/common/buf"
-@@ -13,7 +14,22 @@ type Reader struct {
++	"github.com/xtls/xray-core/common/signal/done"
+ )
+ 
+ // Reader is a buf.Reader that reads content from a pipe.
+@@ -13,7 +14,27 @@ type Reader struct {
  
  // ReadMultiBuffer implements buf.Reader.
  func (r *Reader) ReadMultiBuffer() (buf.MultiBuffer, error) {
@@ -619,14 +690,19 @@ index 79f0ac0..17c049d 100644
 +	packets, err := r.pipe.readMultiBuffer(stop)
 +	select {
 +	case <-stop:
-+		// This reader may have taken the notification for a packet it no
-+		// longer owns. Relay the wake so a replacement reader can proceed.
++		// Relay a wake the detached reader may have received just before stopping.
 +		r.pipe.readSignal.Signal()
-+		buf.ReleaseMulti(packets)
-+		return nil, io.EOF
 +	default:
-+		return packets, err
 +	}
++	return packets, err
++}
++
++// Detach makes the handoff atomic with dequeue. A previously dequeued buffer
++// belongs to the old reader; the replacement owns any unread buffers.
++func (r *Reader) Detach(stop *done.Instance) {
++	r.pipe.Lock()
++	defer r.pipe.Unlock()
++	_ = stop.Close()
  }
  
  // ReadMultiBufferTimeout reads content from a pipe within the given duration, or returns buf.ErrTimeout otherwise.

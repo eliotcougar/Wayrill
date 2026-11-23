@@ -3,10 +3,10 @@
   "core": {
     "version": "26.11.9",
     "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
-    "executableSha256": "24c1b972d38b1cd325c3188cb3cf33ebda74f36c35a33438f33658412de6902e",
+    "executableSha256": "94828f2faa37ea5a26014edb260f48ecac5864dcb31635907340464ab93d7288",
     "platform": "windows/amd64"
   },
-  "auditSha256": "92064411a263f08191735bbbdea790092db867b3cf99a88580f628b7b783c67c",
+  "auditSha256": "ff6317583d537012f79dfb9f96b6c6d8b0b3b471ab8e3182d7f0ba03e4a9acb6",
   "schemaSha256": "5fb833259c95549dc7dad1404eff2b9f9c3e109c9a7ef5060321c1e5bf93ee4f",
   "externalSources": {
     "https://raw.githubusercontent.com/apernet/quic-go/184d081eef3e/config.go": "e94680d15f3e9c0ab514f8490729da1e1edbc24b55884d3cf2e01f682cd78925",

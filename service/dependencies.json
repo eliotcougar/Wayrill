@@ -2,7 +2,7 @@
   "xray": {
     "version": "26.11.9",
     "prerelease": false,
-    "executableSha256": "24C1B972D38B1CD325C3188CB3CF33EBDA74F36C35A33438F33658412DE6902E",
+    "executableSha256": "94828F2FAA37EA5A26014EDB260F48ECAC5864DCB31635907340464AB93D7288",
     "license": "MPL-2.0",
     "release": "https://github.com/XTLS/Xray-core/releases/tag/v26.11.9",
     "sourceCommit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
@@ -11,7 +11,7 @@
       "tag": "Wayrill-socket-defaults",
       "goVersion": "1.27.3",
       "fakeDnsPatch": "service/xray-patches/shared-fakedns.patch",
-      "fakeDnsPatchSha256": "9215EC956303FD18A796287FE866FE80CD5EB520AFA712E30038A2FA99C8F490",
+      "fakeDnsPatchSha256": "B8CE399DF0429F6E4A98C10E223230D30E6A06D380DD199253BF1CBC8F5ACDD0",
       "relayTelemetryPatch": "service/xray-patches/relay-telemetry.patch",
       "relayTelemetryPatchSha256": "865C6AD73FFF01F5C8B54D88E3FD5F0E88B8A490F4668973A376E1A2E12BEDA1",
       "utlsHandshakePatch": "service/xray-patches/utls-handshake-timeout.patch",
@@ -19,11 +19,11 @@
       "resolverActivityPatch": "service/xray-patches/resolver-activity.patch",
       "resolverActivityPatchSha256": "49585000C238C0F4C99768DEE2911B61CBD9F730AE5C399379290540591E0642",
       "udpSafetyPatch": "service/xray-patches/udp-safety.patch",
-      "udpSafetyPatchSha256": "D34C3AF9CC3F5C9DC1E1F8DABA3CFEA981121B4D7026FEFEE2E98BF2BE27D273",
+      "udpSafetyPatchSha256": "8BB06B0C5C3397E3A155FEFB22CA74907F8506031BDA3E40732B5930639143C7",
       "directIPv6RoutePatch": "service/xray-patches/direct-ipv6-route.patch",
       "directIPv6RoutePatchSha256": "74CA9F18BBDFD1BDD5CEFA6D4DE8DE07183BCDDE95B52E058F981FC8474F4E12",
       "tunUdpRoutesPatch": "service/xray-patches/tun-udp-routes.patch",
-      "tunUdpRoutesPatchSha256": "A33E9D37A47D0623BC6A845D3EA9C2F014CC6D4FB218099E50ADA9A6226BAAEE",
+      "tunUdpRoutesPatchSha256": "7CD59A7700023DCD079BB63BD5F52B04DB748A6CE69791199DF27062777306EC",
       "initializerFiles": {
         "udp_windows.go": "A8D638AFF1145152469653B1279723E85072847216D0DFECE9FBABE64C48C087",
         "udp_windows_test.go": "535B3D8AA6D34D6D4EC75CDA432B14372C019C3D6F55F7C35140AF207099BBC8"

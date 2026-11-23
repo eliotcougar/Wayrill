@@ -40,8 +40,6 @@ type wayrillUDPFlow struct {
 	cancel  context.CancelFunc
 	pending bool
 	binding wayrillUDPBinding
-	epoch   uint64
-	retired atomic.Bool
 	created time.Time
 	replies *wayrillUDPReplyStats
 }
@@ -185,7 +183,7 @@ func (u *wayrillUDPFlows) newPendingQueue() *packetQueue {
 
 func (u *wayrillUDPFlows) startLocked(h *udpConnectionHandler, key udpFlowKey, queue *packetQueue) {
 	c := &udpConn{handler: h, src: key.src, dst: key.dst, queue: queue,
-		wayrill: &wayrillUDPFlow{key: key, pending: true, epoch: u.epoch, created: time.Now()}}
+		wayrill: &wayrillUDPFlow{key: key, pending: true, created: time.Now()}}
 	u.flows[key] = c
 	u.pending++
 	go h.handleConnection(c, key.dst)
@@ -268,8 +266,33 @@ func (u *wayrillUDPFlows) activeLocked(c *udpConn) bool {
 	return u.flows[c.wayrill.key] == c && u.epoch == session.WayrillUDPEpoch()
 }
 
-func (f *wayrillUDPFlow) active() bool {
-	return !f.retired.Load() && f.epoch == session.WayrillUDPEpoch()
+func (c *udpConn) readPacket() (*buf.Buffer, bool) {
+	if c.wayrill == nil {
+		return c.queue.pop()
+	}
+	flows := c.handler.wayrill
+	for {
+		b, ok := c.queue.pop()
+		if !ok {
+			return nil, false
+		}
+		flows.mu.RLock()
+		active := flows.activeLocked(c)
+		var permitted bool
+		if active && !c.wayrill.pending && b.UDP != nil {
+			now := time.Now()
+			owner, binding := flows.lookupLocked(udpFlowKey{c.src, *b.UDP}, now)
+			permitted = owner == c && binding.ownerState(now) == udpOwnerVerified
+		}
+		flows.mu.RUnlock()
+		if permitted {
+			return b, true
+		}
+		b.Release()
+		if !active {
+			return nil, false
+		}
+	}
 }
 
 func (u *wayrillUDPFlows) reply(c *udpConn, p []byte, peer net.Destination) error {
@@ -320,8 +343,27 @@ func (u *wayrillUDPFlows) replyBindingLocked(c *udpConn, peer net.Destination, n
 	return c.wayrill.key, &c.wayrill.binding
 }
 
+type udpOwnerState uint8
+
+const (
+	udpOwnerVerified udpOwnerState = iota
+	udpOwnerExpired
+	udpOwnerVerifying
+)
+
+func (b *wayrillUDPBinding) ownerState(now time.Time) udpOwnerState {
+	// An inbound without native ownership requirements never needs a refresh.
+	if b.until.IsZero() || now.Before(b.until) {
+		return udpOwnerVerified
+	}
+	if b.refresh != nil {
+		return udpOwnerVerifying
+	}
+	return udpOwnerExpired
+}
+
 func (b *wayrillUDPBinding) valid(now time.Time) bool {
-	return b.until.IsZero() || now.Before(b.until)
+	return b.ownerState(now) == udpOwnerVerified
 }
 
 func (u *wayrillUDPFlows) tryReply(c *udpConn, p []byte, peer net.Destination) (bool, error) {
@@ -400,7 +442,6 @@ func (u *wayrillUDPFlows) settle(c *udpConn, ctx context.Context, rule string, s
 	key := udpConeKey{c.src, in.Source, in.Tag, in.User.Email, in.WayrillUDPOwner, rule, ob.Tag, ob.Target.Address.Family()}
 	if active := u.cones[key]; active != nil {
 		c.queue.moveWayrillPackets(active.queue)
-		f.retired.Store(true)
 		delete(u.flows, f.key)
 		u.addAliasLocked(f.key, active, f.binding)
 		return false
@@ -448,7 +489,6 @@ func (u *wayrillUDPFlows) removeLocked(c *udpConn) {
 	if u.flows[f.key] != c {
 		return
 	}
-	f.retired.Store(true)
 	delete(u.flows, f.key)
 	if refresh := u.stopVerificationLocked(&f.binding); refresh != nil {
 		refresh.queue.moveWayrillPackets(nil)

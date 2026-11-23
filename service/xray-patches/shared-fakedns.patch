@@ -1,8 +1,28 @@
 diff --git a/app/dispatcher/fakednssniffer.go b/app/dispatcher/fakednssniffer.go
-index 9476288..eed4c65 100644
+index 9476288..982cc82 100644
 --- a/app/dispatcher/fakednssniffer.go
 +++ b/app/dispatcher/fakednssniffer.go
-@@ -27,10 +27,22 @@ func newFakeDNSSniffer(ctx context.Context) (protocolSnifferWithMetadata, error)
+@@ -12,6 +12,19 @@ import (
+ 	"github.com/xtls/xray-core/features/dns"
+ )
+ 
++func unresolvedFakeDNS(feature dns.FakeDNSEngine, request session.SniffingRequest, address net.Address) bool {
++	engine, ok := feature.(dns.FakeDNSEngineRev0)
++	if !ok || address == nil || !address.Family().IsIP() {
++		return false
++	}
++	for _, protocol := range request.OverrideDestinationForProtocol {
++		if protocol == "fakedns" || protocol == "fakedns+others" {
++			return engine.IsIPInIPPool(address)
++		}
++	}
++	return false
++}
++
+ // newFakeDNSSniffer Creates a Fake DNS metadata sniffer
+ func newFakeDNSSniffer(ctx context.Context) (protocolSnifferWithMetadata, error) {
+ 	var fakeDNSEngine dns.FakeDNSEngine
+@@ -27,24 +40,34 @@ func newFakeDNSSniffer(ctx context.Context) (protocolSnifferWithMetadata, error)
  		return protocolSnifferWithMetadata{}, errNotInit
  	}
  	return protocolSnifferWithMetadata{protocolSniffer: func(ctx context.Context, bytes []byte) (SniffResult, error) {
@@ -11,6 +31,12 @@ index 9476288..eed4c65 100644
 +		}
  		outbounds := session.OutboundsFromContext(ctx)
  		ob := outbounds[len(outbounds)-1]
++		if flag, ok := ctx.Value(ipAddressInRange).(*ipAddressInRangeOpt); ok {
++			if engine, ok := fakeDNSEngine.(dns.FakeDNSEngineRev0); ok {
++				inPool := engine.IsIPInIPPool(ob.Target.Address)
++				flag.addressInRange = &inPool
++			}
++		}
  		if ob.Target.Network == net.Network_TCP || ob.Target.Network == net.Network_UDP {
 -			domainFromFakeDNS := fakeDNSEngine.GetDomainFromFakeDNS(ob.Target.Address)
 +			var domainFromFakeDNS string
@@ -26,6 +52,20 @@ index 9476288..eed4c65 100644
  			if domainFromFakeDNS != "" {
  				errors.LogInfo(ctx, "fake dns got domain: ", domainFromFakeDNS, " for ip: ", ob.Target.Address.String())
  				return &fakeDNSSniffResult{domainName: domainFromFakeDNS}, nil
+ 			}
+ 		}
+ 
+-		if ipAddressInRangeValueI := ctx.Value(ipAddressInRange); ipAddressInRangeValueI != nil {
+-			ipAddressInRangeValue := ipAddressInRangeValueI.(*ipAddressInRangeOpt)
+-			if fkr0, ok := fakeDNSEngine.(dns.FakeDNSEngineRev0); ok {
+-				inPool := fkr0.IsIPInIPPool(ob.Target.Address)
+-				ipAddressInRangeValue.addressInRange = &inPool
+-			}
+-		}
+-
+ 		return nil, common.ErrNoClue
+ 	}, metadataSniffer: true}, nil
+ }
 diff --git a/app/dispatcher/sniffer.go b/app/dispatcher/sniffer.go
 index d6acf0d..5ff367a 100644
 --- a/app/dispatcher/sniffer.go
@@ -44,19 +84,34 @@ index d6acf0d..5ff367a 100644
  		}
  	}
 diff --git a/app/dns/cache_controller.go b/app/dns/cache_controller.go
-index 6e2fd6c..80ae37a 100644
+index 6e2fd6c..8695a40 100644
 --- a/app/dns/cache_controller.go
 +++ b/app/dns/cache_controller.go
-@@ -14,7 +14,6 @@ import (
- 	dns_feature "github.com/xtls/xray-core/features/dns"
+@@ -2,19 +2,15 @@ package dns
+ 
+ import (
+ 	"context"
+-	go_errors "errors"
+ 	"runtime"
+ 	"sync"
+ 	"time"
+ 
+ 	"github.com/xtls/xray-core/common"
+ 	"github.com/xtls/xray-core/common/errors"
+-	"github.com/xtls/xray-core/common/signal/pubsub"
+ 	"github.com/xtls/xray-core/common/task"
+-	dns_feature "github.com/xtls/xray-core/features/dns"
  
  	"golang.org/x/net/dns/dnsmessage"
 -	"golang.org/x/sync/singleflight"
  )
  
  const (
-@@ -37,7 +36,8 @@ type CacheController struct {
- 	pub           *pubsub.Service
+@@ -34,10 +30,10 @@ type CacheController struct {
+ 	dirtyips map[string]*record
+ 
+ 	sync.RWMutex
+-	pub           *pubsub.Service
  	cacheCleanup  *task.Periodic
  	highWatermark int
 -	requestGroup  singleflight.Group
@@ -65,15 +120,16 @@ index 6e2fd6c..80ae37a 100644
  }
  
  func NewCacheController(name string, disableCache bool, serveStale bool, serveExpiredTTL uint32) *CacheController {
-@@ -48,6 +48,7 @@ func NewCacheController(name string, disableCache bool, serveStale bool, serveEx
+@@ -47,7 +43,7 @@ func NewCacheController(name string, disableCache bool, serveStale bool, serveEx
+ 		serveStale:      serveStale,
  		serveExpiredTTL: -int32(serveExpiredTTL),
  		ips:             make(map[string]*record),
- 		pub:             pubsub.NewService(),
+-		pub:             pubsub.NewService(),
 +		queryTimeout:    sharedQueryTimeout,
  	}
  
  	c.cacheCleanup = &task.Periodic{
-@@ -124,14 +125,18 @@ func (c *CacheController) writeAndShrink(expiredKeys []string) {
+@@ -124,14 +120,18 @@ func (c *CacheController) writeAndShrink(expiredKeys []string) {
  		if rec == nil {
  			continue
  		}
@@ -97,6 +153,112 @@ index 6e2fd6c..80ae37a 100644
  		}
  	}
  
+@@ -242,22 +242,31 @@ func (c *CacheController) flush(batch []migrationEntry) {
+ 	}
+ }
+ 
+-func (c *CacheController) updateRecord(req *dnsRequest, rep *IPRecord) {
++func (c *CacheController) updateRecord(ctx context.Context, req *dnsRequest, rep *IPRecord) {
++	if ctx.Err() != nil {
++		return
++	}
+ 	rtt := time.Since(req.start)
+-
+-	switch req.reqType {
+-	case dnsmessage.TypeA:
+-		c.pub.Publish(req.domain+"4", rep)
+-	case dnsmessage.TypeAAAA:
+-		c.pub.Publish(req.domain+"6", rep)
++	answer := func() {
++		if reply, ok := ctx.Value(queryReplyKey{}).(chan *IPRecord); ok {
++			select {
++			case reply <- rep:
++			default:
++			}
++		}
+ 	}
+ 
+ 	if c.disableCache {
++		answer()
+ 		errors.LogInfo(context.Background(), c.name, " got answer: ", req.domain, " ", req.reqType, " -> ", rep.IP, ", rtt: ", rtt)
+ 		return
+ 	}
+ 
+ 	c.Lock()
++	if ctx.Err() != nil {
++		c.Unlock()
++		return
++	}
+ 	lockWait := time.Since(req.start) - rtt
+ 
+ 	newRec := &record{}
+@@ -267,39 +276,27 @@ func (c *CacheController) updateRecord(req *dnsRequest, rep *IPRecord) {
+ 		dirtyRec = c.dirtyips[req.domain]
+ 	}
+ 
+-	var pubRecord *IPRecord
+-	var pubSuffix string
+-
+ 	switch req.reqType {
+ 	case dnsmessage.TypeA:
+ 		newRec.A = rep
+ 		if oldRec != nil && oldRec.AAAA != nil {
+ 			newRec.AAAA = oldRec.AAAA
+-			pubRecord = oldRec.AAAA
+ 		} else if dirtyRec != nil && dirtyRec.AAAA != nil {
+-			pubRecord = dirtyRec.AAAA
++			newRec.AAAA = dirtyRec.AAAA
+ 		}
+-		pubSuffix = "6"
+ 	case dnsmessage.TypeAAAA:
+ 		newRec.AAAA = rep
+ 		if oldRec != nil && oldRec.A != nil {
+ 			newRec.A = oldRec.A
+-			pubRecord = oldRec.A
+ 		} else if dirtyRec != nil && dirtyRec.A != nil {
+-			pubRecord = dirtyRec.A
++			newRec.A = dirtyRec.A
+ 		}
+-		pubSuffix = "4"
+ 	}
+ 
+ 	c.ips[req.domain] = newRec
+ 	c.Unlock()
+ 
+-	if pubRecord != nil {
+-		_, ttl, err := pubRecord.getIPs()
+-		if ttl > 0 && !go_errors.Is(err, errRecordNotFound) {
+-			c.pub.Publish(req.domain+pubSuffix, pubRecord)
+-		}
+-	}
++	answer()
+ 
+ 	errors.LogInfo(context.Background(), c.name, " got answer: ", req.domain, " ", req.reqType, " -> ", rep.IP, ", rtt: ", rtt, ", lock: ", lockWait)
+ 
+@@ -318,23 +315,3 @@ func (c *CacheController) findRecords(domain string) *record {
+ 	}
+ 	return rec
+ }
+-
+-func (c *CacheController) registerSubscribers(domain string, option dns_feature.IPOption) (sub4 *pubsub.Subscriber, sub6 *pubsub.Subscriber) {
+-	// ipv4 and ipv6 belong to different subscription groups
+-	if option.IPv4Enable {
+-		sub4 = c.pub.Subscribe(domain + "4")
+-	}
+-	if option.IPv6Enable {
+-		sub6 = c.pub.Subscribe(domain + "6")
+-	}
+-	return
+-}
+-
+-func closeSubscribers(sub4 *pubsub.Subscriber, sub6 *pubsub.Subscriber) {
+-	if sub4 != nil {
+-		sub4.Close()
+-	}
+-	if sub6 != nil {
+-		sub6.Close()
+-	}
+-}
 diff --git a/app/dns/dns.go b/app/dns/dns.go
 index e452bda..c5e6b14 100644
 --- a/app/dns/dns.go
@@ -2874,7 +3036,7 @@ index 5112f35..a1cca96 100644
  		checkSystem := ns.QueryStrategy == QueryStrategy_USE_SYS
  
 diff --git a/app/dns/nameserver_cached.go b/app/dns/nameserver_cached.go
-index cbd2f03..5002fa8 100644
+index cbd2f03..0aace3f 100644
 --- a/app/dns/nameserver_cached.go
 +++ b/app/dns/nameserver_cached.go
 @@ -8,7 +8,6 @@ import (
@@ -2991,11 +3153,15 @@ index cbd2f03..5002fa8 100644
  }
  
  type result struct {
-@@ -82,44 +127,29 @@ type result struct {
- func doFetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) result {
- 	sub4, sub6 := s.getCacheController().registerSubscribers(fqdn, option)
- 	defer closeSubscribers(sub4, sub6)
--
+@@ -79,47 +124,30 @@ type result struct {
+ 	error
+ }
+ 
+-func doFetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) result {
+-	sub4, sub6 := s.getCacheController().registerSubscribers(fqdn, option)
+-	defer closeSubscribers(sub4, sub6)
++type queryReplyKey struct{}
+ 
 -	noResponseErrCh := make(chan error, 2)
 -	onEvent := func(sub *pubsub.Subscriber) (*IPRecord, error) {
 -		if sub == nil {
@@ -3010,10 +3176,10 @@ index cbd2f03..5002fa8 100644
 -			sub.Close()
 -			return msg.(*IPRecord), nil // should panic
 -		}
-+	sub := sub4
-+	if sub == nil {
-+		sub = sub6
- 	}
+-	}
++func doFetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) result {
++	replies := make(chan *IPRecord, 1)
++	ctx = context.WithValue(ctx, queryReplyKey{}, replies)
  
 +	// fetch shares each family separately, including transport errors.
 +	noResponseErrCh := make(chan error, 1)
@@ -3026,9 +3192,6 @@ index cbd2f03..5002fa8 100644
 -	var errs []error
 -	if err4 != nil {
 -		errs = append(errs, err4)
--	}
--	if err6 != nil {
--		errs = append(errs, err6)
 +	var ips []net.IP
 +	var ttl int32
 +	var err error
@@ -3036,9 +3199,12 @@ index cbd2f03..5002fa8 100644
 +	case <-ctx.Done():
 +		err = ctx.Err()
 +	case err = <-noResponseErrCh:
-+	case msg := <-sub.Wait():
-+		ips, ttl, err = msg.(*IPRecord).getIPs()
++	case reply := <-replies:
++		ips, ttl, err = reply.getIPs()
  	}
+-	if err6 != nil {
+-		errs = append(errs, err6)
+-	}
 -
 -	ips, ttl, err := merge(option, rec4, rec6, errs...)
  	var rTTL uint32
@@ -3079,7 +3245,7 @@ index f2127c9..72728dd 100644
  	} else {
  		ips = f.fakeDNSEngine.GetFakeIPForDomain(domain)
 diff --git a/app/dns/nameserver_tcp.go b/app/dns/nameserver_tcp.go
-index 185dbad..33eca17 100644
+index 185dbad..3b588be 100644
 --- a/app/dns/nameserver_tcp.go
 +++ b/app/dns/nameserver_tcp.go
 @@ -169,6 +169,8 @@ func (s *TCPNameServer) sendQuery(ctx context.Context, noResponseErrCh chan<- er
@@ -3091,6 +3257,15 @@ index 185dbad..33eca17 100644
  			dnsReqBuf := buf.New()
  			err = binary.Write(dnsReqBuf, binary.BigEndian, uint16(b.Len()))
  			if err != nil {
+@@ -236,7 +238,7 @@ func (s *TCPNameServer) sendQuery(ctx context.Context, noResponseErrCh chan<- er
+ 				return
+ 			}
+ 
+-			s.cacheController.updateRecord(r, rec)
++			s.cacheController.updateRecord(dnsCtx, r, rec)
+ 		}(req)
+ 	}
+ }
 diff --git a/app/dns/query_group.go b/app/dns/query_group.go
 new file mode 100644
 index 0000000..5a9cf47
@@ -3405,10 +3580,10 @@ index 0000000..0e2ad13
 +}
 diff --git a/app/dns/wayrill_query_group_test.go b/app/dns/wayrill_query_group_test.go
 new file mode 100644
-index 0000000..da6e6ce
+index 0000000..ccf4aef
 --- /dev/null
 +++ b/app/dns/wayrill_query_group_test.go
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,280 @@
 +package dns
 +
 +import (
@@ -3429,6 +3604,58 @@ index 0000000..da6e6ce
 +	case <-ch:
 +	case <-time.After(time.Second):
 +		t.Fatal("query did not reach the expected lifecycle checkpoint")
++	}
++}
++
++type attemptProbeServer struct {
++	cache    *CacheController
++	attempts chan context.Context
++}
++
++func (s *attemptProbeServer) getCacheController() *CacheController { return s.cache }
++
++func (s *attemptProbeServer) sendQuery(ctx context.Context, _ chan<- error, _ string, _ fdns.IPOption) {
++	s.attempts <- ctx
++}
++
++func TestRetiredQueryCannotAnswerReplacement(t *testing.T) {
++	s := &attemptProbeServer{NewCacheController("attempt", true, false, 0), make(chan context.Context, 2)}
++	defer s.cache.requestGroup.close()
++	ctx, stop := context.WithTimeout(context.Background(), 2*time.Second)
++	defer stop()
++	old, cancel := context.WithCancel(ctx)
++	defer cancel()
++	replies := make(chan result, 2)
++	query := func(ctx context.Context) {
++		ips, ttl, err := queryIP(ctx, s, "query.example", fdns.IPOption{IPv4Enable: true})
++		replies <- result{ips, ttl, err}
++	}
++	attempt := func() context.Context {
++		t.Helper()
++		select {
++		case attempt := <-s.attempts:
++			return attempt
++		case <-ctx.Done():
++			t.Fatal("query did not start")
++			return nil
++		}
++	}
++	go query(old)
++	first := attempt()
++	cancel()
++	if reply := <-replies; !errors.Is(reply.error, context.Canceled) {
++		t.Fatalf("first lookup returned %v", reply)
++	}
++	go query(ctx)
++	second := attempt()
++	req := &dnsRequest{domain: "query.example.", reqType: dnsmessage.TypeA, start: time.Now()}
++	publish := func(attempt context.Context, ip string) {
++		s.cache.updateRecord(attempt, req, &IPRecord{IP: []net.IP{net.ParseIP(ip)}, Expire: time.Now().Add(time.Minute)})
++	}
++	publish(first, "192.0.2.1")
++	publish(second, "192.0.2.2")
++	if reply := <-replies; reply.error != nil || len(reply.ips) != 1 || reply.ips[0].String() != "192.0.2.2" {
++		t.Fatalf("replacement used a reply from the wrong attempt: %v", reply)
 +	}
 +}
 +
@@ -3552,7 +3779,7 @@ index 0000000..da6e6ce
 +		if s.firstIPv6 {
 +			typ, ip = dnsmessage.TypeAAAA, net.ParseIP("2001:db8::1")
 +		}
-+		s.cache.updateRecord(&dnsRequest{reqType: typ, domain: fqdn, start: time.Now()}, &IPRecord{IP: []net.IP{ip}, Expire: time.Now().Add(time.Minute)})
++		s.cache.updateRecord(ctx, &dnsRequest{reqType: typ, domain: fqdn, start: time.Now()}, &IPRecord{IP: []net.IP{ip}, Expire: time.Now().Add(time.Minute)})
 +	}
 +}
 +
@@ -3624,7 +3851,7 @@ index 0000000..da6e6ce
 +	if err := refresh.Err(); err != nil {
 +		t.Fatal("canceling the observer canceled the cache refresh:", err)
 +	}
-+	cache.updateRecord(&dnsRequest{reqType: dnsmessage.TypeA, domain: fqdn, start: time.Now()},
++	cache.updateRecord(refresh, &dnsRequest{reqType: dnsmessage.TypeA, domain: fqdn, start: time.Now()},
 +		&IPRecord{IP: []net.IP{net.ParseIP("192.0.2.2")}, Expire: time.Now().Add(time.Minute)})
 +	querySignal(t, q.done)
 +	ips, ttl, err := queryIP(context.Background(), server, fqdn, option)
@@ -3639,7 +3866,7 @@ index 0000000..da6e6ce
 +}
 diff --git a/app/dns/wayrill_shared_ttl_test.go b/app/dns/wayrill_shared_ttl_test.go
 new file mode 100644
-index 0000000..d198070
+index 0000000..04dc4cd
 --- /dev/null
 +++ b/app/dns/wayrill_shared_ttl_test.go
 @@ -0,0 +1,75 @@
@@ -3664,7 +3891,7 @@ index 0000000..d198070
 +}
 +
 +func (s *wayrillSharedTTLServer) getCacheController() *CacheController { return s.cache }
-+func (s *wayrillSharedTTLServer) sendQuery(_ context.Context, _ chan<- error, fqdn string, option fdns.IPOption) {
++func (s *wayrillSharedTTLServer) sendQuery(ctx context.Context, _ chan<- error, fqdn string, option fdns.IPOption) {
 +	for _, family := range []struct {
 +		enabled bool
 +		typ     dnsmessage.Type
@@ -3675,7 +3902,7 @@ index 0000000..d198070
 +	} {
 +		if family.enabled {
 +			s.sends.Add(1)
-+			s.cache.updateRecord(&dnsRequest{reqType: family.typ, domain: fqdn, start: time.Now()},
++			s.cache.updateRecord(ctx, &dnsRequest{reqType: family.typ, domain: fqdn, start: time.Now()},
 +				&IPRecord{IP: []net.IP{net.ParseIP(family.ip)}, Expire: time.Now().Add(time.Duration(s.ttl) * time.Second)})
 +		}
 +	}
@@ -3877,3 +4104,117 @@ index 712197b..2ff794f 100644
  	outbounds := session.OutboundsFromContext(ctx)
  	ob := outbounds[len(outbounds)-1]
  	if !ob.Target.IsValid() {
+diff --git a/app/dispatcher/default.go b/app/dispatcher/default.go
+index 38f3ce8..9e0b9db 100644
+--- a/app/dispatcher/default.go
++++ b/app/dispatcher/default.go
+@@ -432,6 +432,13 @@ func sniffer(ctx context.Context, cReader *cachedReader, metadataOnly bool, netw
+ }
+ 
+ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.Link, destination net.Destination) {
++	if content := session.ContentFromContext(ctx); content != nil &&
++		content.SniffingRequest.Enabled && unresolvedFakeDNS(d.fdns, content.SniffingRequest, destination.Address) {
++		errors.LogWarning(ctx, "FakeDNS could not recover a domain for ", destination)
++		common.Interrupt(link.Reader)
++		common.Interrupt(link.Writer)
++		return
++	}
+ 	outbounds := session.OutboundsFromContext(ctx)
+ 	ob := outbounds[len(outbounds)-1]
+ 
+diff --git a/app/dispatcher/wayrill_fakedns_dispatch_test.go b/app/dispatcher/wayrill_fakedns_dispatch_test.go
+new file mode 100644
+index 0000000..13ad8f9
+--- /dev/null
++++ b/app/dispatcher/wayrill_fakedns_dispatch_test.go
+@@ -0,0 +1,41 @@
++package dispatcher
++
++import (
++	"context"
++	"testing"
++
++	"github.com/xtls/xray-core/common/buf"
++	"github.com/xtls/xray-core/common/net"
++	"github.com/xtls/xray-core/common/session"
++	"github.com/xtls/xray-core/features/dns"
++	"github.com/xtls/xray-core/transport"
++	"github.com/xtls/xray-core/transport/pipe"
++)
++
++type fakeDNSDispatchPool struct {
++	dns.FakeDNSEngineRev0
++	address net.Address
++}
++
++func (e fakeDNSDispatchPool) IsIPInIPPool(address net.Address) bool { return address == e.address }
++
++func TestUnresolvedSyntheticTargetStopsBeforeRouting(t *testing.T) {
++	target := net.TCPDestination(net.ParseAddress("198.18.0.10"), 443)
++	pool := fakeDNSDispatchPool{address: target.Address}
++	d := &DefaultDispatcher{fdns: pool}
++	sniffing := session.SniffingRequest{Enabled: true, OverrideDestinationForProtocol: []string{"fakedns"}}
++	ctx := session.ContextWithContent(context.Background(), &session.Content{SniffingRequest: sniffing})
++	uplink, write := pipe.New()
++	downlink, reply := pipe.New()
++	d.routedDispatch(ctx, &transport.Link{Reader: uplink, Writer: reply}, target)
++	if err := write.WriteMultiBuffer(buf.MultiBuffer{buf.FromBytes([]byte("data"))}); err == nil {
++		t.Fatal("dispatch left the rejected synthetic target's uplink open")
++	}
++	if data, err := downlink.ReadMultiBuffer(); err == nil {
++		buf.ReleaseMulti(data)
++		t.Fatal("dispatch left the rejected synthetic target's downlink open")
++	}
++	if unresolvedFakeDNS(pool, sniffing, net.ParseAddress("recovered.example")) {
++		t.Fatal("dispatch rejected a recovered domain")
++	}
++}
+diff --git a/app/dns/nameserver_doh.go b/app/dns/nameserver_doh.go
+index ed7f184..f9654a7 100644
+--- a/app/dns/nameserver_doh.go
++++ b/app/dns/nameserver_doh.go
+@@ -218,7 +218,7 @@ func (s *DoHNameServer) sendQuery(ctx context.Context, noResponseErrCh chan<- er
+ 				}
+ 				return
+ 			}
+-			s.cacheController.updateRecord(r, rec)
++			s.cacheController.updateRecord(dnsCtx, r, rec)
+ 		}(req)
+ 	}
+ }
+diff --git a/app/dns/nameserver_quic.go b/app/dns/nameserver_quic.go
+index 058d25b..183fa02 100644
+--- a/app/dns/nameserver_quic.go
++++ b/app/dns/nameserver_quic.go
+@@ -204,7 +204,7 @@ func (s *QUICNameServer) sendQuery(ctx context.Context, noResponseErrCh chan<- e
+ 				}
+ 				return
+ 			}
+-			s.cacheController.updateRecord(r, rec)
++			s.cacheController.updateRecord(dnsCtx, r, rec)
+ 		}(req)
+ 	}
+ }
+diff --git a/app/dns/nameserver_udp.go b/app/dns/nameserver_udp.go
+index 7761662..f6f3d42 100644
+--- a/app/dns/nameserver_udp.go
++++ b/app/dns/nameserver_udp.go
+@@ -114,6 +114,9 @@ func (s *ClassicNameServer) HandleResponse(ctx context.Context, packet *udp_prot
+ 		errors.LogErrorInner(ctx, err, s.Name(), " cannot find the pending request")
+ 		return
+ 	}
++	if req.ctx.Err() != nil {
++		return
++	}
+ 
+ 	// if truncated, retry with EDNS0 option(udp payload size: 1350)
+ 	if ipRec.RawHeader.Truncated {
+@@ -136,7 +139,7 @@ func (s *ClassicNameServer) HandleResponse(ctx context.Context, packet *udp_prot
+ 		}
+ 	}
+ 
+-	s.cacheController.updateRecord(&req.dnsRequest, ipRec)
++	s.cacheController.updateRecord(req.ctx, &req.dnsRequest, ipRec)
+ }
+ 
+ func (s *ClassicNameServer) newReqID() uint16 {
