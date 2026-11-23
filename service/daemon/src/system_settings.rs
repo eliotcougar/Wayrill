@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 use wayrill_protocol::{ApiError, Result};
@@ -94,20 +94,50 @@ struct Lease {
     applied: NativeValue,
     request: Option<Request>,
 }
+fn read_binding<T>(
+    channel: Channel,
+    leased: bool,
+    result: Result<T>,
+    deferred: &mut BTreeSet<Channel>,
+) -> Result<Option<T>> {
+    let mut waiting = false;
+    let result = routing_read(channel.user() && leased, result, &mut waiting);
+    if waiting {
+        deferred.insert(channel);
+    }
+    result
+}
+
+fn verify_lease(lease: &Lease, current: &NativeValue) -> Result<()> {
+    if *current != lease.applied {
+        return Err(ApiError::new("SETTINGS_CONFLICT", "External Windows settings changes were preserved. Restore or keep external settings first."));
+    }
+    Ok(())
+}
+
 fn check_leases(
     leases: BTreeMap<Channel, Lease>,
-    deferred: &mut bool,
+    deferred: &mut BTreeSet<Channel>,
     mut current: impl FnMut(Channel) -> Result<NativeValue>,
 ) -> Result<()> {
     for (channel, lease) in leases {
-        let Some(current) = routing_read(channel.user(), current(channel), deferred)? else {
+        let Some(current) = read_binding(channel, true, current(channel), deferred)? else {
             continue;
         };
-        if current != lease.applied {
-            return Err(ApiError::new("SETTINGS_CONFLICT", "External Windows settings changes were preserved. Restore or keep external settings first."));
-        }
+        verify_lease(&lease, &current)?;
     }
     Ok(())
+}
+
+fn channel_name(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Wininet => "Windows proxy",
+        Channel::EnvUser => "Per-user environment",
+        Channel::EnvMachine => "Machine environment",
+        Channel::WinhttpLegacy => "Legacy WinHTTP",
+        Channel::WinhttpMachine => "Machine WinHTTP",
+        Channel::WinhttpUser => "Per-user WinHTTP",
+    }
 }
 // Older services used the machine channel for the legacy backend on Windows 10.
 // Keep those recovery snapshots tied to the same native store after exposing it
@@ -447,7 +477,7 @@ pub struct Manager {
     exe: PathBuf,
     journal: PathBuf,
     pub recovery_pending: bool,
-    pub(crate) user_deferred: bool,
+    deferred: BTreeSet<Channel>,
 }
 impl Manager {
     pub fn new(owner: &str, exe: PathBuf, data: &Path) -> Self {
@@ -456,7 +486,7 @@ impl Manager {
             exe,
             journal: data.join("traffic-settings-leases.json"),
             recovery_pending: false,
-            user_deferred: false,
+            deferred: BTreeSet::new(),
         }
     }
     fn leases(&self) -> Result<BTreeMap<Channel, Lease>> {
@@ -468,9 +498,7 @@ impl Manager {
         } else {
             storage::write(&self.journal, leases)
         }?;
-        if !leases.keys().any(|channel| channel.user()) {
-            self.user_deferred = false;
-        }
+        self.deferred.retain(|channel| leases.contains_key(channel));
         Ok(())
     }
     fn current(&self, channel: Channel) -> Result<NativeValue> {
@@ -498,7 +526,7 @@ impl Manager {
     pub fn summary(&self) -> Value {
         match self.leases() {
             Ok(l) => {
-                json!({"managed":!l.is_empty(),"channels":l.keys().collect::<Vec<_>>(),"recoveryPending":self.recovery_pending,"waitingForUser":self.user_deferred})
+                json!({"managed":!l.is_empty(),"channels":l.keys().collect::<Vec<_>>(),"recoveryPending":self.recovery_pending,"waitingForUser":self.user_deferred(),"deferredChannels":self.deferred})
             }
             Err(_) => json!({"managed":true,"error":"Protected settings journal needs attention."}),
         }
@@ -528,11 +556,11 @@ impl Manager {
             .collect())
     }
     pub fn check_owned(&mut self) -> Result<()> {
-        let mut deferred = self.user_deferred;
+        let mut deferred = BTreeSet::new();
         let result = check_leases(self.leases()?, &mut deferred, |channel| {
             self.current(channel)
         });
-        self.user_deferred = deferred;
+        self.deferred.extend(deferred);
         result
     }
     pub fn preflight(
@@ -544,10 +572,11 @@ impl Manager {
         let baseline = self.leases()?;
         for request in requests {
             let current = self.current(request.channel);
-            let current = routing_read(
-                request.channel.user() && baseline.contains_key(&request.channel),
+            let current = read_binding(
+                request.channel,
+                baseline.contains_key(&request.channel),
                 current,
-                &mut self.user_deferred,
+                &mut self.deferred,
             )?;
             // Still validate the graph binding without touching an unavailable
             // owner store. Every deferred request belongs to an existing lease.
@@ -603,7 +632,9 @@ impl Manager {
         }
         let written = self.write(channel, &next);
         if recover_unstarted_user_write(channel.user(), &written, || self.save(&previous))? {
-            self.user_deferred = true;
+            if previous.contains_key(&channel) {
+                self.deferred.insert(channel);
+            }
             return Err(written.unwrap_err());
         }
         match written {
@@ -748,15 +779,7 @@ impl Manager {
             {
                 self.recovery_pending = true;
             }
-            let step = match channel {
-                Channel::Wininet => "Windows proxy",
-                Channel::EnvUser => "per-user environment",
-                Channel::EnvMachine => "machine environment",
-                Channel::WinhttpLegacy => "legacy WinHTTP",
-                Channel::WinhttpMachine => "machine WinHTTP",
-                Channel::WinhttpUser => "per-user WinHTTP",
-            };
-            cleanup.record(step, result);
+            cleanup.record(channel_name(channel), result);
         }
         cleanup.finish()
     }
@@ -768,42 +791,80 @@ impl Manager {
     ) -> Result<()> {
         let leases = self.leases()?;
         for request in requests {
-            let mut request = request.clone();
-            let user = request.channel.user() && leases.contains_key(&request.channel);
-            let current = self.current(request.channel);
-            let Some(current) = routing_read(user, current, &mut self.user_deferred)? else {
+            let channel = request.channel;
+            let leased = leases.contains_key(&channel);
+            let current = self.current(channel);
+            let Some(current) = read_binding(channel, leased, current, &mut self.deferred)? else {
                 continue;
             };
+            let mut request = request.clone();
             request.expected_version = version(&current);
             let result = self.set(request, config, plan);
-            routing_read(user, result, &mut self.user_deferred)?;
+            if read_binding(channel, leased, result, &mut self.deferred)?.is_some() {
+                self.deferred.remove(&channel);
+            }
         }
         Ok(())
     }
+    pub(crate) fn user_deferred(&self) -> bool {
+        !self.deferred.is_empty()
+    }
+
     pub(crate) fn reconcile_user(
         &mut self,
         config: &Value,
         plan: Option<&capture::Plan>,
     ) -> Result<()> {
-        if !self.user_deferred {
+        self.reconcile_deferred(Self::current, |manager, request| {
+            manager.set(request, config, plan)
+        })
+    }
+
+    fn reconcile_deferred(
+        &mut self,
+        mut read: impl FnMut(&Self, Channel) -> Result<NativeValue>,
+        mut apply: impl FnMut(&mut Self, Request) -> Result<()>,
+    ) -> Result<()> {
+        if self.deferred.is_empty() {
             return Ok(());
         }
-        self.user_deferred = false;
-        let result = (|| {
-            // Ownership must be proved against the old applied value before
-            // rebuilding a binding for the current committed graph.
-            self.check_owned()?;
-            let requests = self
-                .requests()?
-                .into_iter()
-                .filter(|r| r.channel.user())
-                .collect::<Vec<_>>();
-            self.reapply(&requests, config, plan)
-        })();
-        if result.is_err() {
-            self.user_deferred = true;
+        let leases = self.leases()?;
+        let mut cleanup = crate::lifecycle::Cleanup::default();
+        for channel in self.deferred.clone() {
+            let Some(lease) = leases.get(&channel) else {
+                self.deferred.remove(&channel);
+                continue;
+            };
+            let result = (|| {
+                let current = read(self, channel);
+                let Some(current) = read_binding(channel, true, current, &mut self.deferred)?
+                else {
+                    return Ok(());
+                };
+                verify_lease(lease, &current)?;
+                if let Some(mut request) = lease.request.clone() {
+                    request.expected_version = version(&current);
+                    let result = apply(self, request);
+                    if read_binding(channel, true, result, &mut self.deferred)?.is_none() {
+                        return Ok(());
+                    }
+                }
+                self.deferred.remove(&channel);
+                Ok(())
+            })();
+            cleanup.record(
+                channel_name(channel),
+                result.map_err(|mut error: ApiError| {
+                    error.message = format!(
+                        "{} could not recover. {}",
+                        channel_name(channel),
+                        error.message
+                    );
+                    error
+                }),
+            );
         }
-        result
+        cleanup.finish()
     }
 }
 #[cfg(test)]
@@ -858,7 +919,7 @@ mod tests {
         assert_eq!(std::fs::read(&manager.journal).unwrap(), original);
         // Login now verifies against the real old applied snapshot, not the
         // unstarted candidate that would falsely look like an external edit.
-        check_leases(manager.leases().unwrap(), &mut false, |_| {
+        check_leases(manager.leases().unwrap(), &mut BTreeSet::new(), |_| {
             Ok(environment_lease(None).applied)
         })
         .unwrap();
@@ -882,7 +943,7 @@ mod tests {
         manager.save(&leases).unwrap();
         let original = std::fs::read(&manager.journal).unwrap();
         manager.check_owned().unwrap();
-        assert!(manager.user_deferred);
+        assert!(manager.user_deferred());
         let config = json!({"inbounds":[{"tag":"local-http","protocol":"http","listen":"127.0.0.1","port":20808},{"tag":"local-socks","protocol":"socks","listen":"127.0.0.1","port":20809,"settings":{}}]});
         manager
             .preflight(std::slice::from_ref(&request), &config, None)
@@ -891,7 +952,7 @@ mod tests {
             .reapply(std::slice::from_ref(&request), &config, None)
             .unwrap();
         manager.reconcile_user(&config, None).unwrap();
-        assert!(manager.user_deferred);
+        assert!(manager.user_deferred());
         assert_eq!(std::fs::read(&manager.journal).unwrap(), original);
         assert!(
             manager
@@ -920,7 +981,7 @@ mod tests {
                 (Channel::EnvMachine, environment_lease(None)),
             ])
         };
-        let mut deferred = false;
+        let mut deferred = BTreeSet::new();
         let mut seen = Vec::new();
         let result = check_leases(leases(), &mut deferred, |channel| {
             seen.push(channel);
@@ -935,7 +996,7 @@ mod tests {
         });
         assert_eq!(result.unwrap_err().code, "MACHINE_FAILURE");
         assert_eq!(seen, vec![Channel::EnvUser, Channel::EnvMachine]);
-        assert!(deferred);
+        assert_eq!(deferred, BTreeSet::from([Channel::EnvUser]));
         let mut foreign = environment_lease(None).applied;
         if let NativeValue::Environment { values } = &mut foreign {
             values.insert(
@@ -944,21 +1005,24 @@ mod tests {
             );
         }
         assert_eq!(
-            check_leases(leases(), &mut false, |channel| Ok(if channel.user() {
-                foreign.clone()
-            } else {
-                environment_lease(None).applied
-            }))
+            check_leases(leases(), &mut BTreeSet::new(), |channel| Ok(
+                if channel.user() {
+                    foreign.clone()
+                } else {
+                    environment_lease(None).applied
+                }
+            ))
             .unwrap_err()
             .code,
             "SETTINGS_CONFLICT"
         );
-        assert!(check_leases(
-            leases(),
-            &mut false,
-            |_| Ok(environment_lease(None).applied)
-        )
-        .is_ok());
+        assert!(
+            check_leases(leases(), &mut BTreeSet::new(), |_| Ok(environment_lease(
+                None
+            )
+            .applied))
+            .is_ok()
+        );
         assert_eq!(
             routing_read::<()>(
                 false,
@@ -980,6 +1044,93 @@ mod tests {
             "ACCESS_DENIED"
         );
     }
+    #[test]
+    fn deferred_channels_resume_independently_and_retry_only_unresolved_bindings() {
+        let root = std::env::temp_dir().join(format!(
+            "wayrill-settings-recovery-{}-{}",
+            std::process::id(),
+            crate::tun::random_id().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let mut manager = Manager::new("test-owner", PathBuf::from("unused.exe"), &root);
+        let winhttp = NativeValue::Winhttp {
+            access: 3,
+            proxy: "127.0.0.1:20808".into(),
+            bypass: String::new(),
+        };
+        let leases = BTreeMap::from([
+            (Channel::EnvUser, environment_lease(Some(req()))),
+            (Channel::EnvMachine, environment_lease(None)),
+            (
+                Channel::WinhttpUser,
+                Lease {
+                    before: winhttp.clone(),
+                    applied: winhttp,
+                    request: Some(Request {
+                        channel: Channel::WinhttpUser,
+                        ..req()
+                    }),
+                },
+            ),
+        ]);
+        manager.save(&leases).unwrap();
+        let original = std::fs::read(&manager.journal).unwrap();
+        manager
+            .deferred
+            .extend([Channel::EnvUser, Channel::WinhttpUser]);
+        let mut seen = Vec::new();
+        let mut written = Vec::new();
+        let mut foreign = leases[&Channel::EnvUser].applied.clone();
+        if let NativeValue::Environment { values } = &mut foreign {
+            values.insert(
+                "http_proxy".into(),
+                Some(system_native::reg_text("http://127.0.0.1:9999")),
+            );
+        }
+        let error = manager
+            .reconcile_deferred(
+                |_, channel| {
+                    seen.push(channel);
+                    match channel {
+                        Channel::EnvUser => Ok(foreign.clone()),
+                        Channel::WinhttpUser => Ok(leases[&channel].applied.clone()),
+                        _ => panic!("unrelated channels must not be queried"),
+                    }
+                },
+                |_, request| {
+                    assert_eq!(
+                        request.expected_version,
+                        version(&leases[&request.channel].applied)
+                    );
+                    written.push(request.channel);
+                    Ok(())
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "SETTINGS_CONFLICT");
+        assert_eq!(seen, [Channel::EnvUser, Channel::WinhttpUser]);
+        assert_eq!(written, [Channel::WinhttpUser]);
+        assert_eq!(manager.deferred, BTreeSet::from([Channel::EnvUser]));
+        assert_eq!(std::fs::read(&manager.journal).unwrap(), original);
+
+        // Once the conflict is resolved, the last channel resumes independently.
+        manager
+            .reconcile_deferred(
+                |_, channel| {
+                    assert_eq!(channel, Channel::EnvUser);
+                    Ok(leases[&channel].applied.clone())
+                },
+                |_, request| {
+                    written.push(request.channel);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(written, [Channel::WinhttpUser, Channel::EnvUser]);
+        assert!(!manager.user_deferred());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn req() -> Request {
         serde_json::from_value(json!({"channel":"envUser","http":true,"https":true,"all":true,"inputTag":"local-http","allInputTag":"local-socks","bypass":"localhost,127.0.0.1"})).unwrap()
     }

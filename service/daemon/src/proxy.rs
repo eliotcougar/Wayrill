@@ -816,7 +816,7 @@ impl ProxyManager {
     }
 
     pub(crate) fn user_deferred(&self) -> bool {
-        self.user_deferred || self.extras.user_deferred
+        self.user_deferred || self.extras.user_deferred()
     }
     pub(crate) fn reconcile_user(
         &mut self,
