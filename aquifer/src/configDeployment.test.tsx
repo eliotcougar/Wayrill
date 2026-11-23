@@ -98,7 +98,6 @@ beforeEach(() => {
     validateConfig: vi.fn().mockImplementation(async () => validation()),
     startAction: vi.fn().mockImplementation(async (_session, request) => progress(request.id)),
     pollAction: vi.fn(),
-    cancel: vi.fn().mockResolvedValue(undefined),
   } as unknown as RemoteClient;
 });
 afterEach(async () => {
@@ -113,13 +112,17 @@ it('requires fresh server validation and explicit confirmation; persists no draf
   await mount();
   expect(button('Apply…').disabled).toBe(true);
   await click('Validate on server');
-  expect(client.validateConfig).toHaveBeenCalledWith('Example', {
-    path: '/etc/xray/config.json',
-    service: 'xray.service',
-    expectedSha256: 'a'.repeat(64),
-    configText: text,
-    stage: true,
-  });
+  expect(client.validateConfig).toHaveBeenCalledWith(
+    'Example',
+    {
+      path: '/etc/xray/config.json',
+      service: 'xray.service',
+      expectedSha256: 'a'.repeat(64),
+      configText: text,
+      stage: true,
+    },
+    expect.any(AbortSignal),
+  );
   expect(button('Apply…').disabled).toBe(false);
   await click('Apply…');
   expect(client.startAction).not.toHaveBeenCalled();
@@ -215,7 +218,7 @@ it('cancels only unfinished validation on close, and safely ignores its late res
   await click('Validate on server');
   await act(async () => root.unmount());
   root = createRoot(host);
-  expect(client.cancel).toHaveBeenCalledOnce();
+  expect(vi.mocked(client.validateConfig).mock.calls.at(-1)?.[2]?.aborted).toBe(true);
   await act(async () => finish(validation()));
   expect(applied).not.toHaveBeenCalled();
 });

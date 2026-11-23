@@ -14,7 +14,6 @@ const STATUS: &str = include_str!("../resources/server_status.py");
 const ACTIONS: &str = include_str!("../resources/server_actions.py");
 const UPGRADE: &str = include_str!("../resources/apt_upgrade.py");
 const CONFIG_DEPLOY: &str = include_str!("../resources/config_deploy.py");
-const CONFIG_UPLOAD: &str = include_str!("../resources/config_upload.py");
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -34,55 +33,147 @@ pub(crate) type Result<T> = std::result::Result<T, RemoteError>;
 
 #[derive(Default)]
 pub struct Operation {
-    busy: AtomicBool,
-    cancel: AtomicBool,
-    closed: AtomicBool,
+    state: Mutex<RequestState>,
     pub(crate) console: Mutex<Option<crate::transport::Console>>,
 }
-pub struct Permit(Arc<Operation>);
-impl std::ops::Deref for Permit {
-    type Target = Operation;
-    fn deref(&self) -> &Operation {
-        &self.0
-    }
+
+#[derive(Default)]
+struct RequestState {
+    closed: bool,
+    active: Option<Arc<Request>>,
+    cancelled: std::collections::VecDeque<u128>,
 }
-impl Drop for Permit {
-    fn drop(&mut self) {
-        self.0.busy.store(false, Ordering::Release);
-    }
+
+struct Request {
+    id: Option<u128>,
+    cancelled: AtomicBool,
 }
-impl Operation {
-    pub fn acquire(self: &Arc<Self>) -> Result<Permit> {
-        if self.closed.load(Ordering::Acquire) {
-            return Err(RemoteError::new("CANCELLED", "The application is closing."));
-        }
-        self.busy
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| RemoteError::new("BUSY", "Another SSH request is still finishing."))?;
-        self.cancel.store(false, Ordering::Release);
-        Ok(Permit(self.clone()))
-    }
-    pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::Release);
-    }
+
+pub struct Permit {
+    operation: Arc<Operation>,
+    request: Arc<Request>,
+}
+
+impl Permit {
     pub(crate) fn check_cancelled(&self) -> Result<()> {
-        if self.cancel.load(Ordering::Acquire) || self.closed.load(Ordering::Acquire) {
+        if self.request.cancelled.load(Ordering::Acquire) {
             return Err(RemoteError::new("CANCELLED", "SSH request cancelled."));
         }
         Ok(())
     }
-    pub fn disconnect(&self) {
-        self.cancel();
-        // An active reader observes cancellation without blocking the UI thread.
-        if let Ok(mut slot) = self.console.try_lock() {
-            if let Some(mut console) = slot.take() {
-                console.close();
-            }
-        }
+
+    pub(crate) fn console(&self) -> &Mutex<Option<crate::transport::Console>> {
+        &self.operation.console
     }
+}
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        let mut state = self
+            .operation
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        // Disconnect may arrive as the console completes its final read. Retire
+        // any cached connection before admitting another request.
+        let console = if self.request.cancelled.load(Ordering::Acquire) {
+            self.operation
+                .console
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+        } else {
+            None
+        };
+        state.active = None;
+        drop(state);
+        drop(console);
+    }
+}
+
+fn request_id(id: &str) -> Result<u128> {
+    if id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(RemoteError::new(
+            "INVALID_REQUEST",
+            "Invalid SSH request identity.",
+        ));
+    }
+    u128::from_str_radix(id, 16)
+        .map_err(|_| RemoteError::new("INVALID_REQUEST", "Invalid SSH request identity."))
+}
+
+impl Operation {
+    pub fn acquire(self: &Arc<Self>, id: Option<&str>) -> Result<Permit> {
+        let id = id.map(request_id).transpose()?;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.closed {
+            return Err(RemoteError::new("CANCELLED", "The application is closing."));
+        }
+        if let Some(index) = id.and_then(|id| state.cancelled.iter().position(|value| *value == id))
+        {
+            state.cancelled.remove(index);
+            return Err(RemoteError::new("CANCELLED", "SSH request cancelled."));
+        }
+        if state.active.is_some() {
+            return Err(RemoteError::new(
+                "BUSY",
+                "Another SSH request is still finishing.",
+            ));
+        }
+        let request = Arc::new(Request {
+            id,
+            cancelled: AtomicBool::new(false),
+        });
+        state.active = Some(request.clone());
+        Ok(Permit {
+            operation: self.clone(),
+            request,
+        })
+    }
+
+    pub fn cancel(&self, id: &str) -> Result<()> {
+        let id = request_id(id)?;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(active) = state
+            .active
+            .as_ref()
+            .filter(|request| request.id == Some(id))
+        {
+            active.cancelled.store(true, Ordering::Release);
+        } else if !state.cancelled.contains(&id) {
+            // The cancellation command can arrive before the asynchronous SSH
+            // command gets its permit. Only that ID can consume this record.
+            if state.cancelled.len() == 64 {
+                state.cancelled.pop_front();
+            }
+            state.cancelled.push_back(id);
+        }
+        Ok(())
+    }
+
+    pub fn disconnect(&self) {
+        self.retire(false);
+    }
+
     pub fn shutdown(&self) {
-        self.closed.store(true, Ordering::Release);
-        self.disconnect();
+        self.retire(true);
+    }
+
+    fn retire(&self, shutdown: bool) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.closed |= shutdown;
+        if let Some(request) = &state.active {
+            request.cancelled.store(true, Ordering::Release);
+        }
+        let console = self
+            .console
+            .try_lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        drop(state);
+        if let Some(mut console) = console {
+            console.close();
+        }
     }
 }
 
@@ -99,7 +190,7 @@ fn validate_path(path: &str) -> Result<()> {
     }
     Ok(())
 }
-fn run(operation: &Operation, session: &str, command: &str, stream: bool) -> Result<Vec<u8>> {
+fn run(operation: &Permit, session: &str, command: &str, stream: bool) -> Result<Vec<u8>> {
     crate::transport::run(operation, session, &[command.to_owned()], stream)
 }
 pub(crate) fn connection_error(output: &[u8]) -> RemoteError {
@@ -406,7 +497,7 @@ fn validate_action(request: &ActionRequest) -> Result<()> {
     Ok(())
 }
 fn action_call(
-    operation: Permit,
+    operation: &Permit,
     session: &str,
     request: serde_json::Value,
 ) -> Result<serde_json::Value> {
@@ -434,7 +525,7 @@ fn action_call(
     }
     commands.push("call python3 -c \"import base64,zlib,json,sys;d=json.loads(zlib.decompress(base64.b64decode(sys.argv[1])));s=d['source'].encode();exec(compile(s,'<wayrill>','exec'),dict(__name__='__main__',SOURCE=s,REQUEST=d['request']))\" \"$WAYRILL_REQUEST_DATA\"".into());
     commands.push("call unset WAYRILL_REQUEST_DATA".into());
-    let output = crate::transport::run(&operation, session, &commands, false)?;
+    let output = crate::transport::run(operation, session, &commands, false)?;
     action_response(&output)
 }
 
@@ -457,19 +548,19 @@ pub fn start_action(operation: Permit, session: &str, request: ActionRequest) ->
     let mut value = serde_json::to_value(request)
         .map_err(|_| RemoteError::new("ACTION", "Cannot encode server action."))?;
     value["mode"] = serde_json::json!("start");
-    parse_job_value(action_call(operation, session, value)?)
+    parse_job_value(action_call(&operation, session, value)?)
 }
 pub fn poll_action(operation: Permit, session: &str, id: &str) -> Result<ServerJob> {
     validate_job_id(id)?;
     parse_job_value(action_call(
-        operation,
+        &operation,
         session,
         serde_json::json!({"mode":"poll","id":id}),
     )?)
 }
 pub fn preview_upgrade(operation: Permit, session: &str) -> Result<UpgradePlan> {
     parse_plan(action_call(
-        operation,
+        &operation,
         session,
         serde_json::json!({"mode":"preview"}),
     )?)
@@ -527,35 +618,25 @@ pub fn validate_config(
             "The encoded Xray and Wayrill upload exceeds 64 MiB.",
         ));
     }
-    let prepared = run(&operation, session, &python_command(CONFIG_UPLOAD)?, false)?;
-    let content = frame(
-        &prepared,
-        b"WAYRILL_REMOTE_UPLOAD_V1_BEGIN",
-        b"WAYRILL_REMOTE_UPLOAD_V1_END",
-    )
-    .ok_or_else(|| {
-        RemoteError::new(
-            "CONFIG_UPLOAD",
-            "The server could not prepare a private configuration upload.",
-        )
-    })?;
-    let upload: serde_json::Value = serde_json::from_slice(content)
-        .map_err(|_| RemoteError::new("CONFIG_UPLOAD", "Invalid upload response."))?;
-    let upload_path = upload["path"].as_str().unwrap_or_default();
-    if !upload_path.starts_with("/tmp/wayrill-config-")
-        || !upload_path.ends_with("/candidate.json")
-        || upload_path.len() > 256
-        || upload_path.contains("..")
-        || !upload_path
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"/_-.".contains(&b))
-    {
-        return Err(RemoteError::new(
-            "CONFIG_UPLOAD",
-            "Invalid private upload path.",
-        ));
-    }
     let local = ConfigUpload::new(&upload_data)?;
+    let prepared = action_call(
+        &operation,
+        session,
+        serde_json::json!({"mode":"prepareConfigUpload"}),
+    )?;
+    let upload_path = prepared["uploadPath"]
+        .as_str()
+        .filter(|path| {
+            path.strip_prefix("/run/wayrill-config-")
+                .and_then(|tail| tail.strip_suffix("/candidate.json"))
+                .is_some_and(|id| {
+                    id.len() == 32
+                        && id
+                            .bytes()
+                            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                })
+        })
+        .ok_or_else(|| RemoteError::new("CONFIG_UPLOAD", "Invalid private upload path."))?;
     run(&operation, session, &format!("put -transfer=binary -resumesupport=off -nopreservetime -permissions=600 \"{}\" \"{}\"", local.0.display(), upload_path), false)?;
     let mut value = serde_json::to_value(&request)
         .map_err(|_| RemoteError::new("CONFIG_FILE", "Cannot encode configuration draft."))?;
@@ -564,7 +645,7 @@ pub fn validate_config(
     value["hasWayrill"] = serde_json::json!(request.wayrill_text.is_some());
     value["uploadPath"] = serde_json::json!(upload_path);
     value["mode"] = serde_json::json!("validateConfig");
-    let response = action_call(operation, session, value)?;
+    let response = action_call(&operation, session, value)?;
     let validation: ConfigValidation = serde_json::from_value(response["validation"].clone())
         .map_err(|_| {
             RemoteError::new(
@@ -855,6 +936,7 @@ pub fn read_config(operation: Permit, session: &str, path: &str) -> Result<Confi
         error: Some("Could not inspect the Wayrill file. Check Python 3 and file access, then reconnect before saving.".into()),
     });
     let nginx = read_nginx(&operation, session).unwrap_or(crate::nginx::Observation::Unavailable);
+    operation.check_cancelled()?;
     Ok(ConfigSnapshot {
         companion,
         nginx,
@@ -865,7 +947,7 @@ pub fn read_config(operation: Permit, session: &str, path: &str) -> Result<Confi
     })
 }
 
-fn read_nginx(operation: &Operation, session: &str) -> Result<crate::nginx::Observation> {
+fn read_nginx(operation: &Permit, session: &str) -> Result<crate::nginx::Observation> {
     let command = python_command(crate::nginx::PROBE)?;
     let output = run(operation, session, &command, false)?;
     Ok(frame(&output, b"WAYRILL_NGINX_BEGIN", b"WAYRILL_NGINX_END")
@@ -884,7 +966,7 @@ fn companion_path(path: &str) -> String {
         .to_string_lossy()
         .replace('\\', "/")
 }
-fn read_companion(operation: &Operation, session: &str, path: &str) -> Result<WayrillCompanion> {
+fn read_companion(operation: &Permit, session: &str, path: &str) -> Result<WayrillCompanion> {
     let source = format!(
         "PATH={}\n{}",
         serde_json::to_string(path).unwrap(),
@@ -1121,32 +1203,34 @@ mod tests {
         }
     }
     #[test]
-    fn operation_is_exclusive_and_reusable() {
+    fn cancellation_matches_only_its_ssh_request_in_any_arrival_order() {
+        const FIRST: &str = "11111111111111111111111111111111";
+        const SECOND: &str = "22222222222222222222222222222222";
+        const QUEUED: &str = "33333333333333333333333333333333";
         let op = Arc::new(Operation::default());
-        let first = op.acquire().unwrap();
-        assert!(op.acquire().is_err());
-        op.cancel();
+        let first = op.acquire(Some(FIRST)).unwrap();
+        assert!(op.acquire(Some(SECOND)).is_err());
+        op.cancel(QUEUED).unwrap();
+        assert!(first.check_cancelled().is_ok());
+        op.cancel(FIRST).unwrap();
+        assert_eq!(first.check_cancelled().unwrap_err().code, "CANCELLED");
         drop(first);
-        let _second = op.acquire().unwrap();
-        assert!(!op.cancel.load(Ordering::Acquire));
+
+        let early = op.acquire(Some(QUEUED)).err().unwrap();
+        assert_eq!(early.code, "CANCELLED");
+        let second = op.acquire(Some(SECOND)).unwrap();
+        op.cancel(FIRST).unwrap();
+        assert!(second.check_cancelled().is_ok());
     }
+
     #[test]
-    fn shutdown_cannot_be_undone_by_acquiring_another_operation() {
+    fn shutdown_cancels_the_active_ssh_request_and_closes_admission() {
         let op = Arc::new(Operation::default());
+        let request = op.acquire(None).unwrap();
         op.shutdown();
-        assert!(op.acquire().is_err());
-        assert!(op.check_cancelled().is_err());
-    }
-    #[test]
-    fn cancelling_a_queued_worker_cannot_be_cleared_when_it_starts() {
-        let op = Arc::new(Operation::default());
-        let request = op.acquire().unwrap();
-        op.cancel();
-        let code = std::thread::spawn(move || request.check_cancelled().unwrap_err().code)
-            .join()
-            .unwrap();
-        assert_eq!(code, "CANCELLED");
-        assert!(op.acquire().unwrap().check_cancelled().is_ok());
+        assert_eq!(request.check_cancelled().unwrap_err().code, "CANCELLED");
+        drop(request);
+        assert_eq!(op.acquire(None).err().unwrap().code, "CANCELLED");
     }
     #[test]
     fn compressed_probes_fit_the_persistent_console_input_buffer() {

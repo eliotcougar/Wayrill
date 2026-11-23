@@ -20,6 +20,43 @@ def load_deployment():
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_upload_is_only_offered_after_systemd_accepts_the_expiring_lease(self):
+        ns = load_deployment()
+        calls = []
+        def capture(args, timeout=15):
+            calls.append(args)
+            return types.SimpleNamespace(returncode=1 if len(calls) == 1 else 0)
+        ns['capture'] = capture
+        with self.assertRaises(ns['ActionError']) as failure:
+            ns['deploy_prepare_upload'](1234, 5678)
+        self.assertEqual(failure.exception.code, 'CONFIG_UPLOAD')
+        path = ns['deploy_prepare_upload'](1234, 5678)
+        lease = ns['CONFIG_UPLOAD_PATH'].fullmatch(path)[1]
+        args = calls[-1]
+        self.assertIn('--unit=' + lease, args)
+        self.assertIn('--property=RuntimeDirectory=' + lease, args)
+        self.assertIn('--property=RuntimeDirectoryMode=0700', args)
+        self.assertIn('--uid=1234', args)
+        self.assertIn('--gid=5678', args)
+        self.assertEqual(args[-2:], ['/bin/sleep', '300'])
+
+    def test_release_stops_only_a_consumed_upload_owned_by_the_connected_account(self):
+        ns = load_deployment()
+        calls = []
+        ns['capture'] = lambda args, timeout: calls.append(args)
+        lease = 'wayrill-config-' + 'a' * 32
+        path = '/run/' + lease + '/candidate.json'
+        directory = types.SimpleNamespace(st_mode=0o40700, st_uid=1234)
+        release = ns['deploy_release_upload']
+        with patch.object(os, 'lstat', return_value=directory), patch.object(os.path, 'lexists', return_value=True):
+            release(path, 1234)
+        with patch.object(os, 'lstat', return_value=directory), patch.object(os.path, 'lexists', return_value=False):
+            release(path, 5678)
+            release('/run/other.service/candidate.json', 1234)
+            self.assertEqual(calls, [])
+            release(path, 1234)
+        self.assertEqual(calls, [['systemctl', 'stop', '--no-block', '--', lease + '.service']])
+
     def setUp(self):
         self.ns = load_deployment()
         self.folder = tempfile.TemporaryDirectory()

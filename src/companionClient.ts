@@ -9,6 +9,7 @@ export type CompanionStatus = {
   hostPath: string;
   available: boolean;
   registered: boolean;
+  partial?: boolean;
   origins: string[];
   issues: string[];
   browsers: CompanionBrowser[];

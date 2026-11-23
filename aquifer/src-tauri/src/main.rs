@@ -74,81 +74,91 @@ fn worker_error() -> remote::RemoteError {
 }
 #[tauri::command]
 async fn ssh_discover(
+    request_id: String,
     session: String,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::Discovery, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::discover(state, &session))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
 async fn ssh_read_config(
+    request_id: String,
     session: String,
     path: String,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::ConfigSnapshot, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::read_config(state, &session, &path))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
 async fn ssh_server_status(
+    request_id: String,
     session: String,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::ServerStatus, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::server_status(state, &session))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
 async fn ssh_preview_upgrade(
+    request_id: String,
     session: String,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::UpgradePlan, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::preview_upgrade(state, &session))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
 async fn ssh_start_action(
+    request_id: String,
     session: String,
     request: remote::ActionRequest,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::ServerJob, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::start_action(state, &session, request))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
 async fn ssh_validate_config(
+    request_id: String,
     session: String,
     request: remote::ConfigValidationRequest,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::ConfigValidation, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::validate_config(state, &session, request))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
 async fn ssh_poll_action(
+    request_id: String,
     session: String,
     id: String,
     state: State<'_, Arc<remote::Operation>>,
 ) -> Result<remote::ServerJob, remote::RemoteError> {
-    let state = state.acquire()?;
+    let state = state.acquire(Some(&request_id))?;
     tauri::async_runtime::spawn_blocking(move || remote::poll_action(state, &session, &id))
         .await
         .map_err(|_| worker_error())?
 }
 #[tauri::command]
-fn ssh_cancel(state: State<'_, Arc<remote::Operation>>) {
-    state.cancel();
+fn ssh_cancel(
+    request_id: String,
+    state: State<'_, Arc<remote::Operation>>,
+) -> Result<(), remote::RemoteError> {
+    state.cancel(&request_id)
 }
 #[tauri::command]
 fn ssh_disconnect(state: State<'_, Arc<remote::Operation>>) {
@@ -203,11 +213,11 @@ fn main() {
                 .find(|s| s.id == *session || s.name == *session)
                 .ok_or_else(worker_error)?;
             if args[1] == "--verify-status" {
-                let status = remote::server_status(state.acquire()?, &chosen.id)?;
+                let status = remote::server_status(state.acquire(None)?, &chosen.id)?;
                 return Ok(serde_json::json!({"passed": true, "status": status}));
             }
             if args[1] == "--preview-upgrade" {
-                let plan = remote::preview_upgrade(state.acquire()?, &chosen.id)?;
+                let plan = remote::preview_upgrade(state.acquire(None)?, &chosen.id)?;
                 return Ok(serde_json::json!({"passed":true,"plan":plan}));
             }
             if args[1] == "--server-action" {
@@ -216,18 +226,18 @@ fn main() {
                         .map_err(|_| worker_error())?,
                 )
                 .map_err(|_| worker_error())?;
-                let job = remote::start_action(state.acquire()?, &chosen.id, request)?;
+                let job = remote::start_action(state.acquire(None)?, &chosen.id, request)?;
                 return Ok(serde_json::json!({"passed":true,"job":job}));
             }
             if args[1] == "--server-job" {
                 let job = remote::poll_action(
-                    state.acquire()?,
+                    state.acquire(None)?,
                     &chosen.id,
                     args.get(4).ok_or_else(worker_error)?,
                 )?;
                 return Ok(serde_json::json!({"passed":true,"job":job}));
             }
-            let discovery = remote::discover(state.acquire()?, &chosen.id)?;
+            let discovery = remote::discover(state.acquire(None)?, &chosen.id)?;
             let serialized = serde_json::to_value(&discovery).map_err(|_| worker_error())?;
             let file = serialized["files"]
                 .as_array()
@@ -237,7 +247,7 @@ fn main() {
                 })
                 .and_then(|v| v["path"].as_str())
                 .ok_or_else(worker_error)?;
-            let config = remote::read_config(state.acquire()?, &chosen.id, file)?;
+            let config = remote::read_config(state.acquire(None)?, &chosen.id, file)?;
             if args[1] == "--verify-config" {
                 let service = serialized["files"]
                     .as_array()
@@ -247,7 +257,7 @@ fn main() {
                     .and_then(|item| item.as_str())
                     .unwrap_or("xray.service");
                 let validation = remote::validate_config(
-                    state.acquire()?,
+                    state.acquire(None)?,
                     &chosen.id,
                     remote::ConfigValidationRequest {
                         path: config.path,

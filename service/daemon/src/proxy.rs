@@ -1,3 +1,5 @@
+mod scope;
+
 use crate::{
     native::{os_error, restrict_token, spawn_owned, spawn_with_token, token_sid, wide, Handle},
     storage,
@@ -65,6 +67,8 @@ struct Lease {
     applied: ProxySettings,
     #[serde(default)]
     binding: Option<crate::system_settings::Request>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope_switch: Option<scope::Transition>,
 }
 fn owned_snapshot(
     lease: &Lease,
@@ -89,6 +93,8 @@ struct HelperRequest {
     operation: String,
     #[serde(default)]
     settings: Option<ProxySettings>,
+    #[serde(default)]
+    expected_version: Option<String>,
 }
 
 /// A fresh contained process selects the policy's exact LAN store. User scope
@@ -142,6 +148,15 @@ pub fn helper() -> Result<Value> {
             .settings
             .ok_or_else(|| ApiError::new("INVALID_PARAMS", "Missing proxy settings."))?;
         check_scope(request.scope, settings.scope)?;
+        if let Some(expected) = request.expected_version {
+            let current = query(request.scope)?;
+            if crate::system_settings::version(&current) != expected {
+                return Err(ApiError::new(
+                    "PROXY_CONFLICT",
+                    "Windows proxy settings changed. The external settings were preserved.",
+                ));
+            }
+        }
         set(&settings)?;
         return serde_json::to_value(query(request.scope)?)
             .map_err(|e| ApiError::io("Encode settings", e));
@@ -387,9 +402,19 @@ fn run_helper(
     operation: &str,
     settings: Option<&ProxySettings>,
 ) -> Result<ProxySettings> {
+    run_helper_checked(exe, owner, operation, settings, None)
+}
+
+fn run_helper_checked(
+    exe: &Path,
+    owner: &str,
+    operation: &str,
+    settings: Option<&ProxySettings>,
+    expected_version: Option<&str>,
+) -> Result<ProxySettings> {
     let scope = settings.map_or_else(active_scope, |s| Ok(s.scope))?;
     ensure_scope(scope)?;
-    let input = json!({"scope":scope,"operation":operation,"settings":settings});
+    let input = json!({"scope":scope,"operation":operation,"settings":settings,"expected_version":expected_version});
     let process = match scope {
         Scope::User => spawn_owned(exe, owner, &input, "--proxy-helper", None, 0)?,
         Scope::Machine => {
@@ -464,6 +489,7 @@ pub struct ProxyManager {
     pub conflict: bool,
     pub recovery_pending: bool,
     user_deferred: bool,
+    scope_retry_at: Option<Instant>,
 }
 impl ProxyManager {
     pub fn new(owner: &str, exe: PathBuf, data: &Path) -> Self {
@@ -475,6 +501,7 @@ impl ProxyManager {
             conflict: false,
             recovery_pending: false,
             user_deferred: false,
+            scope_retry_at: None,
         }
     }
 
@@ -484,68 +511,63 @@ impl ProxyManager {
         rows.extend(self.extras.rows()?);
         Ok(rows)
     }
-    pub fn switch_scope(&mut self, request: ScopeChange) -> Result<bool> {
-        let current = self.current()?;
-        if crate::system_settings::version(&current) != request.expected_version {
-            return Err(ApiError::new(
-                "SETTINGS_CONFLICT",
-                "Windows proxy changed; refresh before switching scope.",
-            ));
+    fn native_scope(&self) -> scope::Windows<'_> {
+        scope::Windows {
+            exe: &self.exe,
+            owner: &self.owner,
         }
-        if current.scope == request.scope {
-            return Ok(false);
-        }
-        let original_policy = read_policy()?;
-        check_scope(policy_scope(original_policy)?, current.scope)?;
-        let lease = storage::read::<Lease>(&self.journal)?;
-        let recover_target = recovery_after_switch(&current, lease.as_ref(), request.scope)?;
-        if !recover_target {
-            self.restore()?;
-        }
-        let next_policy = Some(request.scope.policy_value());
-        let mut written = false;
-        let result = (|| {
-            replace_policy(original_policy, next_policy)?;
-            written = true;
-            if read_policy()? != next_policy {
-                return Err(ApiError::new(
-                    "PROXY_POLICY",
-                    "Windows changed the proxy scope again; refresh the settings.",
-                ));
-            }
-            let actual = run_helper(&self.exe, &self.owner, "refresh", None)?;
-            check_scope(actual.scope, request.scope)?;
-            if recover_target {
-                self.restore()?;
-            }
-            Ok(())
-        })();
-        if let Err(mut error) = result {
-            if written {
-                let rollback = (|| {
-                    let actual = read_policy()?;
-                    if actual == original_policy {
-                        return Ok(());
-                    }
-                    replace_policy(next_policy, original_policy)?;
-                    run_helper(&self.exe, &self.owner, "refresh", None)?;
-                    Ok::<(), ApiError>(())
-                })();
-                if let Err(rollback) = rollback {
-                    error
-                        .message
-                        .push_str(&format!(" Scope recovery: {}", rollback.message));
-                }
-            }
-            if lease.is_some() && !recover_target {
-                error
-                    .message
-                    .push_str(" The previous Wayrill proxy assignment was restored.");
-            }
-            return Err(error);
-        }
-        Ok(true)
     }
+
+    pub fn switch_scope(&mut self, request: ScopeChange) -> Result<bool> {
+        self.recover_scope(true)?;
+        match scope::change(&self.journal, &self.native_scope(), request) {
+            Ok(changed) => {
+                if changed {
+                    self.conflict = false;
+                    self.recovery_pending = false;
+                    self.user_deferred = false;
+                }
+                Ok(changed)
+            }
+            Err(error) => {
+                let resume_binding = error.code != "PROXY_CONFLICT";
+                Err(crate::lifecycle::Cleanup::after_failure(
+                    error,
+                    "restore previous Windows proxy assignment",
+                    self.recover_scope(resume_binding).map(|_| ()),
+                ))
+            }
+        }
+    }
+
+    fn recover_scope(&mut self, resume_binding: bool) -> Result<bool> {
+        let result = scope::recover(&self.journal, &self.native_scope(), resume_binding);
+        self.scope_retry_at = result
+            .as_ref()
+            .err()
+            .filter(|error| error.code != "PROXY_CONFLICT")
+            .map(|_| Instant::now() + Duration::from_secs(30));
+        if result
+            .as_ref()
+            .is_err_and(|error| error.code == "PROXY_CONFLICT")
+        {
+            self.conflict = true;
+        } else if result.as_ref().is_ok_and(|restored| *restored) {
+            self.conflict = false;
+        }
+        result
+    }
+
+    pub fn reconcile_scope(&mut self, now: Instant, resume_binding: bool) -> bool {
+        if self.scope_retry_at.is_none_or(|at| now < at) {
+            return false;
+        }
+        match self.recover_scope(resume_binding) {
+            Ok(changed) => changed,
+            Err(error) => error.code == "PROXY_CONFLICT",
+        }
+    }
+
     pub fn requests(&self) -> Result<Vec<crate::system_settings::Request>> {
         let mut requests = self.extras.requests()?;
         if let Some(lease) = storage::read::<Lease>(&self.journal)? {
@@ -585,6 +607,7 @@ impl ProxyManager {
         })
     }
     pub fn check_owned(&mut self) -> Result<()> {
+        self.recover_scope(true)?;
         if let Some(lease) = storage::read::<Lease>(&self.journal)? {
             let mut deferred = self.user_deferred;
             let result = owned_snapshot(&lease, active_scope()?, || self.current(), &mut deferred);
@@ -619,6 +642,7 @@ impl ProxyManager {
         if request.channel != crate::system_native::Channel::Wininet {
             return self.extras.set(request, config, plan);
         }
+        self.recover_scope(true)?;
         let current = self.current()?;
         if crate::system_settings::version(&current) != request.expected_version {
             return Err(ApiError::new(
@@ -663,6 +687,7 @@ impl ProxyManager {
                 before,
                 applied: next.clone(),
                 binding,
+                scope_switch: None,
             },
         )?;
         // Reconcile the binding journal without rewriting identical Windows
@@ -733,6 +758,9 @@ impl ProxyManager {
     ) -> Result<()> {
         if action.channel != crate::system_native::Channel::Wininet {
             return self.extras.action(action, method);
+        }
+        if method == "clear" {
+            self.recover_scope(true)?;
         }
         if crate::system_settings::version(&self.current()?) != action.expected_version {
             return Err(ApiError::new(
@@ -852,13 +880,15 @@ impl ProxyManager {
     }
 
     pub fn status(&self) -> Value {
-        json!({"managed":self.journal.exists(),"conflict":self.conflict,"recoveryPending":self.recovery_pending,"waitingForUser":self.user_deferred})
+        json!({"managed":self.journal.exists(),"conflict":self.conflict,"recoveryPending":self.recovery_pending || self.scope_retry_at.is_some(),"waitingForUser":self.user_deferred})
     }
     pub fn current(&self) -> Result<ProxySettings> {
         run_helper(&self.exe, &self.owner, "get", None)
     }
     pub fn restore(&mut self) -> Result<()> {
-        let result = self.restore_assignment();
+        let result = self
+            .recover_scope(false)
+            .and_then(|_| self.restore_assignment());
         self.conflict = result
             .as_ref()
             .is_err_and(|error| error.code == "PROXY_CONFLICT");
@@ -905,6 +935,7 @@ impl ProxyManager {
         self.conflict = false;
         self.recovery_pending = false;
         self.user_deferred = false;
+        self.scope_retry_at = None;
         Ok(())
     }
 }
@@ -983,6 +1014,7 @@ mod tests {
             before: settings("original"),
             applied: settings("wayrill"),
             binding: None,
+            scope_switch: None,
         };
         storage::write(&manager.journal, &lease).unwrap();
         let lock = std::fs::OpenOptions::new()
@@ -1017,6 +1049,7 @@ mod tests {
             before: settings.clone(),
             applied: settings.clone(),
             binding: None,
+            scope_switch: None,
         };
         let mut deferred = false;
         let absent = || Err(ApiError::new("OWNER_NOT_LOGGED_ON", "No owner session"));
@@ -1124,6 +1157,7 @@ mod tests {
                 before: before.clone(),
                 applied: applied.clone(),
                 binding: None,
+                scope_switch: None,
             };
             let row = capture_row(Ok(current.clone()), Some(&lease));
             assert_eq!(row["scope"], "machine");
@@ -1159,6 +1193,7 @@ mod tests {
                 before,
                 applied,
                 binding: None,
+                scope_switch: None,
             }),
         );
         assert_eq!(row["supported"], true);
@@ -1226,6 +1261,7 @@ mod tests {
             before: settings("before"),
             applied: settings("applied"),
             binding: None,
+            scope_switch: None,
         };
         let row = capture_row(Err(policy_scope(Some(2)).unwrap_err()), Some(&lease));
         assert_eq!(row["channel"], "wininet");
@@ -1262,6 +1298,7 @@ mod tests {
                 before: before.clone(),
                 applied: applied.clone(),
                 binding: None,
+                scope_switch: None,
             };
             assert!(!recovery_after_switch(&applied, Some(&lease), target).unwrap());
             assert!(!recovery_after_switch(&before, Some(&lease), target).unwrap());
@@ -1281,6 +1318,7 @@ mod tests {
             before: settings("before"),
             applied: settings("applied"),
             binding: None,
+            scope_switch: None,
         };
         let mut current = settings("machine");
         current.scope = Scope::Machine;

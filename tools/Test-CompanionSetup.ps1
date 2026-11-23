@@ -6,7 +6,8 @@ $script:checks=0
 function Assert-Companion($Condition,[string]$Message){$script:checks++;if(-not $Condition){throw $Message}}
 function Expect-CompanionFailure([scriptblock]$Action){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};Assert-Companion $failed 'Expected a guarded setup failure.'}
 function Find-CompanionBrowser([string]$Id){return $null}
-function Get-CompanionMachineIssues {return @()}
+$script:machineRegistry=@()
+function Get-CompanionMachineSlots {return $script:machineRegistry}
 $script:registry=@{};$script:shared=$false;$script:writes=0;$script:failAt=0
 function SlotId($Slot){if($script:shared){return $Slot.key};return $Slot.key+'/'+$Slot.view}
 function Get-CompanionSlots {
@@ -15,7 +16,14 @@ function Get-CompanionSlots {
   $slot.value=$script:registry[(SlotId $slot)];$slot
  }}
 }
-function Set-CompanionSlot($Slot,$Value){$script:writes++;if($script:failAt -and $script:writes -eq $script:failAt){throw 'Synthetic registry write failure.'};$script:registry[(SlotId $Slot)]=$Value}
+function Set-CompanionSlot($Slot,$Expected,$Value){
+ $id=SlotId $Slot
+ if($script:registry[$id] -cne $Expected){return $false}
+ $script:writes++
+ if($script:failAt -and $script:writes -eq $script:failAt){throw 'Synthetic registry write failure.'}
+ $script:registry[$id]=$Value
+ return $true
+}
 try{
  New-Item -ItemType Directory -Path $fixture|Out-Null
  $script:CompanionRoot=Join-Path $fixture 'user/Wayrill/Companion'
@@ -60,12 +68,46 @@ try{
  $script:registry[(SlotId $slot)]=$old
  $state=Set-CompanionRegistration
  Assert-Companion $state.registered 'A missing legacy manifest can be repaired.'
- $before=[IO.File]::ReadAllBytes($old)
+ $state=Set-CompanionRegistration -Remove
  $script:writes=0;$script:failAt=3
  Expect-CompanionFailure {Set-CompanionRegistration -Id ('c'*32)}
  $script:failAt=0
- Assert-Companion ([Convert]::ToBase64String([IO.File]::ReadAllBytes($old)) -ceq [Convert]::ToBase64String($before)) 'Failed update restores prior manifest bytes.'
- Assert-Companion ((Get-CompanionStatus).registered) 'Failed update preserves previously valid registrations.'
+ Assert-Companion (-not(Test-Path $old)) 'Failed registration removes the newly published manifests.'
+ Assert-Companion (@($script:registry.Values|Where-Object {$_}).Count -eq 0) 'Failed registration rolls back the registry writes it made.'
+ Assert-Companion (-not(Test-Path (Get-CompanionSetupJournalPath))) 'Completed rollback retires the journal.'
+
+ $register=New-CompanionSetupPlan -Id ('c'*32)
+ Write-CompanionSetupJournal $register
+ $firstFile=$register.files|Where-Object name -eq 'com.wayrill.companion.chrome.json'
+ Write-CompanionFile $old ([Convert]::FromBase64String($firstFile.after))
+ $script:registry[(SlotId $slot)]=$old
+ $state=Get-CompanionStatus
+ Assert-Companion ($state.registered -and $state.origins -contains ('c'*32)) 'Status resumes an interrupted registration with the original authorized IDs.'
+ Assert-Companion (-not(Test-Path (Get-CompanionSetupJournalPath))) 'Resuming registration clears the journal.'
+
+ $remove=New-CompanionSetupPlan -Remove
+ Write-CompanionSetupJournal $remove
+ $script:registry[(SlotId $slot)]=$null
+ $chromeSlot=@(Get-CompanionSlots|Where-Object {$_.family -eq 'chrome' -and $_.view -eq 'Registry64'})[0]
+ $edited=[IO.File]::ReadAllText($old)+[Environment]::NewLine
+ [IO.File]::WriteAllText($old,$edited,[Text.UTF8Encoding]::new($false))
+ $state=Get-CompanionStatus
+ Assert-Companion ($state.partial -and -not $state.registered -and $state.issues.Count -gt 0) 'Status shows a partial removal with an external conflict.'
+ Assert-Companion ($script:registry[(SlotId $chromeSlot)] -ceq $old -and [IO.File]::ReadAllText($old) -ceq $edited) 'Recovery preserves an externally edited manifest and its browser reference.'
+ Assert-Companion (@($script:registry.Values|Where-Object {$_}).Count -eq 1) 'Removal recovery completes the unaffected slots.'
+ $state=Set-CompanionRegistration
+ $edge=Join-Path $script:CompanionRoot 'com.wayrill.companion.edge.json'
+ $script:machineRegistry=@([pscustomobject]@{family='edge';value=$edge})
+ $remove=New-CompanionSetupPlan -Remove
+ Write-CompanionSetupJournal $remove
+ $firefoxPath=Join-Path $script:CompanionRoot 'com.wayrill.companion.firefox.json'
+ [IO.File]::WriteAllBytes($firefoxPath,[byte[]]::new(65537))
+ $state=Get-CompanionStatus
+ Assert-Companion ((Test-Path $edge) -and $state.issues.Count -gt 0) 'Removal preserves a manifest referenced by a machine-wide registration.'
+ Assert-Companion ((Get-Item -LiteralPath $firefoxPath).Length -eq 65537 -and -not(Test-Path (Get-CompanionSetupJournalPath))) 'An externally replaced file is preserved without blocking recovery of other browsers.'
+ $script:machineRegistry=@()
+ Remove-Item -LiteralPath $firefoxPath
+ $state=Set-CompanionRegistration
  $foreign=Join-Path $fixture 'foreign.json';[IO.File]::WriteAllText($foreign,'{"name":"unrelated.product","type":"stdio"}')
  $script:registry[(SlotId $slot)]=$foreign
  $writes=$script:writes

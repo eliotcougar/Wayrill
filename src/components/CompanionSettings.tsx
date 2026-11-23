@@ -99,7 +99,7 @@ export default function CompanionSettings({ onClose }: { onClose: () => void }) 
             {busy && !status
               ? 'Loading Companion…'
               : status
-                ? `Bridge ${status.registered ? 'registered' : 'not registered'} · Companion ${status.version}`
+                ? `Bridge ${status.registered ? 'registered' : status.partial ? 'partially registered' : 'not registered'} · Companion ${status.version}`
                 : 'Bridge status unavailable'}
           </p>
           <p className="field-help">

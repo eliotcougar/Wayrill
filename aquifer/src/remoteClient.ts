@@ -180,14 +180,17 @@ export interface RemoteClient {
   choose(kind: 'executable' | 'ini'): Promise<SessionInventory | null>;
   setConfig(config: string): Promise<SessionInventory>;
   resetSetup(): Promise<SessionInventory>;
-  discover(session: string): Promise<Discovery>;
-  read(session: string, path: string): Promise<ConfigSnapshot>;
-  serverStatus(session: string): Promise<ServerStatus>;
-  previewUpgrade(session: string): Promise<UpgradePlan>;
-  validateConfig(session: string, request: ConfigValidationRequest): Promise<ConfigValidation>;
+  discover(session: string, signal?: AbortSignal): Promise<Discovery>;
+  read(session: string, path: string, signal?: AbortSignal): Promise<ConfigSnapshot>;
+  serverStatus(session: string, signal?: AbortSignal): Promise<ServerStatus>;
+  previewUpgrade(session: string, signal?: AbortSignal): Promise<UpgradePlan>;
+  validateConfig(
+    session: string,
+    request: ConfigValidationRequest,
+    signal?: AbortSignal,
+  ): Promise<ConfigValidation>;
   startAction(session: string, request: ActionRequest): Promise<ServerJob>;
   pollAction(session: string, id: string): Promise<ServerJob>;
-  cancel(): Promise<void>;
   disconnect(): Promise<void>;
 }
 
@@ -197,20 +200,43 @@ export function errorMessage(error: unknown): string {
   return typeof error === 'string' ? error : 'The read could not be completed.';
 }
 
+async function sshRequest<T>(
+  method: string,
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<T> {
+  signal?.throwIfAborted();
+  const requestId = crypto.randomUUID().replaceAll('-', '');
+  const cancel = () => {
+    void invoke('ssh_cancel', { requestId }).catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    const result = await invoke<T>(method, { ...params, requestId });
+    signal?.throwIfAborted();
+    return result;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
+}
+
 export const nativeClient: RemoteClient = {
   sessions: () => invoke<SessionInventory>('ssh_sessions'),
   choose: (kind) => invoke<SessionInventory | null>('ssh_choose_winscp', { kind }),
   setConfig: (config) => invoke<SessionInventory>('ssh_set_config', { config }),
   resetSetup: () => invoke<SessionInventory>('ssh_reset_setup'),
-  discover: (session) => invoke<Discovery>('ssh_discover', { session }),
-  read: (session, path) => invoke<ConfigSnapshot>('ssh_read_config', { session, path }),
-  serverStatus: (session) => invoke<ServerStatus>('ssh_server_status', { session }),
-  previewUpgrade: (session) => invoke<UpgradePlan>('ssh_preview_upgrade', { session }),
-  validateConfig: (session, request) =>
-    invoke<ConfigValidation>('ssh_validate_config', { session, request }),
-  startAction: (session, request) => invoke<ServerJob>('ssh_start_action', { session, request }),
-  pollAction: (session, id) => invoke<ServerJob>('ssh_poll_action', { session, id }),
-  cancel: () => invoke('ssh_cancel'),
+  discover: (session, signal) => sshRequest<Discovery>('ssh_discover', { session }, signal),
+  read: (session, path, signal) =>
+    sshRequest<ConfigSnapshot>('ssh_read_config', { session, path }, signal),
+  serverStatus: (session, signal) =>
+    sshRequest<ServerStatus>('ssh_server_status', { session }, signal),
+  previewUpgrade: (session, signal) =>
+    sshRequest<UpgradePlan>('ssh_preview_upgrade', { session }, signal),
+  validateConfig: (session, request, signal) =>
+    sshRequest<ConfigValidation>('ssh_validate_config', { session, request }, signal),
+  startAction: (session, request) =>
+    sshRequest<ServerJob>('ssh_start_action', { session, request }),
+  pollAction: (session, id) => sshRequest<ServerJob>('ssh_poll_action', { session, id }),
   disconnect: () => invoke('ssh_disconnect'),
 };
 export const desktopAvailable = isTauri();

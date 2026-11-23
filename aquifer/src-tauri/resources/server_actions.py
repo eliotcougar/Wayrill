@@ -29,7 +29,7 @@ class ActionError(Exception):
 
 
 def validate(request):
-    if not isinstance(request, dict) or request.get('mode') not in ('start', 'poll', 'preview', 'validateConfig'):
+    if not isinstance(request, dict) or request.get('mode') not in ('start', 'poll', 'preview', 'validateConfig', 'prepareConfigUpload'):
         raise ActionError('ACTION', 'Unknown server action request.')
     if request['mode'] == 'validateConfig':
         path = request.get('path', '')
@@ -44,7 +44,7 @@ def validate(request):
         if not re.fullmatch(r'[A-Za-z0-9_@.-]{1,180}\.service', request.get('service', '')):
             raise ActionError('CONFIG_TARGET', 'Enter an Xray systemd service name.')
         return
-    if request['mode'] == 'preview':
+    if request['mode'] in ('preview', 'prepareConfigUpload'):
         return
     if not re.fullmatch(r'[a-f0-9]{32}', request.get('id', '')):
         raise ActionError('ACTION', 'Invalid server job identifier.')
@@ -456,7 +456,7 @@ def dispatch(request):
         else:
             request = dict(request, configText=uploaded)
     if os.geteuid() != 0:
-        if request['mode'] == 'validateConfig':
+        if request['mode'] in ('validateConfig', 'prepareConfigUpload'):
             request = dict(request, readerUid=os.geteuid(), readerGid=os.getegid())
         sudo = shutil.which('sudo')
         if not sudo:
@@ -477,7 +477,11 @@ def dispatch(request):
         raise ActionError('SUDO', 'sudo could not authorize this action without interaction. Use root or an account configured for noninteractive sudo. No password is saved by Wayrill.')
     if request['mode'] == 'preview':
         respond({'plan': preview_upgrade()})
+    elif request['mode'] == 'prepareConfigUpload':
+        respond({'uploadPath': deploy_prepare_upload(
+            request.get('readerUid', 0), request.get('readerGid', 0))})
     elif request['mode'] == 'validateConfig':
+        deploy_release_upload(request['uploadPath'], request.get('readerUid', 0))
         respond({'validation': validate_config(request)})
     else:
         result = start(request) if request['mode'] == 'start' else poll(request['id'])

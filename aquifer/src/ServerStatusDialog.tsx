@@ -56,29 +56,29 @@ export default function ServerStatusDialog({
   } | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
-  const previewRequest = useRef({ sequence: 0, pending: false });
+  const previewRequest = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
-      previewRequest.current.sequence++;
-      if (previewRequest.current.pending) void client.cancel().catch(() => {});
+      previewRequest.current?.abort();
+      previewRequest.current = null;
     },
-    [client],
+    [client, sessionId],
   );
   const cancelPreview = () => {
-    previewRequest.current.sequence++;
-    previewRequest.current.pending = false;
+    previewRequest.current?.abort();
+    previewRequest.current = null;
     setPreviewing(false);
-    void client.cancel().catch(() => {});
   };
   const previewUpgrade = async () => {
-    const token = ++previewRequest.current.sequence;
-    previewRequest.current.pending = true;
+    if (previewRequest.current) return;
+    const controller = new AbortController();
+    previewRequest.current = controller;
     setPreviewing(true);
     setPreviewError('');
     setConfirmation(null);
     try {
-      const plan = await client.previewUpgrade(sessionId);
-      if (token === previewRequest.current.sequence)
+      const plan = await client.previewUpgrade(sessionId, controller.signal);
+      if (previewRequest.current === controller)
         setConfirmation({
           title: 'Review full upgrade (dist-upgrade)',
           detail:
@@ -87,16 +87,16 @@ export default function ServerStatusDialog({
           plan,
         });
     } catch (reason) {
-      if (token === previewRequest.current.sequence) setPreviewError(errorMessage(reason));
+      if (previewRequest.current === controller) setPreviewError(errorMessage(reason));
     } finally {
-      if (token === previewRequest.current.sequence) {
-        previewRequest.current.pending = false;
+      if (previewRequest.current === controller) {
+        previewRequest.current = null;
         setPreviewing(false);
       }
     }
   };
   const close = () => {
-    if (previewing) cancelPreview();
+    if (previewRequest.current) cancelPreview();
     onClose();
   };
   const confirmFocus = useRef<HTMLDivElement>(null);

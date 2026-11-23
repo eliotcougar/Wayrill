@@ -155,7 +155,7 @@ export default function App({
   const [filesOpen, setFilesOpen] = useState(true);
   const [sourceLabel, setSourceLabel] = useState(''),
     [generation, setGeneration] = useState(0);
-  const requests = useRef({ sequence: 0, cancelled: false }).current,
+  const requests = useRef({ sequence: 0, controller: null as AbortController | null }).current,
     fileInput = useRef<HTMLInputElement>(null);
   const activeSession = sessions.find((item) => item.id === session);
   const sourceHost = sessions.find((item) => item.id === sourceSession)?.host;
@@ -279,6 +279,7 @@ export default function App({
   useEffect(() => {
     if (desktopAvailable || client !== nativeClient) void loadSessions();
     return () => {
+      requests.controller?.abort();
       requests.sequence++;
     };
   }, [client, loadSessions, requests]);
@@ -356,18 +357,28 @@ export default function App({
       },
     );
   };
-  const read = async (name: string, filename: string, token: number) => {
+  const beginRequest = () => {
+    requests.controller?.abort();
+    const controller = new AbortController();
+    requests.controller = controller;
+    return { token: ++requests.sequence, signal: controller.signal };
+  };
+  const finishRequest = (token: number) => {
+    if (token !== requests.sequence) return;
+    requests.controller = null;
+    setBusy('');
+  };
+  const read = async (name: string, filename: string, token: number, signal: AbortSignal) => {
     setBusy('Reading configuration');
-    const result = await client.read(name, filename);
-    if (token !== requests.sequence || requests.cancelled) return;
+    const result = await client.read(name, filename, signal);
+    if (token !== requests.sequence || signal.aborted) return;
     const server = sessions.find((item) => item.id === name);
     present(result, server?.name ?? 'Remote server', name);
     cacheObserved(server, result);
   };
   const connect = async () => {
     if (!mayReplaceDraft()) return;
-    const token = ++requests.sequence;
-    requests.cancelled = false;
+    const { token, signal } = beginRequest();
     setBusy('Finding Xray configuration');
     setError('');
     setDiscoveryNote('');
@@ -375,7 +386,7 @@ export default function App({
       let result: Discovery | null = null;
       let discoveryIssue = 'Discovery found no readable configuration.';
       try {
-        result = await client.discover(session);
+        result = await client.discover(session, signal);
       } catch (reason) {
         if (
           !reason ||
@@ -386,7 +397,7 @@ export default function App({
           throw reason;
         discoveryIssue = errorMessage(reason);
       }
-      if (token !== requests.sequence || requests.cancelled) return;
+      if (token !== requests.sequence || signal.aborted) return;
       setDiscovery(result);
       const readable = result?.files.filter((f) => f.readable && f.size <= 16 * 1024 * 1024) ?? [];
       const file =
@@ -396,64 +407,62 @@ export default function App({
         readable[0];
       if (file) {
         setPath(file.path);
-        await read(session, file.path, token);
+        await read(session, file.path, token, signal);
       } else {
         const filename = path.trim() || DEFAULT_CONFIG_PATH;
         setPath(filename);
         try {
-          await read(session, filename, token);
+          await read(session, filename, token, signal);
         } catch (reason) {
           throw new Error(`Could not read ${filename}: ${errorMessage(reason)} ${discoveryIssue}`, {
             cause: reason,
           });
         }
-        if (token === requests.sequence && !requests.cancelled)
+        if (token === requests.sequence && !signal.aborted)
           setDiscoveryNote(
             `${discoveryIssue} Loaded the file directly over SFTP; its running process was not verified.`,
           );
       }
     } catch (reason) {
-      if (token === requests.sequence && !requests.cancelled) setError(errorMessage(reason));
+      if (token === requests.sequence && !signal.aborted) setError(errorMessage(reason));
     } finally {
-      if (token === requests.sequence) setBusy('');
+      finishRequest(token);
     }
   };
   const openPath = async () => {
     if (!mayReplaceDraft()) return;
-    const token = ++requests.sequence;
-    requests.cancelled = false;
+    const { token, signal } = beginRequest();
     setError('');
     setDiscoveryNote('');
     try {
-      await read(session, path.trim(), token);
+      await read(session, path.trim(), token, signal);
     } catch (reason) {
-      if (token === requests.sequence && !requests.cancelled) setError(errorMessage(reason));
+      if (token === requests.sequence && !signal.aborted) setError(errorMessage(reason));
     } finally {
-      if (token === requests.sequence) setBusy('');
+      finishRequest(token);
     }
   };
   const refreshStatus = async () => {
-    const token = ++requests.sequence;
-    requests.cancelled = false;
+    const { token, signal } = beginRequest();
     setStatusError('');
     setBusy('Reading server status');
     try {
-      const result = await client.serverStatus(session);
-      if (token === requests.sequence && !requests.cancelled) setStatus(result);
+      const result = await client.serverStatus(session, signal);
+      if (token === requests.sequence && !signal.aborted) setStatus(result);
     } catch (reason) {
-      if (token === requests.sequence && !requests.cancelled) setStatusError(errorMessage(reason));
+      if (token === requests.sequence && !signal.aborted) setStatusError(errorMessage(reason));
     } finally {
-      if (token === requests.sequence) setBusy('');
+      finishRequest(token);
     }
   };
   const cancelStatus = () => {
-    requests.cancelled = true;
+    requests.controller?.abort();
     setStatusError('Status check cancelled.');
-    void client.cancel().catch(() => {});
   };
   const clear = () => {
+    requests.controller?.abort();
+    requests.controller = null;
     requests.sequence++;
-    requests.cancelled = false;
     setDiscovery(null);
     setDiscoveryNote('');
     setPoolCacheError('');
@@ -526,19 +535,19 @@ export default function App({
       setError('The configuration exceeds 16 MiB.');
       return;
     }
-    const token = ++requests.sequence;
-    requests.cancelled = false;
+    const { token, signal } = beginRequest();
     setBusy('Opening file');
     try {
       const bytes = await file.arrayBuffer();
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      if (token !== requests.sequence || requests.cancelled) return;
+      if (token !== requests.sequence || signal.aborted) return;
       setDiscovery(null);
       present({ text, path: file.name, bytes: file.size, sha256: '' }, 'Local file');
     } catch {
-      setError('This file could not be read as UTF-8 JSON.');
+      if (token === requests.sequence && !signal.aborted)
+        setError('This file could not be read as UTF-8 JSON.');
     } finally {
-      if (token === requests.sequence) setBusy('');
+      finishRequest(token);
     }
   };
   const node = displayedView?.nodes.find((n) => n.id === selected);
@@ -734,12 +743,11 @@ export default function App({
       setError('Enter an absolute remote configuration path.');
       return;
     }
-    const token = ++requests.sequence;
-    requests.cancelled = false;
+    const { token, signal } = beginRequest();
     setBusy('Reading deployment target');
     try {
-      const target = await client.read(session, filename);
-      if (token !== requests.sequence || requests.cancelled) return;
+      const target = await client.read(session, filename, signal);
+      if (token !== requests.sequence || signal.aborted) return;
       setSnapshot(target);
       setSourceSession(session);
       setSourceLabel(activeSession?.name ?? 'Remote server');
@@ -747,9 +755,9 @@ export default function App({
       setDeploymentOpen(true);
       setError('');
     } catch (reason) {
-      if (token === requests.sequence && !requests.cancelled) setError(errorMessage(reason));
+      if (token === requests.sequence && !signal.aborted) setError(errorMessage(reason));
     } finally {
-      if (token === requests.sequence) setBusy('');
+      finishRequest(token);
     }
   };
   const canPrepareDeployment =
@@ -1334,13 +1342,7 @@ export default function App({
               <div>
                 <RefreshCw className="spin" size={25} />
                 <strong>{busy}…</strong>
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    requests.cancelled = true;
-                    void client.cancel().catch(() => {});
-                  }}
-                >
+                <button className="secondary-button" onClick={() => requests.controller?.abort()}>
                   Cancel
                 </button>
               </div>

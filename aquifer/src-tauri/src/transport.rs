@@ -1,6 +1,6 @@
 //! One owned WinSCP session, with bounded, independently framed requests.
 use crate::{
-    remote::{connection_error, Operation, RemoteError, Result},
+    remote::{connection_error, Permit, RemoteError, Result},
     winscp,
 };
 use std::{
@@ -189,7 +189,7 @@ impl Console {
 
     pub fn execute(
         &mut self,
-        operation: &Operation,
+        operation: &Permit,
         commands: &[String],
         file: bool,
         deadline: Instant,
@@ -236,7 +236,7 @@ impl Console {
 
     fn receive(
         &mut self,
-        operation: &Operation,
+        operation: &Permit,
         begin: &str,
         end: &str,
         file: bool,
@@ -414,7 +414,7 @@ impl Chunks {
 }
 
 pub(crate) fn run(
-    operation: &Operation,
+    operation: &Permit,
     session: &str,
     commands: &[String],
     file: bool,
@@ -422,7 +422,7 @@ pub(crate) fn run(
     operation.check_cancelled()?;
     let connection = winscp::resolve(session)?;
     let mut slot = operation
-        .console
+        .console()
         .lock()
         .map_err(|_| error("PROCESS", "The SSH session manager stopped."))?;
     if slot.as_ref().is_some_and(|s| s.connection != connection) {
@@ -444,7 +444,10 @@ pub(crate) fn run(
             .unwrap()
             .execute(operation, commands, file, deadline)
         {
-            Ok(result) => return Ok(result),
+            Ok(result) => {
+                operation.check_cancelled()?;
+                return Ok(result);
+            }
             Err(reason) => {
                 slot.take();
                 // All reads are repeatable; action starts carry the same server

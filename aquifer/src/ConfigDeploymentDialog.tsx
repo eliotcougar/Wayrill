@@ -54,18 +54,17 @@ export default function ConfigDeploymentDialog({
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [expired, setExpired] = useState(false);
-  const pending = useRef({ sequence: 0, active: false });
+  const pending = useRef<AbortController | null>(null);
   const applied = useRef('');
   useEffect(() => {
-    pending.current.sequence++;
-    if (pending.current.active) {
-      pending.current.active = false;
-      void client.cancel().catch(() => {});
-    }
     setValidating(false);
     setValidation(null);
     setConfirming(false);
-  }, [client, configText, wayrillText, expectedSha256, expectedWayrillSha256]);
+    return () => {
+      pending.current?.abort();
+      pending.current = null;
+    };
+  }, [client, sessionId, path, configText, wayrillText, expectedSha256, expectedWayrillSha256]);
   const operation = useServerJob(client, sessionId, () => {});
   const job = operation.request?.action === 'applyConfig' ? operation.job : null;
   const locked = validating || operation.active;
@@ -80,14 +79,9 @@ export default function ConfigDeploymentDialog({
     validation.sourceSha256 === expectedSha256;
   useEffect(() => {
     const element = dialog.current;
-    const request = pending.current;
     element?.showModal();
-    return () => {
-      request.sequence++;
-      if (request.active) void client.cancel().catch(() => {});
-      element?.close();
-    };
-  }, [client]);
+    return () => element?.close();
+  }, []);
   useEffect(() => {
     setExpired(false);
     if (!validation) return;
@@ -158,30 +152,35 @@ export default function ConfigDeploymentDialog({
     }
   }, [job, operation.request, validation]);
   const validate = async () => {
-    const sequence = ++pending.current.sequence;
-    pending.current.active = true;
+    if (pending.current) return;
+    const controller = new AbortController();
+    pending.current = controller;
     setValidating(true);
     setValidation(null);
     setConfirming(false);
     setError('');
     try {
       if (wayrillText !== undefined) restoreRemoteDocument(configText, wayrillText);
-      const result = await client.validateConfig(sessionId, {
-        path,
-        service,
-        expectedSha256,
-        configText,
-        ...(wayrillText !== undefined
-          ? { wayrillText, expectedWayrillSha256: expectedWayrillSha256 ?? null }
-          : {}),
-        stage: true,
-      });
-      if (sequence === pending.current.sequence) setValidation(result);
+      const result = await client.validateConfig(
+        sessionId,
+        {
+          path,
+          service,
+          expectedSha256,
+          configText,
+          ...(wayrillText !== undefined
+            ? { wayrillText, expectedWayrillSha256: expectedWayrillSha256 ?? null }
+            : {}),
+          stage: true,
+        },
+        controller.signal,
+      );
+      if (pending.current === controller) setValidation(result);
     } catch (reason) {
-      if (sequence === pending.current.sequence) setError(errorMessage(reason));
+      if (pending.current === controller) setError(errorMessage(reason));
     } finally {
-      if (sequence === pending.current.sequence) {
-        pending.current.active = false;
+      if (pending.current === controller) {
+        pending.current = null;
         setValidating(false);
       }
     }

@@ -2614,6 +2614,11 @@ impl Kernel {
                 }
             }
         }
+        let resume_proxy = !self.proxy.recovery_pending
+            || (self.recovery.retain_assignments() && self.profile_recovery.is_none());
+        if self.proxy.reconcile_scope(now, resume_proxy) {
+            self.changed("system.captureScopeChanged");
+        }
         if (self.proxy.recovery_pending || self.proxy.extras.recovery_pending)
             && !self.recovery.retain_assignments()
             && self.core_state != CoreState::Failed

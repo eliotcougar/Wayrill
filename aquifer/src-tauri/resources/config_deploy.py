@@ -70,20 +70,53 @@ def deploy_disarm_boot_guard(identifier, service, reload=True):
         pass
 
 
+CONFIG_UPLOAD_SECONDS = 5 * 60
+CONFIG_UPLOAD_PATH = re.compile(r'/run/(wayrill-config-[a-f0-9]{32})/candidate\.json')
+
+
+def deploy_prepare_upload(uid, gid):
+    name = 'wayrill-config-' + uuid.uuid4().hex
+    # PID 1 creates the private /run directory before starting the lease.
+    # The directory is removed when the service exits, including on expiry.
+    result = capture([
+        'systemd-run', '--quiet', '--collect', '--service-type=exec', '--unit=' + name,
+        '--uid=' + str(uid), '--gid=' + str(gid),
+        '--property=RuntimeDirectory=' + name, '--property=RuntimeDirectoryMode=0700',
+        '/bin/sleep', str(CONFIG_UPLOAD_SECONDS),
+    ])
+    if result.returncode:
+        raise ActionError('CONFIG_UPLOAD', 'Could not prepare an expiring private upload on the server.')
+    return '/run/' + name + '/candidate.json'
+
+
 def deploy_read_upload(path):
-    if not re.fullmatch(r'/tmp/wayrill-config-[A-Za-z0-9_-]{6,64}/candidate\.json', path):
+    if not CONFIG_UPLOAD_PATH.fullmatch(path):
         raise ActionError('CONFIG_FILE', 'Invalid private upload path.')
-    directory = os.path.dirname(path)
-    parent = os.lstat(directory)
-    info = os.lstat(path)
-    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid() or stat.S_IMODE(parent.st_mode) != 0o700 or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600:
-        raise ActionError('CONFIG_FILE', 'The SFTP upload must remain private to the connected account.')
     try:
-        data, _ = deploy_read(path, 64 * 1024 * 1024)
-        return data.decode('utf-8', 'strict')
-    finally:
-        os.unlink(path)
-        os.rmdir(directory)
+        parent = os.lstat(os.path.dirname(path))
+        info = os.lstat(path)
+        if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid() or stat.S_IMODE(parent.st_mode) != 0o700 or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600:
+            raise ActionError('CONFIG_FILE', 'The SFTP upload must remain private to the connected account.')
+        try:
+            data, _ = deploy_read(path, 64 * 1024 * 1024)
+            return data.decode('utf-8', 'strict')
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
+    except FileNotFoundError:
+        raise ActionError('CONFIG_UPLOAD', 'The private upload expired or is missing. Validate the draft again.') from None
+
+
+def deploy_release_upload(path, uid):
+    match = CONFIG_UPLOAD_PATH.fullmatch(path)
+    if not match:
+        return
+    # A consumed candidate can release its service early. If this cleanup is
+    # interrupted, the lease still expires on the server.
+    with contextlib.suppress(ActionError, OSError):
+        parent = os.lstat(os.path.dirname(path))
+        if stat.S_ISDIR(parent.st_mode) and parent.st_uid == uid and not os.path.lexists(path):
+            capture(['systemctl', 'stop', '--no-block', '--', match[1] + '.service'], timeout=3)
 
 
 def deploy_digest(data):

@@ -196,7 +196,7 @@ it('opens the xray.service config before an auxiliary daemon', async () => {
     files: [{ ...discovery.files[0], services: ['xray-vnc.service'] }, main],
   });
   await act(async () => button('Read server').click());
-  expect(client.read).toHaveBeenCalledWith('FlauntVPN', main.path);
+  expect(client.read).toHaveBeenCalledWith('FlauntVPN', main.path, expect.any(AbortSignal));
 });
 
 it('shows the observed public relay and opens its inbound without editing the graph', async () => {
@@ -340,7 +340,7 @@ beforeEach(async () => {
       } satisfies ServerJob),
     ),
     pollAction: vi.fn(),
-    cancel: vi.fn().mockResolvedValue(undefined),
+
     disconnect: vi.fn().mockResolvedValue(undefined),
     choose: vi.fn().mockResolvedValue(null),
     setConfig: vi.fn().mockResolvedValue(inventory),
@@ -376,7 +376,7 @@ it('opens User sets while an inbound has an invalid port and returns to the unsa
 it('previews installations, upgrades and removals before confirming dist-upgrade', async () => {
   await act(async () => button('Server status').click());
   await act(async () => button('Full upgrade…').click());
-  expect(client.previewUpgrade).toHaveBeenCalledWith('FlauntVPN');
+  expect(client.previewUpgrade).toHaveBeenCalledWith('FlauntVPN', expect.any(AbortSignal));
   expect(client.startAction).not.toHaveBeenCalled();
   const preview = host.querySelector('[role="alertdialog"]')!;
   expect(preview.textContent).toContain('new-lib');
@@ -427,7 +427,7 @@ it('does not open a late preview after its cancellation', async () => {
   await act(async () => button('Cancel').click());
   await act(async () => finish(upgradePlan));
   expect(host.querySelector('[role="alertdialog"]')).toBeNull();
-  expect(client.cancel).toHaveBeenCalled();
+  expect(vi.mocked(client.previewUpgrade).mock.calls.at(-1)?.[1]?.aborted).toBe(true);
 });
 it('paginates full-upgrade removals without hiding the remaining changes', async () => {
   vi.mocked(client.previewUpgrade).mockResolvedValue({
@@ -456,7 +456,7 @@ it('reads server health without downloading a configuration', async () => {
     nginxServices: [{ ...serverStatus.xray.services[0], name: 'nginx.service', mainPid: 81 }],
   });
   await act(async () => button('Server status').click());
-  expect(client.serverStatus).toHaveBeenCalledWith('FlauntVPN');
+  expect(client.serverStatus).toHaveBeenCalledWith('FlauntVPN', expect.any(AbortSignal));
   expect(client.read).not.toHaveBeenCalled();
   const dialog = host.querySelector('dialog')!;
   expect(dialog.open).toBe(true);
@@ -506,7 +506,7 @@ it('waits for disconnect before switching servers', async () => {
   await act(async () => finish());
   expect(select.value).toBe('Other');
   await act(async () => button('Read server').click());
-  expect(client.discover).toHaveBeenCalledWith('Other');
+  expect(client.discover).toHaveBeenCalledWith('Other', expect.any(AbortSignal));
 });
 it('preserves the displayed graph if disconnect fails', async () => {
   await act(async () => button('Read server').click());
@@ -662,7 +662,7 @@ it('cancels an in-flight status check and ignores its late result', async () => 
       .querySelector<HTMLButtonElement>('dialog button[aria-label="Close server status"]')!
       .click(),
   );
-  expect(client.cancel).toHaveBeenCalled();
+  expect(vi.mocked(client.serverStatus).mock.calls.at(-1)?.[1]?.aborted).toBe(true);
   await act(async () => finish(serverStatus));
   expect(host.querySelector('dialog')).toBeNull();
   expect(button('Server status').disabled).toBe(false);
@@ -764,7 +764,7 @@ it('cancels the actual SSH read and unblocks the UI afterwards', async () => {
   await act(async () => button('Read server').click());
   expect(button('Read server').disabled).toBe(true);
   await act(async () => button('Cancel').click());
-  expect(client.cancel).toHaveBeenCalled();
+  expect(vi.mocked(client.discover).mock.calls.at(-1)?.[1]?.aborted).toBe(true);
   await act(async () => rejectRead({ message: 'SSH read cancelled.' }));
   expect(button('Read server').disabled).toBe(false);
 });
@@ -784,7 +784,7 @@ it('finds sessions from an explicitly chosen INI and uses its source-bound ident
   expect(client.choose).toHaveBeenCalledWith('ini');
   expect(host.textContent).toContain(ini);
   await act(async () => button('Read server').click());
-  expect(client.discover).toHaveBeenCalledWith('ini-flaunt');
+  expect(client.discover).toHaveBeenCalledWith('ini-flaunt', expect.any(AbortSignal));
 });
 it('shows actionable setup when automatic detection finds no executable or sites', async () => {
   vi.mocked(client.sessions).mockResolvedValue({
@@ -803,7 +803,11 @@ it('shows actionable setup when automatic detection finds no executable or sites
 it('reads the visible default path directly without discovery', async () => {
   await act(async () => button('Read file').click());
   expect(client.discover).not.toHaveBeenCalled();
-  expect(client.read).toHaveBeenCalledWith('FlauntVPN', '/usr/local/etc/xray/config.json');
+  expect(client.read).toHaveBeenCalledWith(
+    'FlauntVPN',
+    '/usr/local/etc/xray/config.json',
+    expect.any(AbortSignal),
+  );
   expect(host.textContent).toContain('Canvas ready');
 });
 it('falls back to SFTP when discovery returns no result', async () => {
@@ -812,7 +816,11 @@ it('falls back to SFTP when discovery returns no result', async () => {
     message: 'Python discovery is unavailable.',
   });
   await act(async () => button('Read server').click());
-  expect(client.read).toHaveBeenCalledWith('FlauntVPN', '/usr/local/etc/xray/config.json');
+  expect(client.read).toHaveBeenCalledWith(
+    'FlauntVPN',
+    '/usr/local/etc/xray/config.json',
+    expect.any(AbortSignal),
+  );
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.textContent).toContain('Canvas ready');
   await act(async () => host.querySelector<HTMLButtonElement>('.notice-button')!.click());
@@ -829,7 +837,11 @@ it('falls back to the edited path when discovery finds no files', async () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('Read server').click());
-  expect(client.read).toHaveBeenCalledWith('FlauntVPN', '/etc/xray/custom.json');
+  expect(client.read).toHaveBeenCalledWith(
+    'FlauntVPN',
+    '/etc/xray/custom.json',
+    expect.any(AbortSignal),
+  );
 });
 it('reports a failed fallback with its path and discovery context', async () => {
   vi.mocked(client.discover).mockRejectedValue({
@@ -1075,7 +1087,11 @@ it('reads a local draft deployment target before allowing remote validation', as
   await act(async () => button('Server configuration').click());
   expect(button('Apply…').disabled).toBe(false);
   await act(async () => button('Apply…').click());
-  expect(client.read).toHaveBeenCalledWith('FlauntVPN', '/usr/local/etc/xray/config.json');
+  expect(client.read).toHaveBeenCalledWith(
+    'FlauntVPN',
+    '/usr/local/etc/xray/config.json',
+    expect.any(AbortSignal),
+  );
   await act(async () => button('Close configuration deployment').click());
   expect(button('Apply…').disabled).toBe(false);
   await act(async () => button('Check').click());
@@ -1396,7 +1412,7 @@ it('refreshes server status after session inventory switches to a different serv
   await menuAction('Server', 'Refresh saved sessions');
   vi.mocked(client.serverStatus).mockResolvedValue({ ...serverStatus, hostname: 'other-linux' });
   await menuAction('Server', 'Server status…');
-  expect(client.serverStatus).toHaveBeenLastCalledWith('Other');
+  expect(client.serverStatus).toHaveBeenLastCalledWith('Other', expect.any(AbortSignal));
   expect(host.querySelector('[aria-labelledby="server-status-title"]')?.textContent).toContain(
     'other-linux',
   );
