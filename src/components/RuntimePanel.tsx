@@ -187,8 +187,12 @@ function RuntimePanelView({
                     </div>
                   )}
                   {connected &&
-                    (snapshot?.appProtection?.blocked || snapshot?.appProtection?.error) && (
+                    (snapshot?.appProtection?.phase === 'clearing' ||
+                      snapshot?.appProtection?.blocked ||
+                      snapshot?.appProtection?.error) && (
                       <div className="notice" role="status">
+                        {snapshot.appProtection.phase === 'clearing' &&
+                          'Wayrill is retrying removal of app protection.'}
                         {snapshot.appProtection.blocked &&
                           'Selected applications are blocked until routing recovers. Stop releases protection.'}
                         {snapshot.appProtection.error && (

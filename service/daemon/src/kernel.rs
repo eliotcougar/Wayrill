@@ -967,8 +967,7 @@ impl Kernel {
                 self.events.receipts.stop_pending_routing();
                 // Unlike explicit Stop, installer retirement must not release
                 // applications between stopping this service and its successor.
-                if self.core.is_some() || self.recovery.wants_running() || self.protection.blocked()
-                {
+                if self.core.is_some() || self.recovery.wants_running() || self.protection.armed() {
                     if self.protection.enabled() {
                         self.progress(crate::lifecycle::Stage::ProtectApps);
                     }

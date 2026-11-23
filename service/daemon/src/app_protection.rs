@@ -113,9 +113,16 @@ fn normalize_targets(targets: &mut Vec<Target>) -> Result<()> {
 pub enum Phase {
     #[default]
     Idle,
+    Clearing,
     Restart,
     Recovery,
     Upgrade,
+}
+
+impl Phase {
+    fn armed(self) -> bool {
+        matches!(self, Self::Restart | Self::Recovery | Self::Upgrade)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,19 +230,19 @@ impl<B: Backend> Manager<B> {
     pub fn snapshot(&self) -> Value {
         json!({"version":version(&self.state.config), "config":self.state.config,
             "poolApplicationCount":self.state.pool.applications.len(),
-            "phase":self.state.phase,"blocked":self.state.phase != Phase::Idle && self.error.is_none(),
+            "phase":self.state.phase,"blocked":self.armed() && self.error.is_none(),
             "error":self.error})
     }
     pub fn summary(&self) -> Value {
         json!({"enabled":self.enabled(),"applicationCount":self.state.config.applications.len(),
             "poolApplicationCount":self.state.pool.applications.len(),
-            "phase":self.state.phase,"blocked":self.blocked() && self.error.is_none(),"error":self.error})
+            "phase":self.state.phase,"blocked":self.armed() && self.error.is_none(),"error":self.error})
     }
     pub fn upgrading(&self) -> bool {
         self.state.phase == Phase::Upgrade
     }
-    pub fn blocked(&self) -> bool {
-        self.state.phase != Phase::Idle
+    pub fn armed(&self) -> bool {
+        self.state.phase.armed()
     }
     pub fn enabled(&self) -> bool {
         self.state.enabled()
@@ -249,7 +256,7 @@ impl<B: Backend> Manager<B> {
         }
         let mut config = request.config;
         config.validate()?;
-        if self.blocked() && (config.enabled || self.state.pool.enabled) {
+        if self.armed() && (config.enabled || self.state.pool.enabled) {
             return Err(ApiError::new("BUSY", "Routing is recovering. Disable protection to release its applications, or wait before changing the list."));
         }
         let mut next = self.state.clone();
@@ -262,7 +269,7 @@ impl<B: Backend> Manager<B> {
         if self.state.pool == config {
             return Ok(false);
         }
-        if self.blocked() {
+        if self.armed() {
             return Err(ApiError::new(
                 "BUSY",
                 "Wait for routing recovery to finish before changing Pool protection.",
@@ -274,7 +281,11 @@ impl<B: Backend> Manager<B> {
         Ok(true)
     }
     fn update_config(&mut self, mut next: State, base: &Path) -> Result<()> {
-        let targets = self.resolve_targets(&mut next)?;
+        let targets = if next.enabled() {
+            self.resolve_targets(&mut next)?
+        } else {
+            Vec::new()
+        };
         let base = format!(
             "{}\\",
             base.to_string_lossy().trim_end_matches('\\').to_lowercase()
@@ -295,8 +306,8 @@ impl<B: Backend> Manager<B> {
         }
         self.backend.validate(&targets)?;
         next.targets = targets;
-        if !next.enabled() {
-            next.phase = Phase::Idle;
+        if !next.enabled() && next.phase.armed() {
+            next.phase = Phase::Clearing;
         }
         self.save(next)?;
         if !self.enabled() {
@@ -314,7 +325,7 @@ impl<B: Backend> Manager<B> {
             return Ok(());
         }
         let previous = self.state.clone();
-        if self.state.phase == Phase::Idle || phase == Phase::Upgrade {
+        if !self.armed() || phase == Phase::Upgrade {
             self.save(State {
                 phase,
                 ..self.state.clone()
@@ -336,9 +347,9 @@ impl<B: Backend> Manager<B> {
     pub fn release(&mut self) -> Result<()> {
         // Write-ahead intent: an interrupted explicit release is retried at
         // startup, while an interrupted arm never disappears with a process.
-        if self.state.phase != Phase::Idle {
+        if self.armed() {
             self.save(State {
-                phase: Phase::Idle,
+                phase: Phase::Clearing,
                 ..self.state.clone()
             })?;
         }
@@ -348,27 +359,32 @@ impl<B: Backend> Manager<B> {
         self.release()
     }
     pub fn reconcile(&mut self, now: Instant) -> bool {
-        if self.enabled() && now >= self.refresh_at {
-            self.refresh_at = now + Duration::from_secs(30);
-            match self.refresh_targets() {
-                Ok(false) => {}
-                Ok(true) => {
-                    if self.blocked() || self.error.is_some() {
-                        let _ = self.sync_at(now);
-                    }
-                    return true;
-                }
-                Err(mut error) => {
-                    error.retryable = true;
-                    self.record_result(Err(error), now).ok();
-                    return true;
-                }
+        // Complete pending firewall work before refreshing installation data.
+        // Discovery failures must never postpone an already-requested clear.
+        if self.state.phase == Phase::Clearing || self.retry_at.is_some() {
+            if self.retry_at.is_some_and(|at| now < at) {
+                return false;
             }
+            let _ = self.sync_at(now);
+            return true;
         }
-        if self.retry_at.is_none_or(|at| now < at) {
+        if !self.enabled() || now < self.refresh_at {
             return false;
         }
-        let _ = self.sync_at(now);
+        self.refresh_at = now + Duration::from_secs(30);
+        let result = match self.refresh_targets() {
+            Ok(true) if self.armed() => self.backend.replace(&self.state.targets),
+            Ok(false) if self.error.is_none() => return false,
+            Ok(_) => Ok(()),
+            Err(error) => {
+                if self.armed() {
+                    self.retry_at = Some(now + Duration::from_secs(30));
+                }
+                self.error = Some(error);
+                return true;
+            }
+        };
+        let _ = self.record_result(result, now);
         true
     }
     fn sync(&mut self) -> Result<()> {
@@ -377,21 +393,27 @@ impl<B: Backend> Manager<B> {
     fn sync_at(&mut self, now: Instant) -> Result<()> {
         // Releasing protection must remain possible even if an installation or
         // drive has disappeared. Discovery is a prerequisite only for arming.
-        let result = if !self.enabled() || self.state.phase == Phase::Idle {
-            self.backend.replace(&[])
-        } else {
+        let result = if self.armed() && self.enabled() {
             self.refresh_targets()
                 .and_then(|_| self.backend.replace(&self.state.targets))
+        } else {
+            self.backend.replace(&[]).and_then(|()| self.finish_clear())
         };
         self.record_result(result, now)
     }
-    fn refresh_targets(&mut self) -> Result<bool> {
-        if !self.enabled() {
-            return Ok(false);
+    fn finish_clear(&mut self) -> Result<()> {
+        if self.state.phase != Phase::Clearing {
+            return Ok(());
         }
+        self.save(State {
+            phase: Phase::Idle,
+            ..self.state.clone()
+        })
+    }
+    fn refresh_targets(&mut self) -> Result<bool> {
         let mut next = self.state.clone();
         let mut targets = self.resolve_targets(&mut next)?;
-        if self.state.phase != Phase::Idle {
+        if self.armed() {
             targets.extend(self.state.targets.iter().cloned());
             normalize_targets(&mut targets)?;
         }
@@ -424,7 +446,7 @@ impl<B: Backend> Manager<B> {
         self.retry_at = self
             .error
             .as_ref()
-            .filter(|error| error.retryable)
+            .filter(|error| error.retryable || self.state.phase != Phase::Idle)
             .map(|_| now + Duration::from_secs(30));
         result
     }
@@ -490,7 +512,7 @@ pub fn prepare_installed_upgrade() -> Result<()> {
 mod tests {
     use super::*;
     use std::{
-        cell::RefCell,
+        cell::{Cell, RefCell},
         rc::Rc,
         sync::atomic::{AtomicU64, Ordering},
     };
@@ -498,19 +520,23 @@ mod tests {
     struct Fake(
         Rc<RefCell<(Vec<Target>, bool, usize)>>,
         Rc<RefCell<Vec<Target>>>,
+        Rc<Cell<bool>>,
     );
     impl Backend for Fake {
         fn package_executables(&self, applications: &[Target]) -> Result<Vec<Target>> {
-            Ok(
-                if applications
-                    .iter()
-                    .any(|target| matches!(target, Target::Package { .. }))
-                {
-                    self.1.borrow().clone()
-                } else {
-                    Vec::new()
-                },
-            )
+            if !applications
+                .iter()
+                .any(|target| matches!(target, Target::Package { .. }))
+            {
+                return Ok(Vec::new());
+            }
+            if self.2.get() {
+                return Err(ApiError::new(
+                    "APP_PROTECTION",
+                    "Package inventory unavailable",
+                ));
+            }
+            Ok(self.1.borrow().clone())
         }
         fn validate(&self, _: &[Target]) -> Result<()> {
             Ok(())
@@ -660,9 +686,15 @@ mod tests {
         assert!(manager.release().is_err());
         assert_eq!(native.0.borrow().0.len(), 1);
         assert!(manager.snapshot()["error"].is_object());
+        assert_eq!(manager.snapshot()["phase"], "clearing");
+        assert_eq!(
+            storage::read::<State>(&path).unwrap().unwrap().phase,
+            Phase::Clearing
+        );
         drop(manager);
         let manager = Manager::open_with("owner", path.clone(), native.clone()).unwrap();
         assert!(native.0.borrow().0.is_empty());
+        assert_eq!(manager.snapshot()["phase"], "idle");
         assert!(manager.error.is_none());
         std::fs::remove_file(path).unwrap();
     }
@@ -688,7 +720,7 @@ mod tests {
         assert_eq!(native.0.borrow().0.len(), 1);
         let saved = storage::read::<State>(&path).unwrap().unwrap();
         assert!(!saved.config.enabled);
-        assert_eq!(saved.phase, Phase::Idle);
+        assert_eq!(saved.phase, Phase::Clearing);
         let retry_at = manager.retry_at.unwrap();
         let calls = native.0.borrow().2;
         assert!(!manager.reconcile(retry_at - Duration::from_millis(1)));
@@ -702,17 +734,20 @@ mod tests {
                     expected_version: version(&manager.state.config),
                     config: Config {
                         enabled: true,
-                        applications: vec![Target::Executable {
-                            value: "C:\\Apps\\other.exe".into(),
+                        applications: vec![Target::Package {
+                            value: "Example.App_123456789abcd".into(),
                         }],
                     },
                 },
                 Path::new("C:\\Wayrill"),
             )
             .unwrap();
+        manager.refresh_at = retry_at;
+        native.2.set(true);
         assert!(manager.reconcile(retry_at));
         assert!(native.0.borrow().0.is_empty());
         assert!(manager.error.is_none());
+        native.2.set(false);
         assert_eq!(manager.state.phase, Phase::Idle);
         assert!(manager.state.config.enabled);
         let calls = native.0.borrow().2;

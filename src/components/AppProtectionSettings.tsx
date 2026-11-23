@@ -15,7 +15,7 @@ export type ProtectionConfig = {
 export type ProtectionSnapshot = {
   version: string;
   config: ProtectionConfig;
-  phase: 'idle' | 'restart' | 'recovery' | 'upgrade';
+  phase: 'idle' | 'clearing' | 'restart' | 'recovery' | 'upgrade';
   blocked: boolean;
   error: { message: string } | null;
   poolApplicationCount?: number;
@@ -50,7 +50,7 @@ export default function AppProtectionSettings({
     edited = useRef(false),
     readVersion = useRef(0);
   const desktop = !layer && desktopServiceAvailable();
-  const listLocked = snapshot !== null && snapshot.phase !== 'idle';
+  const listLocked = !!snapshot && snapshot.phase !== 'idle' && snapshot.phase !== 'clearing';
   useEffect(() => {
     alive.current = true;
     if (!desktop) return;
@@ -134,13 +134,15 @@ export default function AppProtectionSettings({
           <strong>
             {!snapshot
               ? 'Loading app protection…'
-              : snapshot.error
-                ? 'App protection needs attention'
-                : snapshot.blocked
-                  ? 'Applications blocked while routing recovers'
-                  : snapshot.config.enabled || !!snapshot.poolApplicationCount
-                    ? 'Restart protection enabled'
-                    : 'Restart protection off'}
+              : snapshot.phase === 'clearing'
+                ? 'Releasing app protection'
+                : snapshot.error
+                  ? 'App protection needs attention'
+                  : snapshot.blocked
+                    ? 'Applications blocked while routing recovers'
+                    : snapshot.config.enabled || !!snapshot.poolApplicationCount
+                      ? 'Restart protection enabled'
+                      : 'Restart protection off'}
           </strong>
           {!!snapshot?.poolApplicationCount && (
             <p className="field-help">
