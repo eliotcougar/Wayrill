@@ -13,10 +13,12 @@ export default function ServerJobProgress({
   operation,
   progressLabel,
   children,
+  dismissDisabled = false,
 }: {
   operation: Operation;
   progressLabel: string;
   children?: ReactNode;
+  dismissDisabled?: boolean;
 }) {
   const { phase, job, error } = operation;
   const monitoring = phase === 'checking' || phase === 'observing';
@@ -65,7 +67,11 @@ export default function ServerJobProgress({
               Check progress
             </button>
           )}
-          <button className="secondary-button" onClick={operation.dismiss}>
+          <button
+            className="secondary-button"
+            onClick={operation.dismiss}
+            disabled={dismissDisabled}
+          >
             {phase === 'paused'
               ? 'Stop monitoring'
               : phase === 'completed'

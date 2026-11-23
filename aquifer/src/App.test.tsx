@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { createHash, webcrypto } from 'node:crypto';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App';
@@ -714,6 +715,7 @@ it('reports unsupported WinSCP before any remote request', async () => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.unstubAllGlobals();
 });
 it('displays ordered rules and switches to redacted source JSON', async () => {
   await act(async () => button('Read server').click());
@@ -1100,6 +1102,14 @@ it('reads a local draft deployment target before allowing remote validation', as
   expect(client.validateConfig).not.toHaveBeenCalled();
 });
 it('updates the server snapshot and draft baseline only after confirmed successful apply', async () => {
+  vi.stubGlobal('crypto', {
+    randomUUID: () => webcrypto.randomUUID(),
+    getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
+    subtle: {
+      digest: async (_algorithm: string, bytes: Uint8Array) =>
+        Uint8Array.from(createHash('sha256').update(bytes).digest()).buffer,
+    },
+  });
   await act(async () => button('Read server').click());
   await act(async () => nodeButton('direct').click());
   await inputValue('Outbound tag', 'renamed-direct');
@@ -1118,6 +1128,8 @@ it('updates the server snapshot and draft baseline only after confirmed successf
     logs: [],
     message: 'Validated',
   }));
+  const submitted = () => vi.mocked(client.validateConfig).mock.calls[0][1];
+  const hash = (text: string) => createHash('sha256').update(text).digest('hex');
   vi.mocked(client.startAction).mockImplementation(async (_session, request) => ({
     version: 1,
     id: request.id,
@@ -1136,7 +1148,8 @@ it('updates the server snapshot and draft baseline only after confirmed successf
       planId: 'b'.repeat(32),
       backupPath: '/private/config.backup',
       originalSha256: 'a'.repeat(64),
-      installedSha256: 'c'.repeat(64),
+      installedSha256: hash(submitted().configText),
+      wayrillSha256: hash(submitted().wayrillText!),
       rollback: 'not-needed',
     },
   }));
@@ -1148,7 +1161,9 @@ it('updates the server snapshot and draft baseline only after confirmed successf
     )!;
   await act(async () => modalApply().click());
   await act(async () => button('Apply & restart').click());
-  expect(host.querySelector('.snapshot-hash')?.getAttribute('title')).toBe('c'.repeat(64));
+  expect(host.querySelector('.snapshot-hash')?.getAttribute('title')).toBe(
+    hash(submitted().configText),
+  );
   expect(host.querySelector('.users-draft-label')).toBeNull();
   expect(host.textContent).toContain('The draft matches the loaded configuration.');
   const sent = vi.mocked(client.validateConfig).mock.calls[0][1];

@@ -5,7 +5,11 @@ use crate::{
     address::Address,
     attribution::AttributionSnapshot,
     nat_sessions::{Index as NatIndex, Origin},
-    native::{self, attribution_source::AttributionSource, clock},
+    native::{
+        self,
+        attribution_source::{inventory_retry, AttributionSource},
+        clock,
+    },
     packet::Flow,
     policy::{Endpoint, Input, InterfaceOptions, Plan, Selector, SharedPolicy},
     process::{ApplicationProof, Decision, Kind, ProcessKey},
@@ -27,9 +31,8 @@ use tokio::{
     sync::{oneshot, watch, Notify, Semaphore},
     task::{JoinHandle, JoinSet},
 };
-use windows_sys::Win32::Foundation::{
-    ERROR_BAD_LENGTH, ERROR_BUSY, ERROR_INSUFFICIENT_BUFFER, ERROR_RETRY,
-};
+#[cfg(test)]
+use windows_sys::Win32::Foundation::ERROR_BAD_LENGTH;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -115,19 +118,6 @@ enum Published {
     Failed(Error),
 }
 
-fn inventory_retry(error: &Error, attempt: usize) -> Option<Duration> {
-    let transient = matches!(
-        error.os_code().map(|code| code as u32),
-        Some(ERROR_BAD_LENGTH | ERROR_BUSY | ERROR_INSUFFICIENT_BUFFER | ERROR_RETRY)
-    );
-    if !transient {
-        return None;
-    }
-    [100, 250, 500, 1000, 2000]
-        .get(attempt)
-        .copied()
-        .map(Duration::from_millis)
-}
 #[derive(Default)]
 struct Rejections {
     last: AtomicU64,

@@ -338,6 +338,8 @@ protected settings before publishing or withdrawing it. Reopening the publisher
 verifies the file before updating the displayed status. It can finish a pending
 withdrawal when the original file still matches and leaves externally changed
 files for the operator to review.
+Invitation rotation records the replacement key before withdrawing the old
+delivery. Recovery finishes that withdrawal and adopts the saved replacement key.
 
 ## Desktop command and diagnostic receipts
 

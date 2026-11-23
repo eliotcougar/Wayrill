@@ -1606,7 +1606,19 @@ export default function App({
             status?.xray.services.map((service) => service.name) ?? ['xray.service']
           }
           changed={serverDraftChanged}
-          onApplied={(sha256, wayrillSha256) => {
+          onApplied={(sha256, wayrillSha256, installed) => {
+            if (installed) {
+              const document = installed.companion?.text;
+              if (document !== undefined) {
+                const baseline = restoreRemoteDocument(installed.text, document);
+                setUsersBaseline(stable(baseline.users));
+              }
+              setDocumentBaseline(document ?? '');
+              setDocumentSynced(document !== undefined);
+              setSnapshot(installed);
+              cacheObserved(activeSession, installed);
+              return;
+            }
             const text = deploymentConfigText;
             const applied = {
               path: snapshot.path,

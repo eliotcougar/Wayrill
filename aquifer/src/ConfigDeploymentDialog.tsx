@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCheck, Upload, X } from 'lucide-react';
-import { errorMessage, type ConfigValidation, type RemoteClient } from './remoteClient';
+import {
+  errorMessage,
+  type ConfigSnapshot,
+  type ConfigValidation,
+  type RemoteClient,
+} from './remoteClient';
 import { useServerJob } from './useServerJob';
 import ServerJobProgress from './ServerJobProgress';
 import { restoreRemoteDocument } from './remoteDocument';
@@ -42,7 +47,7 @@ export default function ConfigDeploymentDialog({
   configChanged?: boolean;
   services: string[];
   changed: boolean;
-  onApplied: (sha256: string, wayrillSha256: string | null) => void;
+  onApplied: (sha256: string, wayrillSha256: string | null, installed?: ConfigSnapshot) => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -55,7 +60,7 @@ export default function ConfigDeploymentDialog({
   const [confirming, setConfirming] = useState(false);
   const [expired, setExpired] = useState(false);
   const pending = useRef<AbortController | null>(null);
-  const applied = useRef('');
+  const [reconciled, setReconciled] = useState('');
   useEffect(() => {
     setValidating(false);
     setValidation(null);
@@ -65,9 +70,15 @@ export default function ConfigDeploymentDialog({
       pending.current = null;
     };
   }, [client, sessionId, path, configText, wayrillText, expectedSha256, expectedWayrillSha256]);
-  const operation = useServerJob(client, sessionId, () => {});
-  const job = operation.request?.action === 'applyConfig' ? operation.job : null;
-  const locked = validating || operation.active;
+  const operation = useServerJob(client, sessionId, () => {}, 'deployment');
+  const { acknowledge, job } = operation;
+  const receipt =
+    job?.state === 'succeeded' &&
+    job.configResult?.path === path &&
+    job.configResult.planId === operation.request?.planId
+      ? job.configResult
+      : null;
+  const locked = validating || operation.active || (!!receipt && reconciled !== job?.id);
   const ready =
     !!validation?.valid &&
     !!validation.id &&
@@ -95,50 +106,62 @@ export default function ConfigDeploymentDialog({
     return () => clearTimeout(timer);
   }, [validation]);
   useEffect(() => {
-    const result = job?.configResult;
-    if (
-      job?.state !== 'succeeded' ||
-      !result ||
-      applied.current === job.id ||
-      result.path !== path ||
-      result.originalSha256 !== expectedSha256 ||
-      operation.request?.planId !== result.planId
-    )
-      return;
-    let active = true;
+    if (!receipt || !job || reconciled === job.id) return;
+    const controller = new AbortController();
+    const { signal } = controller;
     const reconcile = async () => {
-      if (validation?.id !== result.planId) {
-        // Progress can be closed while a job keeps running. Its receipt may
-        // update this baseline only if both the config and layout still match.
+      const installedCompanion = receipt.wayrillSha256 ?? expectedWayrillSha256 ?? null;
+      const alreadyRead =
+        expectedSha256 === receipt.installedSha256 &&
+        (expectedWayrillSha256 ?? null) === installedCompanion;
+      if (!alreadyRead && receipt.originalSha256 === expectedSha256) {
         const [configHash, graphHash] = await Promise.all([
           sha256(configText),
           wayrillText === undefined ? Promise.resolve(null) : sha256(wayrillText),
         ]);
-        if (configHash !== result.installedSha256 || graphHash !== (result.wayrillSha256 ?? null))
-          return;
+        signal.throwIfAborted();
+        if (
+          configHash === receipt.installedSha256 &&
+          graphHash === (receipt.wayrillSha256 ?? null)
+        ) {
+          onApplied(receipt.installedSha256, installedCompanion);
+        } else {
+          // The editor has newer work. Verify the actual deployed files and
+          // advance only the baseline, without replacing the current draft.
+          const installed = await client.read(sessionId, path, signal);
+          signal.throwIfAborted();
+          if (
+            installed.path !== path ||
+            installed.sha256 !== receipt.installedSha256 ||
+            installed.companion?.error ||
+            (installed.companion?.sha256 ?? null) !== installedCompanion
+          )
+            throw new Error('The deployed files have changed again.');
+          onApplied(receipt.installedSha256, installedCompanion, installed);
+        }
       }
-      if (active && applied.current !== job.id) {
-        applied.current = job.id;
-        onApplied(result.installedSha256, result.wayrillSha256 ?? null);
-      }
+      acknowledge(job.id);
+      setReconciled(job.id);
     };
     void reconcile().catch(() => {
-      if (active)
+      if (!signal.aborted)
         setError(
-          'The completed deployment could not be verified. Refresh the configuration from the server.',
+          'Could not verify the completed deployment. Reopen this window to retry, or read the current server configuration.',
         );
     });
-    return () => {
-      active = false;
-    };
+    return () => controller.abort();
   }, [
+    acknowledge,
+    client,
     configText,
     expectedSha256,
+    expectedWayrillSha256,
     job,
     onApplied,
-    operation.request?.planId,
     path,
-    validation?.id,
+    receipt,
+    reconciled,
+    sessionId,
     wayrillText,
   ]);
   useEffect(() => {
@@ -295,7 +318,11 @@ export default function ConfigDeploymentDialog({
                 Another server job is selected: {operation.request.action}.
               </p>
             )}
-            <ServerJobProgress operation={operation} progressLabel="Configuration apply progress">
+            <ServerJobProgress
+              operation={operation}
+              progressLabel="Configuration apply progress"
+              dismissDisabled={!!receipt && reconciled !== job?.id}
+            >
               {job?.configResult && (
                 <label className="editor-field">
                   Backup on server

@@ -11,7 +11,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use wayrill_protocol::{params, ApiError, Result};
 pub const MAX: usize = 128 * 1024 * 1024;
@@ -430,7 +430,13 @@ pub struct Manager {
     uploads: BTreeMap<String, Upload>,
     next_upload: u64,
     worker: Option<std::thread::JoinHandle<()>>,
+    launch_retry: Option<LaunchRetry>,
     proxy_port: Option<u16>,
+}
+struct LaunchRetry {
+    at: Instant,
+    files: Vec<String>,
+    message: String,
 }
 fn move_file(from: &Path, to: &Path) -> Result<()> {
     unsafe {
@@ -613,7 +619,7 @@ fn commit(
 #[derive(Default)]
 struct RefreshBatch {
     fetched: Vec<(FilePlan, Vec<u8>)>,
-    failed: Vec<(String, ApiError)>,
+    failed: Vec<(FilePlan, ApiError)>,
 }
 
 impl RefreshBatch {
@@ -623,7 +629,7 @@ impl RefreshBatch {
         for plan in files {
             match fetch(&plan).and_then(|bytes| count_download(bytes, &mut total)) {
                 Ok(bytes) => batch.fetched.push((plan, bytes)),
-                Err(error) => batch.failed.push((plan.file, error)),
+                Err(error) => batch.failed.push((plan, error)),
             }
         }
         batch
@@ -648,14 +654,17 @@ impl RefreshBatch {
             for (plan, _) in self.fetched {
                 match &result {
                     Ok(()) => updated.push(plan.file),
-                    Err(error) => failed.push((plan.file, error.clone())),
+                    Err(error) => failed.push((plan, error.clone())),
                 }
             }
         }
-        if !failed.is_empty() {
-            for (file, error) in &failed {
-                stored.metadata.entry(file.clone()).or_default().last_error =
-                    Some(error.message.clone());
+        if !failed.is_empty() && !stop.load(Ordering::Acquire) {
+            let completed_at = now();
+            for (plan, error) in &failed {
+                let metadata = stored.metadata.entry(plan.file.clone()).or_default();
+                metadata.last_attempt_ms = completed_at;
+                metadata.last_attempt_url.clone_from(&plan.url);
+                metadata.last_error = Some(error.message.clone());
             }
             // A pending rollback owns the on-disk metadata until recovery completes.
             if !data.join("resources-transaction.json").exists() {
@@ -667,7 +676,10 @@ impl RefreshBatch {
                 }
             }
         }
-        (updated, failed.into_iter().map(|(file, _)| file).collect())
+        (
+            updated,
+            failed.into_iter().map(|(plan, _)| plan.file).collect(),
+        )
     }
 }
 
@@ -707,6 +719,7 @@ impl Manager {
             uploads: BTreeMap::new(),
             next_upload: 0,
             worker: None,
+            launch_retry: None,
             proxy_port: None,
         })
     }
@@ -837,19 +850,36 @@ impl Manager {
         );
         names.sort();
         names.dedup();
-        let files = names.iter().map(|file| {
-            let m = s.stored.metadata.get(file).cloned().unwrap_or_default();
-            let metadata = fs::metadata(self.assets.join(file)).ok().filter(|m| m.is_file());
-            json!({
-                "id": s.stored.files.iter().find(|p| p.file.eq_ignore_ascii_case(file)).map(|p| &p.id),
-                "file": file,
-                "present": metadata.is_some(),
-                "updatedAtMs": m.updated_at_ms,
-                "bytes": metadata.as_ref().map(fs::Metadata::len),
-                "sha256": m.sha256,
-                "lastError": m.last_error,
+        let files = names
+            .iter()
+            .map(|file| {
+                let m = s.stored.metadata.get(file).cloned().unwrap_or_default();
+                let metadata = fs::metadata(self.assets.join(file))
+                    .ok()
+                    .filter(|m| m.is_file());
+                let plan = s
+                    .stored
+                    .files
+                    .iter()
+                    .find(|p| p.file.eq_ignore_ascii_case(file));
+                let launch_error = self
+                    .launch_retry
+                    .as_ref()
+                    .filter(|retry| {
+                        plan.is_some_and(|p| p.auto_update) && retry.files.contains(file)
+                    })
+                    .map(|retry| retry.message.as_str());
+                json!({
+                    "id": plan.map(|p| &p.id),
+                    "file": file,
+                    "present": metadata.is_some(),
+                    "updatedAtMs": m.updated_at_ms,
+                    "bytes": metadata.as_ref().map(fs::Metadata::len),
+                    "sha256": m.sha256,
+                    "lastError": launch_error.or(m.last_error.as_deref()),
+                })
             })
-        }).collect::<Vec<_>>();
+            .collect::<Vec<_>>();
         json!({"busy":s.busy,"generation":s.stored.generation,"reloadAfterAutoUpdates":s.stored.reload_after_auto_updates,"reloadGeneration":s.stored.reload_generation,"files":files})
     }
     pub fn set_proxy_port(&mut self, port: Option<u16>) {
@@ -997,13 +1027,12 @@ impl Manager {
             drop(s);
             return Ok(self.snapshot());
         }
-        for p in &files {
-            let metadata = s.stored.metadata.entry(p.file.clone()).or_default();
-            metadata.last_attempt_ms = now();
-            metadata.last_attempt_url = p.url.clone();
-            metadata.last_error = None;
-        }
-        storage::write(&self.data.join("resources.json"), &s.stored)?;
+        // Completion records the attempt. Launch failures or service exit
+        // before that point must leave the files due.
+        let started_files = self
+            .launch_retry
+            .as_ref()
+            .map(|_| files.iter().map(|p| p.file.clone()).collect::<Vec<_>>());
         s.busy = true;
         let reload = !automatic || s.stored.reload_after_auto_updates;
         let proxy_port = self.proxy_port;
@@ -1024,6 +1053,10 @@ impl Manager {
                 let batch =
                     RefreshBatch::download(files, |plan| download_file(plan, &stop, proxy_port));
                 let mut s = state.lock().unwrap();
+                if stop.load(Ordering::Acquire) {
+                    s.busy = false;
+                    return;
+                }
                 let (updated, failed) = batch.install(&assets, &data, &stop, reload, &mut s.stored);
                 s.busy = false;
                 drop(s);
@@ -1035,7 +1068,15 @@ impl Manager {
                 }
             });
         match worker {
-            Ok(worker) => self.worker = Some(worker),
+            Ok(worker) => {
+                self.worker = Some(worker);
+                if let (Some(retry), Some(started)) = (&mut self.launch_retry, started_files) {
+                    retry.files.retain(|file| !started.contains(file));
+                    if retry.files.is_empty() {
+                        self.launch_retry = None;
+                    }
+                }
+            }
             Err(error) => {
                 self.state.lock().unwrap().busy = false;
                 return Err(ApiError::io("Start resource update worker", error));
@@ -1051,7 +1092,12 @@ impl Manager {
             }
             keep
         });
-        if self.stop.load(Ordering::SeqCst) {
+        if self.stop.load(Ordering::SeqCst)
+            || self
+                .launch_retry
+                .as_ref()
+                .is_some_and(|retry| Instant::now() < retry.at)
+        {
             return;
         }
         let s = self.state.lock().unwrap();
@@ -1075,7 +1121,23 @@ impl Manager {
             .collect::<Vec<_>>();
         drop(s);
         if !due.is_empty() {
-            let _ = self.start(due, true);
+            let files = due.iter().map(|plan| plan.file.clone()).collect();
+            if let Err(error) = self.start(due, true) {
+                let message = format!(
+                    "Automatic update could not start. Retrying shortly. {}",
+                    error.message
+                );
+                crate::diagnostics::error!("{}", message);
+                self.events.publish(
+                    "resources.failed",
+                    json!({"files":files,"ok":false,"error":message}),
+                );
+                self.launch_retry = Some(LaunchRetry {
+                    at: Instant::now() + Duration::from_secs(30),
+                    files,
+                    message,
+                });
+            }
         }
     }
     pub fn shutdown(&mut self) {
@@ -2427,6 +2489,60 @@ mod transactional_tests {
         m.uploads.get_mut(&upload).unwrap().last_activity_ms = 0;
         m.tick();
         assert!(m.uploads.is_empty());
+    }
+    #[test]
+    fn failed_auto_launch_remains_due_and_retries_after_the_journal_is_readable() {
+        let lab = Lab::new();
+        let mut m = lab.manager();
+        let mut p = plan();
+        p.url = "https://example.net/resource.dat".into();
+        p.auto_update = true;
+        p.through_wayrill = true;
+        m.configure(vec![p.clone()], true).unwrap();
+        m.state
+            .lock()
+            .unwrap()
+            .stored
+            .metadata
+            .get_mut(&p.file)
+            .unwrap()
+            .last_attempt_ms = 0;
+        let journal = m.data.join("resources-transaction.json");
+        fs::create_dir(&journal).unwrap();
+        m.tick();
+
+        let status = m.snapshot();
+        let row = status["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["file"] == p.file)
+            .unwrap();
+        assert!(row["lastError"]
+            .as_str()
+            .unwrap()
+            .contains("could not start"));
+        assert_eq!(
+            m.state.lock().unwrap().stored.metadata[&p.file].last_attempt_ms,
+            0
+        );
+        fs::remove_dir(journal).unwrap();
+        m.tick();
+        assert!(m.worker.is_none());
+
+        m.launch_retry.as_mut().unwrap().at = Instant::now();
+        m.tick();
+        m.worker.take().unwrap().join().unwrap();
+        assert!(m.launch_retry.is_none());
+        let s = m.state.lock().unwrap();
+        let attempt = &s.stored.metadata[&p.file];
+        assert!(attempt.last_attempt_ms > 0);
+        assert_eq!(attempt.last_attempt_url, p.url);
+        assert!(attempt
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("loopback proxy"));
     }
     #[test]
     fn changed_url_requires_a_fresh_download_even_when_the_file_exists() {

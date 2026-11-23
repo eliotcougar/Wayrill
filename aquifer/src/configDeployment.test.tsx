@@ -10,6 +10,7 @@ let host: HTMLDivElement, root: Root, client: RemoteClient;
 let applied = vi.fn<(sha256: string) => void>(),
   close = vi.fn<() => void>();
 const text = '{"password":"fictional-private-draft"}';
+const installedHash = createHash('sha256').update(text).digest('hex');
 const validation = (): ConfigValidation => ({
   version: 1,
   id: 'b'.repeat(32),
@@ -42,7 +43,7 @@ const progress = (id: string, state: ServerJob['state'] = 'running'): ServerJob 
     planId: 'b'.repeat(32),
     backupPath: '/private/job/config.backup',
     originalSha256: 'a'.repeat(64),
-    installedSha256: 'c'.repeat(64),
+    installedSha256: installedHash,
     rollback: 'not-needed',
   },
 });
@@ -51,7 +52,7 @@ const button = (name: string) =>
 const click = async (name: string) => {
   await act(async () => button(name).click());
 };
-async function mount(changed = true) {
+async function mount(changed = true, draft = text) {
   await act(async () =>
     root.render(
       <ConfigDeploymentDialog
@@ -60,7 +61,7 @@ async function mount(changed = true) {
         server="Example server"
         path="/etc/xray/config.json"
         expectedSha256={'a'.repeat(64)}
-        configText={text}
+        configText={draft}
         services={['xray.service']}
         changed={changed}
         onApplied={applied}
@@ -98,6 +99,7 @@ beforeEach(() => {
     validateConfig: vi.fn().mockImplementation(async () => validation()),
     startAction: vi.fn().mockImplementation(async (_session, request) => progress(request.id)),
     pollAction: vi.fn(),
+    read: vi.fn().mockRejectedValue(new Error('Cannot read server configuration.')),
   } as unknown as RemoteClient;
 });
 afterEach(async () => {
@@ -133,7 +135,7 @@ it('requires fresh server validation and explicit confirmation; persists no draf
     action: 'applyConfig',
     planId: 'b'.repeat(32),
   });
-  expect(localStorage.getItem('wayrill.remote.job.Example')).not.toContain(
+  expect(localStorage.getItem('wayrill.remote.deployment.Example')).not.toContain(
     'fictional-private-draft',
   );
   expect(host.textContent).toContain('Revalidating configuration');
@@ -146,7 +148,7 @@ it('reports completion, retains the backup path and updates the loaded baseline 
   await click('Validate on server');
   await click('Apply…');
   await click('Apply & restart');
-  expect(applied).toHaveBeenCalledExactlyOnceWith('c'.repeat(64), null);
+  expect(applied).toHaveBeenCalledExactlyOnceWith(installedHash, null);
   expect(host.querySelector<HTMLInputElement>('[aria-label="Backup on server"]')?.value).toBe(
     '/private/job/config.backup',
   );
@@ -165,7 +167,7 @@ it('rechecks a paused deployment without starting the apply again', async () => 
   await click('Check progress');
   await act(() => vi.advanceTimersByTimeAsync(1000));
   expect(client.startAction).toHaveBeenCalledTimes(1);
-  expect(applied).toHaveBeenCalledExactlyOnceWith('c'.repeat(64), null);
+  expect(applied).toHaveBeenCalledExactlyOnceWith(installedHash, null);
 });
 it('keeps Apply disabled for invalid and unchanged drafts', async () => {
   vi.mocked(client.validateConfig).mockImplementation(async () => ({
@@ -228,12 +230,33 @@ it('reconnects to a submitted deployment without repeating it or marking an unre
     JSON.stringify({ id: 'd'.repeat(32), action: 'applyConfig', planId: 'b'.repeat(32) }),
   );
   vi.mocked(client.pollAction).mockResolvedValue(progress('d'.repeat(32), 'succeeded'));
-  await mount();
+  await mount(true, '{"draft":"newer"}');
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   expect(client.pollAction).toHaveBeenCalledWith('Example', 'd'.repeat(32));
   expect(client.startAction).not.toHaveBeenCalled();
   expect(applied).not.toHaveBeenCalled();
   expect(host.textContent).toContain('Completed');
+});
+
+it('advances the baseline to verified installed files when a newer draft is open', async () => {
+  const id = 'd'.repeat(32);
+  localStorage.setItem(
+    'wayrill.remote.deployment.Example',
+    JSON.stringify({ id, action: 'applyConfig', planId: 'b'.repeat(32), accepted: true }),
+  );
+  const installed = {
+    path: '/etc/xray/config.json',
+    sha256: installedHash,
+    text,
+    bytes: text.length,
+  };
+  vi.mocked(client.pollAction).mockResolvedValue(progress(id, 'succeeded'));
+  vi.mocked(client.read).mockResolvedValue(installed);
+  await mount(true, '{"draft":"newer"}');
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(client.read).toHaveBeenCalledWith('Example', installed.path, expect.any(AbortSignal));
+  expect(applied).toHaveBeenCalledExactlyOnceWith(installedHash, null, installed);
+  expect(localStorage.getItem('wayrill.remote.deployment.Example')).toBeNull();
 });
 
 it('rejects a non-restorable companion before uploading or staging it', async () => {

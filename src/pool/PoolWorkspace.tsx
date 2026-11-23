@@ -120,7 +120,7 @@ export default function PoolWorkspace() {
   const editingDevice = modal?.kind === 'edit-device' ? (modal.draft ?? managedLayer) : undefined;
   const pending = pool?.members.filter(readyToPublish) ?? [];
   const firstDelivery = pool?.members.find(
-    (member) => !!member.configurationId && !member.withdrawn,
+    (member) => !!member.configurationId && !member.withdrawn && !member.deliveryTransition,
   );
   const invitation =
     modal?.kind === 'invitation'
@@ -1129,24 +1129,21 @@ export default function PoolWorkspace() {
           onClose={close}
           onConfirm={() =>
             void run(async () => {
-              const updated = await withdraw(pool, [modal.member]);
-              const invite = createPoolInvite();
-              await save({
-                ...updated,
-                members: updated.members.map((item) =>
-                  item.id === modal.member.id
-                    ? {
-                        ...item,
-                        invite,
-                        publication: undefined,
-                        publishedAt: undefined,
-                        publishedAccounts: undefined,
-                        deliveryChanged: true,
-                        withdrawn: false,
-                      }
-                    : item,
-                ),
-              });
+              const current = savedPools.current.find((item) => item.id === pool.id) ?? pool;
+              const saved = current.members.find((item) => item.id === modal.member.id);
+              if (!saved) return;
+              const { target, member } = await recoverMember(current, saved);
+              // A retry of the confirmation completes the saved rotation.
+              if (saved.deliveryTransition?.phase !== 'rotating') {
+                const hasDelivery = mayHaveDelivery(member);
+                const transition: DeliveryTransition = {
+                  phase: 'rotating',
+                  before: hasDelivery ? await readDeliveryDigest(target, member) : null,
+                  invite: createPoolInvite(),
+                };
+                if (hasDelivery) await changeDelivery(target, member, transition, null);
+                else await save(withMember(target, completeDelivery(member, transition)));
+              }
               setModal(undefined);
               setMessage(
                 'New invitation prepared. Publish the delivery, then copy the invitation.',

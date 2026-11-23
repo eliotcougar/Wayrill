@@ -19,9 +19,24 @@ use crate::{
 };
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Notify;
+use windows_sys::Win32::Foundation::{
+    ERROR_BAD_LENGTH, ERROR_BUSY, ERROR_INSUFFICIENT_BUFFER, ERROR_RETRY,
+};
 
 const ACTIVE_PROCESS_READ_MS: u64 = 1000;
 const IDLE_TUN_PROCESS_READ_MS: u64 = 5000;
+
+pub(crate) fn inventory_retry(error: &Error, attempt: usize) -> Option<std::time::Duration> {
+    if !matches!(
+        error.os_code().map(|code| code as u32),
+        Some(ERROR_BAD_LENGTH | ERROR_BUSY | ERROR_INSUFFICIENT_BUFFER | ERROR_RETRY)
+    ) {
+        return None;
+    }
+    [100, 250, 500, 1000, 2000]
+        .get(attempt)
+        .map(|&milliseconds| std::time::Duration::from_millis(milliseconds))
+}
 
 pub struct AttributionSource {
     processes: ProcessSnapshot,
@@ -91,7 +106,12 @@ impl AttributionSource {
         let read_at = clock::milliseconds();
         self.tree.set_rules(rules.clone(), excluded.iter().copied());
         self.refresh_processes(rules.as_deref(), read_at, flush, ACTIVE_PROCESS_READ_MS)?;
-        self.read_sockets(rules.as_deref(), read_at, flush)
+        let sockets = self.read_sockets(rules.as_deref(), read_at, flush);
+        if sockets.is_err() {
+            self.last_service_read = 0;
+            self.last_socket_reconciliation = 0;
+        }
+        sockets
     }
 
     /// Drain process events and reconcile native identities without enumerating
@@ -123,6 +143,7 @@ impl AttributionSource {
         let reconcile = events.as_ref().is_some_and(|batch| batch.discontinuity);
         let has_packages = rules.is_some_and(|r| r.has_packages);
         let read_processes = self.process_events.is_none()
+            || self.last_process_read == 0
             || read_at.saturating_sub(self.last_process_read) >= inventory_interval_ms
             || flush
             || reconcile
@@ -135,6 +156,9 @@ impl AttributionSource {
                     // Rebuild the native cache on retry, but keep the ETW evidence
                     // that was drained before the failure.
                     self.processes = ProcessSnapshot::default();
+                    self.last_process_read = 0;
+                    self.last_service_read = 0;
+                    self.last_socket_reconciliation = 0;
                     if let Some(events) = events {
                         self.tree.ingest(events.items);
                     }
@@ -237,13 +261,15 @@ impl AttributionSource {
         let socket_active = self.socket_events.is_some();
         #[cfg(not(feature = "windivert"))]
         let socket_active = false;
-        let presence =
-            if socket_active && read_at.saturating_sub(self.last_socket_reconciliation) >= 1000 {
-                self.last_socket_reconciliation = read_at;
-                Some(SocketPresence::new(&tcp, &udp))
-            } else {
-                None
-            };
+        let presence = if socket_active
+            && (self.last_socket_reconciliation == 0
+                || read_at.saturating_sub(self.last_socket_reconciliation) >= 1000)
+        {
+            self.last_socket_reconciliation = read_at;
+            Some(SocketPresence::new(&tcp, &udp))
+        } else {
+            None
+        };
         #[cfg(feature = "windivert")]
         let socket_events = self
             .socket_events

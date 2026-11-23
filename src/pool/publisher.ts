@@ -29,7 +29,8 @@ import {
 type Configuration = { id: string; bundle: PoolBundle };
 export type DeliveryTransition =
   | { phase: 'publishing'; before: string | null; digest: string; accounts: string; at: number }
-  | { phase: 'withdrawing'; before: string | null };
+  | { phase: 'withdrawing'; before: string | null }
+  | { phase: 'rotating'; before: string | null; invite: string };
 
 export type Member = {
   id: string;
@@ -67,6 +68,7 @@ function isDeliveryTransition(value: unknown): value is DeliveryTransition {
     jsonRecord(value) &&
     (value.before === null || digestText(value.before)) &&
     (value.phase === 'withdrawing' ||
+      (value.phase === 'rotating' && text(value.invite) && invitePattern.test(value.invite)) ||
       (value.phase === 'publishing' &&
         digestText(value.digest) &&
         text(value.accounts) &&
@@ -344,6 +346,18 @@ export function completeDelivery(member: Member, transition: DeliveryTransition)
   if (transition.phase === 'withdrawing') {
     return { ...member, withdrawn: true, deliveryTransition: undefined };
   }
+  if (transition.phase === 'rotating') {
+    return {
+      ...member,
+      invite: transition.invite,
+      publication: undefined,
+      publishedAt: undefined,
+      publishedAccounts: undefined,
+      deliveryChanged: true,
+      withdrawn: false,
+      deliveryTransition: undefined,
+    };
+  }
   return {
     ...member,
     publishedAt: transition.at,
@@ -356,9 +370,9 @@ export function completeDelivery(member: Member, transition: DeliveryTransition)
 export function reconcileDelivery(member: Member, observed: string | null): Member {
   const transition = member.deliveryTransition;
   if (!transition) return member;
-  const after = transition.phase === 'publishing' ? transition.digest : null;
-  if (observed === after) return completeDelivery(member, transition);
-  if (observed === transition.before || observed === null) {
+  if (observed === (transition.phase === 'publishing' ? transition.digest : null))
+    return completeDelivery(member, transition);
+  if (transition.phase === 'publishing' && (observed === transition.before || observed === null)) {
     return {
       ...member,
       publishedAt: observed === null ? undefined : member.publishedAt,
@@ -375,7 +389,7 @@ export async function recoverDelivery(pool: Publisher, member: Member): Promise<
   const transition = member.deliveryTransition;
   if (!transition) return member;
   const observed = await readDeliveryDigest(pool, member);
-  if (transition.phase === 'withdrawing' && observed !== null && observed === transition.before) {
+  if (transition.phase !== 'publishing' && observed !== null && observed === transition.before) {
     await writeDelivery(pool, member, null, observed);
     return completeDelivery(member, transition);
   }

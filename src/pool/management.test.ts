@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { expect, it } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import { expect, it, vi } from 'vitest';
 import { bundledExamples } from '../graph/examples';
 import { readRuleTable } from '../graph/rules';
 import { parseTransfer, type PoolTransfer } from './layers';
@@ -14,7 +15,9 @@ import {
   setLayerUsers,
 } from './management';
 import type { Member, Publisher } from './publisher';
-import { reconcileDelivery } from './publisher';
+import { reconcileDelivery, recoverDelivery } from './publisher';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 function fixture() {
   const graph = bundledExamples.find((item) => item.id === 'traffic')!.create();
@@ -90,6 +93,34 @@ it('recovers delivery status only from the recorded file states and preserves la
     deliveryTransition: undefined,
   });
   expect(() => reconcileDelivery(withdrawing, 'external')).toThrow('publishing folder');
+});
+
+it('resumes rotation on either side of withdrawal using the same new invitation', async () => {
+  const { pool, user } = fixture();
+  const recipient = 'a'.repeat(32);
+  const invite = `wp1.${'b'.repeat(32)}.${'c'.repeat(64)}`;
+  const rotating: Member = {
+    ...user,
+    invite: `wp1.${recipient}.${'d'.repeat(64)}`,
+    deliveryTransition: { phase: 'rotating', before: 'old-digest', invite },
+  };
+  const native = vi.mocked(invoke);
+  native.mockResolvedValueOnce('old-digest').mockResolvedValueOnce(undefined);
+  const before = await recoverDelivery(pool, rotating);
+  expect(native).toHaveBeenLastCalledWith('pool_publish', {
+    folder: pool.folder,
+    recipient,
+    text: null,
+    expected: 'old-digest',
+  });
+  native.mockResolvedValueOnce(null);
+  const after = await recoverDelivery(pool, rotating);
+  expect(after).toEqual(before);
+  expect(after).toMatchObject({ invite, withdrawn: false, publishedAt: undefined });
+  expect(deliveryPending(after, [])).toBe(true);
+  native.mockResolvedValueOnce('different-file');
+  await expect(recoverDelivery(pool, rotating)).rejects.toThrow('publishing folder');
+  expect(native.mock.calls.filter(([method]) => method === 'pool_publish')).toHaveLength(1);
 });
 
 it('keeps the last delivery when bulk assigning, detaching and replacing layers', () => {

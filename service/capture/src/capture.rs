@@ -11,7 +11,7 @@ use crate::{
     nat::{NatEntry, NatTable},
     native::{
         self,
-        attribution_source::AttributionSource,
+        attribution_source::{inventory_retry, AttributionSource},
         clock,
         divert::{Api, Handle as DivertHandle},
         divert_monitor::Monitor,
@@ -47,7 +47,11 @@ struct Policy {
 }
 struct Routing {
     policy: Arc<Policy>,
-    owners: Arc<AttributionSnapshot>,
+    ownership: Ownership,
+}
+enum Ownership {
+    Observed(AttributionSnapshot),
+    Reconciling,
 }
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct UdpKey {
@@ -232,17 +236,42 @@ impl Shared {
         self.updates.send_modify(|n| *n = n.wrapping_add(1));
         Ok(())
     }
-    fn matched(&self, flow: Flow, arrived: u64, fresh: bool, timestamp: i64) -> Result<Decision> {
-        Ok(self
-            .routing()?
-            .owners
-            .find_fresh(
-                flow,
-                clock::milliseconds(),
-                if fresh { arrived } else { 0 },
-                timestamp,
-            )
-            .unwrap_or_else(|| Decision::new(Kind::Unresolved)))
+    // Serialize invalidation with packet processing and with the source read
+    // that detected the failure. Established TCP relays keep their NAT entries.
+    fn reconcile_ownership(&self, error: &Error) -> Result<()> {
+        let _state = self.state.lock().map_err(|_| lock_error())?;
+        let previous = self.routing()?;
+        if matches!(previous.ownership, Ownership::Observed(_)) {
+            self.publish(Arc::new(Routing {
+                policy: previous.policy.clone(),
+                ownership: Ownership::Reconciling,
+            }))?;
+            self.report(error.clone());
+            self.refresh.notify_one();
+        }
+        Ok(())
+    }
+    fn matched(
+        &self,
+        flow: Flow,
+        arrived: u64,
+        fresh: bool,
+        timestamp: i64,
+    ) -> Result<Option<Decision>> {
+        let routing = self.routing()?;
+        let Ownership::Observed(owners) = &routing.ownership else {
+            return Ok(None);
+        };
+        Ok(Some(
+            owners
+                .find_fresh(
+                    flow,
+                    clock::milliseconds(),
+                    if fresh { arrived } else { 0 },
+                    timestamp,
+                )
+                .unwrap_or_else(|| Decision::new(Kind::Unresolved)),
+        ))
     }
     fn passthrough(
         &self,
@@ -351,8 +380,11 @@ impl State {
                     shared.passthrough(bytes, address, originals, batch)?;
                     return Ok(Outcome::Done);
                 }
-                let selected =
-                    shared.matched(flow, arrived, packet.is_tcp_syn(), address.timestamp)?;
+                let Some(selected) =
+                    shared.matched(flow, arrived, packet.is_tcp_syn(), address.timestamp)?
+                else {
+                    return Ok(Outcome::Done);
+                };
                 if Self::defer(&selected, arrived)? {
                     return Ok(Outcome::Deferred);
                 }
@@ -394,7 +426,9 @@ impl State {
                 shared.passthrough(bytes, address, originals, batch)?;
                 return Ok(Outcome::Done);
             }
-            let selected = shared.matched(flow, arrived, false, address.timestamp)?;
+            let Some(selected) = shared.matched(flow, arrived, false, address.timestamp)? else {
+                return Ok(Outcome::Done);
+            };
             if Self::defer(&selected, arrived)? {
                 return Ok(Outcome::Deferred);
             }
@@ -514,10 +548,12 @@ impl udp::Owner for SessionOwner {
             return Ok(false);
         };
         let current = if self.allowed(&shared)? {
-            shared
-                .routing()?
-                .owners
-                .find_fresh(self.flow, clock::milliseconds(), 0, 0)
+            match &shared.routing()?.ownership {
+                Ownership::Observed(owners) => {
+                    owners.find_fresh(self.flow, clock::milliseconds(), 0, 0)
+                }
+                Ownership::Reconciling => None,
+            }
         } else {
             Some(Decision::new(Kind::Unselected))
         };
@@ -645,7 +681,7 @@ impl CaptureEngine {
             runtime: Handle::current(),
             routing: RwLock::new(Arc::new(Routing {
                 policy,
-                owners: Arc::new(initial),
+                ownership: Ownership::Observed(initial),
             })),
             interfaces: RwLock::new(interfaces),
             state: Mutex::new(State {
@@ -790,54 +826,61 @@ impl CaptureEngine {
             excluded: excluded(core_pids)?,
         });
         let shared = self.shared.clone();
-        let candidate = policy.clone();
-        let owners = tokio::task::spawn_blocking(move || {
-            shared.source.lock().map_err(|_| lock_error())?.read(
-                Some(candidate.rules.clone()),
-                &candidate.excluded,
-                false,
-            )
+        tokio::task::spawn_blocking(move || {
+            let adapters = native::adapters::read()?;
+            let options = interfaces::discover(&plan.interfaces, &adapters);
+            let next = Arc::new(InterfacePolicy::new(
+                &options,
+                &adapters,
+                plan.bypass_local_traffic,
+                &owned,
+            )?);
+            // Keep the source locked through publication so an older sample
+            // cannot overwrite a later reconciliation or configuration.
+            let mut source = shared.source.lock().map_err(|_| lock_error())?;
+            let flush = matches!(shared.routing()?.ownership, Ownership::Reconciling);
+            let owners = match source.read(Some(policy.rules.clone()), &policy.excluded, flush) {
+                Ok(owners) => owners,
+                Err(error) => {
+                    if inventory_retry(&error, 0).is_some() {
+                        shared.reconcile_ownership(&error)?;
+                    }
+                    return Err(error);
+                }
+            };
+            let mut state = shared.state.lock().map_err(|_| lock_error())?;
+            if shared.stopping.load(Ordering::Acquire) {
+                return Err(Error::invalid("Capture is stopping."));
+            }
+            shared.publish(Arc::new(Routing {
+                policy: policy.clone(),
+                ownership: Ownership::Observed(owners),
+            }))?;
+            drop(source);
+            state.options = options;
+            state.owned = owned;
+            state.bypass_local = plan.bypass_local_traffic;
+            state.version = state.version.wrapping_add(1);
+            let mut batch = PacketBatch::default();
+            retire_interfaces(&shared, &mut state, next, &mut batch)?;
+            shared.reset(
+                shared
+                    .nat
+                    .retain(Some(&policy.rules), |_| true, clock::milliseconds())?,
+                &mut batch,
+            );
+            state.udp.retain(|_, session| {
+                if policy.rules.retains(&session.rule) {
+                    true
+                } else {
+                    session.cancel();
+                    false
+                }
+            });
+            shared.flush(&mut batch)
         })
         .await
-        .map_err(|_| Error::invalid("Capture attribution refresh panicked."))??;
-        let adapters = native::adapters::read()?;
-        let options = interfaces::discover(&plan.interfaces, &adapters);
-        let next = Arc::new(InterfacePolicy::new(
-            &options,
-            &adapters,
-            plan.bypass_local_traffic,
-            &owned,
-        )?);
-        let mut state = self.shared.state.lock().map_err(|_| lock_error())?;
-        if self.shared.stopping.load(Ordering::Acquire) {
-            return Err(Error::invalid("Capture is stopping."));
-        }
-        self.shared.publish(Arc::new(Routing {
-            policy: policy.clone(),
-            owners: Arc::new(owners),
-        }))?;
-        state.options = options;
-        state.owned = owned;
-        state.bypass_local = plan.bypass_local_traffic;
-        state.version = state.version.wrapping_add(1);
-        let mut batch = PacketBatch::default();
-        retire_interfaces(&self.shared, &mut state, next, &mut batch)?;
-        self.shared.reset(
-            self.shared
-                .nat
-                .retain(Some(&policy.rules), |_| true, clock::milliseconds())?,
-            &mut batch,
-        );
-        state.udp.retain(|_, session| {
-            if policy.rules.retains(&session.rule) {
-                true
-            } else {
-                session.cancel();
-                false
-            }
-        });
-        self.shared.flush(&mut batch)?;
-        Ok(())
+        .map_err(|_| Error::invalid("Capture attribution refresh panicked."))?
     }
     pub async fn close(&mut self) -> Result<()> {
         self.shared.stop_now(None);
@@ -1109,6 +1152,7 @@ fn attribution_loop(shared: &Arc<Shared>) -> Result<()> {
     let (mut last, mut last_adapters, mut last_cleanup) =
         (clock::milliseconds(), 0, clock::milliseconds());
     let mut batch = PacketBatch::default();
+    let mut retries = 0;
     loop {
         let pending = !shared
             .state
@@ -1121,12 +1165,36 @@ fn attribution_loop(shared: &Arc<Shared>) -> Result<()> {
         if stopped {
             return Ok(());
         }
+        let mut source = shared.source.lock().map_err(|_| lock_error())?;
         let previous = shared.routing()?;
-        let snapshot = shared.source.lock().map_err(|_| lock_error())?.read(
+        let recovering = matches!(previous.ownership, Ownership::Reconciling);
+        if !recovering {
+            retries = 0;
+        }
+        let snapshot = match source.read(
             Some(previous.policy.rules.clone()),
             &previous.policy.excluded,
-            pending,
-        )?;
+            pending || recovering,
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let Some(delay) = inventory_retry(&error, retries) else {
+                    return Err(error);
+                };
+                shared.reconcile_ownership(&error)?;
+                retries += 1;
+                drop(source);
+                if shared.runtime.block_on(async {
+                    tokio::select! {
+                        _ = cancelled(&mut stop) => true,
+                        _ = tokio::time::sleep(delay) => false,
+                    }
+                }) {
+                    return Ok(());
+                }
+                continue;
+            }
+        };
         last = clock::milliseconds();
         let adapter_state = if last.saturating_sub(last_adapters) >= 1000 {
             let (version, options, bypass, owned) = {
@@ -1147,13 +1215,14 @@ fn attribution_loop(shared: &Arc<Shared>) -> Result<()> {
             None
         };
         let mut state = shared.state.lock().map_err(|_| lock_error())?;
-        if !Arc::ptr_eq(&previous.policy, &shared.routing()?.policy) {
-            continue;
+        if shared.stopping.load(Ordering::Acquire) {
+            return Ok(());
         }
         shared.publish(Arc::new(Routing {
             policy: previous.policy.clone(),
-            owners: Arc::new(snapshot),
+            ownership: Ownership::Observed(snapshot),
         }))?;
+        drop(source);
         if let Some((version, options, next)) = adapter_state {
             if version == state.version {
                 state.options = options;

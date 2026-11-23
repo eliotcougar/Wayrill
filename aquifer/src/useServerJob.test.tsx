@@ -28,8 +28,14 @@ function progress(state: ServerJob['state'], age = 0): ServerJob {
     bootId: 'boot',
   };
 }
-function Harness({ server = session }: { server?: string }) {
-  operation = useServerJob(client, server, onFinished);
+function Harness({
+  server = session,
+  lane = 'server',
+}: {
+  server?: string;
+  lane?: 'server' | 'deployment';
+}) {
+  operation = useServerJob(client, server, onFinished, lane);
   return <>{operation.job?.stage}</>;
 }
 async function mount() {
@@ -115,6 +121,40 @@ it('retains a recent result only for the remaining hour after server completion'
   await act(async () => vi.advanceTimersByTimeAsync(hour / 2 - 1000));
   expect(operation.request).toBeNull();
   expect(client.startAction).not.toHaveBeenCalled();
+});
+
+it('keeps a deployment available after a different server job and the progress expiry', async () => {
+  const deployment = { id: 'b'.repeat(32), action: 'applyConfig', planId: 'c'.repeat(32) } as const;
+  localStorage.setItem(storageKey, JSON.stringify({ ...deployment, accepted: true }));
+  vi.mocked(client.startAction).mockImplementation(async (_session, next) => ({
+    ...progress('succeeded'),
+    ...next,
+  }));
+  await mount();
+  await act(async () => operation.start({ action: 'restartNginx' }));
+  await act(async () => vi.advanceTimersByTimeAsync(hour + 1000));
+
+  const result: ServerJob = {
+    ...progress('succeeded', 2 * hour),
+    ...deployment,
+    configResult: {
+      path: '/etc/xray/config.json',
+      service: 'xray.service',
+      planId: deployment.planId,
+      backupPath: '/private/backup',
+      originalSha256: 'a'.repeat(64),
+      installedSha256: 'b'.repeat(64),
+      rollback: 'not-needed',
+    },
+  };
+  vi.mocked(client.pollAction).mockResolvedValue(result);
+  await act(async () => root.render(<Harness key="deployment" lane="deployment" />));
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(client.pollAction).toHaveBeenCalledWith(session, deployment.id);
+  expect(operation.job?.configResult).toEqual(result.configResult);
+  expect(client.startAction).toHaveBeenCalledTimes(1);
+  await act(async () => operation.acknowledge(deployment.id));
+  expect(localStorage.getItem('wayrill.remote.deployment.' + session)).toBeNull();
 });
 
 it('retries the immutable request after checking that the server has no receipt', async () => {

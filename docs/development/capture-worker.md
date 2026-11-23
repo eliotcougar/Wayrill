@@ -58,6 +58,9 @@ Create UDP completion guards before task spawn so aborting an unpolled future
 still signals completion. Cancellation takes precedence over socket setup.
 Health checks include the attribution accept, process/socket refresh and NAT
 refresh tasks; a finished task cannot remain advertised as healthy.
+Transient WinDivert inventory failures withdraw the published ownership snapshot
+while the worker retries. Established TCP mappings remain active. Packets that
+require a fresh ownership decision are dropped until observation recovers.
 
 Explicit retirement drains the companion through its fixed Stop command before
 ending the job, and attempts independent adapter/sharing cleanup even on error.
