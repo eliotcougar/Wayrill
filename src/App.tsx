@@ -2,6 +2,12 @@ import RuntimeProgressOverlay from './components/RuntimeProgressOverlay';
 import BackupDialog, { type BackupRequestState } from './components/BackupDialog';
 import { isBackupFilter } from './backup/model';
 import { writePreferences } from './backup/preferences';
+import {
+  backupRestorePending,
+  protectedStorageAvailable,
+  restoreProtectedWorkspace,
+  takeBackupRecoveryNotice,
+} from './protectedStorage';
 import { errorText, desktopServiceAvailable, type serviceCall } from './serviceClient';
 import { openAquifer } from './openAquifer';
 import { runtimeProgress } from './runtimeProgress';
@@ -168,7 +174,7 @@ import { setMainOutbound, starredChoices } from './quickSwitch';
 import useQuickSwitch from './useQuickSwitch';
 import OutboundTestButtons from './components/OutboundTestButtons';
 import { findStashEntry } from './profiles/stashModel';
-import type { Stash, StashEntry } from './profiles/import';
+import { serializeStash, type Stash, type StashEntry } from './profiles/import';
 import PoolConnectionTests from './pool/PoolConnectionTests';
 import type { StashLink } from './graph/types';
 
@@ -214,6 +220,7 @@ function GraphEditor({ layer, simulation }: AppProps) {
   const [poolOpen, setPoolOpen] = useState<'connect' | 'graph' | 'stash' | null>(null);
 
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
+  const [restoringBackup, setRestoringBackup] = useState(false);
   const stash = useStash((layer ?? simulation)?.stash);
   const { runtime, session } = useRuntime();
   const poolStatus = usePoolStatus(
@@ -239,7 +246,7 @@ function GraphEditor({ layer, simulation }: AppProps) {
   const progress = runtimeProgress(runtime);
   const [switchingOutbound, setSwitchingOutbound] = useState(false);
   const switching = useRef(false);
-  const graphBlocked = !!progress || switchingOutbound || savingLayer;
+  const graphBlocked = !!progress || switchingOutbound || savingLayer || restoringBackup;
   const flowStore = useStoreApi<RuleNodeType, RuleEdge>();
   const editor = useGraphEditor(
     stash.ready ? stash.stash : undefined,
@@ -407,6 +414,11 @@ function GraphEditor({ layer, simulation }: AppProps) {
     (message: string, error = false) => setFeedback({ message, error }),
     [],
   );
+  useEffect(() => {
+    if (!editor.storageReady || !stash.ready) return;
+    const notice = takeBackupRecoveryNotice();
+    if (notice) notify(notice, true);
+  }, [editor.storageReady, stash.ready, notify]);
   const companionRule = useCompanionRuleRequest(
     !layer && editor.storageReady && stash.ready && !graphBlocked,
   );
@@ -1458,8 +1470,9 @@ function GraphEditor({ layer, simulation }: AppProps) {
                           graph={editor.graph}
                           blocked={graphBlocked}
                           getSnapshot={() => ({ graph: editor.getGraph(), stash: stash.get() })}
-                          onRestore={(restored, expected) => {
+                          onRestore={async (restored, expected, retry) => {
                             if (
+                              !retry &&
                               (restored.graph || restored.stash) &&
                               (editor.getGraph() !== expected.graph ||
                                 stash.get() !== expected.stash)
@@ -1467,21 +1480,46 @@ function GraphEditor({ layer, simulation }: AppProps) {
                               throw new Error(
                                 'The Graph or Stash changed while preparing restoration. Review and try again.',
                               );
-                            const preferences = restored.preferences
-                              ? writePreferences(restored.preferences)
-                              : undefined;
+                            const prepared =
+                              restored.graph || restored.stash
+                                ? editor.prepareWorkspaceRestore(
+                                    restored.graph ?? expected.graph,
+                                    restored.stash ?? expected.stash,
+                                    restored.resetViewport,
+                                  )
+                                : undefined;
+                            if (!prepared && !restored.preferences) return;
+                            setRestoringBackup(true);
                             try {
-                              if (restored.graph || restored.stash)
-                                editor.restoreWorkspace(
-                                  restored.graph ?? expected.graph,
-                                  restored.stash ?? expected.stash,
-                                  restored.resetViewport,
+                              if (!layer && !simulation && protectedStorageAvailable()) {
+                                const saved = await restoreProtectedWorkspace({
+                                  workspace: prepared?.serialize(),
+                                  stash: restored.stash
+                                    ? {
+                                        base: stash.getBase(),
+                                        document: serializeStash(restored.stash),
+                                      }
+                                    : undefined,
+                                  preferences: restored.preferences,
+                                });
+                                prepared?.publish(
+                                  saved === undefined ? undefined : stash.restoredBase(saved),
                                 );
-                            } catch (error) {
-                              preferences?.rollback();
-                              throw error;
+                              } else {
+                                const preferences = restored.preferences
+                                  ? writePreferences(restored.preferences)
+                                  : undefined;
+                                try {
+                                  prepared?.publish();
+                                } catch (error) {
+                                  preferences?.rollback();
+                                  throw error;
+                                }
+                                preferences?.commit();
+                              }
+                            } finally {
+                              setRestoringBackup(false);
                             }
-                            preferences?.commit();
                             if (restored.graph && !restored.resetViewport) {
                               const originalIds = new Set(expected.graph.nodes.map((n) => n.id));
                               const added = restored.graph.nodes.filter(
@@ -1491,7 +1529,14 @@ function GraphEditor({ layer, simulation }: AppProps) {
                             }
                           }}
                           onSaved={notify}
-                          onClose={() => setBackupOpen(null)}
+                          onClose={() => {
+                            setBackupOpen(null);
+                            if (backupRestorePending())
+                              notify(
+                                'A backup restore is pending. It will resume when you reopen Wayrill.',
+                                true,
+                              );
+                          }}
                         />
                       )}
                       {xrayImportOpen && (

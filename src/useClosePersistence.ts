@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { protectedStorageAvailable, protectedWrite } from './protectedStorage';
+import {
+  backupRestorePending,
+  protectedStorageAvailable,
+  protectedWrite,
+} from './protectedStorage';
 export default function useClosePersistence(
   workspace: () => string,
   workspaceReady: boolean,
@@ -32,7 +36,7 @@ export default function useClosePersistence(
       try {
         // A user can still edit while a native save is pending. Flush again
         // if either document changed, so closing cannot lose that newer edit.
-        for (;;) {
+        while (!backupRestorePending()) {
           const data = latest.current;
           const workspaceText = data.workspaceReady ? data.workspace() : null;
           const stashText = data.stashReady ? data.stash() : null;

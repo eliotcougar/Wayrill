@@ -20,6 +20,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   }),
 }));
 vi.mock('./protectedStorage', () => ({
+  backupRestorePending: () => false,
   protectedStorageAvailable: () => true,
   protectedWrite: mock.write,
 }));

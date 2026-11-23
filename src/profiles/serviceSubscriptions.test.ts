@@ -179,6 +179,7 @@ function libraryServer(initialized = true) {
   let remote: string | null = initialized ? serializeStash(original) : null,
     version = 1,
     upload = '',
+    stashRestoreId: string | undefined,
     failCommit: 'before' | 'after' | undefined;
   mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
     if (method === 'subscriptions.read')
@@ -188,6 +189,7 @@ function libraryServer(initialized = true) {
         initialized: remote !== null,
         nextOffset: new TextEncoder().encode(remote ?? '').length,
         totalBytes: new TextEncoder().encode(remote ?? '').length,
+        stashRestoreId,
       };
     if (method === 'subscriptions.uploadStart') {
       upload = '';
@@ -202,11 +204,12 @@ function libraryServer(initialized = true) {
         failCommit = undefined;
         throw new Error('Disconnected before commit');
       }
-      const save = JSON.parse(upload) as { base: string; document: string };
+      const save = JSON.parse(upload) as { base: string; document: string; restoreId?: string };
       remote =
         remote === null
           ? serializeStash(parseStash(save.document))
           : mergeStashDocuments(save.base, save.document, remote);
+      stashRestoreId = save.restoreId ?? stashRestoreId;
       version++;
       if (failCommit === 'after') {
         failCommit = undefined;
@@ -230,6 +233,31 @@ function libraryServer(initialized = true) {
     },
   };
 }
+
+it('uses the durable restore receipt after a lost reply and preserves edits made since the commit', async () => {
+  const server = libraryServer();
+  const id = 'a'.repeat(32);
+  const base = serializeStash(server.original);
+  const restored = structuredClone(server.original);
+  restored.groups[0].name = 'Restored';
+  const document = serializeStash(restored);
+  server.failNextSave('after');
+  const originalClient = await import('./serviceSubscriptions');
+  await expect(originalClient.restoreServiceStash(id, base, document, vi.fn())).rejects.toThrow(
+    'Reply lost',
+  );
+
+  const newer = server.get();
+  newer.groups[0].name = 'Edited since restore';
+  server.replace(newer);
+  vi.resetModules();
+  const restarted = await import('./serviceSubscriptions');
+  const save = await restarted.restoreServiceStash(id, base, document, vi.fn());
+  expect(parseStash(save).groups[0].name).toBe('Edited since restore');
+  expect(
+    mock.call.mock.calls.filter(([method]) => method === 'subscriptions.uploadCommit'),
+  ).toHaveLength(1);
+});
 
 it('preserves a provider refresh while its renderer merge is still pending', async () => {
   const server = libraryServer();

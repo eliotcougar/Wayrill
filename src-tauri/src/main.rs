@@ -82,6 +82,24 @@ async fn protected_write(
     .await
     .map_err(|_| "Storage task failed.")?
 }
+#[tauri::command]
+async fn protected_finish_restore(
+    app: tauri::AppHandle,
+    lock: tauri::State<'_, Arc<VaultLock>>,
+) -> Result<(), String> {
+    let base = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| "Cannot find app storage.")?;
+    let lock = lock.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock.write.lock().map_err(|_| "Storage is busy.")?;
+        vault::finish_restore(&base)
+    })
+    .await
+    .map_err(|_| "Storage task failed.")?
+}
+
 use wayrill_protocol::{ApiError, Message};
 
 #[tauri::command]
@@ -281,6 +299,7 @@ fn main() {
             shutdown::desktop_ready,
             protected_read,
             protected_write,
+            protected_finish_restore,
             export_json,
             picker::process_picker,
             routing_source::routing_source_file,

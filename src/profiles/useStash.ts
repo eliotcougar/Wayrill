@@ -9,6 +9,7 @@ import type { GraphState } from '../graph/types';
 import { prepareImport, parseImport, mergeServiceStash } from './importClient';
 import {
   mergeImport,
+  parseStash,
   serializeStash,
   seedStashSerialization,
   stashByteLength,
@@ -151,6 +152,12 @@ export default function useStash(initial?: Stash) {
     },
     get: () => current.current,
     getBase: () => source.current,
+    restoredBase: (text: string): Stash => {
+      const parsed = parseStash(text);
+      source.current = text;
+      setBase(text);
+      return { format: 'wayrill.stash', version: 3, groups: parsed.groups };
+    },
     serialize,
     flush: () => writeServiceStash(serializeStash(current.current), source.current),
     ready: storage.ready,

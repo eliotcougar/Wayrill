@@ -114,6 +114,8 @@ struct Library {
     owner_sid: String,
     version: u64,
     stash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stash_restore_id: Option<String>,
     catalog: Vec<Group>,
     draft: Option<String>,
     applied: Option<Applied>,
@@ -138,6 +140,7 @@ impl Library {
             owner_sid: owner,
             version: 0,
             stash: None,
+            stash_restore_id: None,
             catalog: vec![],
             draft: None,
             applied: None,
@@ -483,7 +486,7 @@ impl Manager {
                     .filter(|_| p.kind == "applied")
                     .map(|a| &a.source_hash);
                 Ok(
-                    json!({"version":version,"initialized":!text.is_empty(),"text":&text[p.offset..end],"nextOffset":end,"totalBytes":text.len(),"appliedSourceHash":applied_source_hash}),
+                    json!({"version":version,"initialized":!text.is_empty(),"text":&text[p.offset..end],"nextOffset":end,"totalBytes":text.len(),"appliedSourceHash":applied_source_hash,"stashRestoreId":state.library.stash_restore_id}),
                 )
             }
             "subscriptions.uploadStart" => {

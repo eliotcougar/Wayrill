@@ -424,7 +424,7 @@ export default function useGraphEditor(
     if (accepted) setLoadVersion((version) => version + 1);
     return accepted;
   }
-  function restoreWorkspace(graph: GraphState, library: Stash, resetViewport = false) {
+  function prepareWorkspaceRestore(graph: GraphState, library: Stash, resetViewport = false) {
     if (storage.loading || !storage.ready || locked.current || !libraryStore.current)
       throw new Error(
         'The workspace is not ready for restoration. Try again after the current operation.',
@@ -432,16 +432,28 @@ export default function useGraphEditor(
     if (dragStart.current || editStart.current)
       throw new Error('Finish the current edit before restoring a backup.');
     const previous = current.current;
-    // One authored transaction, including its library, for Undo/Redo. Do not
-    // re-import/adopt nodes through the outgoing workspace's shared definitions.
-    publish(
-      commitWorkspaceHistory(previous, {
-        ...(resetViewport ? { viewportKey: ++viewportKey.current } : {}),
-        graph: syncXrayConnections(resolveGraph(graph)),
-        stash: library,
-      }),
-    );
-    if (resetViewport) setLoadVersion((version) => version + 1);
+    const restored = syncXrayConnections(resolveGraph(graph));
+    return {
+      serialize: () => serializeWorkspace(restored, poolBase.current),
+      publish: (savedLibrary = library) => {
+        // One Undo point for the authored documents, with any concurrently
+        // merged Stash updates acknowledged by the service.
+        publish(
+          commitWorkspaceHistory(previous, {
+            ...(resetViewport ? { viewportKey: ++viewportKey.current } : {}),
+            graph:
+              savedLibrary === library
+                ? restored
+                : refreshFromLibrary(restored, library, savedLibrary),
+            stash: savedLibrary,
+          }),
+        );
+        if (resetViewport) setLoadVersion((version) => version + 1);
+      },
+    };
+  }
+  function restoreWorkspace(graph: GraphState, library: Stash, resetViewport = false) {
+    prepareWorkspaceRestore(graph, library, resetViewport).publish();
   }
   const canFollowPool = () =>
     storage.ready && !locked.current && !dragStart.current && !editStart.current;
@@ -539,6 +551,7 @@ export default function useGraphEditor(
     duplicateSelected,
     loadGraph,
     restoreWorkspace,
+    prepareWorkspaceRestore,
     showPoolGraph,
     canFollowPool,
     poolBaseline: baseline,

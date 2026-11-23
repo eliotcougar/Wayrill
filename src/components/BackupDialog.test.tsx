@@ -83,6 +83,7 @@ it('reviews a backup, restores only chosen components and stages rather than act
   expect(restored).toHaveBeenCalledWith(
     expect.objectContaining({ graph: expect.objectContaining({ name: 'Saved graph' }) }),
     { graph, stash },
+    false,
   );
   expect(closed).toHaveBeenCalledOnce();
 });

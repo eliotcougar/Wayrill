@@ -68,6 +68,7 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
           version: number;
           initialized: boolean;
           appliedSourceHash?: string | null;
+          stashRestoreId?: string | null;
         }>('subscriptions.read', {
           kind,
           offset,
@@ -81,6 +82,7 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
             text,
             version: revision,
             appliedSourceHash: part.appliedSourceHash ?? undefined,
+            stashRestoreId: part.stashRestoreId ?? undefined,
           };
         if (part.nextOffset <= offset || part.totalBytes > 64 * 1024 * 1024)
           throw new Error('Invalid subscription document response.');
@@ -110,7 +112,11 @@ export async function readSubscriptionProgress<T>(
   }
 }
 
-export async function waitSubscriptionJob(job: number, signal?: AbortSignal) {
+export async function waitSubscriptionJob(
+  job: number,
+  signal?: AbortSignal,
+  onRejected?: () => void,
+) {
   for (;;) {
     signal?.throwIfAborted();
     const result = await readSubscriptionProgress<{ busy: boolean; error: ServiceError | null }>(
@@ -119,7 +125,10 @@ export async function waitSubscriptionJob(job: number, signal?: AbortSignal) {
       signal,
     );
     if (!result.busy) {
-      if (result.error) throw Object.assign(new Error(result.error.message), result.error);
+      if (result.error) {
+        onRejected?.();
+        throw Object.assign(new Error(result.error.message), result.error);
+      }
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -219,6 +228,28 @@ export function writeServiceStash(text: string, sourceBase = base) {
     if (pendingSaves === 1) checkpoint = undefined;
   }).finally(() => {
     pendingSaves--;
+  });
+}
+
+export function restoreServiceStash(
+  id: string,
+  sourceBase: string,
+  document: string,
+  onRejected: () => void,
+) {
+  return enqueue(async () => {
+    let current = await readSubscriptionDocument('stash');
+    if (current.stashRestoreId !== id) {
+      const { job } = await transferDocument('save', { base: sourceBase, document, restoreId: id });
+      await waitSubscriptionJob(job, undefined, onRejected);
+      current = await readSubscriptionDocument('stash');
+    }
+    if (current.stashRestoreId !== id || current.text === null)
+      throw new Error('The service could not confirm the restored Stash. Retry the restore.');
+    base = current.text;
+    version = current.version;
+    checkpoint = undefined;
+    return current.text;
   });
 }
 export function refreshServiceStash(expectedVersion?: number) {

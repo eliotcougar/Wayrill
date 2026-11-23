@@ -43,6 +43,10 @@ pub fn slot(key: &str) -> Result<(&'static str, usize), String> {
         "pool-previous" => Ok(("pool-previous.dpapi", MAX)),
         "stash" => Ok(("stash.dpapi", MAX)),
         "pools" => Ok(("pools.dpapi", MAX)),
+        "restore" => Ok(("restore.dpapi", 128 * 1024)),
+        "restore-workspace" => Ok(("restore-workspace.dpapi", MAX_WORKSPACE)),
+        "restore-stash" => Ok(("restore-stash.dpapi", MAX)),
+        "restore-base" => Ok(("restore-base.dpapi", MAX)),
         _ => Err("Unknown protected storage slot.".into()),
     }
 }
@@ -119,6 +123,25 @@ pub fn read_document(path: &Path, limit: usize) -> Result<Option<String>, String
 pub fn write(base: &Path, key: &str, text: &str) -> Result<(), String> {
     let (name, limit) = slot(key)?;
     write_document(&base.join(name), text, limit)
+}
+
+pub fn finish_restore(base: &Path) -> Result<(), String> {
+    // Remove the intent first. Interrupted cleanup can only leave inert files.
+    for key in [
+        "restore",
+        "restore-workspace",
+        "restore-stash",
+        "restore-base",
+    ] {
+        let path = base.join(slot(key)?.0);
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) if key == "restore" => return Err("Cannot finish backup restoration.".into()),
+            Err(_) => {}
+        }
+    }
+    Ok(())
 }
 pub fn write_document(path: &Path, text: &str, limit: usize) -> Result<(), String> {
     let base = path

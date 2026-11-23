@@ -10,6 +10,7 @@ import {
   type RestoreSelection,
 } from '../backup/model';
 import { readPreferences } from '../backup/preferences';
+import { backupRestorePending } from '../protectedStorage';
 import { exportFile } from '../exportFile';
 import { readImportText } from '../importText';
 import type { GraphState } from '../graph/types';
@@ -37,7 +38,11 @@ export default function BackupDialog({
   graph: GraphState;
   blocked: boolean;
   getSnapshot: () => Snapshot;
-  onRestore: (workspace: RestoredWorkspace, expected: Snapshot) => void;
+  onRestore: (
+    workspace: RestoredWorkspace,
+    expected: Snapshot,
+    retry: boolean,
+  ) => Promise<void> | void;
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
@@ -62,10 +67,15 @@ export default function BackupDialog({
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [retryCommit, setRetryCommit] = useState(false);
+  const commitStarted = useRef(false);
+  const staged = useRef<{ restored: RestoredWorkspace; expected: Snapshot } | null>(null);
   const operation = useRef<AbortController | null>(null);
   const file = useRef<HTMLInputElement>(null);
   useEffect(() => () => operation.current?.abort(), []);
   const close = () => {
+    if (commitStarted.current) return;
     operation.current?.abort();
     onClose();
   };
@@ -145,25 +155,43 @@ export default function BackupDialog({
   const restore = () =>
     run(async (signal) => {
       if (!content || blocked) return;
-      const expected = getSnapshot();
-      const restored = await backupRequest<RestoredWorkspace>(
-        {
-          operation: 'restore',
-          content,
-          selection,
-          graph:
-            selection.graph || selection.filters || selection.stash
-              ? expected.graph
-              : { name: '', nodes: [], edges: [] },
-          stash:
-            selection.graph || selection.stash
-              ? expected.stash
-              : { format: 'wayrill.stash', version: 3, groups: [] },
-        },
-        signal,
-      );
+      const expected = staged.current?.expected ?? getSnapshot();
+      const restored =
+        staged.current?.restored ??
+        (await backupRequest<RestoredWorkspace>(
+          {
+            operation: 'restore',
+            content,
+            selection,
+            graph:
+              selection.graph || selection.filters || selection.stash
+                ? expected.graph
+                : { name: '', nodes: [], edges: [] },
+            stash:
+              selection.graph || selection.stash
+                ? expected.stash
+                : { format: 'wayrill.stash', version: 3, groups: [] },
+          },
+          signal,
+        ));
       signal.throwIfAborted();
-      onRestore(restored, expected);
+      commitStarted.current = true;
+      setCommitting(true);
+      try {
+        await onRestore(restored, expected, staged.current !== null);
+      } catch (error) {
+        if (backupRestorePending()) {
+          staged.current = { restored, expected };
+          setRetryCommit(true);
+        } else {
+          staged.current = null;
+          setRetryCommit(false);
+        }
+        throw error;
+      } finally {
+        commitStarted.current = false;
+        setCommitting(false);
+      }
       onSaved(
         restored.graph || restored.stash
           ? 'Restored to the draft. Apply when ready. Undo restores the previous Graph and Stash.'
@@ -187,7 +215,7 @@ export default function BackupDialog({
       onClose={close}
       footer={
         <div className="action-row">
-          <button className="secondary-button" onClick={close}>
+          <button className="secondary-button" onClick={close} disabled={committing}>
             {busy ? 'Cancel' : 'Close'}
           </button>
           {creating ? (
@@ -208,7 +236,13 @@ export default function BackupDialog({
               disabled={busy || blocked || !canRestore}
               onClick={() => void restore()}
             >
-              {busy ? 'Preparing…' : 'Restore to draft'}
+              {committing
+                ? 'Saving…'
+                : busy
+                  ? 'Preparing…'
+                  : retryCommit
+                    ? 'Retry save'
+                    : 'Restore to draft'}
             </button>
           ) : encrypted && text ? (
             <button
@@ -222,7 +256,7 @@ export default function BackupDialog({
         </div>
       }
     >
-      <div className="backup-content">
+      <div className="backup-content" inert={retryCommit}>
         {creating ? (
           <>
             <label className="editor-field">

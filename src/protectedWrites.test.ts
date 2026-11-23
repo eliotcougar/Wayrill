@@ -1,12 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ invoke: vi.fn(), read: vi.fn(), write: vi.fn() }));
+const mock = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  read: vi.fn(),
+  write: vi.fn(),
+  restore: vi.fn(),
+  checkpoint: false,
+}));
 vi.mock('./profiles/serviceSubscriptions', () => ({
   readServiceStash: mock.read,
+  restoreServiceStash: mock.restore,
   writeServiceStash: mock.write,
 }));
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri: () => true,
-  invoke: mock.invoke,
+  invoke: (name: string, args?: { key: string }) =>
+    name === 'protected_read' && args?.key === 'restore' && !mock.checkpoint
+      ? Promise.resolve(null)
+      : mock.invoke(name, args),
 }));
 let protectedWrite: typeof import('./protectedStorage').protectedWrite;
 let protectedRead: typeof import('./protectedStorage').protectedRead;
@@ -15,6 +25,8 @@ beforeEach(async () => {
   mock.invoke.mockReset();
   mock.read.mockReset();
   mock.write.mockReset();
+  mock.restore.mockReset();
+  mock.checkpoint = false;
   vi.resetModules();
   ({ protectedWrite, protectedRead } = await import('./protectedStorage'));
 });
@@ -88,4 +100,49 @@ it('does not suppress a deliberate Stash revert after an external service update
   mock.write.mockResolvedValue(undefined);
   await protectedWrite('stash', 'original');
   expect(mock.write).toHaveBeenCalledWith('original', undefined);
+});
+
+it('resumes the same Stash commit after an interruption before the draft is saved', async () => {
+  mock.checkpoint = true;
+  const files = new Map([['workspace', 'original graph']]);
+  let failWorkspace = true;
+  mock.invoke.mockImplementation(async (name, args) => {
+    if (name === 'protected_read') return files.get(args.key) ?? null;
+    if (name === 'protected_finish_restore') {
+      for (const key of files.keys()) if (key.startsWith('restore')) files.delete(key);
+      return;
+    }
+    if (args.key === 'workspace' && failWorkspace) throw new Error('disk busy');
+    files.set(args.key, args.text);
+  });
+  let receipt: string | undefined;
+  let committed = 0;
+  mock.restore.mockImplementation(async (id, base, document) => {
+    expect(base).toBe('original stash');
+    expect(document).toBe('restored stash');
+    if (receipt !== id) {
+      receipt = id;
+      committed++;
+    }
+    return document;
+  });
+  const { restoreProtectedWorkspace } = await import('./protectedStorage');
+  await expect(
+    restoreProtectedWorkspace({
+      workspace: 'restored graph',
+      stash: { base: 'original stash', document: 'restored stash' },
+    }),
+  ).rejects.toThrow('disk busy');
+  expect(files.get('workspace')).toBe('original graph');
+  await expect(protectedWrite('workspace', 'stale autosave')).rejects.toThrow('pending backup');
+
+  failWorkspace = false;
+  vi.resetModules();
+  const restarted = await import('./protectedStorage');
+  mock.read.mockResolvedValue('restored stash');
+  await expect(
+    Promise.all([restarted.protectedRead('workspace'), restarted.protectedRead('stash')]),
+  ).resolves.toEqual(['restored graph', 'restored stash']);
+  expect(committed).toBe(1);
+  expect(files.has('restore')).toBe(false);
 });

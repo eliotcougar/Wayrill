@@ -192,6 +192,7 @@ fn synchronize_applied(
 struct Save {
     base: String,
     document: String,
+    restore_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -212,6 +213,14 @@ fn upload(
     if kind == "save" {
         let input: Save =
             serde_json::from_str(text).map_err(|_| invalid("Invalid subscription save."))?;
+        if let Some(id) = &input.restore_id {
+            if id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(invalid("Invalid backup restore identity."));
+            }
+            if current.stash_restore_id.as_ref() == Some(id) {
+                return Ok(());
+            }
+        }
         let value = if current.stash.is_none() {
             if !input.base.is_empty() {
                 return Err(invalid("The service library has not been initialized."));
@@ -236,7 +245,11 @@ fn upload(
             .flatten()
             .filter_map(|id| id.as_str().map(str::to_owned))
             .collect::<Vec<_>>();
-        accept(manager, (*current).clone(), value, groups)
+        let mut next = (*current).clone();
+        if input.restore_id.is_some() {
+            next.stash_restore_id = input.restore_id;
+        }
+        accept(manager, next, value, groups)
     } else {
         let input: ContextInput =
             serde_json::from_str(text).map_err(|_| invalid("Invalid subscription context."))?;
