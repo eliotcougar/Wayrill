@@ -8,14 +8,21 @@ import { factoryResources } from './graph/resources';
 import { factoryDefaults } from './graph/defaults';
 import { serviceCall } from './serviceClient';
 import type { GraphState } from './graph/types';
-vi.mock('./serviceClient', () => ({
+vi.mock('./serviceClient', async (original) => ({
+  ...(await original<typeof import('./serviceClient')>()),
   desktopServiceAvailable: () => true,
   serviceCall: vi.fn(),
   errorText: (error: Error) => error.message,
 }));
 let root: Root;
-function Fixture({ graph }: { graph: GraphState }) {
-  useResourceSync(graph, true);
+function Fixture({
+  graph,
+  instanceId = 'first',
+}: {
+  graph: GraphState | null;
+  instanceId?: string;
+}) {
+  useResourceSync(graph, instanceId);
   return null;
 }
 beforeEach(() => {
@@ -23,6 +30,25 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.mocked(serviceCall).mockReset();
   root = createRoot(document.createElement('div'));
+});
+it('waits for the saved workspace and resends its schedule after a lost reply or service replacement', async () => {
+  const graph = createTrafficExample();
+  graph.defaults = { ...factoryDefaults(), resources: factoryResources() };
+  graph.defaults.resources!.reloadAfterAutoUpdates = false;
+  vi.mocked(serviceCall)
+    .mockRejectedValueOnce({ code: 'TIMEOUT', message: 'Reply lost' })
+    .mockResolvedValue({});
+  await act(() => root.render(<Fixture graph={null} />));
+  expect(serviceCall).not.toHaveBeenCalled();
+
+  await act(() => root.render(<Fixture graph={graph} />));
+  await act(() => vi.advanceTimersByTimeAsync(250));
+  await act(() => root.render(<Fixture graph={graph} instanceId="replacement" />));
+  expect(serviceCall).toHaveBeenCalledTimes(3);
+  for (const [method, schedule] of vi.mocked(serviceCall).mock.calls) {
+    expect(method).toBe('resources.configure');
+    expect(schedule).toMatchObject({ reloadAfterAutoUpdates: false });
+  }
 });
 afterEach(async () => {
   await act(() => root.unmount());

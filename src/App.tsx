@@ -291,7 +291,10 @@ function GraphEditor({ layer, simulation }: AppProps) {
     ]),
     runtime.subscriptions,
   );
-  const resourceScheduleError = useResourceSync(editor.graph, runtime.connected);
+  const resourceScheduleError = useResourceSync(
+    editor.storageReady ? editor.graph : null,
+    runtime.connected ? (runtime.snapshot?.instanceId ?? null) : null,
+  );
   const [trafficOpen, setTrafficOpen] = useState(false);
   const [stashOpen, setStashOpen] = useState(false);
   const [deletingSelection, setDeletingSelection] = useState(false);
