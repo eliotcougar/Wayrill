@@ -15,6 +15,7 @@ use std::{
 };
 use wayrill_protocol::{params, ApiError, Result};
 pub const MAX: usize = 128 * 1024 * 1024;
+const MAX_BATCH: usize = 256 * 1024 * 1024;
 const PACKAGED_PREFIXES: [&str; 4] = ["", "ru-", "ir-", "cn-"];
 pub(crate) fn canonical_name(file: &str) -> &str {
     match file {
@@ -69,9 +70,18 @@ pub(crate) fn download_files(
     stop: &AtomicBool,
     proxy_port: Option<u16>,
 ) -> Result<Vec<(FilePlan, Vec<u8>)>> {
-    let mut items = Vec::new();
     let mut total = 0;
-    for plan in files {
+    files
+        .iter()
+        .map(|plan| {
+            let bytes = download_file(plan, stop, proxy_port)?;
+            Ok((plan.clone(), count_download(bytes, &mut total)?))
+        })
+        .collect()
+}
+
+fn download_file(plan: &FilePlan, stop: &AtomicBool, proxy_port: Option<u16>) -> Result<Vec<u8>> {
+    let result = (|| {
         if stop.load(Ordering::Acquire) {
             return Err(invalid("Resource update canceled."));
         }
@@ -85,24 +95,24 @@ pub(crate) fn download_files(
         } else {
             None
         };
-        let bytes = crate::resource_download::fetch(&plan.url, stop, proxy)
-            .and_then(|bytes| {
-                validate_dat(&bytes, &plan.kind)?;
-                Ok(bytes)
-            })
-            .map_err(|mut error| {
-                error.message = format!("{}: {}", plan.file, error.message);
-                error
-            })?;
-        total += bytes.len();
-        if total > 256 * 1024 * 1024 {
-            return Err(invalid(
-                "Resource update batch exceeds 256 MiB. Update fewer files at once.",
-            ));
-        }
-        items.push((plan.clone(), bytes));
+        let bytes = crate::resource_download::fetch(&plan.url, stop, proxy)?;
+        validate_dat(&bytes, &plan.kind)?;
+        Ok(bytes)
+    })();
+    result.map_err(|mut error| {
+        error.message = format!("{}: {}", plan.file, error.message);
+        error
+    })
+}
+
+fn count_download(bytes: Vec<u8>, total: &mut usize) -> Result<Vec<u8>> {
+    if bytes.len() > MAX_BATCH - *total {
+        return Err(invalid(
+            "Resource update batch exceeds 256 MiB. Update fewer files at once.",
+        ));
     }
-    Ok(items)
+    *total += bytes.len();
+    Ok(bytes)
 }
 pub(crate) fn valid_name(name: &str) -> bool {
     name.len() <= 200
@@ -584,6 +594,68 @@ fn commit(
     clear_completed_stage(assets, &journal.files);
     Ok(())
 }
+
+#[derive(Default)]
+struct RefreshBatch {
+    fetched: Vec<(FilePlan, Vec<u8>)>,
+    failed: Vec<(String, ApiError)>,
+}
+
+impl RefreshBatch {
+    fn download(files: Vec<FilePlan>, mut fetch: impl FnMut(&FilePlan) -> Result<Vec<u8>>) -> Self {
+        let mut batch = Self::default();
+        let mut total = 0;
+        for plan in files {
+            match fetch(&plan).and_then(|bytes| count_download(bytes, &mut total)) {
+                Ok(bytes) => batch.fetched.push((plan, bytes)),
+                Err(error) => batch.failed.push((plan.file, error)),
+            }
+        }
+        batch
+    }
+
+    fn install(
+        self,
+        assets: &Path,
+        data: &Path,
+        stop: &AtomicBool,
+        reload: bool,
+        stored: &mut Stored,
+    ) -> (Vec<String>, Vec<String>) {
+        let mut failed = self.failed;
+        let mut updated = Vec::new();
+        if !self.fetched.is_empty() {
+            let result = if stop.load(Ordering::Acquire) {
+                Err(invalid("Resource update canceled during shutdown."))
+            } else {
+                commit(assets, data, &self.fetched, stop, reload, stored)
+            };
+            for (plan, _) in self.fetched {
+                match &result {
+                    Ok(()) => updated.push(plan.file),
+                    Err(error) => failed.push((plan.file, error.clone())),
+                }
+            }
+        }
+        if !failed.is_empty() {
+            for (file, error) in &failed {
+                stored.metadata.entry(file.clone()).or_default().last_error =
+                    Some(error.message.clone());
+            }
+            // A pending rollback owns the on-disk metadata until recovery completes.
+            if !data.join("resources-transaction.json").exists() {
+                if let Err(error) = storage::write(&data.join("resources.json"), stored) {
+                    crate::diagnostics::error!(
+                        "Could not save resource update errors: {}",
+                        error.message
+                    );
+                }
+            }
+        }
+        (updated, failed.into_iter().map(|(file, _)| file).collect())
+    }
+}
+
 impl Manager {
     pub fn new(assets: PathBuf, data: PathBuf, events: Arc<Events>) -> Result<Self> {
         let restored = recover(&assets, &data)?;
@@ -931,28 +1003,22 @@ impl Manager {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        let worker = std::thread::Builder::new().name("wayrill-resources".into()).spawn(move || {
-            let result: Result<()> = (|| {
-                let items = download_files(&files, &stop, proxy_port)?;
+        let worker = std::thread::Builder::new()
+            .name("wayrill-resources".into())
+            .spawn(move || {
+                let batch =
+                    RefreshBatch::download(files, |plan| download_file(plan, &stop, proxy_port));
                 let mut s = state.lock().unwrap();
-                commit(&assets, &data, &items, &stop, reload, &mut s.stored)?;
-                Ok(())
-            })();
-            let mut s = state.lock().unwrap();
-            s.busy = false;
-            if let Err(error) = &result {
-                for p in &files {
-                    s.stored
-                        .metadata
-                        .entry(p.file.clone())
-                        .or_default()
-                        .last_error = Some(error.message.clone());
+                let (updated, failed) = batch.install(&assets, &data, &stop, reload, &mut s.stored);
+                s.busy = false;
+                drop(s);
+                if !failed.is_empty() {
+                    events.publish("resources.failed", json!({"files":failed,"ok":false}));
                 }
-                let _ = storage::write(&data.join("resources.json"), &s.stored);
-            }
-            drop(s);
-            events.publish(if result.is_ok(){"resources.updated"}else{"resources.failed"},json!({"files":files.iter().map(|p|&p.file).collect::<Vec<_>>(),"ok":result.is_ok()}));
-        });
+                if !updated.is_empty() {
+                    events.publish("resources.updated", json!({"files":updated,"ok":true}));
+                }
+            });
         match worker {
             Ok(worker) => self.worker = Some(worker),
             Err(error) => {
@@ -1838,6 +1904,59 @@ mod transactional_tests {
             .contains("loopback proxy"));
         assert!(metadata.last_attempt_ms > 0);
         assert!(!lab.root.join("assets/qa.dat").exists());
+    }
+    #[test]
+    fn mixed_refresh_keeps_failed_files_and_commits_successes_in_one_generation() {
+        let lab = Lab::new();
+        let (assets, data) = (lab.root.join("assets"), lab.root.join("state"));
+        let stop = AtomicBool::new(false);
+        let mut stored = Stored::default();
+        let source = |file: &str| FilePlan {
+            file: file.into(),
+            url: format!("https://example.net/{file}"),
+            ..plan()
+        };
+        let offline = source("offline.dat");
+        let original = dat();
+        commit(
+            &assets,
+            &data,
+            &[(offline.clone(), original.clone())],
+            &stop,
+            false,
+            &mut stored,
+        )
+        .unwrap();
+        let batch = RefreshBatch::download(
+            vec![source("first.dat"), offline, source("last.dat")],
+            |plan| {
+                if plan.file == "offline.dat" {
+                    Err(ApiError::new("RESOURCE_DOWNLOAD", "Provider unavailable"))
+                } else {
+                    Ok(original.clone())
+                }
+            },
+        );
+        let (updated, failed) = batch.install(&assets, &data, &stop, true, &mut stored);
+        assert_eq!(updated, ["first.dat", "last.dat"]);
+        assert_eq!(failed, ["offline.dat"]);
+        for file in ["first.dat", "offline.dat", "last.dat"] {
+            assert_eq!(fs::read(assets.join(file)).unwrap(), original);
+        }
+        let saved: Stored = storage::read(&data.join("resources.json"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.generation, 2);
+        assert_eq!(saved.reload_generation, 2);
+        assert_eq!(saved.metadata["offline.dat"].content_generation, 1);
+        assert_eq!(
+            saved.metadata["offline.dat"].last_error.as_deref(),
+            Some("Provider unavailable")
+        );
+        for file in ["first.dat", "last.dat"] {
+            assert_eq!(saved.metadata[file].content_generation, 2);
+            assert!(saved.metadata[file].last_error.is_none());
+        }
     }
     #[test]
     fn identical_download_preserves_content_generation_and_file_timestamp() {
