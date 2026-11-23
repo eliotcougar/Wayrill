@@ -1,7 +1,7 @@
 //! One actor reconciles saved intent with startup registrations and live
 //! processes. Native work never holds the UI snapshot or policy-store lock.
 use super::{identity, select_process_record, select_record, Manager, Records};
-use crate::native;
+use crate::{native, timezone_startup::Target};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -59,6 +59,12 @@ fn external_image(path: &str, root: &Path) -> bool {
     )
 }
 
+enum RegistrationScan {
+    Pending,
+    RetryAt(Instant),
+    Loaded,
+}
+
 struct Reconciler {
     manager: Manager,
     root: PathBuf,
@@ -69,13 +75,80 @@ struct Reconciler {
     // survived a policy change or service restart. Future launches are native.
     idle_revision: Option<u64>,
     startup: BTreeMap<String, StartupApplied>,
-    targets: Option<BTreeMap<String, crate::timezone_startup::Target>>,
+    registration_scan: RegistrationScan,
+    targets: BTreeMap<String, Target>,
     detected: BTreeMap<String, Option<crate::timezone_startup::Target>>,
 }
 impl Reconciler {
-    fn step(&mut self) -> Result<()> {
+    fn new(manager: Manager, root: PathBuf, stop: Arc<AtomicBool>) -> Self {
+        Self {
+            manager,
+            root,
+            stop,
+            worker: None,
+            applied: BTreeMap::new(),
+            idle_revision: None,
+            startup: BTreeMap::new(),
+            registration_scan: RegistrationScan::Pending,
+            targets: BTreeMap::new(),
+            detected: BTreeMap::new(),
+        }
+    }
+
+    fn load_registrations(
+        &mut self,
+        now: Instant,
+        scan: impl FnOnce(Option<&str>) -> Result<Vec<(String, Target)>>,
+    ) {
+        match self.registration_scan {
+            RegistrationScan::Loaded => return,
+            RegistrationScan::RetryAt(at) if now < at => return,
+            _ => {}
+        }
+        let error = match scan(Some(&self.manager.owner)) {
+            Ok(targets) => {
+                for (_, target) in targets {
+                    self.targets
+                        .entry(target.path.to_lowercase())
+                        .or_insert(target);
+                }
+                self.registration_scan = RegistrationScan::Loaded;
+                None
+            }
+            Err(error) => {
+                self.registration_scan = RegistrationScan::RetryAt(now + Duration::from_secs(30));
+                Some(error.message)
+            }
+        };
+        let mut state = self
+            .manager
+            .state
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(message) = error.as_ref().filter(|_| error != state.startup_error) {
+            crate::diagnostics::log("timezone", "warning", message);
+        }
+        state.startup_error = error;
+    }
+
+    fn step(
+        &mut self,
+        now: Instant,
+        scan: impl FnOnce(Option<&str>) -> Result<Vec<(String, Target)>>,
+        live: impl FnOnce(
+            &mut Self,
+            &Arc<Records>,
+            bool,
+            bool,
+            &mut BTreeMap<String, Value>,
+        ) -> Result<()>,
+    ) -> Result<()> {
         let records = self.manager.records()?;
         let mut statuses = BTreeMap::new();
+        // A registry scan is needed to find stale registrations. Previously
+        // discovered images and live processes can still be reconciled.
+        self.load_registrations(now, scan);
         self.startup(&records, &mut statuses)?;
         if !is_current(&self.manager, &self.stop, &records)? {
             return Ok(());
@@ -92,7 +165,7 @@ impl Reconciler {
                 state.lease.is_some_and(|t| t > Instant::now()),
             )
         };
-        let result = self.processes(&records, catalog, leased, &mut statuses);
+        let result = live(self, &records, catalog, leased, &mut statuses);
         // Publish a complete pass rather than exposing an empty status map
         // while a slow native operation is in progress. Snapshot revisions
         // still hide results for preferences changed during the pass.
@@ -111,15 +184,7 @@ impl Reconciler {
         records: &Arc<Records>,
         statuses: &mut BTreeMap<String, Value>,
     ) -> Result<()> {
-        if self.targets.is_none() {
-            self.targets = Some(
-                crate::timezone_startup::targets(Some(&self.manager.owner))?
-                    .into_iter()
-                    .map(|(_, target)| (target.path.to_lowercase(), target))
-                    .collect(),
-            );
-        }
-        let targets = self.targets.as_mut().unwrap();
+        let targets = &mut self.targets;
         for record in records
             .values()
             .filter(|r| r.package.is_none() && external_image(&r.path, &self.root))
@@ -263,7 +328,7 @@ impl Reconciler {
         leased: bool,
         statuses: &mut BTreeMap<String, Value>,
     ) -> Result<()> {
-        let targets = self.targets.as_mut().unwrap();
+        let targets = &mut self.targets;
         let revision = records.values().map(|r| r.revision).max().unwrap_or(0);
         // Enabled policies always watch for new processes and image versions.
         // Once Off has been reconciled, discovery only serves an open editor.
@@ -442,19 +507,13 @@ fn is_current(manager: &Manager, stop: &AtomicBool, records: &Arc<Records>) -> R
     Ok(!stop.load(Ordering::Acquire) && Arc::ptr_eq(records, &manager.records()?))
 }
 pub(super) fn supervise(manager: Manager, root: PathBuf, stop: Arc<AtomicBool>) {
-    let mut runtime = Reconciler {
-        manager,
-        root,
-        stop,
-        worker: None,
-        applied: BTreeMap::new(),
-        idle_revision: None,
-        startup: BTreeMap::new(),
-        targets: None,
-        detected: BTreeMap::new(),
-    };
+    let mut runtime = Reconciler::new(manager, root, stop);
     while !runtime.stop.load(Ordering::Acquire) {
-        if let Err(error) = runtime.step() {
+        if let Err(error) = runtime.step(
+            Instant::now(),
+            crate::timezone_startup::targets,
+            Reconciler::processes,
+        ) {
             runtime.worker.take();
             let mut state = runtime
                 .manager
@@ -533,5 +592,64 @@ fn wait_adapter<T>(
             }
         }
         thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn failed_registration_scan_backs_off_while_live_updates_continue() {
+        let path = std::env::temp_dir().join(format!(
+            "wayrill-timezone-{}.json",
+            crate::tun::random_id().unwrap()
+        ));
+        let manager = Manager::new(path, "test-owner");
+        let mut reconciler = Reconciler::new(manager.clone(), PathBuf::new(), Arc::default());
+        let passes = Cell::new(0);
+        let live =
+            |_: &mut Reconciler, _: &Arc<Records>, _, _, statuses: &mut BTreeMap<String, Value>| {
+                passes.set(passes.get() + 1);
+                statuses.insert(
+                    "live".into(),
+                    json!({"phase":"applied","pass":passes.get()}),
+                );
+                Ok(())
+            };
+        let now = Instant::now();
+        reconciler
+            .step(
+                now,
+                |_| Err(ApiError::new("REGISTRY", "Registry unavailable")),
+                live,
+            )
+            .unwrap();
+        let RegistrationScan::RetryAt(retry_at) = reconciler.registration_scan else {
+            panic!("the registry scan must be retried");
+        };
+        {
+            let state = manager.state.0.lock().unwrap();
+            assert_eq!(state.startup_error.as_deref(), Some("Registry unavailable"));
+            assert!(state.error.is_none());
+            assert_eq!(state.statuses["live"]["pass"], 1);
+        }
+        reconciler
+            .step(
+                retry_at - Duration::from_millis(1),
+                |_| panic!("retry is not due"),
+                live,
+            )
+            .unwrap();
+        {
+            let state = manager.state.0.lock().unwrap();
+            assert_eq!(state.statuses["live"]["pass"], 2);
+            assert_eq!(state.startup_error.as_deref(), Some("Registry unavailable"));
+        }
+        reconciler.step(retry_at, |_| Ok(Vec::new()), live).unwrap();
+        let state = manager.state.0.lock().unwrap();
+        assert!(state.startup_error.is_none());
+        assert_eq!(state.statuses["live"]["pass"], 3);
     }
 }

@@ -28,6 +28,7 @@ type Snapshot = {
   processes?: { path: string }[];
   packages?: { family: string; name: string }[];
   error?: string;
+  startupError?: string;
 };
 type Choice = Pick<Selection, 'groupId' | 'entryId'> & { name: string };
 type ChoicePage = {
@@ -588,6 +589,12 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {message && <p role="status">{message}</p>}
+        {snapshot?.startupError && (
+          <p className="warning" role="status">
+            Windows startup timezone registrations could not be read. Wayrill will retry.{' '}
+            {snapshot.startupError}
+          </p>
+        )}
         {(error || loadError || snapshot?.error) && (
           <p className="error" role="alert">
             {error || loadError || snapshot?.error}

@@ -57,6 +57,7 @@ struct Runtime {
     packages: Vec<Value>,
     statuses: BTreeMap<String, Value>,
     error: Option<String>,
+    startup_error: Option<String>,
     catalog_requested: bool,
     catalog_at: Option<Instant>,
     lease: Option<Instant>,
@@ -151,7 +152,7 @@ impl Manager {
                     json!({"phase":"preparing","message":"Preparing startup timezone settings…"})
                 } else { json!({"phase":"waiting"}) });
         }
-        json!({"browsers":rows.into_values().collect::<Vec<_>>(),"processes":state.processes,"packages":state.packages,"error":state.error})
+        json!({"browsers":rows.into_values().collect::<Vec<_>>(),"processes":state.processes,"packages":state.packages,"error":state.error,"startupError":state.startup_error})
     }
     pub fn refresh(&self) -> Result<Value> {
         self.state
