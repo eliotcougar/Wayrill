@@ -2214,6 +2214,10 @@ impl Kernel {
                     .flatten()
             }),
         )?;
+        let resolved_hosts = tun_plan
+            .as_ref()
+            .and_then(|plan| plan.main["dns"].get("hosts"))
+            .cloned();
         let uplinks =
             crate::tun::network::PreparedUplinks::new(&profile.config, tun_plan.as_ref())?;
         if let Some(plan) = &mut tun_plan {
@@ -2379,7 +2383,7 @@ impl Kernel {
                 self.resource_issues_generation = self.resources.generation();
                 self.runtime_capture = worker_plan;
                 self.bootstrap_cache =
-                    bootstrap_hosts.map(|hosts| (config_hash(&profile.config), hosts));
+                    resolved_hosts.map(|hosts| (config_hash(&profile.config), hosts));
                 self.core = Some(core);
                 self.fake_dns = fake_dns;
                 self.core_state = CoreState::Running;
@@ -2814,15 +2818,11 @@ impl Kernel {
                 return;
             }
         }
-        // Existing peer/bootstrap addresses avoid resolving through an old TUN
-        // relay before its stale sockets can be retired. Saved static hosts win.
-        let hosts = self
-            .bootstrap_cache
-            .as_ref()
-            .filter(|(hash, _)| *hash == config_hash(&profile.config))
-            .map(|(_, hosts)| hosts.clone());
         self.begin_progress(crate::lifecycle::Operation::Restart);
         self.changed("network.reconnecting");
+        // A settled link change invalidates automatically resolved hosts even
+        // when the graph is identical. Never feed them into the new runtime.
+        self.bootstrap_cache = None;
         let result = preflight.and_then(|()| {
             let retained = self
                 .tun
@@ -2831,15 +2831,16 @@ impl Kernel {
                 RestartMode::Reconfigure,
                 SharingExit::Suspend,
             ))?;
-            self.start_core_with_adapter(hosts, retained)
+            if let Some(adapter) = &retained {
+                // Keep the lease and routes, but take the old TUN out of the
+                // Windows resolver's path before looking up new peer addresses.
+                adapter.park()?;
+            }
+            self.start_core_with_adapter(None, retained)?;
+            self.protection.ready()
         });
         if let Err(error) = result {
-            self.network.cancel();
-            self.core_state = CoreState::Failed;
-            self.health_fault = Some(Fault::Core);
-            self.recovery.fail(error.clone(), Instant::now());
-            self.last_error = Some(error);
-            self.changed("network.failed");
+            self.fail_runtime(Fault::Network, error);
         }
         self.end_progress();
         self.changed("network.changed");

@@ -1788,6 +1788,10 @@ impl RetainedAdapter {
     pub fn index(&self) -> u32 {
         self.0.index
     }
+
+    pub(crate) fn park(&self) -> Result<()> {
+        self.0.park()
+    }
 }
 
 fn reusable_settings(previous: &Value, next: &Value) -> bool {
