@@ -615,6 +615,9 @@ impl Worker {
         self.graceful_stop = false;
         self.call("stop", json!({})).map(|_| ())
     }
+    fn clear_firewall(mut self) -> Result<()> {
+        self.call("firewall.clear", json!({})).map(|_| ())
+    }
     pub(crate) fn call(&mut self, method: &str, data: Value) -> Result<Value> {
         if method == "stop"
             || self
@@ -810,11 +813,43 @@ fn merge_interfaces(explicit: &Interfaces, known: &[Interface]) -> Result<Interf
     }
     Ok(merged)
 }
+enum FirewallCleanup {
+    Clean,
+    Unavailable(ApiError),
+    Conflict(ApiError),
+    Pending(ApiError),
+}
+impl FirewallCleanup {
+    fn record(&mut self, result: Result<()>) -> Result<()> {
+        *self = match &result {
+            Ok(()) => Self::Clean,
+            Err(error) if error.code == "FIREWALL_CONFLICT" => Self::Conflict(error.clone()),
+            Err(error) => Self::Pending(error.clone()),
+        };
+        result
+    }
+    fn retry(&mut self, clear: impl FnOnce() -> Result<()>) -> Result<()> {
+        if matches!(self, Self::Pending(_)) {
+            return self.record(clear());
+        }
+        Ok(())
+    }
+    fn error(&self) -> Option<&str> {
+        match self {
+            Self::Clean => None,
+            Self::Unavailable(error) | Self::Conflict(error) | Self::Pending(error) => {
+                Some(&error.message)
+            }
+        }
+    }
+}
+
 pub struct Manager {
     root: PathBuf,
     interface_path: PathBuf,
     known: Vec<Interface>,
     worker: Option<Worker>,
+    firewall_cleanup: FirewallCleanup,
     last: Value,
     availability: Value,
     availability_checked: Option<Instant>,
@@ -840,11 +875,19 @@ impl Manager {
             interface_path,
             known,
             worker: None,
+            firewall_cleanup: FirewallCleanup::Clean,
             last: json!({"state":"stopped","mode":"routing","inputs":[]}),
             availability: json!({"state":"unknown","message":"Capture ownership has not been checked."}),
             availability_checked: None,
         };
-        let _ = manager.recover_firewall();
+        match Worker::spawn(&manager.root) {
+            Ok(worker) => {
+                let _ = manager.firewall_cleanup.record(worker.clear_firewall());
+            }
+            // Being unable to inspect an optional helper on startup must not
+            // prevent using a graph that has never started packet capture.
+            Err(error) => manager.firewall_cleanup = FirewallCleanup::Unavailable(error),
+        }
         manager.refresh_availability(true);
         Ok(manager)
     }
@@ -880,6 +923,9 @@ impl Manager {
     pub fn status(&self) -> Value {
         let mut status = self.last.clone();
         status["availability"] = self.availability.clone();
+        status["firewallRecoveryError"] = json!(self.firewall_cleanup.error());
+        status["firewallRecoveryPending"] =
+            json!(matches!(self.firewall_cleanup, FirewallCleanup::Pending(_)));
         status
     }
     pub fn start(
@@ -889,7 +935,13 @@ impl Manager {
         excluded_interfaces: &[String],
     ) -> Result<()> {
         let Some(mut plan) = plan else {
-            return self.stop(); // A ready replacement graph explicitly removed capture.
+            // Keep orphaned-rule recovery independent of activating graphs
+            // that have no capture worker to retire.
+            if self.worker.is_none() {
+                self.last["state"] = json!("stopped");
+                return Ok(());
+            }
+            return self.stop();
         };
         let explicit: Interfaces = serde_json::from_value(plan["interfaces"].clone())
             .map_err(|_| invalid("Invalid worker interface choices."))?;
@@ -974,12 +1026,11 @@ impl Manager {
         Ok(())
     }
     pub fn stop(&mut self) -> Result<()> {
-        let result = if let Some(mut worker) = self.worker.take() {
-            let stopped = worker.call("stop", json!({}));
-            drop(worker); // End owned handles before recovering an orphaned rule.
-            match stopped {
+        let result = if let Some(worker) = self.worker.take() {
+            // Worker::stop ends owned handles before we recover an orphaned rule.
+            match worker.stop() {
                 Ok(_) => {
-                    self.last["firewallRecoveryError"] = Value::Null;
+                    self.firewall_cleanup = FirewallCleanup::Clean;
                     Ok(())
                 }
                 Err(error) => match self.recover_firewall() {
@@ -994,7 +1045,8 @@ impl Manager {
                 },
             }
         } else {
-            Ok(())
+            self.firewall_cleanup
+                .retry(|| Worker::spawn(&self.root)?.clear_firewall())
         };
         self.last["state"] = json!(if result.is_ok() { "stopped" } else { "failed" });
         self.last["firewallManaged"] = json!(false);
@@ -1005,13 +1057,8 @@ impl Manager {
         self.last["lastError"] = json!(error.message);
     }
     fn recover_firewall(&mut self) -> Result<()> {
-        let result = self.once("firewall.clear", json!({}));
-        self.last["firewallRecoveryError"] = result
-            .as_ref()
-            .err()
-            .map(|error| json!(error.message))
-            .unwrap_or(Value::Null);
-        result.map(|_| ())
+        self.firewall_cleanup
+            .record(Worker::spawn(&self.root).and_then(Worker::clear_firewall))
     }
     fn remember_interfaces(&mut self) -> Result<()> {
         let value: Interfaces = serde_json::from_value(self.last["interfaces"].clone())
@@ -1056,6 +1103,32 @@ impl Drop for Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn firewall_cleanup_is_retried_after_the_worker_has_gone() {
+        let busy = || Err(ApiError::new("OS_ERROR", "Firewall service is busy"));
+        let mut cleanup = FirewallCleanup::Clean;
+        assert!(cleanup.record(busy()).is_err());
+        assert!(cleanup.retry(busy).is_err());
+        assert!(cleanup.error().is_some());
+        cleanup.retry(|| Ok(())).unwrap();
+        cleanup
+            .retry(|| panic!("A confirmed removal must not launch another worker"))
+            .unwrap();
+    }
+
+    #[test]
+    fn an_external_firewall_edit_stays_visible_without_further_removal_attempts() {
+        let mut cleanup = FirewallCleanup::Clean;
+        let message = "The reflection rule was changed externally.";
+        assert!(cleanup
+            .record(Err(ApiError::new("FIREWALL_CONFLICT", message)))
+            .is_err());
+        cleanup
+            .retry(|| panic!("Do not retry removal of a foreign rule"))
+            .unwrap();
+        assert_eq!(cleanup.error(), Some(message));
+    }
+
     #[test]
     fn tun_application_plan_is_separate_from_packet_capture() {
         let mut p = plan();
