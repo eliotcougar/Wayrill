@@ -210,6 +210,18 @@ struct State {
     error: Option<ApiError>,
     reservation: Option<crate::operation_gate::Foreground>,
 }
+impl State {
+    fn finish_target(&mut self, id: String, name: Option<&String>, result: Result<TestResult>) {
+        self.previews.remove(&id);
+        let mut result = match result {
+            Ok(result) => result,
+            Err(error) if error.code == TEST_CANCELLED => return,
+            Err(error) => failed(id, &error.message),
+        };
+        result.name = name.cloned();
+        self.results.push(result);
+    }
+}
 // Publish completion and release admission even if the coordinator unwinds.
 struct Completion(Arc<Mutex<State>>);
 impl Drop for Completion {
@@ -549,15 +561,9 @@ impl Manager {
                                     },
                                 )
                             });
-                            let mut result = match checked {
-                                Ok(Ok(result)) => result,
-                                Ok(Err(error)) => failed(id, &error.message),
-                                Err(_) => failed(id, "Outbound test failed."),
-                            };
-                            result.name = name.cloned();
-                            let mut state = state.lock().unwrap();
-                            state.previews.remove(&result.id);
-                            state.results.push(result);
+                            let result =
+                                checked.unwrap_or_else(|_| Err(invalid("Outbound test failed.")));
+                            state.lock().unwrap().finish_target(id, name, result);
                         };
                         // A failed thread allocation must not panic the job
                         // coordinator and leave busy=true indefinitely.
@@ -679,6 +685,10 @@ fn failed(id: String, message: &str) -> TestResult {
 }
 fn invalid(message: &str) -> ApiError {
     ApiError::new("INVALID_PARAMS", message)
+}
+const TEST_CANCELLED: &str = "TEST_CANCELLED";
+fn cancelled() -> ApiError {
+    ApiError::new(TEST_CANCELLED, "Test cancelled.")
 }
 fn checked_url(text: &str) -> Result<url::Url> {
     let parsed = url::Url::parse(text).map_err(|_| invalid("Enter a valid HTTP(S) test URL."))?;
@@ -860,7 +870,7 @@ fn wait_for_test_listeners(
     let deadline = Instant::now() + XRAY_CONFIG_LOAD_TIMEOUT;
     loop {
         if stop.load(Ordering::Acquire) {
-            return Err(invalid("Test cancelled."));
+            return Err(cancelled());
         }
         if let Some(code) = exit_code()? {
             return Err(ApiError::new(
@@ -956,7 +966,7 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
         })
         .transpose()?;
     if stop.load(Ordering::Acquire) {
-        return Err(invalid("Test cancelled."));
+        return Err(cancelled());
     }
     drop(reservation);
     let core = spawn_core(
@@ -1029,12 +1039,12 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
     if result.latency_ms.is_some() || result.delay_unavailable == Some(true) {
         preview(&result);
     }
-    if stop.load(Ordering::Acquire) {
-        return Ok(result);
-    }
     let lookup_exit = (result.latency_ms.is_some() || result.delay_unavailable == Some(true))
         && !country.is_empty();
-    let Ok((udp, exit)) = client.run(stop, async {
+    if udp_endpoint.is_none() && !lookup_exit {
+        return Ok(result);
+    }
+    let (udp, exit) = client.run(stop, async {
         let udp = async {
             match udp_endpoint {
                 Some(endpoint) => {
@@ -1056,9 +1066,7 @@ fn run(target: &Target, probe: &Probe<'_>, preview: impl Fn(&TestResult)) -> Res
             )
         };
         Ok(tokio::join!(udp, exit))
-    }) else {
-        return Ok(result);
-    };
+    })?;
     result.udp = udp;
     match exit {
         Some(Ok((ip, country))) => {
@@ -1187,7 +1195,7 @@ impl Client {
                     while !stop.load(Ordering::Acquire) {
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
-                } => Err(invalid("Test cancelled.")),
+                } => Err(cancelled()),
                 result = work => result,
             }
         })
@@ -1258,6 +1266,23 @@ impl Client {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn cancelling_a_target_discards_its_preview_without_losing_completed_results() {
+        let mut state = State::default();
+        let mut measured = failed("preview".into(), "");
+        measured.latency_ms = Some(42);
+        state.previews.insert(measured.id.clone(), measured);
+        state.finish_target(
+            "other".into(),
+            None,
+            Err(invalid("A completed probe failed.")),
+        );
+        state.finish_target("preview".into(), None, Err(cancelled()));
+        assert!(state.previews.is_empty());
+        assert_eq!(state.results.len(), 1);
+        assert_eq!(state.results[0].id, "other");
+    }
 
     #[tokio::test]
     async fn waits_for_a_local_relay_that_loads_after_the_old_deadline() {

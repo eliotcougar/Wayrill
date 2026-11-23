@@ -360,43 +360,64 @@ it('reads the final plan and results across multiple pages from one service job'
   ]);
 });
 
-it('shows a measured delay while details are pending and replaces it with the final result', async () => {
+it('shows a live delay without an old UDP badge and restores the completed row on cancellation', async () => {
   vi.useFakeTimers();
   const preview = { id: 'test-1', latencyMs: 42, ip: null };
+  const prior = { ...preview, latencyMs: 80, udp: { reachable: true, error: null } };
+  const latestResult = { ...preview, latencyMs: 38, ip: '203.0.113.4' };
+  let job = 0;
   vi.mocked(serviceCall).mockImplementation(async (method, params) => {
-    const progress = { job: 10, planReady: true, total: 1, totalRows: 1, cancelled: false };
     if (method === 'outbounds.testPlanStart') {
+      job += 1;
       return {
-        ...progress,
-        busy: true,
-        completed: 0,
+        job,
+        planReady: true,
+        total: 1,
+        totalRows: 1,
+        cancelled: false,
+        busy: job !== 1,
+        completed: job === 1 ? 1 : 0,
         rows: [{ key: 'node:direct', name: 'Direct', kind: 'outbound', targets: [preview.id] }],
         targets: [{ id: preview.id, name: 'Direct' }],
-        results: [],
-        previews: [preview],
+        results: job === 1 ? [prior] : [],
+        previews: job === 1 ? [] : [preview],
       };
     }
+    if (method === 'outbounds.testCancel')
+      return { job, busy: false, cancelled: true, completed: 0, results: [] };
     expect(method).toBe('outbounds.testGet');
     expect(params?.offset).toBe(0);
     return {
-      ...progress,
+      job,
+      cancelled: false,
       busy: false,
       completed: 1,
-      results: [{ ...preview, latencyMs: 38, ip: '203.0.113.4' }],
+      results: [latestResult],
     };
   });
   await act(() => root.render(<Probe />));
+  await act(() => latest.start());
+  expect(latest.summaries.get('node:direct')?.udp?.reachable).toBe(true);
   let work!: Promise<void>;
   await act(async () => {
     work = latest.start();
   });
   expect(latest.summaries.get('node:direct')?.text).toBe('42 ms');
-  expect(latest.busy).toBe(true);
+  expect(latest.summaries.get('node:direct')?.udp).toBeUndefined();
+  await act(async () => {
+    latest.cancel();
+    await work;
+  });
+  expect(latest.results.get(preview.id)).toEqual(prior);
+
+  await act(async () => {
+    work = latest.start();
+  });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(400);
     await work;
   });
-  expect(latest.results.get(preview.id)).toMatchObject({ latencyMs: 38, ip: '203.0.113.4' });
+  expect(latest.results.get(preview.id)).toEqual(latestResult);
   expect(latest.busy).toBe(false);
 });
 

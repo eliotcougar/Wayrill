@@ -1,5 +1,5 @@
 //! Snapshot the selected member for one download without altering active routing.
-use super::{invalid, ActivePolicy};
+use super::{cancelled, invalid, ActivePolicy};
 use crate::live::Control;
 use serde_json::Value;
 use std::{
@@ -117,7 +117,7 @@ pub(super) fn prepare(
                 .flatten()
             {
                 if stop.load(Ordering::SeqCst) {
-                    return Err(invalid("Test cancelled."));
+                    return Err(cancelled());
                 }
                 let tag = group["tag"]
                     .as_str()
@@ -141,7 +141,7 @@ pub(super) fn prepare(
                 } else if matches!(strategy, "leastPing" | "leastLoad") {
                     loop {
                         if stop.load(Ordering::SeqCst) {
-                            return Err(invalid("Test cancelled."));
+                            return Err(cancelled());
                         }
                         let choice = owned.balancer_selection(tag).await?;
                         if !choice.override_target.is_empty()
@@ -157,7 +157,7 @@ pub(super) fn prepare(
                 };
                 let choice = choice.unwrap_or_else(|| unavailable.to_owned());
                 if stop.load(Ordering::SeqCst) {
-                    return Err(invalid("Test cancelled."));
+                    return Err(cancelled());
                 }
                 owned.pin_test_balancer(tag, &choice).await?;
             }

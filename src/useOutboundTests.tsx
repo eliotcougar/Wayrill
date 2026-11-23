@@ -163,7 +163,14 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [mode, setMode] = useState<TestMode>('latency');
-  const [records, setRecords] = useState(emptyRecords);
+  const [completed, setRecords] = useState(emptyRecords);
+  const [previews, setPreviews] = useState<OutboundTestResult[] | null>(null);
+  const records = useMemo(() => {
+    if (!previews) return completed;
+    const results = new Map(completed.latency.results);
+    for (const preview of previews) results.set(preview.id, preview);
+    return { ...completed, latency: { ...completed.latency, results } };
+  }, [completed, previews]);
   const { plan, results, status, error } = records[mode];
   const patch = useCallback((mode: TestMode, value: Partial<TestRecord>) => {
     setRecords((current) =>
@@ -181,6 +188,7 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
     const run = active.current;
     if (!run) return;
     cancelRun(run);
+    setPreviews(null);
     patch(run.mode, { status: 'Cancelling outbound tests…' });
   }, [patch]);
   useEffect(
@@ -223,6 +231,7 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
     source.current = next;
     if (same) return;
     if (active.current) cancelRun(active.current, true);
+    setPreviews(null);
     setRecords(emptyRecords());
   }, [graph.nodes, graph.defaults, graph.xray?.outboundPool, stash.groups, connections, egress]);
   const start = useCallback(
@@ -256,19 +265,11 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
             plan: mergeTestPlans(current[testMode].plan, plan),
           },
         }));
-      const publishResults = (fresh: OutboundTestResult[], previews: OutboundTestResult[] = []) => {
-        if (!fresh.length && !previews.length) return;
+      const publishResults = (fresh: OutboundTestResult[]) => {
+        if (!fresh.length) return;
         setRecords((current) => {
-          const previous = current[testMode].results;
-          const changed = previews.filter(
-            ({ id, latencyMs, delayUnavailable }) =>
-              previous.get(id)?.latencyMs !== latencyMs ||
-              previous.get(id)?.delayUnavailable !== delayUnavailable,
-          );
-          if (!fresh.length && !changed.length) return current;
-          const results = new Map(previous);
-          for (const result of [...changed, ...fresh])
-            results.set(result.id, { ...result, udp: result.udp ?? results.get(result.id)?.udp });
+          const results = new Map(current[testMode].results);
+          for (const result of fresh) results.set(result.id, result);
           return { ...current, [testMode]: { ...current[testMode], results } };
         });
       };
@@ -288,8 +289,24 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
       const readPages = async (job: Job, stop: AbortSignal, draining = false) => {
         for (;;) {
           stop.throwIfAborted();
-          if (!run.discard)
-            publishResults(job.results, draining || job.cancelled ? [] : job.previews);
+          if (!run.discard) {
+            publishResults(job.results);
+            const preview = draining || job.cancelled ? null : job.previews;
+            const next = preview?.length ? preview : null;
+            setPreviews((current) =>
+              current &&
+              next &&
+              current.length === next.length &&
+              current.every(
+                ({ id, latencyMs, delayUnavailable }, i) =>
+                  id === next[i].id &&
+                  latencyMs === next[i].latencyMs &&
+                  delayUnavailable === next[i].delayUnavailable,
+              )
+                ? current
+                : next,
+            );
+          }
           offset += job.results.length;
           if (job.error && !draining) throw new Error(job.error.message);
           if (job.planReady && !planPublished) {
@@ -377,6 +394,7 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
         }
         run.phase = { state: 'finished' };
         active.current = undefined;
+        setPreviews(null);
         setBusy(false);
       }
     },
