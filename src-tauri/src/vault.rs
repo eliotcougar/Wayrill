@@ -125,24 +125,6 @@ pub fn write(base: &Path, key: &str, text: &str) -> Result<(), String> {
     write_document(&base.join(name), text, limit)
 }
 
-pub fn finish_restore(base: &Path) -> Result<(), String> {
-    // Remove the intent first. Interrupted cleanup can only leave inert files.
-    for key in [
-        "restore",
-        "restore-workspace",
-        "restore-stash",
-        "restore-base",
-    ] {
-        let path = base.join(slot(key)?.0);
-        match fs::remove_file(path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) if key == "restore" => return Err("Cannot finish backup restoration.".into()),
-            Err(_) => {}
-        }
-    }
-    Ok(())
-}
 pub fn write_document(path: &Path, text: &str, limit: usize) -> Result<(), String> {
     let base = path
         .parent()

@@ -94,7 +94,18 @@ async fn protected_finish_restore(
     let lock = lock.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock.write.lock().map_err(|_| "Storage is busy.")?;
-        vault::finish_restore(&base)
+        // Remove the intent first. Interrupted cleanup can only leave inert files.
+        let (intent, _) = vault::slot("restore")?;
+        match std::fs::remove_file(base.join(intent)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("Cannot finish backup restoration.".into()),
+        }
+        for key in ["restore-workspace", "restore-stash", "restore-base"] {
+            let (name, _) = vault::slot(key)?;
+            let _ = std::fs::remove_file(base.join(name));
+        }
+        Ok(())
     })
     .await
     .map_err(|_| "Storage task failed.")?
