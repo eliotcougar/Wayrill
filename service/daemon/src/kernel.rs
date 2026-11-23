@@ -2214,6 +2214,8 @@ impl Kernel {
                     .flatten()
             }),
         )?;
+        let uplinks =
+            crate::tun::network::PreparedUplinks::new(&profile.config, tun_plan.as_ref())?;
         if let Some(plan) = &mut tun_plan {
             plan.set_fake_dns(fake_dns.as_ref().map(|p| p.endpoint()));
         }
@@ -2346,12 +2348,8 @@ impl Kernel {
                         &core_pids,
                         &self.tun.excluded_capture_interfaces()?,
                     )?;
-                    self.network.arm(
-                        &profile.config,
-                        profile.capture.as_ref(),
-                        &self.tun.status(),
-                    )?;
                     self.tun.resume_sharing()?;
+                    self.network.activated(uplinks);
                     return Ok(core);
                 }
                 if Instant::now() >= until {
@@ -2803,6 +2801,19 @@ impl Kernel {
         // Large subscription profiles are copied only for an actual reconnect,
         // never on the steady-state service tick.
         let profile = self.profile.clone().unwrap();
+        let preflight = self
+            .network
+            .configuration(&profile.config)
+            .and_then(|config| self.tun.preflight(&config, profile.capture.as_ref()));
+        if let Err(error) = &preflight {
+            if crate::tun::network::network_unavailable(error) {
+                // A settled candidate can disappear before cutover. The old
+                // runtime is still owned. Re-observe the uplinks before retiring it.
+                self.network.waiting(error.clone());
+                self.changed("network.changed");
+                return;
+            }
+        }
         // Existing peer/bootstrap addresses avoid resolving through an old TUN
         // relay before its stale sockets can be retired. Saved static hosts win.
         let hosts = self
@@ -2812,9 +2823,7 @@ impl Kernel {
             .map(|(_, hosts)| hosts.clone());
         self.begin_progress(crate::lifecycle::Operation::Restart);
         self.changed("network.reconnecting");
-        let result = (|| {
-            let config = self.network.configuration(&profile.config)?;
-            self.tun.preflight(&config, profile.capture.as_ref())?;
+        let result = preflight.and_then(|()| {
             let retained = self
                 .tun
                 .retain_adapter(&profile.config, profile.capture.as_ref());
@@ -2823,7 +2832,7 @@ impl Kernel {
                 SharingExit::Suspend,
             ))?;
             self.start_core_with_adapter(hosts, retained)
-        })();
+        });
         if let Err(error) = result {
             self.network.cancel();
             self.core_state = CoreState::Failed;

@@ -266,11 +266,58 @@ pub(crate) struct Monitor {
     notifications: Option<Notifications>,
     bindings: Vec<Binding>,
     applied: Vec<Link>,
-    candidate: Option<(Vec<Link>, Instant)>,
     interrupted: bool,
     checked: Option<Instant>,
-    state: &'static str,
-    error: Option<ApiError>,
+    phase: Phase,
+}
+#[derive(Default)]
+enum Phase {
+    #[default]
+    Ready,
+    Waiting(ApiError),
+    Settling {
+        links: Vec<Link>,
+        since: Instant,
+    },
+    Reconnecting(Vec<Link>),
+}
+
+pub(crate) struct PreparedUplinks(Vec<(Binding, Link)>);
+
+impl PreparedUplinks {
+    pub(crate) fn new(config: &Value, plan: Option<&Plan>) -> Result<Self> {
+        let Some(primary) = plan else {
+            return Ok(Self(Vec::new()));
+        };
+        let mut uplinks = Vec::new();
+        for source in std::iter::once(primary).chain(primary.shared.as_deref()) {
+            let tag = source.worker["inbounds"][0]["tag"]
+                .as_str()
+                .ok_or_else(|| invalid("TUN tag missing."))?;
+            let input = config["inbounds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|input| input["tag"] == tag)
+                .ok_or_else(|| invalid("TUN input missing."))?;
+            // Record the exact interface selected by the plan, before spawning.
+            // Resolving the default route again after startup could acknowledge an
+            // uplink the running core never used.
+            let uplink = link(luid(&source.uplink)?)?;
+            let fixed = source.shared_source
+                || input["settings"]["autoOutboundsInterface"]
+                    .as_str()
+                    .is_some_and(|name| !name.is_empty() && name != "auto");
+            uplinks.push((
+                Binding {
+                    tag: tag.to_owned(),
+                    fixed: fixed.then(|| uplink.id.clone()),
+                },
+                uplink,
+            ));
+        }
+        Ok(Self(uplinks))
+    }
 }
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) enum Change {
@@ -285,51 +332,14 @@ impl Monitor {
     pub(crate) fn active(&self) -> bool {
         !self.bindings.is_empty()
     }
-    pub(crate) fn arm(
-        &mut self,
-        config: &Value,
-        capture: Option<&crate::capture::Plan>,
-        status: &Value,
-    ) -> Result<()> {
-        // Keep explicit GUIDs across a runtime rebind, including alias changes.
-        if !self.active() {
-            let shared = capture.and_then(|p| p.tun_sharing.as_ref());
-            for input in config["inbounds"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|i| i["protocol"] == "tun")
-            {
-                let tag = input["tag"]
-                    .as_str()
-                    .ok_or_else(|| invalid("TUN tag missing."))?
-                    .to_string();
-                let fixed = if let Some(options) = shared.filter(|o| o.tag == tag) {
-                    Some(options.public_id.clone())
-                } else {
-                    let requested = input["settings"]["autoOutboundsInterface"]
-                        .as_str()
-                        .unwrap_or("auto");
-                    if requested.is_empty() || requested == "auto" {
-                        None
-                    } else {
-                        Some(id(luid(status["uplink"].as_str().unwrap_or(requested))?)?)
-                    }
-                };
-                self.bindings.push(Binding { tag, fixed });
-            }
+    pub(crate) fn activated(&mut self, prepared: PreparedUplinks) {
+        let (bindings, links): (Vec<_>, Vec<_>) = prepared.0.into_iter().unzip();
+        if bindings.is_empty() {
+            self.cancel();
+            return;
         }
-        if !self.active() {
-            return Ok(());
-        }
-        match self.sample(config) {
-            Ok(links) => self.committed(links),
-            Err(error) if network_unavailable(&error) => {
-                self.waiting(error);
-            }
-            Err(error) => return Err(error),
-        }
-        Ok(())
+        self.bindings = bindings;
+        self.committed(links);
     }
     fn sample(&self, config: &Value) -> Result<Vec<Link>> {
         self.bindings
@@ -355,7 +365,14 @@ impl Monitor {
         if !self.active() {
             return Ok(result);
         }
-        let links = self.sample(config)?;
+        let sampled;
+        let links = match &self.phase {
+            Phase::Reconnecting(links) => links,
+            _ => {
+                sampled = self.sample(config)?;
+                &sampled
+            }
+        };
         for (binding, link) in self.bindings.iter().zip(links) {
             if let Some(input) = result["inbounds"]
                 .as_array_mut()
@@ -397,38 +414,36 @@ impl Monitor {
             Err(error) => return Err(error),
         };
         if links == self.applied && !self.interrupted {
-            self.candidate = None;
-            let changed = self.state != "ready";
-            self.state = "ready";
-            self.error = None;
+            let changed = !matches!(self.phase, Phase::Ready);
+            self.phase = Phase::Ready;
             return Ok(if changed {
                 Change::Status
             } else {
                 Change::None
             });
         }
-        if !self
-            .candidate
-            .as_ref()
-            .is_some_and(|(candidate, _)| *candidate == links)
-        {
-            self.candidate = Some((links, now));
-            self.state = "settling";
-            return Ok(Change::Status);
+        match &self.phase {
+            Phase::Settling {
+                links: candidate,
+                since,
+            } if *candidate == links => {
+                if now.duration_since(*since) < SETTLE {
+                    return Ok(Change::None);
+                }
+            }
+            _ => {
+                self.phase = Phase::Settling { links, since: now };
+                return Ok(Change::Status);
+            }
         }
-        if now.duration_since(self.candidate.as_ref().unwrap().1) < SETTLE {
-            return Ok(Change::None);
-        }
-        self.state = "reconnecting";
+        self.phase = Phase::Reconnecting(links);
         Ok(Change::Reconnect)
     }
-    fn waiting(&mut self, error: ApiError) -> Change {
-        let changed = self.state != "waiting"
-            || self.error.as_ref().map(|e| &e.message) != Some(&error.message);
-        self.state = "waiting";
+    pub(crate) fn waiting(&mut self, error: ApiError) -> Change {
+        let changed =
+            !matches!(&self.phase, Phase::Waiting(previous) if previous.message == error.message);
+        self.phase = Phase::Waiting(error);
         self.interrupted = true;
-        self.candidate = None;
-        self.error = Some(error);
         if changed {
             Change::Status
         } else {
@@ -452,14 +467,19 @@ impl Monitor {
                 .store(false, std::sync::atomic::Ordering::Release);
         }
         self.applied = links;
-        self.candidate = None;
         self.interrupted = false;
-        self.state = "ready";
-        self.error = None;
-        self.checked = Some(Instant::now());
+        self.phase = Phase::Ready;
+        self.checked = None;
     }
     pub(crate) fn snapshot(&self) -> Value {
-        json!({"state":if self.active(){self.state}else{"inactive"},"lastError":self.error,"uplinks":self.applied.iter().map(|l|json!({"id":l.id,"name":l.name,"interfaceIndex":l.index})).collect::<Vec<_>>()})
+        let (state, error) = match &self.phase {
+            Phase::Ready if self.active() => ("ready", None),
+            Phase::Ready => ("inactive", None),
+            Phase::Waiting(error) => ("waiting", Some(error)),
+            Phase::Settling { .. } => ("settling", None),
+            Phase::Reconnecting(_) => ("reconnecting", None),
+        };
+        json!({"state":state,"lastError":error,"uplinks":self.applied.iter().map(|l|json!({"id":l.id,"name":l.name,"interfaceIndex":l.index})).collect::<Vec<_>>()})
     }
 }
 pub(crate) fn network_unavailable(error: &ApiError) -> bool {
@@ -584,9 +604,41 @@ mod tests {
                 fixed: None,
             }],
             applied: sample("Wi-Fi"),
-            state: "ready",
             ..Default::default()
         }
+    }
+    #[test]
+    fn a_default_route_change_during_startup_is_not_acknowledged_as_applied() {
+        let mut m = monitor();
+        let now = Instant::now();
+        let ethernet = sample("Ethernet");
+        assert_eq!(
+            m.observe(Ok(ethernet.clone()), now).unwrap(),
+            Change::Status
+        );
+        assert_eq!(
+            m.observe(Ok(ethernet.clone()), now + SETTLE).unwrap(),
+            Change::Reconnect
+        );
+        let config =
+            json!({"inbounds":[{"tag":"tun","settings":{"autoOutboundsInterface":"auto"}}]});
+        assert_eq!(
+            m.configuration(&config).unwrap()["inbounds"][0]["settings"]["autoOutboundsInterface"],
+            "Ethernet"
+        );
+
+        let prepared = PreparedUplinks(vec![(m.bindings[0].clone(), ethernet[0].clone())]);
+        m.activated(prepared);
+        assert_eq!(m.snapshot()["uplinks"][0]["name"], "Ethernet");
+        let newer = sample("USB Ethernet");
+        assert_eq!(
+            m.observe(Ok(newer.clone()), now + SETTLE).unwrap(),
+            Change::Status
+        );
+        assert_eq!(
+            m.observe(Ok(newer), now + SETTLE * 2).unwrap(),
+            Change::Reconnect
+        );
     }
     #[test]
     fn offline_then_same_network_still_reconnects_after_settling() {
