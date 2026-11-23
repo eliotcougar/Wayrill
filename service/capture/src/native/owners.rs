@@ -187,7 +187,10 @@ fn read_table(
         }
         return Ok((buffer, written as usize));
     }
-    Err(Error::invalid("IP owner table changed repeatedly."))
+    Err(Error(
+        "IP owner table changed repeatedly.".into(),
+        Some(ERROR_INSUFFICIENT_BUFFER as i32),
+    ))
 }
 
 fn module_name(row: &[u8], tcp: bool, six: bool) -> Option<String> {

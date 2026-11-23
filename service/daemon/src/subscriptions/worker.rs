@@ -818,6 +818,13 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
             {
                 state.source = None;
             }
+            if state
+                .outbound_test_source
+                .as_ref()
+                .is_some_and(|(_, _, at)| at.elapsed() >= Duration::from_secs(120))
+            {
+                state.outbound_test_source = None;
+            }
         }
         if library(&manager).pool_pending.is_some() {
             if Instant::now() >= next_pool_recovery {

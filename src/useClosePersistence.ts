@@ -21,12 +21,14 @@ export default function useClosePersistence(
   };
   useEffect(() => {
     if (!protectedStorageAvailable()) return;
-    let active = true,
-      remove: (() => void) | undefined,
-      closing = false;
-    const saveAndClose = async () => {
-      if (closing) return;
-      closing = true;
+    let active = true;
+    let remove: (() => void) | undefined;
+    let latestAttempt = 0;
+    const saveAndClose = async (attempt: number) => {
+      if (!active || attempt <= latestAttempt) return;
+      latestAttempt = attempt;
+      const current = () => active && latestAttempt === attempt;
+      let error: string | null = null;
       try {
         // A user can still edit while a native save is pending. Flush again
         // if either document changed, so closing cannot lose that newer edit.
@@ -36,7 +38,9 @@ export default function useClosePersistence(
           const stashText = data.stashReady ? data.stash() : null;
           const base = data.stashBase?.();
           if (workspaceText !== null) await protectedWrite('workspace', workspaceText);
+          if (!current()) return;
           if (stashText !== null) await protectedWrite('stash', stashText, base);
+          if (!current()) return;
           const next = latest.current;
           if (
             workspaceText === (next.workspaceReady ? next.workspace() : null) &&
@@ -46,20 +50,26 @@ export default function useClosePersistence(
           )
             break;
         }
-        await getCurrentWindow().destroy();
       } catch (e) {
-        void invoke('desktop_close_cancel', {
-          message: e instanceof Error ? e.message : String(e),
-        }).catch(() => {});
-        latest.current.onError(
-          `Could not save before closing: ${e instanceof Error ? e.message : String(e)} Export your changes, then try again.`,
-        );
-        closing = false;
+        error = e instanceof Error ? e.message : String(e);
+      }
+      if (!current()) return;
+      try {
+        const accepted = await invoke<boolean>('desktop_close_complete', { attempt, error });
+        if (current() && accepted && error)
+          latest.current.onError(
+            `Could not save before closing: ${error} Export your changes, then try again.`,
+          );
+      } catch (e) {
+        if (current())
+          latest.current.onError(
+            `Could not close Wayrill: ${e instanceof Error ? e.message : String(e)}`,
+          );
       }
     };
     void getCurrentWindow()
-      .listen('wayrill-desktop-exit', () => {
-        void saveAndClose();
+      .listen<number>('wayrill-desktop-exit', ({ payload }) => {
+        void saveAndClose(payload);
       })
       .then((unsubscribe) => {
         if (active) {

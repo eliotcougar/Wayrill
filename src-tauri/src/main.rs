@@ -257,7 +257,7 @@ fn main() {
                     editor_memory::refresh(&editor);
                 }
             }
-            tauri::WindowEvent::Destroyed => {
+            tauri::WindowEvent::Destroyed if window.label() == "main" => {
                 window.state::<shutdown::Shutdown>().stop();
                 wayrill_diagnostics::log("shutdown", "info", "Desktop window closed.");
             }
@@ -276,7 +276,7 @@ fn main() {
             service_request,
             service_events_start,
             tray::tray_quick_switch,
-            shutdown::desktop_close_cancel,
+            shutdown::desktop_close_complete,
             shutdown::desktop_exit,
             shutdown::desktop_ready,
             protected_read,

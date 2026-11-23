@@ -453,7 +453,7 @@ fn python_command(source: &str) -> Result<String> {
     ))
 }
 pub fn start_action(operation: Permit, session: &str, request: ActionRequest) -> Result<ServerJob> {
-    validate_action(&request)?;
+    validate_action(&request).map_err(|error| RemoteError::new("ACTION_INVALID", error.message))?;
     let mut value = serde_json::to_value(request)
         .map_err(|_| RemoteError::new("ACTION", "Cannot encode server action."))?;
     value["mode"] = serde_json::json!("start");
@@ -682,6 +682,8 @@ fn action_response(output: &[u8]) -> Result<serde_json::Value> {
             Some("SUDO") => "SUDO",
             Some("JOB_NOT_FOUND") => "JOB_NOT_FOUND",
             Some("JOB_BUSY") => "JOB_BUSY",
+            Some("JOB_CONFLICT") => "JOB_CONFLICT",
+            Some("SYSTEMD") => "SYSTEMD",
             Some("APT_PLAN") => "APT_PLAN",
             Some("PLAN_EXPIRED") => "PLAN_EXPIRED",
             Some("PLAN_CHANGED") => "PLAN_CHANGED",

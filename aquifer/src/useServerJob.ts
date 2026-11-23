@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   errorMessage,
   type ActionRequest,
@@ -11,16 +11,22 @@ const RESULT_LIFETIME = 60 * 60 * 1000;
 const resultExpiresAt = (job: ServerJob) =>
   Math.min(Date.now(), job.updatedAt * 1000) + RESULT_LIFETIME;
 
-function persist(session: string, request: ActionRequest | null, expiresAt?: number) {
+function persist(
+  session: string,
+  request: ActionRequest | null,
+  accepted = false,
+  expiresAt?: number,
+) {
   try {
-    if (request) localStorage.setItem(key(session), JSON.stringify({ ...request, expiresAt }));
+    if (request)
+      localStorage.setItem(key(session), JSON.stringify({ ...request, accepted, expiresAt }));
     else localStorage.removeItem(key(session));
   } catch {
     /* Storage may be unavailable. The current job can still be monitored. */
   }
 }
 
-function restore(session: string): ActionRequest | null {
+function restore(session: string): JobState {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(key(session)) ?? 'null');
     if (
@@ -41,121 +47,164 @@ function restore(session: string): ActionRequest | null {
         'applyConfig',
       ].includes(String(value.action))
     ) {
-      const { expiresAt, ...request } = value as ActionRequest & { expiresAt?: number };
+      const { accepted, expiresAt, ...request } = value as ActionRequest & {
+        accepted?: boolean;
+        expiresAt?: number;
+      };
       if (typeof expiresAt === 'number' && expiresAt <= Date.now()) {
         persist(session, null);
-        return null;
+      } else {
+        return {
+          phase: accepted === true || typeof expiresAt === 'number' ? 'observing' : 'checking',
+          attempt: { session, request },
+        };
       }
-      return request;
     }
   } catch {
     /* Storage may be unavailable. The current job can still be monitored. */
   }
-  return null;
+  return { phase: 'idle' };
+}
+
+type Attempt = { session: string; request: ActionRequest };
+type Monitoring = {
+  phase: 'checking' | 'observing';
+  attempt: Attempt;
+  job?: ServerJob;
+  error?: string;
+};
+type JobState =
+  | { phase: 'idle' }
+  | { phase: 'submitting'; attempt: Attempt }
+  | Monitoring
+  | { phase: 'paused'; attempt: Attempt; resume: Monitoring; error: string }
+  | { phase: 'rejected'; attempt: Attempt; error: string; retry: boolean }
+  | { phase: 'completed'; attempt: Attempt; job: ServerJob; expiresAt: number };
+
+function monitoring(state: JobState): state is Monitoring {
+  return state.phase === 'checking' || state.phase === 'observing';
+}
+
+function errorCode(error: unknown) {
+  return error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+}
+
+function rejection(code: string) {
+  if (['BUSY', 'JOB_BUSY', 'SUDO'].includes(code)) return 'retry';
+  if (['SYSTEMD', 'JOB_CONFLICT', 'ACTION_INVALID'].includes(code)) return 'dismiss';
+  return undefined;
 }
 
 export function useServerJob(client: RemoteClient, session: string, onFinished: () => void) {
-  const [request, setRequest] = useState(() => restore(session));
-  const [job, setJob] = useState<ServerJob | null>(null);
-  const [launching, setLaunching] = useState(false);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(false);
+  const [state, setState] = useState<JobState>(() => restore(session));
+  const current = useRef(state);
   const finished = useRef(onFinished);
   useEffect(() => {
     finished.current = onFinished;
   }, [onFinished]);
-  const notified = useRef('');
   const mounted = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
-  const dismiss = useCallback(() => {
-    setRequest(null);
-    setJob(null);
-    setError('');
-    setRetry(false);
-    persist(session, null);
-  }, [session]);
+  const transition = useCallback((expected: JobState, next: JobState) => {
+    if (!mounted.current || current.current !== expected) return false;
+    current.current = next;
+    setState(next);
+    return true;
+  }, []);
+  const clear = useCallback(
+    (expected: Exclude<JobState, { phase: 'idle' }>) => {
+      if (transition(expected, { phase: 'idle' })) persist(expected.attempt.session, null);
+    },
+    [transition],
+  );
+  const reject = useCallback(
+    (
+      expected: Monitoring | Extract<JobState, { phase: 'submitting' }>,
+      error: string,
+      retry: boolean,
+    ) => {
+      if (transition(expected, { phase: 'rejected', attempt: expected.attempt, error, retry }))
+        persist(expected.attempt.session, null);
+    },
+    [transition],
+  );
   const accept = useCallback(
-    (result: ServerJob, expected: ActionRequest) => {
-      if (result.id !== expected.id) throw new Error('The server returned another job’s progress.');
-      const expiresAt = result.state === 'running' ? undefined : resultExpiresAt(result);
-      // Older app versions saved only a request ID. Read its status once, but do
-      // not redisplay an already expired result or repeat the action.
-      if (expiresAt !== undefined && expiresAt <= Date.now()) {
-        dismiss();
+    (result: ServerJob, expected: Monitoring | Extract<JobState, { phase: 'submitting' }>) => {
+      const { attempt } = expected;
+      const { session, request } = attempt;
+      if (result.id !== request.id || result.action !== request.action)
+        throw new Error('The server returned another job’s progress.');
+      if (result.state === 'running') {
+        if (
+          transition(expected, { phase: 'observing', attempt, job: result }) &&
+          (expected.phase !== 'observing' || !expected.job)
+        )
+          persist(session, request, true);
         return;
       }
-      setJob(result);
-      setError('');
-      persist(session, expected, expiresAt);
-      if (result.state !== 'running' && notified.current !== result.id) {
-        notified.current = result.id;
+      const expiresAt = resultExpiresAt(result);
+      // Older app versions saved only a request ID. Read its status once, but do
+      // not redisplay an already expired result or repeat the action.
+      if (expiresAt <= Date.now()) {
+        clear(expected);
+        return;
+      }
+      if (transition(expected, { phase: 'completed', attempt, job: result, expiresAt })) {
+        persist(session, request, true, expiresAt);
         finished.current();
       }
     },
-    [dismiss, session],
+    [clear, transition],
   );
   useEffect(() => {
-    if (!job || job.state === 'running') return;
-    const timer = setTimeout(dismiss, Math.max(0, resultExpiresAt(job) - Date.now()));
+    if (state.phase !== 'completed') return;
+    const timer = setTimeout(() => clear(state), Math.max(0, state.expiresAt - Date.now()));
     return () => clearTimeout(timer);
-  }, [dismiss, job]);
-  const submit = async (next: ActionRequest) => {
-    setRequest(next);
-    setJob(null);
-    setRetry(false);
-    setError('');
-    setLaunching(true);
-    persist(session, next);
+  }, [clear, state]);
+  const submit = async (request: ActionRequest, expected: JobState) => {
+    const attempt = { session, request };
+    const starting = { phase: 'submitting', attempt } as const;
+    if (!transition(expected, starting)) return;
+    persist(session, request);
     try {
-      const result = await client.startAction(session, next);
-      if (mounted.current) accept(result, next);
+      const job = await client.startAction(session, request);
+      accept(job, starting);
     } catch (reason) {
-      if (mounted.current) {
-        setError(errorMessage(reason));
-        if (
-          reason &&
-          typeof reason === 'object' &&
-          'code' in reason &&
-          ['SUDO', 'JOB_BUSY'].includes(String(reason.code))
-        )
-          setRetry(true);
-      }
-    } finally {
-      if (mounted.current) setLaunching(false);
+      const outcome = rejection(errorCode(reason));
+      if (outcome) reject(starting, errorMessage(reason), outcome === 'retry');
+      else transition(starting, { phase: 'checking', attempt, error: errorMessage(reason) });
     }
   };
-  const terminal = job && job.state !== 'running';
+  const watched = monitoring(state) ? state.attempt : undefined;
   useEffect(() => {
-    if (!request || launching || terminal || retry) return;
+    if (!watched) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
+      const expected = current.current;
+      if (!monitoring(expected) || expected.attempt !== watched) return;
       try {
-        const result = await client.pollAction(session, request.id);
-        if (!disposed) accept(result, request);
+        const result = await client.pollAction(watched.session, watched.request.id);
+        if (!disposed) accept(result, expected);
       } catch (reason) {
-        if (!disposed) {
-          setError(errorMessage(reason));
-          if (
-            reason &&
-            typeof reason === 'object' &&
-            'code' in reason &&
-            ['JOB_NOT_FOUND', 'SUDO'].includes(String(reason.code))
-          ) {
-            setRetry(true);
-            return;
-          }
+        if (disposed) return;
+        const error = errorMessage(reason);
+        const code = errorCode(reason);
+        if (code === 'JOB_NOT_FOUND' && expected.phase === 'checking') {
+          reject(expected, error, true);
+        } else if (['JOB_NOT_FOUND', 'SUDO', 'AUTH', 'HOST_KEY'].includes(code)) {
+          transition(expected, { phase: 'paused', attempt: watched, resume: expected, error });
+        } else {
+          transition(expected, { ...expected, error });
         }
       }
-      if (!disposed)
-        timer = setTimeout(() => {
-          void poll();
-        }, 3000);
+      const next = current.current;
+      if (!disposed && monitoring(next) && next.attempt === watched)
+        timer = setTimeout(() => void poll(), 3000);
     };
     timer = setTimeout(() => {
       void poll();
@@ -164,17 +213,35 @@ export function useServerJob(client: RemoteClient, session: string, onFinished: 
       disposed = true;
       clearTimeout(timer);
     };
-  }, [accept, client, launching, request, retry, session, terminal]);
+  }, [accept, client, reject, transition, watched]);
+  const active = monitoring(state) || state.phase === 'submitting' || state.phase === 'paused';
   return {
-    request,
-    job,
-    launching,
-    error,
-    retry,
-    active: !!request && !terminal,
-    start: (action: Omit<ActionRequest, 'id'>) =>
-      submit({ ...action, id: crypto.randomUUID().replaceAll('-', '') }),
-    retryRequest: () => request && submit(request),
-    dismiss,
+    phase: state.phase,
+    request: state.phase === 'idle' ? null : state.attempt.request,
+    job:
+      (state.phase === 'paused' ? state.resume.job : 'job' in state ? state.job : undefined) ??
+      null,
+    error: 'error' in state ? state.error : undefined,
+    retry: state.phase === 'rejected' && state.retry,
+    active,
+    start: (action: Omit<ActionRequest, 'id'>) => {
+      const expected = current.current;
+      if (
+        expected.phase === 'idle' ||
+        expected.phase === 'rejected' ||
+        expected.phase === 'completed'
+      )
+        return submit({ ...action, id: crypto.randomUUID().replaceAll('-', '') }, expected);
+    },
+    retryRequest: () => {
+      if (state.phase === 'rejected' && state.retry) return submit(state.attempt.request, state);
+    },
+    checkProgress: () => {
+      if (state.phase === 'paused') transition(state, { ...state.resume, error: undefined });
+    },
+    dismiss: () => {
+      if (state.phase === 'rejected' || state.phase === 'paused' || state.phase === 'completed')
+        clear(state);
+    },
   };
 }

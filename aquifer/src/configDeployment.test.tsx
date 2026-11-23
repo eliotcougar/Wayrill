@@ -148,6 +148,22 @@ it('reports completion, retains the backup path and updates the loaded baseline 
     '/private/job/config.backup',
   );
 });
+it('rechecks a paused deployment without starting the apply again', async () => {
+  vi.mocked(client.pollAction)
+    .mockRejectedValueOnce({ code: 'SUDO', message: 'Cannot read the job with these credentials.' })
+    .mockImplementation(async (_session, id) => progress(id, 'succeeded'));
+  await mount();
+  await click('Validate on server');
+  await click('Apply…');
+  await click('Apply & restart');
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(host.textContent).toContain('Monitoring paused');
+  expect(button('Retry same request')).toBeUndefined();
+  await click('Check progress');
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(client.startAction).toHaveBeenCalledTimes(1);
+  expect(applied).toHaveBeenCalledExactlyOnceWith('c'.repeat(64), null);
+});
 it('keeps Apply disabled for invalid and unchanged drafts', async () => {
   vi.mocked(client.validateConfig).mockImplementation(async () => ({
     ...validation(),

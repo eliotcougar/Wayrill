@@ -461,13 +461,17 @@ def dispatch(request):
         # Send code over stdin, never a password or script in a shell command.
         # Noninteractive sudo cannot hang on a password prompt or consume SSH input.
         source = b'REQUEST=' + repr(request).encode() + b'\nSOURCE=' + repr(SOURCE).encode() + b'\n' + SOURCE
-        result = subprocess.run([sudo, '-n', '--', sys.executable, '-c',
-                                 "import sys;exec(compile(sys.stdin.buffer.read(),'<wayrill>','exec'))"],
+        entered = b'WAYRILL_REMOTE_ACTION_ELEVATED'
+        bootstrap = ('import sys;sys.stdout.buffer.write(' + repr(entered + b'\n') +
+                     ");sys.stdout.buffer.flush();exec(compile(sys.stdin.buffer.read(),'<wayrill>','exec'))")
+        result = subprocess.run([sudo, '-n', '--', sys.executable, '-c', bootstrap],
                                 input=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=42)
-        if result.returncode or b'WAYRILL_REMOTE_ACTION_V1_BEGIN' not in result.stdout:
-            raise ActionError('SUDO', 'sudo could not authorize this action without interaction. Use root or an account configured for noninteractive sudo. No password is saved by Wayrill.')
-        sys.stdout.buffer.write(result.stdout)
-        return
+        if b'WAYRILL_REMOTE_ACTION_V1_END' in result.stdout:
+            sys.stdout.buffer.write(result.stdout)
+            return
+        if entered in result.stdout:
+            raise ActionError('ACTION', 'The elevated action stopped before returning a result. Reconnect to inspect its progress.')
+        raise ActionError('SUDO', 'sudo could not authorize this action without interaction. Use root or an account configured for noninteractive sudo. No password is saved by Wayrill.')
     if request['mode'] == 'preview':
         respond({'plan': preview_upgrade()})
     elif request['mode'] == 'validateConfig':

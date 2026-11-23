@@ -111,6 +111,15 @@ class ActionTests(unittest.TestCase):
         self.assertNotIn('password', str(run.call_args.args[0]))
         self.assertIn(b'REQUEST=', run.call_args.kwargs['input'])
 
+    def test_elevated_process_failure_is_not_reported_as_a_rejected_start(self):
+        result = types.SimpleNamespace(returncode=1, stdout=b'WAYRILL_REMOTE_ACTION_ELEVATED\n', stderr=b'')
+        with patch('os.geteuid', return_value=1000, create=True), \
+             patch('shutil.which', return_value='/usr/bin/sudo'), \
+             patch('subprocess.run', return_value=result):
+            with self.assertRaises(self.ns['ActionError']) as error:
+                self.ns['dispatch'](self.request)
+        self.assertEqual(error.exception.code, 'ACTION')
+
     def test_root_dispatch_never_calls_sudo(self):
         seen = []
         with patch('os.geteuid', return_value=0, create=True), \

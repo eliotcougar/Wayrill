@@ -9,7 +9,7 @@ import {
 } from './remoteClient';
 import { useServerJob } from './useServerJob';
 import UpgradePlanPreview from './UpgradePlanPreview';
-import JobOutput from './JobOutput';
+import ServerJobProgress from './ServerJobProgress';
 
 const date = (seconds: number) => new Date(seconds * 1000).toLocaleString();
 const PAGE_SIZE = 100;
@@ -200,71 +200,17 @@ export default function ServerStatusDialog({
               {actionNames[operation.request.action]}
               {operation.request.package ? ` · ${operation.request.package}` : ''}
             </p>
-            <div className="server-job-title">
-              <strong>
-                {operation.launching
-                  ? 'Submitting server action…'
-                  : (operation.job?.stage ?? 'Connecting to server job…')}
-              </strong>
-              {operation.job?.percent !== null && operation.job?.percent !== undefined && (
-                <span>{operation.job.percent}%</span>
-              )}
-            </div>
-            {operation.active && (
-              <progress
-                aria-label="Server action progress"
-                max={100}
-                value={operation.error ? undefined : (operation.job?.percent ?? undefined)}
-              />
-            )}
-            {operation.job?.message && (
-              <p
-                className={
-                  operation.job.state === 'failed' || operation.job.state === 'interrupted'
-                    ? 'status-error'
-                    : 'muted'
-                }
-              >
-                {operation.job.message}
-              </p>
-            )}
-            {operation.error && (
-              <p className="status-warning">
-                {operation.error} {operation.retry ? '' : 'Reconnecting to check progress…'}
-              </p>
-            )}
-            {operation.retry && (
-              <div className="server-actions">
+            <ServerJobProgress operation={operation} progressLabel="Server action progress">
+              {['PLAN_CHANGED', 'PLAN_EXPIRED'].includes(operation.job?.errorCode ?? '') && (
                 <button
                   className="secondary-button"
-                  onClick={() => {
-                    void operation.retryRequest();
-                  }}
+                  disabled={locked || !!confirmation}
+                  onClick={() => void previewUpgrade()}
                 >
-                  Retry same request
+                  Preview full upgrade again
                 </button>
-                <button className="secondary-button" onClick={operation.dismiss}>
-                  Dismiss
-                </button>
-              </div>
-            )}
-            {['PLAN_CHANGED', 'PLAN_EXPIRED'].includes(operation.job?.errorCode ?? '') && (
-              <button
-                className="secondary-button"
-                disabled={locked || !!confirmation}
-                onClick={() => {
-                  void previewUpgrade();
-                }}
-              >
-                Preview full upgrade again
-              </button>
-            )}
-            {operation.active && !operation.retry && (
-              <p className="muted">Closing this window does not cancel a server job.</p>
-            )}
-            {!!operation.job?.logs.length && (
-              <JobOutput key={operation.job.id} logs={operation.job.logs} />
-            )}
+              )}
+            </ServerJobProgress>
           </div>
         )}
         {confirmation && (

@@ -27,6 +27,7 @@ pub fn lock_workspace(base: &Path) -> std::io::Result<File> {
         } else { error })
 }
 const MAX: usize = 64 * 1024 * 1024;
+const MAX_WORKSPACE: usize = 2 * MAX + 1024;
 static WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 struct TemporaryFile(PathBuf);
 impl Drop for TemporaryFile {
@@ -37,7 +38,7 @@ impl Drop for TemporaryFile {
 
 pub fn slot(key: &str) -> Result<(&'static str, usize), String> {
     match key {
-        "workspace" => Ok(("workspace.dpapi", MAX)),
+        "workspace" => Ok(("workspace.dpapi", MAX_WORKSPACE)),
         "pool-base" => Ok(("pool-base.dpapi", MAX)),
         "pool-previous" => Ok(("pool-previous.dpapi", MAX)),
         "stash" => Ok(("stash.dpapi", MAX)),
@@ -46,7 +47,7 @@ pub fn slot(key: &str) -> Result<(&'static str, usize), String> {
     }
 }
 fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
-    if bytes.len() > MAX + 65536 {
+    if bytes.len() > MAX_WORKSPACE + 65536 {
         return Err("Protected data is too large.".into());
     }
     let input = CRYPT_INTEGER_BLOB {

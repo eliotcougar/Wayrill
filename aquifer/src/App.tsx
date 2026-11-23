@@ -1587,6 +1587,7 @@ export default function App({
       )}
       {deploymentOpen && snapshot && compilation && activeSession && sourceSession === session && (
         <ConfigDeploymentDialog
+          key={session}
           client={client}
           sessionId={session}
           server={activeSession.name}
@@ -1745,6 +1746,7 @@ export default function App({
       )}
       {statusOpen && (
         <ServerStatusDialog
+          key={session}
           status={status}
           session={activeSession?.name ?? 'Remote server'}
           sessionId={session}

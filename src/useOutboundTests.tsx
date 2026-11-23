@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { desktopServiceAvailable, serviceCall, errorText } from './serviceClient';
+import { desktopServiceAvailable, errorText } from './serviceClient';
 import type { GraphState } from './graph/types';
 import { toDocument } from './graph/model';
 import { serializeStash, type Stash, type StashEntry } from './profiles/import';
@@ -22,7 +22,7 @@ import {
 } from './outboundTestPlan';
 import { useOutboundTestSettings } from './outboundTestSettings';
 import { ObservatoryContext } from './observatorySummary';
-import { drainTestJob } from './outboundTestJobs';
+import { queryTestJob, startTestJob, waitForTestJob } from './outboundTestJobs';
 import { sameTestLibrary } from './profiles/library';
 import { Gauge } from 'lucide-react';
 import UdpTestBadge from './components/UdpTestBadge';
@@ -54,18 +54,19 @@ interface Job {
   targets?: TestPlan['targets'];
   error?: { message: string } | null;
 }
+type TestPhase =
+  { state: 'staging' | 'finished' } | { state: 'starting' | 'running' | 'draining'; token: string };
 interface TestRun {
   controller: AbortController;
   mode: TestMode;
-  job?: number;
-  wake?: () => void;
+  phase: TestPhase;
+  discard: boolean;
 }
-function cancelRun(run: TestRun) {
+function cancelRun(run: TestRun, discard = false) {
+  run.discard ||= discard;
   run.controller.abort();
-  run.wake?.();
-  if (run.job !== undefined)
-    void serviceCall('outbounds.testCancel', { job: run.job }).catch(() => {});
 }
+const cancelledStatus = 'Cancelled. Completed results are retained.';
 interface TestSummary {
   text: string;
   title: string;
@@ -180,12 +181,12 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
     const run = active.current;
     if (!run) return;
     cancelRun(run);
-    patch(run.mode, { status: 'Cancelled. Completed results are retained.' });
+    patch(run.mode, { status: 'Cancelling outbound tests…' });
   }, [patch]);
   useEffect(
     () => () => {
       const run = active.current;
-      if (run) cancelRun(run);
+      if (run) cancelRun(run, true);
     },
     [],
   );
@@ -221,17 +222,9 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
       next.settings.every((v, i) => v === previous.settings[i]);
     source.current = next;
     if (same) return;
-    cancel();
+    if (active.current) cancelRun(active.current, true);
     setRecords(emptyRecords());
-  }, [
-    graph.nodes,
-    graph.defaults,
-    graph.xray?.outboundPool,
-    stash.groups,
-    connections,
-    egress,
-    cancel,
-  ]);
+  }, [graph.nodes, graph.defaults, graph.xray?.outboundPool, stash.groups, connections, egress]);
   const start = useCallback(
     async (
       entries?: StashEntry[],
@@ -240,12 +233,21 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
       selection?: TestSelection,
     ) => {
       if (active.current) return;
-      const run: TestRun = { controller: new AbortController(), mode: testMode };
+      const run: TestRun = {
+        controller: new AbortController(),
+        mode: testMode,
+        phase: { state: 'staging' },
+        discard: false,
+      };
       const { signal } = run.controller;
       active.current = run;
       setMode(testMode);
-      const setStatus = (status: string) => patch(testMode, { status });
-      const setError = (error: string) => patch(testMode, { error });
+      const setStatus = (status: string) => {
+        if (!run.discard) patch(testMode, { status });
+      };
+      const setError = (error: string) => {
+        if (!run.discard) patch(testMode, { error });
+      };
       const setPlan = (plan: TestPlan) =>
         setRecords((current) => ({
           ...current,
@@ -274,22 +276,46 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
       setBusy(true);
       setError('');
       setStatus('Preparing outbound tests…');
-      let staged: string | undefined;
-      const wait = () =>
-        new Promise<void>((resolve) => {
-          const timer = setTimeout(() => {
-            run.wake = undefined;
-            resolve();
-          }, 400);
-          run.wake = () => {
-            clearTimeout(timer);
-            run.wake = undefined;
-            resolve();
-          };
-        });
+      const plan: TestPlan = { rows: [], targets: [] };
+      let offset = 0;
+      let planPublished = false;
+      const page = () => ({
+        offset,
+        ...(!planPublished
+          ? { rowOffset: plan.rows.length, targetOffset: plan.targets.length }
+          : {}),
+      });
+      const readPages = async (job: Job, stop: AbortSignal, draining = false) => {
+        for (;;) {
+          stop.throwIfAborted();
+          if (!run.discard)
+            publishResults(job.results, draining || job.cancelled ? [] : job.previews);
+          offset += job.results.length;
+          if (job.error && !draining) throw new Error(job.error.message);
+          if (job.planReady && !planPublished) {
+            plan.rows.push(...(job.rows ?? []));
+            plan.targets.push(...(job.targets ?? []));
+            if (plan.rows.length === job.totalRows && plan.targets.length === job.total) {
+              if (!run.discard) setPlan(plan);
+              planPublished = true;
+            }
+          }
+          const readingPlan = job.planReady && !planPublished;
+          const readingResults = offset < job.completed;
+          if (!job.busy && !readingPlan && !readingResults) return job.cancelled;
+          if (!draining && job.planReady) setStatus(`${job.completed}/${job.total} tested`);
+          if (!readingPlan && !readingResults) await waitForTestJob(draining ? 200 : 400, stop);
+          job = await queryTestJob<Job>(
+            'outbounds.testGet',
+            { job: job.job, ...page() },
+            stop,
+            draining,
+          );
+        }
+      };
       try {
         const draft = current.current;
-        staged = await stageOutboundTests(
+        const token = await stageOutboundTests(
           {
             graph: JSON.stringify(toDocument(draft.graph)),
             stash: serializeStash(draft.stash),
@@ -299,10 +325,10 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
           },
           signal,
         );
-        signal.throwIfAborted();
-        let job = await serviceCall<Job>('outbounds.testPlanStart', {
-          sourceToken: staged,
-          settings: {
+        run.phase = { state: 'starting', token };
+        const job = await startTestJob<Job>(
+          token,
+          {
             testUrl: settings.value.testUrl,
             countryUrl: settings.value.countryUrl,
             mode: testMode,
@@ -312,56 +338,44 @@ export default function useOutboundTests(graph: GraphState, stash: Stash, egress
                 ? { udpUrl: settings.value.udpUrl }
                 : {}),
           },
-        });
-        staged = undefined;
-        run.job = job.job;
-        const plan: TestPlan = { rows: [], targets: [] };
-        let offset = 0,
-          planPublished = false;
-        while (!signal.aborted) {
-          publishResults(job.results, job.previews);
-          offset += job.results.length;
-          if (job.error) throw new Error(job.error.message);
-          if (job.cancelled) {
-            setStatus('Cancelled. Completed results are retained.');
-            break;
-          }
-          if (job.planReady && !planPublished) {
-            plan.rows.push(...(job.rows ?? []));
-            plan.targets.push(...(job.targets ?? []));
-            if (plan.rows.length === job.totalRows && plan.targets.length === job.total) {
-              setPlan(plan);
-              planPublished = true;
-            }
-          }
-          const readingPlan = job.planReady && !planPublished;
-          const readingResults = offset < job.completed;
-          if (!job.busy && !readingPlan && !readingResults) {
-            run.job = undefined;
-            setStatus(
-              offset
-                ? `${offset} ${offset === 1 ? 'outbound' : 'outbounds'} tested`
-                : 'No testable outbounds.',
-            );
-            break;
-          }
-          if (job.planReady) setStatus(`${job.completed}/${job.total} tested`);
-          if (!readingPlan && !readingResults) await wait();
-          if (signal.aborted) break;
-          job = await serviceCall<Job>('outbounds.testGet', {
-            job: run.job,
-            offset,
-            ...(readingPlan
-              ? { rowOffset: plan.rows.length, targetOffset: plan.targets.length }
-              : {}),
-          });
-        }
+          signal,
+        );
+        run.phase = { state: 'running', token };
+        const cancelled = await readPages(job, signal);
+        run.phase = { state: 'finished' };
+        setStatus(
+          cancelled
+            ? cancelledStatus
+            : offset
+              ? `${offset} ${offset === 1 ? 'outbound' : 'outbounds'} tested`
+              : 'No testable outbounds.',
+        );
       } catch (e) {
         if (!signal.aborted) setError(errorText(e));
       } finally {
-        if (staged)
-          await serviceCall('subscriptions.uploadAbort', { token: staged }).catch(() => {});
-        if (run.job !== undefined) await drainTestJob(run.job);
+        const phase = run.phase;
+        if ('token' in phase) {
+          run.phase = { state: 'draining', token: phase.token };
+          const deadline = AbortSignal.timeout(30_000);
+          try {
+            const stopped = await queryTestJob<Job>(
+              'outbounds.testCancel',
+              { sourceToken: phase.token, ...page() },
+              deadline,
+              true,
+            );
+            await readPages(stopped, deadline, true);
+            if (signal.aborted) setStatus(cancelledStatus);
+          } catch (error) {
+            if (signal.aborted) {
+              setStatus('Could not confirm the tests stopped.');
+              setError(errorText(error));
+            }
+          }
+        } else if (signal.aborted) {
+          setStatus(cancelledStatus);
+        }
+        run.phase = { state: 'finished' };
         active.current = undefined;
         setBusy(false);
       }

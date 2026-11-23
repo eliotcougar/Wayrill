@@ -175,9 +175,14 @@ const validId = (value: unknown): value is string =>
 const validText = (value: unknown, max: number): value is string =>
   typeof value === 'string' && value.length <= max;
 
-export function parseGraph(text: string): GraphState {
-  if (new TextEncoder().encode(text).length > 64 * 1024 * 1024)
+export function validateGraphSize(text: string): void {
+  const max = 64 * 1024 * 1024;
+  if (text.length > max / 3 && new TextEncoder().encode(text).length > max)
     throw new Error('Graph files must be smaller than 64 MiB.');
+}
+
+export function parseGraph(text: string): GraphState {
+  validateGraphSize(text);
   let raw: unknown;
   try {
     raw = parseJson(text);

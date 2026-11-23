@@ -128,7 +128,20 @@ impl AttributionSource {
             || reconcile
             || has_packages && !self.read_packages;
         if read_processes {
-            updates.extend(self.processes.read(has_packages)?.into_iter().map(|mut p| {
+            let inventory = match self.processes.read(has_packages) {
+                Ok(inventory) => inventory,
+                Err(error) => {
+                    // A partial read may already have updated retained handles.
+                    // Rebuild the native cache on retry, but keep the ETW evidence
+                    // that was drained before the failure.
+                    self.processes = ProcessSnapshot::default();
+                    if let Some(events) = events {
+                        self.tree.ingest(events.items);
+                    }
+                    return Err(error);
+                }
+            };
+            updates.extend(inventory.into_iter().map(|mut p| {
                 if p.exited.is_some() {
                     p.exited_at = Some(clock::ticks());
                 }

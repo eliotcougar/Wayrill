@@ -843,6 +843,16 @@ impl Manager {
         }
         Ok(state.outbound_test_source.take().unwrap().1)
     }
+    pub(crate) fn discard_outbound_test_source(&self, token: &str) {
+        let mut state = self.state.lock().unwrap();
+        if state
+            .outbound_test_source
+            .as_ref()
+            .is_some_and(|(id, _, _)| id == token)
+        {
+            state.outbound_test_source = None;
+        }
+    }
     fn status(&self, id: &str, state: &'static str, message: impl Into<String>) {
         let message = message.into();
         if state == "error" {

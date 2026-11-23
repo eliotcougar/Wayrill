@@ -27,6 +27,9 @@ use tokio::{
     sync::{oneshot, watch, Notify, Semaphore},
     task::{JoinHandle, JoinSet},
 };
+use windows_sys::Win32::Foundation::{
+    ERROR_BAD_LENGTH, ERROR_BUSY, ERROR_INSUFFICIENT_BUFFER, ERROR_RETRY,
+};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -104,9 +107,26 @@ pub struct BridgeEndpoint {
     pub nat_tag: Option<String>,
 }
 #[derive(Default)]
-struct Published {
-    snapshot: Option<Arc<AttributionSnapshot>>,
-    failure: Option<Error>,
+enum Published {
+    #[default]
+    Starting,
+    Observing(Arc<AttributionSnapshot>),
+    Reconciling,
+    Failed(Error),
+}
+
+fn inventory_retry(error: &Error, attempt: usize) -> Option<Duration> {
+    let transient = matches!(
+        error.os_code().map(|code| code as u32),
+        Some(ERROR_BAD_LENGTH | ERROR_BUSY | ERROR_INSUFFICIENT_BUFFER | ERROR_RETRY)
+    );
+    if !transient {
+        return None;
+    }
+    [100, 250, 500, 1000, 2000]
+        .get(attempt)
+        .copied()
+        .map(Duration::from_millis)
 }
 #[derive(Default)]
 struct Rejections {
@@ -240,20 +260,29 @@ impl State {
             .published
             .read()
             .map_err(|_| Error::invalid("TUN attribution state poisoned."))?;
-        if let Some(error) = &state.failure {
-            return Err(Error::invalid(format!(
+        match &*state {
+            Published::Observing(snapshot) => Ok(Some(snapshot.clone())),
+            Published::Starting | Published::Reconciling => Ok(None),
+            Published::Failed(error) => Err(Error::invalid(format!(
                 "TUN application attribution failed: {error}"
-            )));
+            ))),
         }
-        Ok(state.snapshot.clone())
+    }
+    fn publish(&self, next: Published) -> Result<()> {
+        let mut state = self
+            .published
+            .write()
+            .map_err(|_| Error::invalid("TUN attribution state poisoned."))?;
+        if let Published::Failed(error) = &*state {
+            return Err(error.clone());
+        }
+        *state = next;
+        drop(state);
+        self.snapshot_ready.notify_waiters();
+        Ok(())
     }
     fn fail(&self, error: Error) {
-        if let Ok(mut state) = self.published.write() {
-            if state.failure.is_none() {
-                state.failure = Some(error);
-            }
-        }
-        self.snapshot_ready.notify_waiters();
+        let _ = self.publish(Published::Failed(error));
     }
     async fn find(&self, flow: Flow) -> Result<Identity> {
         let arrived = clock::milliseconds();
@@ -477,6 +506,72 @@ async fn wait_for_refresh(
     }
 }
 
+enum InventoryRead {
+    Maintenance,
+    Ownership { flush: bool },
+}
+
+fn observe_inventory(
+    state: &State,
+    stopping: &mut watch::Receiver<bool>,
+    runtime: &tokio::runtime::Handle,
+    ready: &mut Option<oneshot::Sender<Result<()>>>,
+    mut sample: impl FnMut(InventoryRead) -> Result<Option<AttributionSnapshot>>,
+) -> Result<()> {
+    let mut retries = 0;
+    while !*stopping.borrow() {
+        let mut read_at = clock::milliseconds();
+        let flush = ready.is_some() || retries != 0;
+        let read = if flush || state.ownership_requested.swap(false, Ordering::AcqRel) {
+            InventoryRead::Ownership { flush }
+        } else {
+            InventoryRead::Maintenance
+        };
+        match sample(read) {
+            Ok(Some(snapshot)) => {
+                read_at = snapshot.read_at;
+                state.publish(Published::Observing(Arc::new(snapshot)))?;
+                if retries != 0 {
+                    eprintln!("TUN attribution inventory recovered.");
+                    retries = 0;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let Some(delay) = inventory_retry(&error, retries) else {
+                    return Err(error);
+                };
+                if retries == 0 {
+                    state.publish(Published::Reconciling)?;
+                    eprintln!("TUN attribution inventory temporarily unavailable: {error}");
+                }
+                retries += 1;
+                // Retry a full read. Request traffic cannot accelerate backoff.
+                let stopped = runtime.block_on(async {
+                    tokio::select! {
+                        biased;
+                        _ = stopping.changed() => true,
+                        _ = tokio::time::sleep(delay) => false,
+                    }
+                });
+                if stopped {
+                    break;
+                }
+                continue;
+            }
+        }
+        if let Some(ready) = ready.take() {
+            if ready.send(Ok(())).is_err() {
+                break;
+            }
+        }
+        if runtime.block_on(wait_for_refresh(state, stopping, read_at)) {
+            break;
+        }
+    }
+    Ok(())
+}
+
 pub struct TunApplications {
     state: Arc<State>,
     endpoint: BridgeEndpoint,
@@ -528,44 +623,18 @@ impl TunApplications {
                 source = Some(AttributionSource::new()?);
                 let source = source.as_mut().unwrap();
                 source.start_tun(worker_state.changed.clone())?;
-                let mut flush = true;
-                loop {
-                    if *worker_stop.borrow() {
-                        break;
-                    }
-                    let mut read_at = clock::milliseconds();
-                    if flush
-                        || worker_state
-                            .ownership_requested
-                            .swap(false, Ordering::AcqRel)
-                    {
-                        let snapshot = Arc::new(source.read(Some(rules.clone()), &[], flush)?);
-                        read_at = snapshot.read_at;
-                        worker_state
-                            .published
-                            .write()
-                            .map_err(|_| Error::invalid("TUN attribution state poisoned."))?
-                            .snapshot = Some(snapshot);
-                        worker_state.snapshot_ready.notify_waiters();
-                    } else {
-                        source.maintain_tun(&rules)?;
-                    }
-                    if let Some(ready) = ready.take() {
-                        if ready.send(Ok(())).is_err() {
-                            break;
+                observe_inventory(
+                    &worker_state,
+                    &mut worker_stop,
+                    &runtime,
+                    &mut ready,
+                    |read| match read {
+                        InventoryRead::Maintenance => source.maintain_tun(&rules).map(|()| None),
+                        InventoryRead::Ownership { flush } => {
+                            source.read(Some(rules.clone()), &[], flush).map(Some)
                         }
-                    }
-                    flush = false;
-                    let should_stop = runtime.block_on(wait_for_refresh(
-                        &worker_state,
-                        &mut worker_stop,
-                        read_at,
-                    ));
-                    if should_stop {
-                        break;
-                    }
-                }
-                Ok(())
+                    },
+                )
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
                 .unwrap_or_else(|_| Err(Error::invalid("TUN attribution refresh panicked.")));
@@ -916,6 +985,83 @@ async fn accept_loop(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn a_failed_idle_read_withdraws_ownership_until_a_full_retry_succeeds() {
+        let state = lifecycle_state();
+        let (ready, started) = oneshot::channel();
+        let (retrying, retry_started) = oneshot::channel();
+        let (resume, resumed) = std::sync::mpsc::channel();
+        let (stop, mut stopping) = watch::channel(false);
+        let worker_state = state.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let worker = tokio::task::spawn_blocking(move || {
+            let snapshot = || {
+                AttributionSnapshot::new(
+                    &[],
+                    &[],
+                    |_, _| unreachable!(),
+                    clock::milliseconds(),
+                    None,
+                )
+                .map(Some)
+            };
+            let mut retrying = Some(retrying);
+            let mut reads = 0;
+            observe_inventory(
+                &worker_state,
+                &mut stopping,
+                &runtime,
+                &mut Some(ready),
+                |read| {
+                    reads += 1;
+                    match reads {
+                        1 => {
+                            assert!(matches!(read, InventoryRead::Ownership { flush: true }));
+                            snapshot()
+                        }
+                        2 => {
+                            assert!(matches!(read, InventoryRead::Maintenance));
+                            Err(Error(
+                                "Native inventory changed".into(),
+                                Some(ERROR_BAD_LENGTH as i32),
+                            ))
+                        }
+                        3 => {
+                            assert!(matches!(read, InventoryRead::Ownership { flush: true }));
+                            retrying.take().unwrap().send(()).unwrap();
+                            resumed.recv_timeout(Duration::from_secs(2)).unwrap();
+                            snapshot()
+                        }
+                        _ => Ok(None),
+                    }
+                },
+            )
+        });
+        started.await.unwrap().unwrap();
+        let old = state.snapshot().unwrap().unwrap();
+        state.changed.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), retry_started)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(state.snapshot().unwrap().is_none());
+        resume.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let ready = state.snapshot_ready.notified();
+                if let Some(current) = state.snapshot().unwrap() {
+                    assert!(!Arc::ptr_eq(&old, &current));
+                    break;
+                }
+                ready.await;
+            }
+        })
+        .await
+        .unwrap();
+        stop.send(true).unwrap();
+        worker.await.unwrap().unwrap();
+    }
+
     #[test]
     fn both_matched_and_unmatched_tun_identities_verify_the_process_generation() {
         let key = ProcessKey {
@@ -1032,7 +1178,7 @@ mod tests {
         );
         assert_eq!(snapshot.find(flow, 0).kind, Kind::Ambiguous);
         let mut state = lifecycle_state();
-        state.published.write().unwrap().snapshot = Some(snapshot);
+        state.publish(Published::Observing(snapshot)).unwrap();
         assert!(state
             .find(flow)
             .await
@@ -1253,7 +1399,9 @@ mod tests {
                 .unwrap(),
             )
         };
-        state.published.write().unwrap().snapshot = Some(snapshot(12001, 0));
+        state
+            .publish(Published::Observing(snapshot(12001, 0)))
+            .unwrap();
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap())
             .await
@@ -1280,9 +1428,12 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), state.udp_changed.notified())
             .await
             .unwrap();
-        state.published.write().unwrap().snapshot =
-            Some(snapshot(12002, clock::milliseconds() + 1));
-        state.snapshot_ready.notify_waiters();
+        state
+            .publish(Published::Observing(snapshot(
+                12002,
+                clock::milliseconds() + 1,
+            )))
+            .unwrap();
         if first_pass {
             let mut line = String::new();
             reader.read_line(&mut line).await.unwrap();

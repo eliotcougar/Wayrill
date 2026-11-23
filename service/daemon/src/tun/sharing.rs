@@ -81,30 +81,29 @@ fn valid(j: &Journal) -> bool {
         j.private.id.as_str(),
         j.owned_public.as_str(),
     ];
-    j.version == 3
-        && ids.iter().all(|id| guid(id))
+    let expected = &j.checkpoint.roles;
+    ids.iter().all(|id| guid(id))
         && ids[0] != ids[1]
         && !ids[..2].contains(&ids[2])
         && j.original_public.role == Some(0)
         && j.private.role == Some(1)
-        && (!j.native_restore
-            || (j.recovering
-                && j.ipv6_forwarding.is_none()
+        && (j.intent != LeaseIntent::RememberedPair
+            || (j.ipv6_forwarding.is_none()
                 && j.ipv6_clients.is_none()
-                && j.expected.iter().all(|r| r.id != j.owned_public)
-                && j.pending.as_ref().is_none_or(|p| p.id != j.owned_public)))
-        && j.expected_private.id == j.private.id
-        && j.expected.len() <= 2
-        && j.expected.windows(2).all(|w| w[0] < w[1])
-        && j.expected.iter().all(|r| {
+                && expected.iter().all(|r| r.id != j.owned_public)
+                && j.pending().is_none_or(|p| p.id != j.owned_public)))
+        && j.checkpoint.private.id == j.private.id
+        && expected.len() <= 2
+        && expected.windows(2).all(|w| w[0] < w[1])
+        && expected.iter().all(|r| {
             if r.id == j.private.id {
                 r.role == 1
             } else {
                 (r.id == j.original_public.id || r.id == j.owned_public) && r.role == 0
             }
         })
-        && j.expected.iter().filter(|r| r.role == 0).count() <= 1
-        && j.pending.as_ref().is_none_or(|p| {
+        && expected.iter().filter(|r| r.role == 0).count() <= 1
+        && j.pending().is_none_or(|p| {
             ids.contains(&p.id.as_str())
                 && p.role
                     .is_none_or(|role| role == if p.id == j.private.id { 1 } else { 0 })
@@ -141,9 +140,55 @@ struct Change {
     id: String,
     role: Option<u32>,
 }
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+// Recovery provenance. Only the separate forwarding barrier records
+// permission to hand clients back to native Windows sharing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LeaseIntent {
+    Managed,
+    Recovering,
+    RememberedPair,
+}
+#[derive(Clone)]
+struct Checkpoint {
+    roles: Vec<Role>,
+    private: Connection,
+}
+impl Checkpoint {
+    fn capture(snapshot: &Snapshot, private_id: &str) -> Result<Self> {
+        let private = snapshot.connection(private_id).ok_or_else(|| {
+            error(
+                "ICS_ADAPTER_MISSING",
+                "The private sharing adapter disappeared.",
+            )
+        })?;
+        Ok(Self {
+            roles: snapshot.roles(),
+            private: private.clone(),
+        })
+    }
+}
+#[derive(Clone)]
+enum RoleMutation {
+    Confirmed,
+    Pending(Change),
+}
+#[derive(Clone)]
 struct Journal {
+    original_public: Connection,
+    private: Connection,
+    owned_public: String,
+    checkpoint: Checkpoint,
+    intent: LeaseIntent,
+    mutation: RoleMutation,
+    conflicted: bool,
+    ipv6_forwarding: Option<Lease>,
+    ipv6_clients: Option<clients::Lease>,
+}
+// Keep the v3 wire shape readable by an older service after an installer
+// rollback. Decode the legacy flags only at the storage boundary.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredJournal {
     version: u32,
     original_public: Connection,
     private: Connection,
@@ -159,6 +204,91 @@ struct Journal {
     ipv6_forwarding: Option<Lease>,
     #[serde(default)]
     ipv6_clients: Option<clients::Lease>,
+}
+impl Journal {
+    fn read(path: &Path) -> Result<Option<Self>> {
+        let Some(stored) = storage::read::<StoredJournal>(path)? else {
+            return Ok(None);
+        };
+        let invalid = || {
+            error(
+                "ICS_STATE",
+                "The protected sharing recovery record is invalid.",
+            )
+        };
+        let intent = match (stored.version, stored.recovering, stored.native_restore) {
+            (3, false, false) => LeaseIntent::Managed,
+            (3, true, false) => LeaseIntent::Recovering,
+            (3, true, true) => LeaseIntent::RememberedPair,
+            _ => return Err(invalid()),
+        };
+        let journal = Self {
+            original_public: stored.original_public,
+            private: stored.private,
+            owned_public: stored.owned_public,
+            checkpoint: Checkpoint {
+                roles: stored.expected,
+                private: stored.expected_private,
+            },
+            intent,
+            mutation: stored
+                .pending
+                .map_or(RoleMutation::Confirmed, RoleMutation::Pending),
+            conflicted: stored.conflicted,
+            ipv6_forwarding: stored.ipv6_forwarding,
+            ipv6_clients: stored.ipv6_clients,
+        };
+        if !valid(&journal) {
+            return Err(invalid());
+        }
+        Ok(Some(journal))
+    }
+    fn write(&self, path: &Path) -> Result<()> {
+        if !valid(self) {
+            return Err(error(
+                "ICS_STATE",
+                "Cannot commit an invalid sharing checkpoint.",
+            ));
+        }
+        storage::write(
+            path,
+            &StoredJournal {
+                version: 3,
+                original_public: self.original_public.clone(),
+                private: self.private.clone(),
+                owned_public: self.owned_public.clone(),
+                expected: self.checkpoint.roles.clone(),
+                expected_private: self.checkpoint.private.clone(),
+                conflicted: self.conflicted,
+                recovering: self.intent != LeaseIntent::Managed,
+                pending: self.pending().cloned(),
+                native_restore: self.intent == LeaseIntent::RememberedPair,
+                ipv6_forwarding: self.ipv6_forwarding.clone(),
+                ipv6_clients: self.ipv6_clients.clone(),
+            },
+        )
+    }
+    fn pending(&self) -> Option<&Change> {
+        match &self.mutation {
+            RoleMutation::Confirmed => None,
+            RoleMutation::Pending(change) => Some(change),
+        }
+    }
+    fn observe(&mut self, snapshot: &Snapshot) -> Result<()> {
+        self.checkpoint = Checkpoint::capture(snapshot, &self.private.id)?;
+        self.mutation = RoleMutation::Confirmed;
+        Ok(())
+    }
+    fn begin(&mut self, change: Change) -> Result<()> {
+        if self.pending().is_some() {
+            return Err(error(
+                "ICS_STATE",
+                "Reconcile the pending Windows sharing change first.",
+            ));
+        }
+        self.mutation = RoleMutation::Pending(change);
+        Ok(())
+    }
 }
 // Retain the last confirmed native pair beyond the temporary capture lease.
 // The previous owned GUID is only a missing-adapter recovery identity, never
@@ -204,10 +334,7 @@ fn restore_native_default() -> bool {
 pub fn prepare_installed_upgrade() -> Result<()> {
     let data = installed_data()?;
     let _transaction = super::keeper::mutation_lock()?;
-    if let Some(journal) = storage::read::<Journal>(&data.join("tun-sharing-lease.json"))? {
-        if !valid(&journal) {
-            return Err(error("ICS_STATE", "Invalid sharing ownership journal."));
-        }
+    if let Some(journal) = Journal::read(&data.join("tun-sharing-lease.json"))? {
         super::sharing_guard::arm(&data, &journal.private.id, &journal.owned_public)
     } else {
         super::sharing_guard::set_paused(&data, true)
@@ -312,23 +439,20 @@ impl NativePair {
     }
     fn recovery(&self, snapshot: &Snapshot) -> Result<Journal> {
         self.available(snapshot)?;
-        Ok(self.checkpoint(snapshot))
+        self.checkpoint(snapshot, LeaseIntent::RememberedPair)
     }
-    fn checkpoint(&self, snapshot: &Snapshot) -> Journal {
-        Journal {
-            version: 3,
+    fn checkpoint(&self, snapshot: &Snapshot, intent: LeaseIntent) -> Result<Journal> {
+        Ok(Journal {
             original_public: self.public.clone(),
             private: self.private.clone(),
             owned_public: self.previous_public.clone(),
-            expected: snapshot.roles(),
-            expected_private: snapshot.connection(&self.private.id).unwrap().clone(),
+            checkpoint: Checkpoint::capture(snapshot, &self.private.id)?,
             conflicted: false,
-            recovering: true,
-            pending: None,
-            native_restore: true,
+            intent,
+            mutation: RoleMutation::Confirmed,
             ipv6_forwarding: None,
             ipv6_clients: None,
-        }
+        })
     }
 }
 fn error(code: &str, message: impl Into<String>) -> ApiError {
@@ -470,11 +594,10 @@ fn compatible(journal: &Journal, snapshot: &Snapshot) -> bool {
     }
     let actual = snapshot.roles();
     let pending_private = journal
-        .pending
-        .as_ref()
-        .filter(|p| p.id == journal.private.id && actual == changed(&journal.expected, p));
+        .pending()
+        .filter(|p| p.id == journal.private.id && actual == changed(&journal.checkpoint.roles, p));
     if snapshot.connection(&journal.private.id).is_some_and(|c| {
-        !same_private(c, &journal.expected_private)
+        !same_private(c, &journal.checkpoint.private)
             && !pending_private.is_some_and(|p| {
                 if p.role == Some(1) {
                     same_private(c, &journal.private)
@@ -492,18 +615,17 @@ fn compatible(journal: &Journal, snapshot: &Snapshot) -> bool {
             .collect();
         actual == present
     };
-    allowed(journal.expected.clone())
+    allowed(journal.checkpoint.roles.clone())
         || journal
-            .pending
-            .as_ref()
-            .is_some_and(|p| allowed(changed(&journal.expected, p)))
+            .pending()
+            .is_some_and(|p| allowed(changed(&journal.checkpoint.roles, p)))
 }
 // Name differing checkpoint fields without logging addresses, adapter names,
 // ownership tokens or full native/configuration records. This is diagnostic;
 // compatibility and foreign-change guards remain authoritative.
 fn checkpoint_differences(journal: &Journal, snapshot: &Snapshot) -> Vec<&'static str> {
     let mut fields = Vec::new();
-    if snapshot.roles() != journal.expected {
+    if snapshot.roles() != journal.checkpoint.roles {
         fields.push("roles");
     }
     if snapshot
@@ -516,7 +638,7 @@ fn checkpoint_differences(journal: &Journal, snapshot: &Snapshot) -> Vec<&'stati
     match snapshot.connection(&journal.private.id) {
         None => fields.push("private adapter missing"),
         Some(private) => {
-            let expected = &journal.expected_private;
+            let expected = &journal.checkpoint.private;
             if private.ipv4 != expected.ipv4 {
                 fields.push("private IPv4");
             }
@@ -548,10 +670,12 @@ fn sharing_disabled(journal: &Journal, snapshot: &Snapshot, explicit: bool) -> b
         },
     ];
     !journal.conflicted
-        && !journal.recovering
-        && journal.pending.is_none()
-        && expected.iter().all(|r| journal.expected.contains(r))
-        && journal.expected.len() == 2
+        && journal.intent == LeaseIntent::Managed
+        && journal.pending().is_none()
+        && expected
+            .iter()
+            .all(|r| journal.checkpoint.roles.contains(r))
+        && journal.checkpoint.roles.len() == 2
         && !snapshot
             .connections
             .iter()
@@ -559,7 +683,8 @@ fn sharing_disabled(journal: &Journal, snapshot: &Snapshot, explicit: bool) -> b
         && (explicit || snapshot.connection(&journal.owned_public).is_some())
         && snapshot.connection(&journal.original_public.id).is_some()
         && snapshot.connection(&journal.private.id).is_some_and(|p| {
-            !p.has_port_mappings && (same_private(p, &journal.expected_private) || private_reset(p))
+            !p.has_port_mappings
+                && (same_private(p, &journal.checkpoint.private) || private_reset(p))
         })
         && {
             let actual = snapshot.roles();
@@ -593,9 +718,10 @@ fn native_crash_cleanup(journal: &Journal, snapshot: &Snapshot) -> bool {
     !journal.conflicted
         && snapshot.connection(&journal.owned_public).is_none()
         && snapshot.roles().is_empty()
-        && (journal.recovering
+        && (journal.intent != LeaseIntent::Managed
             || journal
-                .expected
+                .checkpoint
+                .roles
                 .iter()
                 .any(|r| r.id == journal.owned_public && r.role == 0))
         && snapshot
@@ -611,7 +737,7 @@ fn restart_required(
         return false;
     }
     journal.is_some_and(|j| {
-        j.recovering
+        j.intent != LeaseIntent::Managed
             && !j.conflicted
             && snapshot.roles().is_empty()
             && snapshot.connection(&j.owned_public).is_none()
@@ -622,19 +748,13 @@ fn restart_required(
     })
 }
 fn recovery_checkpoint(journal: &mut Journal, snapshot: &Snapshot, startup: bool) -> Result<()> {
-    let private = snapshot.connection(&journal.private.id).ok_or_else(|| {
-        error(
-            "ICS_ADAPTER_MISSING",
-            "The private sharing adapter disappeared during recovery.",
-        )
-    })?;
+    journal.observe(snapshot)?;
     // The first startup snapshot may still contain the private role while
     // Windows removes the owned public adapter. Preserve recovery eligibility
     // once the guarded restoration starts, not only after the final NAT reset.
-    journal.recovering |= startup;
-    journal.expected = snapshot.roles();
-    journal.expected_private = private.clone();
-    journal.pending = None;
+    if startup && journal.intent == LeaseIntent::Managed {
+        journal.intent = LeaseIntent::Recovering;
+    }
     Ok(())
 }
 
@@ -741,13 +861,7 @@ impl Manager {
             None
         };
         let path = data.join("tun-sharing-lease.json");
-        let journal: Option<Journal> = storage::read(&path)?;
-        if journal.as_ref().is_some_and(|j| !valid(j)) {
-            return Err(error(
-                "ICS_STATE",
-                "The protected sharing recovery record is invalid.",
-            ));
-        }
+        let journal = Journal::read(&path)?;
         let remembered_path = data.join("tun-native-sharing.json");
         let mut remembered: Option<NativePair> = storage::read(&remembered_path)?;
         if remembered.as_ref().is_some_and(|pair| !pair.valid()) {
@@ -798,14 +912,7 @@ impl Manager {
     fn reload_journal(&mut self) -> Result<()> {
         self.idle.invalidate();
         self.active_inspected = None;
-        let journal: Option<Journal> = storage::read(&self.path)?;
-        if journal.as_ref().is_some_and(|j| !valid(j)) {
-            return Err(error(
-                "ICS_STATE",
-                "The protected sharing recovery record is invalid.",
-            ));
-        }
-        self.journal = journal;
+        self.journal = Journal::read(&self.path)?;
         self.remembered = storage::read(&self.remembered_path)?;
         if self.remembered.as_ref().is_some_and(|pair| !pair.valid()) {
             return Err(error(
@@ -814,6 +921,19 @@ impl Manager {
             ));
         }
         Ok(())
+    }
+    fn commit_journal(&mut self, next: Journal) -> Result<()> {
+        next.write(&self.path)?;
+        self.journal = Some(next);
+        Ok(())
+    }
+    fn save_recovery_checkpoint(&mut self, snapshot: &Snapshot, startup: bool) -> Result<()> {
+        let mut next = self
+            .journal
+            .clone()
+            .ok_or_else(|| error("ICS_STATE", "Missing sharing journal."))?;
+        recovery_checkpoint(&mut next, snapshot, startup)?;
+        self.commit_journal(next)
     }
     fn finish_previous_keeper(&mut self) -> Result<()> {
         if !self
@@ -925,7 +1045,7 @@ impl Manager {
         json!({"version":version(&fingerprint), "connections":snapshot.connections,
             "pair":pair.map(|(a,b)| json!({"public":{"id":a.id,"name":a.name},"private":{"id":b.id,"name":b.name}})),
             "supported":supported,"problem":saved_problem.or_else(|| checked.and_then(|r|r.err())).map(|e|e.message),
-            "source":if self.journal.as_ref().is_some_and(|j| j.native_restore) { "remembered" } else if self.journal.is_some() { "managed" } else if saved.is_some() && supported { "remembered" } else { "native" },
+            "source":if self.journal.as_ref().is_some_and(|j| j.intent == LeaseIntent::RememberedPair) { "remembered" } else if self.journal.is_some() { "managed" } else if saved.is_some() && supported { "remembered" } else { "native" },
             "hasSavedPair":self.remembered.is_some(),"restoreNativeOnBoot":self.remembered.as_ref().is_some_and(|p| p.restore_native),"windowsSharingActive":!snapshot.roles().is_empty(),
             "managed":self.journal.is_some(),"recoveryPending":self.last_error.is_some(),"lastError":self.last_error,"monitorError":self.idle.error,
             "restartRequired":restart_required(self.journal.as_ref(), snapshot, self.last_error.as_ref()),
@@ -937,7 +1057,11 @@ impl Manager {
         Ok(self.inspection(&snapshot))
     }
     pub fn selection(&mut self, options: &Options) -> Result<String> {
-        if self.journal.as_ref().is_some_and(|j| j.native_restore) {
+        if self
+            .journal
+            .as_ref()
+            .is_some_and(|j| j.intent == LeaseIntent::RememberedPair)
+        {
             let _lease = super::keeper::keeper_lease()?.ok_or_else(super::keeper::busy)?;
             let _transaction = super::keeper::mutation_lock()?;
             self.reload_journal()?;
@@ -945,7 +1069,11 @@ impl Manager {
                 self.last_error = None;
             }
             let current = self.read()?;
-            if let Some(j) = self.journal.as_mut().filter(|j| j.native_restore) {
+            if let Some(j) = self
+                .journal
+                .as_ref()
+                .filter(|j| j.intent == LeaseIntent::RememberedPair)
+            {
                 let reset = native_crash_cleanup(j, &current);
                 if j.conflicted || (!compatible(j, &current) && !reset) {
                     return Err(error("ICS_CONFLICT", "Saved sharing restoration changed outside Wayrill. Inspect recovery before starting ICS TUN."));
@@ -961,8 +1089,7 @@ impl Manager {
                     ));
                 }
                 if !compatible(j, &current) {
-                    recovery_checkpoint(j, &current, true)?;
-                    storage::write(&self.path, j)?;
+                    self.save_recovery_checkpoint(&current, true)?;
                 }
                 self.last_error = None;
             }
@@ -1079,44 +1206,40 @@ impl Manager {
             id: id.into(),
             role,
         };
-        let j = self
+        let mut next = self
             .journal
-            .as_mut()
+            .clone()
             .ok_or_else(|| error("ICS_STATE", "Missing sharing journal."))?;
         // An inactive remembered pair has no private role to release. Sending
         // that no-op to Windows would wait for a DHCP reset that never occurred.
         // The next actual change still validates this exact native checkpoint.
-        if role.is_none() && j.pending.is_none() && j.expected.iter().all(|r| r.id != id) {
+        if role.is_none()
+            && next.pending().is_none()
+            && next.checkpoint.roles.iter().all(|r| r.id != id)
+        {
             return Ok(());
         }
-        j.pending = Some(change.clone());
-        storage::write(&self.path, j)?;
-        let expected = j.expected.clone();
-        let restore_services = if id == j.private.id && role == Some(1) {
-            j.private.private_services.clone()
+        next.begin(change.clone())?;
+        let expected_after = changed(&next.checkpoint.roles, &change);
+        let restore_services = if id == next.private.id && role == Some(1) {
+            next.private.private_services.clone()
         } else {
             vec![]
         };
-        let after = self.call(
-            "sharing.set",
-            json!({"id":id,"role":role,"expected":expected,"private":self.journal.as_ref().unwrap().expected_private,"restorePrivateServices":restore_services}),
-        )?;
-        if after.roles() != changed(&expected, &change) {
+        let request = json!({
+            "id":id,"role":role,"expected":next.checkpoint.roles,
+            "private":next.checkpoint.private,"restorePrivateServices":restore_services
+        });
+        self.commit_journal(next.clone())?;
+        let after = self.call("sharing.set", request)?;
+        if after.roles() != expected_after {
             return Err(error(
                 "ICS_STATE",
                 "Unexpected native sharing transition; recovery is pending.",
             ));
         }
-        let j = self.journal.as_mut().unwrap();
-        j.expected = after.roles();
-        j.expected_private = after.connection(&j.private.id).cloned().ok_or_else(|| {
-            error(
-                "ICS_ADAPTER_MISSING",
-                "The private sharing adapter disappeared.",
-            )
-        })?;
-        j.pending = None;
-        storage::write(&self.path, j)
+        next.observe(&after)?;
+        self.commit_journal(next)
     }
     pub fn move_to(
         &mut self,
@@ -1128,21 +1251,24 @@ impl Manager {
         let _transaction = super::keeper::mutation_lock()?;
         self.preflight(uplink, true)?;
         let before = self.read()?;
-        let native_restore = self.journal.as_ref().is_some_and(|j| j.native_restore);
-        if self.journal.is_some() && !native_restore {
+        let remembered_recovery = self
+            .journal
+            .as_ref()
+            .is_some_and(|j| j.intent == LeaseIntent::RememberedPair);
+        if self.journal.is_some() && !remembered_recovery {
             return Err(error(
                 "ICS_STATE",
                 "Restore the previous sharing lease first.",
             ));
         }
-        let (public, private) = if before.roles().len() < 2 || native_restore {
+        let (public, private) = if before.roles().len() < 2 || remembered_recovery {
             let pair = self.remembered.as_ref().ok_or_else(|| {
                 error(
                     "ICS_TOPOLOGY",
                     "Configure and confirm Internet sharing once before starting ICS TUN.",
                 )
             })?;
-            if !native_restore {
+            if !remembered_recovery {
                 pair.available(&before)?;
             }
             (pair.public.clone(), pair.private.clone())
@@ -1179,21 +1305,17 @@ impl Manager {
             None
         };
         self.active_inspected = None;
-        self.journal = Some(Journal {
-            version: 3,
+        self.commit_journal(Journal {
             original_public: public.clone(),
             private: private.clone(),
             owned_public: owned_public.into(),
-            expected: before.roles(),
-            expected_private: before.connection(&private.id).unwrap().clone(),
+            checkpoint: Checkpoint::capture(&before, &private.id)?,
             conflicted: false,
-            recovering: false,
-            pending: None,
-            native_restore: false,
+            intent: LeaseIntent::Managed,
+            mutation: RoleMutation::Confirmed,
             ipv6_forwarding,
             ipv6_clients,
-        });
-        storage::write(&self.path, self.journal.as_ref().unwrap())?;
+        })?;
         let journal = self.journal.as_ref().unwrap();
         let remembered = self.remembered.as_ref().map_or_else(
             || NativePair::from_journal(journal),
@@ -1240,10 +1362,10 @@ impl Manager {
             return Ok(());
         };
         lease.phase = Phase::Disabling;
-        storage::write(&self.path, j)?;
+        j.write(&self.path)?;
         forwarding::set(&j.original_public.id, false)?;
         j.ipv6_forwarding.as_mut().unwrap().phase = Phase::Active;
-        storage::write(&self.path, j)
+        j.write(&self.path)
     }
     pub(super) fn enable_clients(&mut self) -> Result<String> {
         let _transaction = super::keeper::mutation_lock()?;
@@ -1259,19 +1381,19 @@ impl Manager {
             return Err(error("ICS_STATE", "IPv6 sharing is already initialized."));
         }
         lease.phase = clients::Phase::Activating;
-        storage::write(&self.path, j)?;
+        j.write(&self.path)?;
         let id = j.private.id.clone();
         if let Err(e) = j.ipv6_clients.as_ref().unwrap().activate(&id) {
             if e.code == "ICS_IPV6_CREATE" {
                 // Create failed without changing the address table. In
                 // particular, never remove a concurrent external address.
                 j.ipv6_clients.as_mut().unwrap().phase = clients::Phase::Captured;
-                storage::write(&self.path, j)?;
+                j.write(&self.path)?;
             }
             return Err(e);
         }
         j.ipv6_clients.as_mut().unwrap().phase = clients::Phase::Active;
-        storage::write(&self.path, j)?;
+        j.write(&self.path)?;
         Ok(id)
     }
     pub(super) fn client_status(&self) -> Value {
@@ -1295,7 +1417,7 @@ impl Manager {
                 lease.phase = clients::Phase::Restoring;
             }
         }
-        storage::write(&self.path, &next)?;
+        next.write(&self.path)?;
         if next
             .ipv6_clients
             .as_ref()
@@ -1471,15 +1593,13 @@ impl Manager {
                     {
                         return Err(error("ICS_CONFLICT", "Windows sharing differs from the saved pair; its settings were left unchanged."));
                     }
-                    let mut journal = pair.checkpoint(&current);
-                    journal.native_restore = false;
+                    let mut journal = pair.checkpoint(&current, LeaseIntent::Recovering)?;
                     journal.ipv6_forwarding =
                         forwarding::read(&pair.public.id)?.map(|original| Lease {
                             original,
                             phase: Phase::Captured,
                         });
-                    storage::write(&self.path, &journal)?;
-                    self.journal = Some(journal);
+                    self.commit_journal(journal)?;
                 }
             }
         }
@@ -1491,8 +1611,7 @@ impl Manager {
                 let current = self.read()?;
                 if current.roles().len() < 2 {
                     let journal = pair.recovery(&current)?;
-                    storage::write(&self.path, &journal)?;
-                    self.journal = Some(journal);
+                    self.commit_journal(journal)?;
                 }
             }
         }
@@ -1521,8 +1640,8 @@ impl Manager {
                 "Reconnect the original sharing adapters before recovery.",
             ));
         }
-        let reset =
-            (startup_recovery || journal.recovering) && native_crash_cleanup(&journal, &current);
+        let recovering = startup_recovery || journal.intent != LeaseIntent::Managed;
+        let reset = recovering && native_crash_cleanup(&journal, &current);
         let disabled = sharing_disabled(&journal, &current, sharing == SharingExit::Disable);
         if disabled {
             self.set_native_intent(false)?;
@@ -1535,9 +1654,7 @@ impl Manager {
         // Record restoration before native handback, which may itself change forwarding.
         self.begin_ipv6_restore()?;
         // Reconcile a timed-out operation or an owned adapter lost on a crash.
-        let j = self.journal.as_mut().unwrap();
-        recovery_checkpoint(j, &current, startup_recovery || journal.recovering)?;
-        storage::write(&self.path, j)?;
+        self.save_recovery_checkpoint(&current, recovering)?;
         let changes = if sharing == SharingExit::Native {
             handoff(
                 &journal.owned_public,
@@ -1718,9 +1835,7 @@ impl Manager {
             self.active_inspected = Some(Instant::now());
             if sharing_disabled(&j, &snapshot, false) {
                 self.set_native_intent(false)?;
-                let j = self.journal.as_mut().unwrap();
-                recovery_checkpoint(j, &snapshot, false)?;
-                storage::write(&self.path, j)?;
+                self.save_recovery_checkpoint(&snapshot, false)?;
                 let e = error("ICS_DISABLED", "Internet sharing was disabled in Windows. Enable ICS TUN and Apply to resume sharing.");
                 self.last_error = Some(e.clone());
                 return Err(e);
@@ -1762,17 +1877,17 @@ impl Manager {
         }
     }
     fn mark_conflict(&mut self, snapshot: &Snapshot) -> Result<()> {
-        if let Some(j) = self.journal.as_mut() {
+        if let Some(mut j) = self.journal.clone() {
             crate::diagnostics::log(
                 "sharing.conflict",
                 "warning",
                 &format!(
                     "Observed differences from sharing checkpoint: {}.",
-                    checkpoint_differences(j, snapshot).join(", ")
+                    checkpoint_differences(&j, snapshot).join(", ")
                 ),
             );
             j.conflicted = true;
-            storage::write(&self.path, j)?;
+            self.commit_journal(j)?;
         }
         Ok(())
     }
@@ -1785,7 +1900,9 @@ mod tests {
     fn conflict_diagnostics_name_changed_fields_without_private_values() {
         let pair = saved_pair();
         let current = pair.snapshot();
-        let j = pair.checkpoint(&current);
+        let j = pair
+            .checkpoint(&current, LeaseIntent::RememberedPair)
+            .unwrap();
         assert!(checkpoint_differences(&j, &current).is_empty());
         let mut changed = current.clone();
         let private = changed
@@ -1949,8 +2066,7 @@ mod tests {
         assert!(valid(&recovery));
         assert!(compatible(&recovery, &snapshot));
         assert_eq!(recovery.private.ipv4, pair.private.ipv4);
-        assert!(recovery.recovering);
-        assert!(recovery.native_restore);
+        assert!(recovery.intent == LeaseIntent::RememberedPair);
         let mut invalid = recovery;
         invalid.ipv6_forwarding = Some(Lease {
             original: true,
@@ -2301,10 +2417,12 @@ mod tests {
             missing.connections.retain(|c| c.id != "owned");
             assert!(!sharing_disabled(&j, &missing, false));
             let mut pending = j.clone();
-            pending.pending = Some(Change {
-                id: "owned".into(),
-                role: None,
-            });
+            pending
+                .begin(Change {
+                    id: "owned".into(),
+                    role: None,
+                })
+                .unwrap();
             assert!(!sharing_disabled(&pending, &off, false));
             let mut conflicted = j.clone();
             conflicted.conflicted = true;
@@ -2333,25 +2451,25 @@ mod tests {
     }
     fn journal() -> Journal {
         Journal {
-            version: 3,
             original_public: connection("public", Some(0)),
             private: connection("private", Some(1)),
             owned_public: "owned".into(),
-            expected_private: connection("private", Some(1)),
+            checkpoint: Checkpoint {
+                private: connection("private", Some(1)),
+                roles: vec![
+                    Role {
+                        id: "owned".into(),
+                        role: 0,
+                    },
+                    Role {
+                        id: "private".into(),
+                        role: 1,
+                    },
+                ],
+            },
             conflicted: false,
-            recovering: false,
-            expected: vec![
-                Role {
-                    id: "owned".into(),
-                    role: 0,
-                },
-                Role {
-                    id: "private".into(),
-                    role: 1,
-                },
-            ],
-            pending: None,
-            native_restore: false,
+            intent: LeaseIntent::Managed,
+            mutation: RoleMutation::Confirmed,
             ipv6_forwarding: None,
             ipv6_clients: None,
         }
@@ -2398,7 +2516,7 @@ mod tests {
             target_name: "localhost".into(),
         };
         j.private.private_services.push(mapping);
-        j.expected_private = j.private.clone();
+        j.checkpoint.private = j.private.clone();
         let before = Snapshot {
             connections: vec![j.original_public.clone(), j.private.clone()],
         };
@@ -2474,8 +2592,8 @@ mod tests {
             address: "192.168.137.1".into(),
             prefix: 24,
         }];
-        j.recovering = true;
-        j.expected.clear();
+        j.intent = LeaseIntent::Recovering;
+        j.checkpoint.roles.clear();
         let mut c = j.private.clone();
         c.role = None;
         c.dhcp = true;
@@ -2497,16 +2615,17 @@ mod tests {
         j.conflicted = true;
         assert!(!native_crash_cleanup(&j, &s));
         j.conflicted = false;
-        j.recovering = false;
+        j.intent = LeaseIntent::Managed;
         assert!(!native_crash_cleanup(&j, &s));
     }
     #[test]
     fn unknown_mutation_accepts_only_one_pending_transition() {
         let mut j = journal();
-        j.pending = Some(Change {
+        j.begin(Change {
             id: "owned".into(),
             role: None,
-        });
+        })
+        .unwrap();
         assert!(compatible(
             &j,
             &Snapshot {
@@ -2534,38 +2653,77 @@ mod tests {
     }
     #[test]
     fn every_handoff_boundary_has_only_one_recoverable_unknown_operation() {
-        let mut j = journal();
-        j.expected = baseline(&j);
-        for change in handoff("public", "owned", "private") {
-            j.pending = Some(change.clone());
-            for roles in [j.expected.clone(), changed(&j.expected, &change)] {
-                let connections = ["public", "private", "owned"]
-                    .into_iter()
-                    .map(|id| connection(id, roles.iter().find(|r| r.id == id).map(|r| r.role)))
-                    .collect();
-                assert!(compatible(&j, &Snapshot { connections }));
+        let data = std::env::temp_dir().join(crate::tun::random_id().unwrap());
+        std::fs::create_dir(&data).unwrap();
+        let path = data.join("tun-sharing-lease.json");
+        let pair = saved_pair();
+        let mut j = pair
+            .checkpoint(&pair.snapshot(), LeaseIntent::Managed)
+            .unwrap();
+        let snapshot = |roles: &[Role]| Snapshot {
+            connections: [
+                pair.public.clone(),
+                pair.private.clone(),
+                connection(&pair.previous_public, None),
+            ]
+            .into_iter()
+            .map(|mut connection| {
+                connection.role = roles.iter().find(|r| r.id == connection.id).map(|r| r.role);
+                connection
+            })
+            .collect(),
+        };
+        for change in handoff(&pair.public.id, &pair.previous_public, &pair.private.id) {
+            j.begin(change.clone()).unwrap();
+            j.write(&path).unwrap();
+            let saved: StoredJournal = storage::read(&path).unwrap().unwrap();
+            assert_eq!(saved.version, 3);
+            assert_eq!(saved.pending.unwrap().id, change.id);
+            j = Journal::read(&path).unwrap().unwrap();
+            assert!(j.begin(change.clone()).is_err());
+            let before = snapshot(&j.checkpoint.roles);
+            let after = snapshot(&changed(&j.checkpoint.roles, &change));
+            assert!(compatible(&j, &before));
+            assert!(compatible(&j, &after));
+            if change.id == pair.private.id && change.role.is_none() {
+                let mut manager = idle_manager();
+                manager.path = path.clone();
+                manager.journal = Some(j.clone());
+                let blocked = path.with_extension("tmp");
+                std::fs::create_dir(&blocked).unwrap();
+                assert!(manager.save_recovery_checkpoint(&after, false).is_err());
+                assert!(manager.journal.unwrap().pending().is_some());
+                assert!(Journal::read(&path).unwrap().unwrap().pending().is_some());
+                std::fs::remove_dir(blocked).unwrap();
             }
-            j.expected = changed(&j.expected, &change);
-            j.pending = None;
+            recovery_checkpoint(&mut j, &after, false).unwrap();
         }
+        std::fs::remove_dir_all(data).unwrap();
     }
     #[test]
     fn handoff_releases_private_before_public_and_restores_it_last() {
         let mut j = journal();
-        j.expected = baseline(&j);
+        j.checkpoint.roles = baseline(&j);
         for (from, to) in [("public", "owned"), ("owned", "public")] {
             for (index, change) in handoff(from, to, "private").into_iter().enumerate() {
-                j.expected = changed(&j.expected, &change);
+                j.checkpoint.roles = changed(&j.checkpoint.roles, &change);
                 assert_eq!(
-                    j.expected.iter().any(|r| r.id == "private"),
+                    j.checkpoint.roles.iter().any(|r| r.id == "private"),
                     index == 0 || index == 3
                 );
-                assert!(j.expected.iter().filter(|r| r.role == 0).count() <= 1);
+                assert!(j.checkpoint.roles.iter().filter(|r| r.role == 0).count() <= 1);
                 let snapshot = Snapshot {
                     connections: ["public", "private", "owned"]
                         .into_iter()
                         .map(|id| {
-                            connection(id, j.expected.iter().find(|r| r.id == id).map(|r| r.role))
+                            connection(
+                                id,
+                                j.checkpoint
+                                    .roles
+                                    .iter()
+                                    .find(|r| r.id == id)
+                                    .map(|r| r.role),
+                            )
                         })
                         .collect(),
                 };
@@ -2575,7 +2733,7 @@ mod tests {
                 assert!(!compatible(&j, &edited));
             }
         }
-        assert_eq!(j.expected, baseline(&j));
+        assert_eq!(j.checkpoint.roles, baseline(&j));
     }
     #[test]
     fn recovery_journal_rejects_swapped_or_duplicate_public_roles() {
@@ -2585,13 +2743,13 @@ mod tests {
         let owned = "00000000-0000-4000-8000-000000000003";
         j.original_public.id = public.into();
         j.private.id = private.into();
-        j.expected_private.id = private.into();
+        j.checkpoint.private.id = private.into();
         j.owned_public = owned.into();
-        j.expected = baseline(&j);
+        j.checkpoint.roles = baseline(&j);
         assert!(valid(&j));
-        j.expected[0].role = 1;
+        j.checkpoint.roles[0].role = 1;
         assert!(!valid(&j));
-        j.expected = vec![
+        j.checkpoint.roles = vec![
             Role {
                 id: public.into(),
                 role: 0,
@@ -2602,18 +2760,18 @@ mod tests {
             },
         ];
         assert!(!valid(&j));
-        j.expected = baseline(&j);
-        j.pending = Some(Change {
+        j.checkpoint.roles = baseline(&j);
+        j.mutation = RoleMutation::Pending(Change {
             id: private.into(),
             role: Some(0),
         });
         assert!(!valid(&j));
-        j.pending = Some(Change {
+        j.mutation = RoleMutation::Pending(Change {
             id: owned.into(),
             role: Some(1),
         });
         assert!(!valid(&j));
-        j.pending = Some(Change {
+        j.mutation = RoleMutation::Pending(Change {
             id: owned.into(),
             role: Some(0),
         });
@@ -2670,10 +2828,11 @@ mod tests {
     #[test]
     fn unknown_private_disable_accepts_only_its_native_reset_result() {
         let mut j = journal();
-        j.pending = Some(Change {
+        j.begin(Change {
             id: "private".into(),
             role: None,
-        });
+        })
+        .unwrap();
         let mut private = connection("private", None);
         private.dhcp = true;
         let mut snapshot = Snapshot {
@@ -2694,7 +2853,7 @@ mod tests {
         let native = error("ICS_WINDOWS", "Windows sharing failed (0x80040201)");
         let other = error("ICS_WINDOWS", "Another native failure");
         assert!(!restart_required(Some(&j), &snapshot, Some(&native)));
-        j.recovering = true;
+        j.intent = LeaseIntent::Recovering;
         assert!(restart_required(Some(&j), &snapshot, Some(&native)));
         assert!(!restart_required(Some(&j), &snapshot, Some(&other)));
         assert!(!restart_required(Some(&j), &snapshot, None));

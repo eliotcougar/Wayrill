@@ -796,15 +796,20 @@ async fn client(
                     },
                     || k.handle(&request.method, request.params),
                 );
-                if result.is_ok()
-                    && matches!(
-                        request.method.as_str(),
-                        "outbounds.testStart"
-                            | "outbounds.testPlanStart"
-                            | "companion.timezoneStart"
-                    )
+                if let Some(job) = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|reply| reply["job"].as_u64())
+                    .filter(|_| {
+                        matches!(
+                            request.method.as_str(),
+                            "outbounds.testStart"
+                                | "outbounds.testPlanStart"
+                                | "companion.timezoneStart"
+                        )
+                    })
                 {
-                    k.retain_test_reservation(reservation.take());
+                    k.retain_test_reservation(job, reservation.take());
                 }
                 if result.is_ok() && request.method == "routing.diagnosticStart" {
                     k.retain_diagnostic_reservation(reservation.take());

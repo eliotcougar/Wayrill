@@ -522,9 +522,10 @@ impl Kernel {
     }
     pub(crate) fn retain_test_reservation(
         &mut self,
+        job: u64,
         reservation: Option<crate::operation_gate::Foreground>,
     ) {
-        self.outbound_tests.retain_reservation(reservation);
+        self.outbound_tests.retain_reservation(job, reservation);
     }
     pub(crate) fn retain_diagnostic_reservation(
         &mut self,
@@ -542,8 +543,7 @@ impl Kernel {
                 .outbound_tests
                 .start_health(input, self.exe.clone(), egress);
         }
-        self.outbound_tests
-            .handle(method, input, self.exe.clone(), String::new(), egress, None)
+        self.outbound_tests.status(method, input, None)
     }
     pub fn new(owner: String, base: PathBuf, data: PathBuf, events: Arc<Events>) -> Result<Self> {
         let profile_path = data.join("profile.json");
@@ -849,17 +849,20 @@ impl Kernel {
         if matches!(method, "routing.diagnosticGet" | "routing.diagnosticCancel") {
             return self.routing_diagnostics.get(method, input);
         }
-        if method.starts_with("outbounds.test") {
-            let starting = matches!(method, "outbounds.testStart" | "outbounds.testPlanStart");
-            if starting && self.resources.snapshot()["busy"] == true {
+        if matches!(method, "outbounds.testGet" | "outbounds.testCancel") {
+            return self
+                .outbound_tests
+                .status(method, input, Some(&self.subscriptions));
+        }
+        if matches!(method, "outbounds.testStart" | "outbounds.testPlanStart") {
+            if self.resources.snapshot()["busy"] == true {
                 return Err(ApiError::new(
                     "BUSY",
                     "Wait for the resource update to finish.",
                 ));
             }
-            let egress = starting.then(|| self.outbound_egress().ok()).flatten();
-            let active = if starting
-                && (input["mode"] == "speed" || input["settings"]["mode"] == "speed")
+            let egress = self.outbound_egress().ok();
+            let active = if (input["mode"] == "speed" || input["settings"]["mode"] == "speed")
                 && self.core_state == CoreState::Running
             {
                 self.control
@@ -882,8 +885,7 @@ impl Kernel {
                     active,
                 );
             }
-            return self.outbound_tests.handle(
-                method,
+            return self.outbound_tests.start_input(
                 input,
                 self.exe.clone(),
                 self.owner.clone(),
@@ -1175,8 +1177,7 @@ impl Kernel {
                         active,
                     )?
                 } else {
-                    self.outbound_tests.handle(
-                        "outbounds.testStart",
+                    self.outbound_tests.start_input(
                         main.as_ref().unwrap().0.clone(),
                         self.exe.clone(),
                         self.owner.clone(),

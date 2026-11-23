@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCheck, Upload, X } from 'lucide-react';
 import { errorMessage, type ConfigValidation, type RemoteClient } from './remoteClient';
 import { useServerJob } from './useServerJob';
-import JobOutput from './JobOutput';
+import ServerJobProgress from './ServerJobProgress';
 import { restoreRemoteDocument } from './remoteDocument';
 
 async function sha256(text: string) {
@@ -296,75 +296,19 @@ export default function ConfigDeploymentDialog({
                 Another server job is selected: {operation.request.action}.
               </p>
             )}
-            <div className="server-job-title">
-              <strong>
-                {operation.launching
-                  ? 'Submitting configuration…'
-                  : (operation.job?.stage ?? 'Checking server job…')}
-              </strong>
-              {operation.job?.percent != null && <span>{operation.job.percent}%</span>}
-            </div>
-            {operation.active && (
-              <progress
-                aria-label="Configuration apply progress"
-                max={100}
-                value={operation.error ? undefined : (operation.job?.percent ?? undefined)}
-              />
-            )}
-            {operation.job?.message && (
-              <p
-                className={
-                  operation.job.state === 'failed' || operation.job.state === 'interrupted'
-                    ? 'status-error'
-                    : 'muted'
-                }
-              >
-                {operation.job.message}
-              </p>
-            )}
-            {job?.configResult && (
-              <label className="editor-field">
-                Backup on server
-                <input
-                  className="text-control"
-                  aria-label="Backup on server"
-                  readOnly
-                  value={job.configResult.backupPath}
-                />
-              </label>
-            )}
-            {operation.error && (
-              <p className="status-warning" role="alert">
-                {operation.error}
-              </p>
-            )}
-            {operation.retry ? (
-              <div className="server-actions">
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    void operation.retryRequest();
-                  }}
-                >
-                  Retry same request
-                </button>
-                <button className="secondary-button" onClick={operation.dismiss}>
-                  Dismiss
-                </button>
-              </div>
-            ) : (
-              operation.active && (
-                <p className="muted">Closing this window does not cancel the server job.</p>
-              )
-            )}
-            {!operation.active && (
-              <button className="secondary-button" onClick={operation.dismiss}>
-                Dismiss result
-              </button>
-            )}
-            {!!operation.job?.logs.length && (
-              <JobOutput key={operation.job.id} logs={operation.job.logs} />
-            )}
+            <ServerJobProgress operation={operation} progressLabel="Configuration apply progress">
+              {job?.configResult && (
+                <label className="editor-field">
+                  Backup on server
+                  <input
+                    className="text-control"
+                    aria-label="Backup on server"
+                    readOnly
+                    value={job.configResult.backupPath}
+                  />
+                </label>
+              )}
+            </ServerJobProgress>
           </section>
         )}
         {confirming && (

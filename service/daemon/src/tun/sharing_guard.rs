@@ -41,12 +41,18 @@ const FILTERS: [(GUID, GUID, bool); 4] = [
     ),
 ];
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Handback {
+    Native,
+    Disable,
+}
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Guard {
     private: String,
     capture: String,
     #[serde(default)]
-    release: Option<SharingExit>,
+    release: Option<Handback>,
 }
 fn path(data: &Path) -> std::path::PathBuf {
     data.join("tun-sharing-barrier.json")
@@ -73,18 +79,23 @@ pub(super) fn active(data: &Path) -> bool {
     path(data).is_file()
 }
 pub(super) fn requested(data: &Path) -> Result<Option<SharingExit>> {
-    let value = load(data)?.and_then(|g| g.release);
-    if value == Some(SharingExit::Suspend) {
-        return Err(error("Invalid sharing handback intent."));
-    }
-    Ok(value)
+    Ok(load(data)?
+        .and_then(|g| g.release)
+        .map(|handback| match handback {
+            Handback::Native => SharingExit::Native,
+            Handback::Disable => SharingExit::Disable,
+        }))
 }
 pub(super) fn request_release(data: &Path, sharing: SharingExit) -> Result<()> {
-    if sharing == SharingExit::Suspend {
-        return Err(error("Suspension does not authorize native handback."));
-    }
+    let handback = match sharing {
+        SharingExit::Native => Handback::Native,
+        SharingExit::Disable => Handback::Disable,
+        SharingExit::Suspend => {
+            return Err(error("Suspension does not authorize native handback."))
+        }
+    };
     if let Some(mut guard) = load(data)? {
-        guard.release = Some(sharing);
+        guard.release = Some(handback);
         storage::write(&path(data), &guard)?;
     }
     Ok(())
@@ -292,6 +303,11 @@ mod tests {
         assert_eq!(requested(&data).unwrap(), Some(SharingExit::Native));
         request_release(&data, SharingExit::Disable).unwrap();
         assert_eq!(requested(&data).unwrap(), Some(SharingExit::Disable));
+        let mut legacy: serde_json::Value = storage::read(&path(&data)).unwrap().unwrap();
+        assert_eq!(legacy["release"], "disable");
+        legacy["release"] = serde_json::json!("suspend");
+        storage::write(&path(&data), &legacy).unwrap();
+        assert!(requested(&data).is_err());
         std::fs::remove_dir_all(data).unwrap();
     }
 }

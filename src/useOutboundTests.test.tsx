@@ -16,7 +16,8 @@ import type { StashLink } from './graph/types';
 import { createPolicyExample } from './graph/policyExample';
 import OutboundTestResults from './components/OutboundTestResults';
 vi.mock('./profiles/serviceSubscriptions', () => ({ stageOutboundTests: vi.fn() }));
-vi.mock('./serviceClient', () => ({
+vi.mock('./serviceClient', async (original) => ({
+  ...(await original<typeof import('./serviceClient')>()),
   serviceCall: vi.fn(),
   desktopServiceAvailable: () => true,
   errorText: (e: unknown) => String(e),
@@ -176,15 +177,25 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-it('cancels a job before the start reply arrives and discards its late result', async () => {
+it('cancels before the start reply and keeps completed results from the draining job', async () => {
   let finish: ((v: unknown) => void) | undefined;
-  vi.mocked(serviceCall).mockImplementation((method) =>
-    method === 'outbounds.testPlanStart'
-      ? new Promise((resolve) => {
-          finish = resolve;
-        })
-      : Promise.resolve({ job: 3, busy: false, results: [] }),
-  );
+  const completed = [
+    { id: 'test-1', latencyMs: 10 },
+    { id: 'test-2', latencyMs: 20 },
+  ];
+  vi.mocked(serviceCall).mockImplementation(async (method, params) => {
+    if (method === 'outbounds.testPlanStart')
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    if (method === 'outbounds.testCancel') {
+      expect(params).toMatchObject({ sourceToken: 'staged-test-draft', offset: 0 });
+      return { job: 3, busy: false, cancelled: true, completed: 2, results: completed.slice(0, 1) };
+    }
+    expect(method).toBe('outbounds.testGet');
+    expect(params).toMatchObject({ job: 3, offset: 1 });
+    return { job: 3, busy: false, cancelled: true, completed: 2, results: completed.slice(1) };
+  });
   await act(() => root.render(<Probe />));
   let pending: Promise<void>;
   await act(async () => {
@@ -192,21 +203,47 @@ it('cancels a job before the start reply arrives and discards its late result', 
     await Promise.resolve();
     await Promise.resolve();
   });
-  await act(() => latest.cancel());
+  await act(async () => {
+    latest.cancel();
+    await pending!;
+  });
+  expect(latest.busy).toBe(false);
   await act(async () => {
     finish!({
       job: 3,
       busy: false,
-      results: [{ id: 'test-1', latencyMs: 999 }],
+      results: [{ id: 'late', latencyMs: 999 }],
       cancelled: false,
     });
     await pending!;
   });
-  expect(serviceCall).toHaveBeenCalledWith('outbounds.testCancel', {
-    job: 3,
+  expect([...latest.results.values()]).toEqual(completed);
+  expect(latest.status).toContain('Cancelled');
+});
+
+it('reattaches to an accepted job after its start reply is lost', async () => {
+  vi.mocked(serviceCall).mockImplementation(async (method, params) => {
+    if (method === 'outbounds.testPlanStart')
+      throw Object.assign(new Error('Pipe timed out'), { code: 'TIMEOUT' });
+    expect(method).toBe('outbounds.testGet');
+    expect(params).toEqual({ sourceToken: 'staged-test-draft' });
+    return {
+      job: 6,
+      busy: false,
+      cancelled: false,
+      completed: 1,
+      results: [{ id: 'only', latencyMs: 42 }],
+    };
   });
-  expect(latest.results.size).toBe(0);
-  expect(latest.busy).toBe(false);
+  await act(() => root.render(<Probe />));
+  await act(() => latest.start());
+  expect(latest.results.get('only')?.latencyMs).toBe(42);
+  expect(latest.error).toBe('');
+  expect(latest.status).toBe('1 outbound tested');
+  expect(vi.mocked(serviceCall).mock.calls.map(([method]) => method)).toEqual([
+    'outbounds.testPlanStart',
+    'outbounds.testGet',
+  ]);
 });
 
 it('requests UDP alongside latency only when enabled, with separate results and no UDP in speed jobs', async () => {

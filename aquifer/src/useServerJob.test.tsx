@@ -28,8 +28,8 @@ function progress(state: ServerJob['state'], age = 0): ServerJob {
     bootId: 'boot',
   };
 }
-function Harness() {
-  operation = useServerJob(client, session, onFinished);
+function Harness({ server = session }: { server?: string }) {
+  operation = useServerJob(client, server, onFinished);
   return <>{operation.job?.stage}</>;
 }
 async function mount() {
@@ -101,7 +101,7 @@ it('keeps monitoring a running job even when its last progress is older than one
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   expect(operation.job?.state).toBe('running');
   expect(operation.active).toBe(true);
-  expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual(request);
+  expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual({ ...request, accepted: true });
   expect(client.startAction).not.toHaveBeenCalled();
   expect(onFinished).not.toHaveBeenCalled();
 });
@@ -117,11 +117,76 @@ it('retains a recent result only for the remaining hour after server completion'
   expect(client.startAction).not.toHaveBeenCalled();
 });
 
-it('strips local expiry metadata before retrying a request', async () => {
-  localStorage.setItem(storageKey, JSON.stringify({ ...request, expiresAt: Date.now() + hour }));
+it('retries the immutable request after checking that the server has no receipt', async () => {
+  localStorage.setItem(storageKey, JSON.stringify({ ...request, accepted: false }));
+  vi.mocked(client.pollAction).mockRejectedValue({ code: 'JOB_NOT_FOUND', message: 'No receipt' });
   vi.mocked(client.startAction).mockResolvedValue(progress('running'));
   await mount();
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(operation.phase).toBe('rejected');
+  expect(operation.retry).toBe(true);
   await act(async () => operation.retryRequest());
   expect(client.startAction).toHaveBeenCalledWith(session, request);
-  expect(localStorage.getItem(storageKey)).not.toContain('expiresAt');
+  expect(operation.phase).toBe('observing');
+});
+
+it('reports a definite systemd rejection without polling or offering a replay', async () => {
+  vi.mocked(client.startAction).mockRejectedValue({
+    code: 'SYSTEMD',
+    message: 'systemd is required',
+  });
+  await mount();
+  await act(() => operation.start({ action: 'refreshApt' }));
+  await act(() => vi.advanceTimersByTimeAsync(6000));
+  expect(operation.phase).toBe('rejected');
+  expect(operation.error).toBe('systemd is required');
+  expect(operation.retry).toBe(false);
+  expect(client.pollAction).not.toHaveBeenCalled();
+  expect(localStorage.getItem(storageKey)).toBeNull();
+});
+
+it('follows the original job after a lost start reply and pauses if its receipt later disappears', async () => {
+  vi.mocked(client.startAction).mockRejectedValue({
+    code: 'CONNECT',
+    message: 'Connection closed',
+  });
+  vi.mocked(client.pollAction).mockImplementationOnce(async (_session, id) => ({
+    ...progress('running'),
+    id,
+  }));
+  vi.mocked(client.pollAction).mockRejectedValue({ code: 'JOB_NOT_FOUND', message: 'No receipt' });
+  await mount();
+  await act(() => operation.start({ action: 'refreshApt' }));
+  const id = operation.request!.id;
+  expect(operation.phase).toBe('checking');
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(operation.phase).toBe('observing');
+  expect(client.pollAction).toHaveBeenCalledWith(session, id);
+  expect(JSON.parse(localStorage.getItem(storageKey)!)).toMatchObject({ id, accepted: true });
+  await act(() => root.render(<Harness key="reopened" />));
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(operation.phase).toBe('paused');
+  expect(operation.retry).toBe(false);
+  await act(async () => operation.retryRequest());
+  expect(client.startAction).toHaveBeenCalledTimes(1);
+});
+
+it('ignores a terminal response from a server whose dialog was replaced', async () => {
+  const other = { ...request, id: 'b'.repeat(32) };
+  localStorage.setItem(storageKey, JSON.stringify(request));
+  localStorage.setItem('wayrill.remote.job.Other', JSON.stringify(other));
+  let finish!: (job: ServerJob) => void;
+  vi.mocked(client.pollAction).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await mount();
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  await act(() => root.render(<Harness key="Other" server="Other" />));
+  await act(() => finish(progress('succeeded')));
+  expect(operation.request).toEqual(other);
+  expect(onFinished).not.toHaveBeenCalled();
+  expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual(request);
 });

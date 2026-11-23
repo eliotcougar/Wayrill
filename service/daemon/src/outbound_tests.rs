@@ -70,7 +70,7 @@ struct PlannedInput {
 }
 enum Preparation {
     StashTimezone(Value),
-    Outbounds(String),
+    Outbounds { token: String, source: String },
 }
 #[derive(Deserialize)]
 struct Prepared {
@@ -157,7 +157,9 @@ struct Target {
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct JobInput {
+    #[serde(default)]
     job: u64,
+    source_token: Option<String>,
     #[serde(default)]
     offset: usize,
     row_offset: Option<usize>,
@@ -184,9 +186,22 @@ struct TestResult {
     udp: Option<udp::Reachability>,
 }
 #[derive(Default)]
+enum JobPhase {
+    #[default]
+    Finished,
+    Preparing,
+    Running,
+    Draining,
+}
+impl JobPhase {
+    fn busy(&self) -> bool {
+        !matches!(self, Self::Finished)
+    }
+}
+#[derive(Default)]
 struct State {
     job: u64,
-    busy: bool,
+    phase: JobPhase,
     total: usize,
     results: Vec<TestResult>,
     previews: BTreeMap<String, TestResult>,
@@ -200,7 +215,7 @@ struct Completion(Arc<Mutex<State>>);
 impl Drop for Completion {
     fn drop(&mut self) {
         let mut state = self.0.lock().unwrap();
-        state.busy = false;
+        state.phase = JobPhase::Finished;
         state.previews.clear();
         state.reservation = None;
         if state.planned && std::thread::panicking() {
@@ -215,6 +230,16 @@ impl Drop for Completion {
 struct Job {
     state: Arc<Mutex<State>>,
     stop: Arc<AtomicBool>,
+    source_token: Option<String>,
+}
+impl Job {
+    fn cancel(&self) {
+        let mut state = self.state.lock().unwrap();
+        if state.phase.busy() {
+            state.phase = JobPhase::Draining;
+            self.stop.store(true, Ordering::Release);
+        }
+    }
 }
 pub struct Manager {
     current: Job,
@@ -230,14 +255,15 @@ impl Manager {
         }
     }
     pub fn busy(&self) -> bool {
-        self.current.state.lock().unwrap().busy
+        self.current.state.lock().unwrap().phase.busy()
     }
     pub(crate) fn retain_reservation(
         &mut self,
+        job: u64,
         reservation: Option<crate::operation_gate::Foreground>,
     ) {
         let mut state = self.current.state.lock().unwrap();
-        if state.busy {
+        if state.job == job && state.phase.busy() {
             state.reservation = reservation;
         }
     }
@@ -255,7 +281,7 @@ impl Manager {
         } else {
             s.results.len()
         };
-        let mut snapshot = json!({"job":s.job,"busy":s.busy,"total":s.total,"completed":s.results.len(),"cancelled":job.stop.load(Ordering::SeqCst),"results":&s.results[offset..end]});
+        let mut snapshot = json!({"job":s.job,"busy":s.phase.busy(),"total":s.total,"completed":s.results.len(),"cancelled":job.stop.load(Ordering::Acquire),"results":&s.results[offset..end]});
         if !s.previews.is_empty() {
             snapshot["previews"] = json!(s.previews.values().collect::<Vec<_>>());
         }
@@ -284,6 +310,9 @@ impl Manager {
         active: Option<ActivePolicy>,
     ) -> Result<Value> {
         let request: PlannedInput = params(value)?;
+        if let Some(job) = self.planned_job(&request.source_token) {
+            return Ok(Self::snapshot(job, JobInput::default()));
+        }
         if !request.settings.targets.is_empty() || request.settings.mode == Mode::Timezone {
             return Err(invalid("Choose a delay or speed test for the draft."));
         }
@@ -291,7 +320,10 @@ impl Manager {
         let source = subscriptions.take_outbound_test_source(&request.source_token)?;
         self.start(
             request.settings,
-            Some(Preparation::Outbounds(source)),
+            Some(Preparation::Outbounds {
+                token: request.source_token,
+                source,
+            }),
             exe,
             owner,
             egress,
@@ -363,11 +395,19 @@ impl Manager {
             return Err(invalid("Cannot create an outbound test job."));
         }
         let id = (u64::from_le_bytes(random) & ((1u64 << 53) - 1)).max(1);
-        let planned = matches!(preparation, Some(Preparation::Outbounds(_)));
+        let source_token = match &preparation {
+            Some(Preparation::Outbounds { token, .. }) => Some(token.clone()),
+            _ => None,
+        };
+        let planned = source_token.is_some();
         let job = Job {
             state: Arc::new(Mutex::new(State {
                 job: id,
-                busy: true,
+                phase: if preparation.is_some() {
+                    JobPhase::Preparing
+                } else {
+                    JobPhase::Running
+                },
                 total: if matches!(preparation, Some(Preparation::StashTimezone(_))) {
                     1
                 } else {
@@ -377,6 +417,7 @@ impl Manager {
                 ..State::default()
             })),
             stop: Arc::new(AtomicBool::new(false)),
+            source_token,
         };
         let state = job.state.clone();
         let stop = job.stop.clone();
@@ -408,7 +449,7 @@ impl Manager {
                             .push(failed("companion-custom".into(), &error.message));
                         return;
                     }
-                } else if let Some(Preparation::Outbounds(source)) = preparation {
+                } else if let Some(Preparation::Outbounds { source, .. }) = preparation {
                     match prepare_outbounds(source, input.mode, &stop) {
                         Ok(prepared) => {
                             let mut state = state.lock().unwrap();
@@ -440,6 +481,13 @@ impl Manager {
                 };
                 if queue.is_empty() {
                     return;
+                }
+                {
+                    let mut state = state.lock().unwrap();
+                    if matches!(state.phase, JobPhase::Draining) {
+                        return;
+                    }
+                    state.phase = JobPhase::Running;
                 }
                 // Each probe starts a separate Xray. Leave CPU headroom for
                 // routing and config loading when testing on a small machine.
@@ -534,43 +582,79 @@ impl Manager {
         self.current = job;
         Ok(Self::snapshot(&self.current, JobInput::default()))
     }
-    pub fn handle(
+    fn planned_job(&self, token: &str) -> Option<&Job> {
+        self.last_planned
+            .as_ref()
+            .filter(|job| job.source_token.as_deref() == Some(token))
+    }
+
+    pub(crate) fn start_input(
         &mut self,
-        method: &str,
         value: Value,
         exe: PathBuf,
         owner: String,
         egress: Option<crate::tun::OutboundEgress>,
         active: Option<ActivePolicy>,
     ) -> Result<Value> {
-        match method {
-            "outbounds.testStart" => self.start(params(value)?, None, exe, owner, egress, active),
-            "outbounds.testGet" | "outbounds.testCancel" => {
-                let input: JobInput = params(value)?;
-                let job =
-                    if input.job == self.current.state.lock().unwrap().job && input.job != 0 {
-                        Some(&self.current)
-                    } else {
-                        self.last_planned
-                            .as_ref()
-                            .filter(|job| job.state.lock().unwrap().job == input.job)
-                    }
-                    .ok_or_else(|| {
-                        ApiError::new(
-                            "TEST_JOB_CHANGED",
-                            "This outbound test is no longer available.",
-                        )
-                    })?;
-                if method == "outbounds.testCancel" {
-                    job.stop.store(true, Ordering::SeqCst);
-                }
-                Ok(Self::snapshot(job, input))
+        self.start(params(value)?, None, exe, owner, egress, active)
+    }
+
+    pub(crate) fn status(
+        &self,
+        method: &str,
+        value: Value,
+        subscriptions: Option<&crate::subscriptions::Manager>,
+    ) -> Result<Value> {
+        let cancel = match method {
+            "outbounds.testGet" => false,
+            "outbounds.testCancel" => true,
+            _ => {
+                return Err(ApiError::new(
+                    "METHOD_NOT_FOUND",
+                    "Unknown outbound test method.",
+                ))
             }
-            _ => Err(ApiError::new(
-                "METHOD_NOT_FOUND",
-                "Unknown outbound test method.",
-            )),
+        };
+        let input: JobInput = params(value)?;
+        let job = match (&input.source_token, input.job) {
+            (Some(token), 0)
+                if token.len() == 32 && token.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
+                match self.planned_job(token) {
+                    Some(job) => Some(job),
+                    None if cancel => {
+                        // Admission and cancellation share the kernel lock.
+                        // Revoke the single-use draft if a delayed start has
+                        // not consumed it yet. That start can no longer run.
+                        subscriptions
+                            .ok_or_else(|| {
+                                invalid("A draft token requires the subscription store.")
+                            })?
+                            .discard_outbound_test_source(token);
+                        return Ok(json!({
+                            "job":0,"busy":false,"cancelled":true,
+                            "total":0,"completed":0,"results":[]
+                        }));
+                    }
+                    None => None,
+                }
+            }
+            (None, id) if id != 0 => ([Some(&self.current), self.last_planned.as_ref()])
+                .into_iter()
+                .flatten()
+                .find(|job| job.state.lock().unwrap().job == id),
+            _ => return Err(invalid("Specify one outbound test job or draft token.")),
+        };
+        let job = job.ok_or_else(|| {
+            ApiError::new(
+                "TEST_JOB_CHANGED",
+                "This outbound test is no longer available.",
+            )
+        })?;
+        if cancel {
+            job.cancel();
         }
+        Ok(Self::snapshot(job, input))
     }
 }
 impl Drop for Manager {
@@ -1520,8 +1604,8 @@ mod tests {
         for unwind in [false, true] {
             let gate = crate::operation_gate::Gate::default();
             let mut manager = Manager::new();
-            manager.current.state.lock().unwrap().busy = true;
-            manager.retain_reservation(Some(gate.foreground(&AtomicBool::new(false)).unwrap()));
+            manager.current.state.lock().unwrap().phase = JobPhase::Running;
+            manager.retain_reservation(0, Some(gate.foreground(&AtomicBool::new(false)).unwrap()));
             assert!(gate.background().is_none());
             let state = manager.current.state.clone();
             let result = std::panic::catch_unwind(move || {
@@ -1605,25 +1689,72 @@ mod tests {
     }
     #[test]
     fn stale_cancel_cannot_cancel_a_new_job() {
-        let mut manager = Manager::new();
-        manager.current.state.lock().unwrap().job = 2;
+        let manager = Manager::new();
+        {
+            let mut state = manager.current.state.lock().unwrap();
+            state.job = 2;
+            state.phase = JobPhase::Running;
+        }
         assert!(manager
-            .handle(
-                "outbounds.testCancel",
-                json!({"job":1}),
-                PathBuf::new(),
-                "".into(),
-                None,
-                None
-            )
+            .status("outbounds.testCancel", json!({"job":1}), None)
             .is_err());
         assert!(!manager.current.stop.load(Ordering::SeqCst));
     }
 
     #[test]
+    fn cancelling_by_token_prevents_a_delayed_start_from_consuming_the_draft() {
+        let subscriptions = crate::subscriptions::Manager::open(
+            "test-owner",
+            std::env::temp_dir().join(format!(
+                "wayrill-draft-{}.dpapi",
+                crate::tun::random_id().unwrap()
+            )),
+            crate::events::Events::new(),
+        );
+        let begin = subscriptions
+            .handle(
+                "subscriptions.uploadStart",
+                json!({"kind":"outbound-tests","bytes":2}),
+            )
+            .unwrap();
+        let token = begin["token"].as_str().unwrap();
+        subscriptions
+            .handle(
+                "subscriptions.uploadChunk",
+                json!({"token":token,"offset":0,"text":"{}"}),
+            )
+            .unwrap();
+        subscriptions
+            .handle("subscriptions.uploadCommit", json!({"token":token}))
+            .unwrap();
+        let mut manager = Manager::new();
+        let result = manager
+            .status(
+                "outbounds.testCancel",
+                json!({"sourceToken":token}),
+                Some(&subscriptions),
+            )
+            .unwrap();
+        assert_eq!(result["cancelled"], true);
+        assert_eq!(result["busy"], false);
+        let start = manager.start_planned(
+            json!({"sourceToken":token,"settings":{"testUrl":"http://127.0.0.1/","countryUrl":""}}),
+            &subscriptions,
+            PathBuf::new(),
+            "test-owner".into(),
+            None,
+            None,
+        );
+        assert!(start.unwrap_err().message.contains("draft expired"));
+        assert!(manager.worker.is_none());
+    }
+
+    #[test]
     fn planned_pages_remain_available_after_another_probe_starts() {
         let mut manager = Manager::new();
-        let completed = Manager::new();
+        let mut completed = Manager::new();
+        let token = "a".repeat(32);
+        completed.current.source_token = Some(token.clone());
         let total = RESULT_PAGE * 2 + 3;
         {
             let mut state = completed.current.state.lock().unwrap();
@@ -1641,21 +1772,13 @@ mod tests {
         manager.last_planned = Some(completed.current.clone());
         manager.current.state.lock().unwrap().job = 2;
         let read = |manager: &mut Manager, page: Value| {
-            manager
-                .handle(
-                    "outbounds.testGet",
-                    page,
-                    PathBuf::new(),
-                    String::new(),
-                    None,
-                    None,
-                )
-                .unwrap()
+            manager.status("outbounds.testGet", page, None).unwrap()
         };
         let first = read(
             &mut manager,
-            json!({"job":1,"rowOffset":0,"targetOffset":0}),
+            json!({"sourceToken":token,"rowOffset":0,"targetOffset":0}),
         );
+        assert_eq!(first["job"], 1);
         assert_eq!(first["results"].as_array().unwrap().len(), RESULT_PAGE);
         assert_eq!(first["rows"].as_array().unwrap().len(), PLAN_PAGE);
         let end = read(

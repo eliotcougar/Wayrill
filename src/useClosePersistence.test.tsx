@@ -5,8 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import useClosePersistence from './useClosePersistence';
 const mock = vi.hoisted(() => ({
   invoke: vi.fn().mockResolvedValue(undefined),
-  close: undefined as undefined | (() => void),
-  destroy: vi.fn(),
+  close: undefined as undefined | ((event: { payload: number }) => void),
   write: vi.fn(),
   unsubscribe: vi.fn(),
 }));
@@ -18,7 +17,6 @@ vi.mock('@tauri-apps/api/window', () => ({
       mock.close = callback;
       return mock.unsubscribe;
     },
-    destroy: mock.destroy,
   }),
 }));
 vi.mock('./protectedStorage', () => ({
@@ -26,6 +24,9 @@ vi.mock('./protectedStorage', () => ({
   protectedWrite: mock.write,
 }));
 let root: Root;
+const close = (attempt: number) => mock.close!({ payload: attempt });
+const completion = (attempt: number, error: string | null = null) =>
+  ['desktop_close_complete', { attempt, error }] as const;
 function Harness({
   workspace,
   stash,
@@ -44,10 +45,9 @@ function Harness({
 }
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  mock.invoke.mockReset().mockResolvedValue(undefined);
+  mock.invoke.mockReset().mockResolvedValue(true);
   mock.close = undefined;
   mock.write.mockReset().mockResolvedValue(undefined);
-  mock.destroy.mockReset().mockResolvedValue(undefined);
   mock.unsubscribe.mockReset();
   root = createRoot(document.createElement('div'));
 });
@@ -66,14 +66,15 @@ it('flushes an edit made during a pending close write before destroying the wind
   const error = vi.fn(),
     stash = () => 'stash';
   mock.invoke.mockImplementation(async (command) => {
-    if (command === 'desktop_ready') mock.close?.();
+    if (command === 'desktop_ready') close(1);
+    return true;
   });
   await act(() => root.render(<Harness workspace={() => 'old'} stash={stash} error={error} />));
   expect(mock.write).toHaveBeenCalledTimes(1);
   await act(() => {
-    mock.close!();
+    close(1);
   });
-  expect(mock.destroy).not.toHaveBeenCalled();
+  expect(mock.invoke.mock.calls).not.toContainEqual(completion(1));
   await act(() => root.render(<Harness workspace={() => 'new'} stash={stash} error={error} />));
   await act(async () => {
     finish();
@@ -85,7 +86,7 @@ it('flushes an edit made during a pending close write before destroying the wind
     ['workspace', 'new'],
     ['stash', 'stash', 'stash-base'],
   ]);
-  expect(mock.destroy).toHaveBeenCalledOnce();
+  expect(mock.invoke.mock.calls).toContainEqual(completion(1));
   expect(error).not.toHaveBeenCalled();
 });
 it('preserves an unreadable vault on close instead of replacing it with an example', async () => {
@@ -94,11 +95,11 @@ it('preserves an unreadable vault on close instead of replacing it with an examp
   await act(() =>
     root.render(<Harness workspace={workspace} stash={stash} ready={false} error={vi.fn()} />),
   );
-  await act(() => mock.close!());
+  await act(() => close(1));
   expect(mock.write).not.toHaveBeenCalled();
   expect(workspace).not.toHaveBeenCalled();
   expect(stash).not.toHaveBeenCalled();
-  expect(mock.destroy).toHaveBeenCalledOnce();
+  expect(mock.invoke.mock.calls).toContainEqual(completion(1));
 });
 it('keeps the window open after write failure and permits a fresh close attempt', async () => {
   const error = vi.fn(),
@@ -106,10 +107,14 @@ it('keeps the window open after write failure and permits a fresh close attempt'
     stash = () => 'stash';
   mock.write.mockRejectedValueOnce(new Error('disk full'));
   await act(() => root.render(<Harness workspace={workspace} stash={stash} error={error} />));
-  await act(() => mock.close!());
-  expect(mock.destroy).not.toHaveBeenCalled();
+  await act(() => close(1));
+  expect(mock.invoke.mock.calls).not.toContainEqual(completion(1));
   expect(error).toHaveBeenCalledWith(expect.stringContaining('disk full'));
-  expect(mock.invoke).toHaveBeenCalledWith('desktop_close_cancel', { message: 'disk full' });
-  await act(() => mock.close!());
-  expect(mock.destroy).toHaveBeenCalledOnce();
+  expect(mock.invoke.mock.calls).toContainEqual(completion(1, 'disk full'));
+  await act(() => close(2));
+  await act(() => close(1));
+  expect(mock.invoke.mock.calls).toContainEqual(completion(2));
+  expect(
+    mock.invoke.mock.calls.filter(([command]) => command === 'desktop_close_complete'),
+  ).toHaveLength(2);
 });
