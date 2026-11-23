@@ -4,13 +4,13 @@ function hasCode(error: unknown, code: string) {
   return !!error && typeof error === 'object' && 'code' in error && error.code === code;
 }
 
-async function interruptible<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+export async function interruptible<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
   signal.throwIfAborted();
   let stop!: () => void;
   const cancelled = new Promise<never>((_, reject) => {
     stop = () => {
       const reason: unknown = signal.reason;
-      reject(reason instanceof Error ? reason : new Error('Outbound test request interrupted.'));
+      reject(reason instanceof Error ? reason : new Error('Service request interrupted.'));
     };
     signal.addEventListener('abort', stop, { once: true });
   });

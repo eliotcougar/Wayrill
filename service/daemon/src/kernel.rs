@@ -139,6 +139,7 @@ pub struct Kernel {
     pub(crate) subscriptions: crate::subscriptions::Manager,
     startup: crate::startup::Startup,
     recovery: crate::recovery::Supervisor,
+    upgrade_retry_at: Option<Instant>,
     network: crate::tun::network::Monitor,
     resources: crate::resources::Manager,
     outbound_tests: crate::outbound_tests::Manager,
@@ -586,12 +587,7 @@ impl Kernel {
         let session = crate::startup::session::Session::open()?;
         // A new Windows boot is explicit saved auto-start authorization. A
         // service crash/restart or installer handoff cannot re-arm a user Stop.
-        if startup.requests_boot_start(
-            session.is_new,
-            data.join("upgrade-resume.json")
-                .try_exists()
-                .map_err(|e| ApiError::io("Inspect upgrade handoff", e))?,
-        ) {
+        if startup.requests_boot_start(session.is_new, crate::upgrade::pending(&profile_path)) {
             recovery.request(crate::recovery::Origin::Boot)?;
         }
         // Commit after durable Running intent, so an interrupted initialization
@@ -637,6 +633,7 @@ impl Kernel {
             owner,
             exe: base.join("xray").join("xray.exe"),
             profile_path,
+            upgrade_retry_at: None,
             profile,
             empty_revision,
             profile_recovery,
@@ -709,7 +706,7 @@ impl Kernel {
         json!({"appProtection":self.protection.summary(),"serviceVersion":env!("CARGO_PKG_VERSION"),"apiVersion":1,"instanceId":self.events.instance_id,"ownerSid":self.owner,"uptimeSeconds":self.started.elapsed().as_secs(),"config":{"present":self.profile.is_some(),"revision":self.revision(),"sha256":self.profile.as_ref().map(|p|&p.hash),"recoveryError":self.profile_recovery},"startup":self.startup.snapshot(self.recovery.boot_waiting()),"lifecycle":self.lifecycle,"recovery":self.recovery.snapshot(),"core":{"userSid":self.core.as_ref().map(|c|&c.user_sid),"state":self.core_state,"failureSource":self.health_fault,"pid":self.core.as_ref().map(|c|c.pid),"generation":self.generation,"version":crate::native::XRAY_VERSION,"lastError":self.last_error},"winDivert":self.divert.status(),"capture":self.capture.status(),"tun":self.tun.status(),"fakeDns":self.fake_dns_status(),"network":self.network.snapshot(),"tunAdapters":self.tun.adapter_preferences().ok(),"systemProxy":self.proxy.status(),"systemCapture":self.proxy.extras.summary(),"userSettings":{"waitingForUser":self.proxy.user_deferred(),"lastError":self.user_settings_error.as_ref().filter(|_|self.proxy.user_deferred())},"traffic":self.statistics.snapshot(),"observation":self.observation.as_ref().filter(|(generation, time, _)| *generation == self.generation && self.core_state == CoreState::Running && time.elapsed() < Duration::from_secs(10)).map(|(_, _, value)| value),"resources":self.resource_status()})
     }
     fn hello(&self) -> Value {
-        json!({"serviceVersion":env!("CARGO_PKG_VERSION"),"apiVersion":1,"instanceId":self.events.instance_id,"capabilities":["service.sync","subscriptions.service","subscriptions.replace","pool.managed","service.startup","resources.management","resources.browse","xray.lifecycle","xray.routingLive","routing.diagnostics","config.refreshOutbounds","windows.tun","windows.tun.adapters","windows.tun.applications","windows.tun.fakedns","windows.tun.nat","windows.tun.sharing","windows.ics.graph","xray.observatory","xray.statistics","xray.routingLog","routing.activity","companion.routes","xray.statistics.pages","xray.statistics.sorting","xray.statistics.reset","outbounds.testing","outbounds.interfaces","xray.nativeImport","xray.protocols","config.validate","config.apply","config.applyAndStart","config.displayNames","events.replay","windivert.sniffDiagnostic","windivert.routing","windivert.ruleProcesses","windows.catalog","windows.loopback","system.capture","system.capture.diagnostics","system.capture.scope","windivert.maintenance"],"notImplemented":["firewallRules","coreAutoUpdate","fullGraphCompilation"],"protocols":{"inbound":wayrill_protocol::INBOUND_PROTOCOLS,"outbound":wayrill_protocol::OUTBOUND_PROTOCOLS,"adapterRuntime":true},"maxFrameBytes":wayrill_protocol::MAX_FRAME,"maxConfigBytes":wayrill_protocol::MAX_CONFIG,"maxOutbounds":wayrill_protocol::MAX_OUTBOUNDS,"maxRoutingRules":wayrill_protocol::MAX_ROUTING_RULES})
+        json!({"serviceVersion":env!("CARGO_PKG_VERSION"),"apiVersion":1,"instanceId":self.events.instance_id,"capabilities":["service.sync","subscriptions.service","subscriptions.replace","pool.managed","service.startup","resources.management","resources.browse","xray.lifecycle","routing.commandReceipts","xray.routingLive","routing.diagnostics","config.refreshOutbounds","windows.tun","windows.tun.adapters","windows.tun.applications","windows.tun.fakedns","windows.tun.nat","windows.tun.sharing","windows.ics.graph","xray.observatory","xray.statistics","xray.routingLog","routing.activity","companion.routes","xray.statistics.pages","xray.statistics.sorting","xray.statistics.reset","outbounds.testing","outbounds.interfaces","xray.nativeImport","xray.protocols","config.validate","config.apply","config.applyAndStart","config.displayNames","events.replay","windivert.sniffDiagnostic","windivert.routing","windivert.ruleProcesses","windows.catalog","windows.loopback","system.capture","system.capture.diagnostics","system.capture.scope","windivert.maintenance"],"notImplemented":["firewallRules","coreAutoUpdate","fullGraphCompilation"],"protocols":{"inbound":wayrill_protocol::INBOUND_PROTOCOLS,"outbound":wayrill_protocol::OUTBOUND_PROTOCOLS,"adapterRuntime":true},"maxFrameBytes":wayrill_protocol::MAX_FRAME,"maxConfigBytes":wayrill_protocol::MAX_CONFIG,"maxOutbounds":wayrill_protocol::MAX_OUTBOUNDS,"maxRoutingRules":wayrill_protocol::MAX_ROUTING_RULES})
     }
     fn config_view(&self) -> Value {
         json!({"revision":self.revision(),"config":self.profile.as_ref().map(|p|&p.config),"capture":self.profile.as_ref().and_then(|p|p.capture.as_ref()),"displayNames":self.profile.as_ref().map(|p|&p.display_names)})
@@ -800,10 +797,7 @@ impl Kernel {
                 | "config.refreshOutbounds"
                 | "core.start"
                 | "core.restart"
-        ) && self
-            .profile_path
-            .with_file_name("upgrade-resume.json")
-            .exists()
+        ) && crate::upgrade::pending(&self.profile_path)
         {
             return Err(ApiError::new("UPGRADE_RECOVERY_PENDING", "The update is restoring previous routing and Windows settings automatically. Stop cancels that recovery before applying another configuration."));
         }
@@ -829,6 +823,14 @@ impl Kernel {
         }
         if method == "routing.diagnosticStart" {
             let mut request: crate::routing_diagnostics::Input = params(input)?;
+            let cancel = request
+                .ticket
+                .as_deref()
+                .map(|id| self.events.receipts.diagnostic_stop(id))
+                .transpose()?;
+            if let Some(stop) = &cancel {
+                crate::routing_diagnostics::check_cancelled(stop)?;
+            }
             request.config = normalize_config(request.config)?;
             let projection = self.resources.project(&request.config)?;
             if projection.report.skipped_selector_count > 0 {
@@ -844,6 +846,7 @@ impl Kernel {
                 self.exe.clone(),
                 self.owner.clone(),
                 egress,
+                cancel,
             );
         }
         if matches!(method, "routing.diagnosticGet" | "routing.diagnosticCancel") {
@@ -961,6 +964,7 @@ impl Kernel {
             }
             "core.stopForUpgrade" => {
                 let _: Empty = params(input)?;
+                self.events.receipts.stop_pending_routing();
                 // Unlike explicit Stop, installer retirement must not release
                 // applications between stopping this service and its successor.
                 if self.core.is_some() || self.recovery.wants_running() || self.protection.blocked()
@@ -972,6 +976,7 @@ impl Kernel {
                 }
                 self.subscriptions.stop_replacements();
                 self.recovery.stop()?;
+                self.upgrade_retry_at = None;
                 self.network.cancel();
                 self.stop_core()?;
                 Ok(self.snapshot())
@@ -1366,8 +1371,12 @@ impl Kernel {
             }
             "core.stop" => {
                 let p: StopInput = params(input)?;
+                self.events.receipts.stop_pending_routing();
                 self.subscriptions.stop_replacements();
-                storage::remove(&self.profile_path.with_file_name("upgrade-resume.json"))?;
+                if crate::upgrade::pending(&self.profile_path) {
+                    storage::remove(&crate::upgrade::path(&self.profile_path))?;
+                    self.upgrade_retry_at = None;
+                }
                 let intent = self.recovery.stop();
                 self.network.cancel();
                 let sharing = if p.disable_sharing
@@ -1655,16 +1664,17 @@ impl Kernel {
             CoreIdentity::Owner(&self.owner)
         }
     }
-    // A single protected upgrade receipt restores the previous running/stopped
-    // state, independently of the permanent pre-sign-in startup preference.
     pub fn resume_upgrade(&mut self) -> bool {
-        let data = self.profile_path.parent().unwrap().to_path_buf();
-        let path = data.join("upgrade-resume.json");
-        let raw = match storage::read::<Value>(&path) {
-            Ok(None) => return false,
-            Ok(Some(raw)) => raw,
+        use crate::upgrade::{Handoff, Progress, Receipt};
+        self.upgrade_retry_at = None;
+        let raw = match crate::upgrade::load(&self.profile_path) {
+            Ok(None | Some(Handoff::Progress(Progress::Completed { .. }))) => return false,
+            Ok(Some(
+                Handoff::Prepared(intent) | Handoff::Progress(Progress::Retrying { intent, .. }),
+            )) => intent,
             Err(error) => {
                 self.last_error = Some(error);
+                self.upgrade_retry_at = Some(Instant::now() + Duration::from_secs(30));
                 return true;
             }
         };
@@ -1676,8 +1686,13 @@ impl Kernel {
             if let Some(error) = &self.profile_recovery {
                 return Err(error.clone());
             }
-            let intent =
-                crate::upgrade::validate(raw, &self.owner, self.revision(), &self.profile_path)?;
+            let intent = crate::upgrade::validate(
+                raw.clone(),
+                &self.owner,
+                self.revision(),
+                &self.profile_path,
+            )?;
+            self.tun.finish_retirement()?;
             self.proxy.check_owned()?;
             let settings = crate::upgrade::remaining(intent.settings, &self.proxy.requests()?)?;
             if intent.resume_routing {
@@ -1713,8 +1728,11 @@ impl Kernel {
             if resume_routing {
                 self.recovery.healthy(Instant::now())?;
             }
-            storage::remove(&path)?;
             self.protection.ready()?;
+            if !resume_routing {
+                self.core_state = CoreState::Stopped;
+                self.health_fault = None;
+            }
             Ok::<(), ApiError>(())
         })();
         if let Err(error) = &mut result {
@@ -1733,12 +1751,40 @@ impl Kernel {
                 };
             }
         }
-        let receipt = json!({"transactionId":id,"ok":result.is_ok(),"error":result.err(),"core":self.core_state,"revision":self.revision(),"serviceVersion":env!("CARGO_PKG_VERSION")});
-        if let Err(error) = storage::write(&data.join("upgrade-result.json"), &receipt) {
+        let receipt = Receipt {
+            transaction_id: id,
+            service_version: env!("CARGO_PKG_VERSION").into(),
+            ok: result.is_ok(),
+            error: result.err(),
+            core: self.core_state,
+            revision: self.revision(),
+        };
+        let phase = if receipt.ok {
+            Progress::Completed { result: receipt }
+        } else {
+            self.upgrade_retry_at = Some(Instant::now() + Duration::from_secs(30));
+            Progress::Retrying {
+                intent: raw,
+                result: receipt,
+            }
+        };
+        // Replacing the pending intent is the commit. A crash before it leaves
+        // an intent to resume, and a crash after it leaves the installer's receipt.
+        if let Err(error) = storage::write(&crate::upgrade::path(&self.profile_path), &phase) {
             self.last_error = Some(error);
+            self.upgrade_retry_at = Some(Instant::now() + Duration::from_secs(30));
+        } else {
+            match phase {
+                Progress::Completed { result } => {
+                    self.last_error = None;
+                    self.events.publish("upgrade.completed", json!(result));
+                }
+                Progress::Retrying { result, .. } => {
+                    self.events.publish("upgrade.retrying", json!(result));
+                }
+            }
         }
         self.end_progress();
-        self.events.publish("upgrade.completed", receipt);
         true
     }
     pub fn resume_routing(&mut self) {
@@ -1755,7 +1801,16 @@ impl Kernel {
     }
     fn retry_routing(&mut self) {
         let now = Instant::now();
-        if self.shutting_down || self.protection.upgrading() || !self.recovery.due(now) {
+        if self.shutting_down || self.protection.upgrading() {
+            return;
+        }
+        if let Some(at) = self.upgrade_retry_at {
+            if now >= at {
+                self.resume_upgrade();
+            }
+            return;
+        }
+        if !self.recovery.due(now) {
             return;
         }
         let checkpoint = self.profile_path.with_file_name("activation-rollback.json");
@@ -1783,14 +1838,6 @@ impl Kernel {
             if changed {
                 self.changed("recovery.waiting");
             }
-            return;
-        }
-        if self
-            .profile_path
-            .with_file_name("upgrade-resume.json")
-            .exists()
-        {
-            self.resume_upgrade();
             return;
         }
         self.begin_progress(crate::lifecycle::Operation::Start);

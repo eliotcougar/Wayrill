@@ -44,10 +44,13 @@ switch($Action) {
    # Retry a failed file-copy/install step without discarding the protected
    # handoff. The new service still validates every field and settings version.
    $taskPending=Get-Content -LiteralPath $taskResume -Raw -Encoding UTF8 | ConvertFrom-Json
-   $taskProfile=Join-Path $env:ProgramData 'Wayrill\profile.json'
-   $taskProfileHash=if(Test-Path -LiteralPath $taskProfile){(Get-FileHash -LiteralPath $taskProfile -Algorithm SHA256).Hash.ToLowerInvariant()}else{$null}
-   if (-not $taskService -or $taskPending.version -ne 1 -or $taskPending.ownerSid -ne $taskOwner -or $taskPending.transactionId -notmatch '^[a-f0-9]{32}$' -or $taskPending.profileSha256 -cne $taskProfileHash) { throw 'The pending upgrade handoff does not match this installation. Its profile and installed files were preserved.' }
-   $taskIntent=$taskPending
+   if ($taskPending.phase -eq 'retrying') { $taskPending=$taskPending.intent }
+   if ($taskPending.phase -ne 'completed') {
+    $taskProfile=Join-Path $env:ProgramData 'Wayrill\profile.json'
+    $taskProfileHash=if(Test-Path -LiteralPath $taskProfile){(Get-FileHash -LiteralPath $taskProfile -Algorithm SHA256).Hash.ToLowerInvariant()}else{$null}
+    if (-not $taskService -or $taskPending.version -ne 1 -or $taskPending.ownerSid -ne $taskOwner -or $taskPending.transactionId -notmatch '^[a-f0-9]{32}$' -or $taskPending.profileSha256 -cne $taskProfileHash) { throw 'The pending upgrade handoff does not match this installation. Its profile and installed files were preserved.' }
+    $taskIntent=$taskPending
+   }
   }
   if($taskService) {
    if ((Get-Service WayrillService).Status -eq 'Running') {

@@ -26,6 +26,29 @@ import { openGraphLayer } from './graphLayer';
 const stash = { format: 'wayrill.stash' as const, version: 3 as const, groups: [] };
 const recipient = '0123456789abcdef0123456789abcdef';
 
+it('recovers Pool groups without rolling back a local subscription saved during recovery', () => {
+  const local = { ...defaultGroup(), id: 'local-existing', name: 'Updated local', updatedAt: 200 };
+  const managed = { ...defaultGroup(), id: `pool-${recipient}-managed`, name: 'Published group' };
+  const unrelated = { ...defaultGroup(), id: 'local-new', name: 'New local group' };
+  const result = subscriptionEngine({
+    operation: 'poolReconcileStash',
+    recipient,
+    trusted: true,
+    stash: serializeStash({
+      ...stash,
+      groups: [local, unrelated, { ...managed, name: 'Older Pool' }],
+    }),
+    local: serializeStash({ ...stash, groups: [{ ...local, updatedAt: 100 }, managed] }),
+  }) as { stash: string };
+  expect(
+    parseStash(result.stash).groups.map(({ id, name, updatedAt }) => [id, name, updatedAt]),
+  ).toEqual([
+    [local.id, local.name, 200],
+    [unrelated.id, unrelated.name, null],
+    [managed.id, managed.name, null],
+  ]);
+});
+
 it('offers per-user Windows layers through the compatibility extension and applies only selected layers', () => {
   const starter = openGraphLayer(undefined, 'direct');
   const family = 'Microsoft.WindowsStore_8wekyb3d8bbwe';

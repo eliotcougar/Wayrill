@@ -263,7 +263,21 @@ function Stop-WayrillRouting([string]$OwnerSid,[switch]$ForUpgrade) {
 }
 function Save-WayrillUpgradeHandoff($Intent,[string]$Path) {
     $taskTemporary=$Path+'.tmp'
-    [IO.File]::WriteAllText($taskTemporary,($Intent | ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false))
+    $taskBytes=[Text.Encoding]::UTF8.GetBytes(($Intent | ConvertTo-Json -Depth 20))
+    $taskStream=[IO.File]::Open($taskTemporary,'Create','Write','None')
+    try { $taskStream.Write($taskBytes,0,$taskBytes.Length); $taskStream.Flush($true) }
+    finally { $taskStream.Dispose() }
     Protect-WayrillInstallerFile $taskTemporary
-    Move-Item -LiteralPath $taskTemporary -Destination $Path -Force
+    if ([IO.File]::Exists($Path)) { [IO.File]::Replace($taskTemporary,$Path,[NullString]::Value) }
+    else { [IO.File]::Move($taskTemporary,$Path) }
+}
+
+function Get-WayrillUpgradeResult([string]$Path,[string]$Transaction,[string]$ServiceVersion) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $taskHandoff=Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($taskHandoff.phase -in @('retrying','completed') -and
+        $taskHandoff.result.transactionId -eq $Transaction -and
+        $taskHandoff.result.serviceVersion -eq $ServiceVersion) {
+        $taskHandoff.result
+    }
 }

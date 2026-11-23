@@ -163,6 +163,7 @@ fn main() {
             routing_source::routing_source_file,
             routing_source::routing_source_download,
             pool_publisher::pool_publish,
+            pool_publisher::pool_delivery_digest,
             pool_publisher::pool_validate_folder,
             simulation::pool_simulation_open,
             simulation::pool_simulation_invitation,

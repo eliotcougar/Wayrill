@@ -27,6 +27,10 @@ import {
 } from './accounts';
 
 type Configuration = { id: string; bundle: PoolBundle };
+export type DeliveryTransition =
+  | { phase: 'publishing'; before: string | null; digest: string; accounts: string; at: number }
+  | { phase: 'withdrawing'; before: string | null };
+
 export type Member = {
   id: string;
   name: string;
@@ -38,6 +42,7 @@ export type Member = {
   publishedAt?: number;
   deliveryChanged?: boolean;
   withdrawn?: boolean;
+  deliveryTransition?: DeliveryTransition;
   assignments?: LayerAssignment[];
   aquifer?: PoolUser;
   accounts?: AccountRef[];
@@ -56,6 +61,20 @@ export type Publisher = {
   members: Member[];
 };
 const text = (value: unknown): value is string => typeof value === 'string';
+const digestText = (value: unknown) => text(value) && /^[a-f0-9]{64}$/.test(value);
+function isDeliveryTransition(value: unknown): value is DeliveryTransition {
+  return (
+    jsonRecord(value) &&
+    (value.before === null || digestText(value.before)) &&
+    (value.phase === 'withdrawing' ||
+      (value.phase === 'publishing' &&
+        digestText(value.digest) &&
+        text(value.accounts) &&
+        typeof value.at === 'number' &&
+        Number.isSafeInteger(value.at) &&
+        value.at > 0))
+  );
+}
 export const memberGraphs = (member: Member) => [
   ...new Set([member.configurationId, ...(member.graphIds ?? [])].filter(Boolean)),
 ];
@@ -92,6 +111,7 @@ function isPublisher(value: unknown): value is Publisher {
           (typeof item.publishedAt === 'number' && item.publishedAt > 0)) &&
         (item.deliveryChanged === undefined || typeof item.deliveryChanged === 'boolean') &&
         (item.withdrawn === undefined || typeof item.withdrawn === 'boolean') &&
+        (item.deliveryTransition === undefined || isDeliveryTransition(item.deliveryTransition)) &&
         (item.assignments === undefined ||
           (jsonArray(item.assignments) &&
             item.assignments.every(
@@ -244,48 +264,122 @@ export function prepareDelivery(
   };
 }
 
-export async function publishMember(
-  pool: Publisher,
-  member: Member,
-  withdraw = false,
-  prepared?: PoolDelivery,
-) {
+async function encryptDelivery(member: Member, prepared: PoolDelivery) {
   const match = invitePattern.exec(member.invite);
   if (!match) throw new Error('Invalid private Pool access key.');
   const [, recipient, secret] = match;
-  let output: string | null = null;
-  if (!withdraw) {
-    const encode = new TextEncoder();
-    const bundle = encodePoolDelivery(prepared ?? prepareDelivery(pool, member));
-    const clear = encode.encode(JSON.stringify({ ...bundle, publication: member.publication }));
-    if (clear.length > (LIMITS.configBytes * 3) / 4 - 1024)
-      throw new Error('This Pool configuration is too large. Choose fewer Stash groups.');
-    const raw = Uint8Array.from(secret.match(/../g)!, (byte) => Number.parseInt(byte, 16));
-    try {
-      const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
-      const nonce = crypto.getRandomValues(new Uint8Array(12));
-      const encrypted = await crypto.subtle.encrypt(
-        {
-          name: 'AES-GCM',
-          iv: nonce,
-          additionalData: encode.encode(`wayrill.pool.access:1:${recipient}`),
-        },
-        key,
-        clear,
-      );
-      output = JSON.stringify({
-        format: 'wayrill.pool.access',
-        version: 1,
-        recipient,
-        nonce: base64(nonce),
-        data: base64(new Uint8Array(encrypted)),
-      });
-    } finally {
-      clear.fill(0);
-      raw.fill(0);
-    }
+  const encode = new TextEncoder();
+  const bundle = encodePoolDelivery(prepared);
+  const clear = encode.encode(JSON.stringify({ ...bundle, publication: member.publication }));
+  if (clear.length > (LIMITS.configBytes * 3) / 4 - 1024)
+    throw new Error('This Pool configuration is too large. Choose fewer Stash groups.');
+  const raw = Uint8Array.from(secret.match(/../g)!, (byte) => Number.parseInt(byte, 16));
+  try {
+    const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: nonce,
+        additionalData: encode.encode(`wayrill.pool.access:1:${recipient}`),
+      },
+      key,
+      clear,
+    );
+    return JSON.stringify({
+      format: 'wayrill.pool.access',
+      version: 1,
+      recipient,
+      nonce: base64(nonce),
+      data: base64(new Uint8Array(encrypted)),
+    });
+  } finally {
+    clear.fill(0);
+    raw.fill(0);
   }
-  await invoke('pool_publish', { folder: pool.folder, recipient, text: output });
+}
+
+function deliveryLocation(pool: Publisher, member: Member) {
+  const match = invitePattern.exec(member.invite);
+  if (!match) throw new Error('Invalid private Pool access key.');
+  return { folder: pool.folder, recipient: match[1] };
+}
+
+export function readDeliveryDigest(pool: Publisher, member: Member) {
+  return invoke<string | null>('pool_delivery_digest', deliveryLocation(pool, member));
+}
+
+export async function preparePublication(
+  pool: Publisher,
+  member: Member,
+  prepared: PoolDelivery,
+  accounts: string,
+) {
+  const text = await encryptDelivery(member, prepared);
+  const before = await readDeliveryDigest(pool, member);
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  const digest = Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
+  const transition: DeliveryTransition = {
+    phase: 'publishing',
+    before,
+    digest,
+    accounts,
+    at: Date.now(),
+  };
+  return { text, transition };
+}
+
+export function writeDelivery(
+  pool: Publisher,
+  member: Member,
+  text: string | null,
+  expected: string | null,
+) {
+  return invoke<void>('pool_publish', { ...deliveryLocation(pool, member), text, expected });
+}
+
+export function completeDelivery(member: Member, transition: DeliveryTransition): Member {
+  if (transition.phase === 'withdrawing') {
+    return { ...member, withdrawn: true, deliveryTransition: undefined };
+  }
+  return {
+    ...member,
+    publishedAt: transition.at,
+    publishedAccounts: transition.accounts,
+    withdrawn: false,
+    deliveryTransition: undefined,
+  };
+}
+
+export function reconcileDelivery(member: Member, observed: string | null): Member {
+  const transition = member.deliveryTransition;
+  if (!transition) return member;
+  const after = transition.phase === 'publishing' ? transition.digest : null;
+  if (observed === after) return completeDelivery(member, transition);
+  if (observed === transition.before || observed === null) {
+    return {
+      ...member,
+      publishedAt: observed === null ? undefined : member.publishedAt,
+      deliveryChanged: true,
+      deliveryTransition: undefined,
+    };
+  }
+  throw new Error(
+    'The access file differs from both recorded versions. Check the publishing folder before retrying.',
+  );
+}
+
+export async function recoverDelivery(pool: Publisher, member: Member): Promise<Member> {
+  const transition = member.deliveryTransition;
+  if (!transition) return member;
+  const observed = await readDeliveryDigest(pool, member);
+  if (transition.phase === 'withdrawing' && observed !== null && observed === transition.before) {
+    await writeDelivery(pool, member, null, observed);
+    return completeDelivery(member, transition);
+  }
+  return reconcileDelivery(member, observed);
 }
 
 export function invitationDestination(pool: Publisher): Omit<PoolSource, 'invite'> {

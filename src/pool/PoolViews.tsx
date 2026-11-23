@@ -13,6 +13,7 @@ const deliveryStates = {
   unassigned: 'Needs a default graph',
   published: 'Published',
   withdrawn: 'Withdrawn',
+  recovering: 'Delivery needs verification',
 } as const;
 type DeliveryState = keyof typeof deliveryStates;
 type Props = {
@@ -29,6 +30,7 @@ type Props = {
   refresh: () => void;
   pending: Member[];
   publish: (members: Member[]) => void;
+  recheck: (member: Member) => void;
   copy: (member: Member) => void;
   simulate: (member: Member) => void;
 };
@@ -73,6 +75,7 @@ export default function PoolViews({
   refresh,
   pending,
   publish,
+  recheck,
   copy,
   simulate,
 }: Props) {
@@ -233,17 +236,19 @@ export default function PoolViews({
     ].join(' · ');
   const due = new Set(pending.map((member) => member.id));
   const status = (member: Member): DeliveryState =>
-    member.withdrawn
-      ? 'withdrawn'
-      : !member.configurationId
-        ? 'unassigned'
-        : due.has(member.id)
-          ? 'pending'
-          : 'published';
+    member.deliveryTransition
+      ? 'recovering'
+      : member.withdrawn
+        ? 'withdrawn'
+        : !member.configurationId
+          ? 'unassigned'
+          : due.has(member.id)
+            ? 'pending'
+            : 'published';
   const relevant = assignedLayer
     ? pool.members.filter((member) => usesLayer(member, assignedLayer.id))
     : pool.members;
-  const counts = { pending: 0, unassigned: 0, published: 0, withdrawn: 0 };
+  const counts = { pending: 0, unassigned: 0, published: 0, withdrawn: 0, recovering: 0 };
   const visible = relevant.flatMap((member) => {
     const state = status(member);
     counts[state]++;
@@ -382,7 +387,7 @@ export default function PoolViews({
               >
                 Preview
               </button>
-              {!!member.publishedAt && !member.withdrawn && (
+              {!!member.publishedAt && !member.withdrawn && !member.deliveryTransition && (
                 <button
                   className="secondary-button"
                   disabled={busy}
@@ -418,7 +423,15 @@ export default function PoolViews({
                 </>
               ) : (
                 <>
-                  {member.configurationId ? (
+                  {member.deliveryTransition ? (
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() => recheck(member)}
+                    >
+                      Check delivery
+                    </button>
+                  ) : member.configurationId ? (
                     <button
                       className="secondary-button"
                       disabled={busy}
@@ -445,7 +458,9 @@ export default function PoolViews({
                         ? 'primary-button'
                         : 'secondary-button'
                     }
-                    disabled={busy || member.withdrawn || !member.publishedAt}
+                    disabled={
+                      busy || member.withdrawn || !member.publishedAt || !!member.deliveryTransition
+                    }
                     onClick={() => copy(member)}
                   >
                     Copy invitation

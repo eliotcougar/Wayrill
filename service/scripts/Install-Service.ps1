@@ -87,32 +87,25 @@ foreach ($taskArguments in @(
 & $taskExe --configure-service
 if ($LASTEXITCODE -ne 0) { throw 'SCM pre-shutdown configuration failed.' }
 $taskResumeFailure=$null
-$taskReceipt=Join-Path $taskData 'upgrade-result.json'
-# A retry can reuse the pending transaction. Only the service instance started
-# below should be able to complete this installer attempt.
-if ($UpgradeTransaction -and (Test-Path -LiteralPath $taskReceipt)) {
-    Remove-Item -LiteralPath $taskReceipt
-}
+$taskHandoff=Join-Path $taskData 'upgrade-resume.json'
 Start-WayrillInstalledService
 if ($UpgradeTransaction) {
     $taskDeadline=[DateTime]::UtcNow.AddSeconds(360)
     $taskResult=$null
     do {
-        if (Test-Path -LiteralPath $taskReceipt) {
-            $taskCandidate=Get-Content -LiteralPath $taskReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($taskCandidate.transactionId -eq $UpgradeTransaction -and $taskCandidate.serviceVersion -eq $taskManifest.serviceVersion) {
-                $taskResult=$taskCandidate
-                break
-            }
-        }
-        if ((Get-Service WayrillService).Status -eq 'Stopped') { throw (Get-WayrillStartupError) }
+        $taskResult=Get-WayrillUpgradeResult $taskHandoff $UpgradeTransaction $taskManifest.serviceVersion
+        if ($taskResult) { break }
         # This query does not wait behind the routing lifecycle lock. A fresh
         # phase observation extends inactivity, not an arbitrary startup budget.
-        $taskProgress=Invoke-WayrillInstallerApi -Method service.activity -OwnerSid $OwnerSid
+        $taskProgress=$null
+        try { $taskProgress=Invoke-WayrillInstallerApi -Method service.activity -OwnerSid $OwnerSid } catch {}
         if ($taskProgress.lifecycle -and $taskProgress.idleMs -lt 45000) { $taskDeadline=[DateTime]::UtcNow.AddSeconds(360) }
         Start-Sleep -Seconds 1
     } while ([DateTime]::UtcNow -lt $taskDeadline)
-    if (-not $taskResult) { throw 'The new service did not complete routing resumption. The applied profile was preserved; inspect it in Wayrill before starting routing.' }
+    if (-not $taskResult) {
+        if ((Get-Service WayrillService).Status -eq 'Stopped') { throw (Get-WayrillStartupError) }
+        throw 'The new service did not complete routing resumption. The applied profile was preserved; inspect it in Wayrill before starting routing.'
+    }
     if (-not $taskResult.ok) {
         # A completed routing failure is recoverable through the installed app.
         # SCM/IPC/version failures and an unfinished transition still fail setup.
@@ -142,4 +135,9 @@ if ($taskWarning) {
 } elseif (Test-Path -LiteralPath $taskRecoveryWarning) { Remove-Item -LiteralPath $taskRecoveryWarning }
 $taskOldWarning=Join-Path $taskTarget 'Profile-Recovery.txt'
 if (Test-Path -LiteralPath $taskOldWarning) { Remove-Item -LiteralPath $taskOldWarning }
+# Acknowledge only this setup's committed result. A retrying handoff must stay
+# available to the service after setup displays its recovery warning.
+if ($UpgradeTransaction -and (Get-WayrillUpgradeResult $taskHandoff $UpgradeTransaction $taskManifest.serviceVersion).ok) {
+    try { Remove-Item -LiteralPath $taskHandoff } catch { Write-Warning 'Could not clear the completed upgrade handoff.' }
+}
 'Wayrill service installed. The previous runtime was resumed when available; Windows startup routing remains controlled by Startup settings.'

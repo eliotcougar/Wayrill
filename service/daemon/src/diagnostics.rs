@@ -48,6 +48,7 @@ pub fn event(kind: &str, payload: &Value) {
             | "resources.runtimeReloadFailed"
             | "service.ready"
             | "upgrade.completed"
+            | "upgrade.retrying"
             | "core.state"
             | "capture.failed"
             | "tun.failed"

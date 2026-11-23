@@ -184,7 +184,11 @@ pub fn snapshot(packages: &[Package]) -> Result<Snapshot> {
     project(packages, &read()?)
 }
 pub fn apply(packages: &[Package], expected_version: &str, changes: &[Change]) -> Result<Snapshot> {
-    apply_checked(packages, expected_version, changes, &[])?;
+    if !apply_checked(packages, expected_version, changes, &[])? {
+        return Err(Error::invalid(
+            "LOOPBACK_CONFLICT: Permissions changed. Refresh before applying.",
+        ));
+    }
     snapshot(packages)
 }
 
@@ -193,12 +197,10 @@ fn apply_checked(
     expected_version: &str,
     changes: &[Change],
     owned: &[String],
-) -> Result<()> {
+) -> Result<bool> {
     let mut current = read()?;
     if version(&current)? != expected_version {
-        return Err(Error::invalid(
-            "LOOPBACK_CONFLICT: Permissions changed. Refresh before applying.",
-        ));
+        return Ok(false);
     }
     if changes.len() > 4096 {
         return Err(Error::invalid("Invalid loopback changes."));
@@ -230,10 +232,10 @@ fn apply_checked(
             current.remove(&sid);
         }
     }
-    if current == before {
-        return Ok(());
+    if current != before {
+        write(&current)?;
     }
-    write(&current)
+    Ok(true)
 }
 
 fn write(current: &BTreeMap<String, u32>) -> Result<()> {
@@ -272,13 +274,18 @@ fn write(current: &BTreeMap<String, u32>) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
     before: String,
-    after: String,
     changes: Vec<Change>,
     owned: Vec<String>,
+    observed: BTreeMap<String, Option<u32>>,
 }
 
-pub fn plan_pool(packages: &[Package], desired: &[String], owned: &[String]) -> Result<Plan> {
-    plan_pool_from(read()?, packages, desired, owned)
+pub fn plan_pool(
+    packages: &[Package],
+    desired: &[String],
+    owned: &[String],
+    observe: &[String],
+) -> Result<Plan> {
+    plan_pool_from(read()?, packages, desired, owned, observe)
 }
 
 fn plan_pool_from(
@@ -286,8 +293,13 @@ fn plan_pool_from(
     packages: &[Package],
     desired: &[String],
     owned: &[String],
+    observe: &[String],
 ) -> Result<Plan> {
     let before = version(&current)?;
+    let observed = observe
+        .iter()
+        .map(|family| Ok((family.clone(), current.get(&sid_for(family)?).copied())))
+        .collect::<Result<_>>()?;
     let mut next = Vec::new();
     let mut changes = Vec::new();
     for family in owned {
@@ -325,9 +337,9 @@ fn plan_pool_from(
     next.sort_unstable();
     Ok(Plan {
         before,
-        after: version(&current)?,
         changes,
         owned: next,
+        observed,
     })
 }
 
@@ -336,7 +348,7 @@ pub fn apply_pool(
     expected_version: &str,
     changes: &[Change],
     owned: &[String],
-) -> Result<()> {
+) -> Result<bool> {
     apply_checked(packages, expected_version, changes, owned)
 }
 
@@ -362,6 +374,7 @@ mod tests {
             &[installed(&existing), installed(&added)],
             &desired,
             &[],
+            &[],
         )
         .unwrap();
         assert_eq!(active.owned.as_slice(), std::slice::from_ref(&added));
@@ -369,12 +382,22 @@ mod tests {
         assert!(active.changes[0].enabled);
         let mut current = manual.clone();
         current.insert(sid_for(&added).unwrap(), 0);
-        let withdrawal = plan_pool_from(current.clone(), &[], &[], &active.owned).unwrap();
-        assert_eq!(withdrawal.after, version(&manual).unwrap());
+        let withdrawal = plan_pool_from(
+            current.clone(),
+            &[],
+            &[],
+            &active.owned,
+            &[existing.clone(), added.clone()],
+        )
+        .unwrap();
         assert!(withdrawal.owned.is_empty());
+        assert_eq!(withdrawal.changes.len(), 1);
+        assert_eq!(withdrawal.changes[0].family, added);
         assert!(!withdrawal.changes[0].enabled);
+        assert_eq!(withdrawal.observed[&existing], Some(0));
+        assert_eq!(withdrawal.observed[&added], Some(0));
         current.insert(sid_for(&added).unwrap(), 1);
-        let external = plan_pool_from(current, &[], &[], &active.owned).unwrap();
+        let external = plan_pool_from(current, &[], &[], &active.owned, &[]).unwrap();
         assert!(external.changes.is_empty());
         assert!(external.owned.is_empty());
     }

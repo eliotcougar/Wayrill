@@ -826,20 +826,11 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
                 state.outbound_test_source = None;
             }
         }
-        if library(&manager).pool_pending.is_some() {
-            if Instant::now() >= next_pool_recovery {
-                if let Some(_reservation) = manager.gate.background() {
-                    let result = kernel
-                        .lock()
-                        .map_err(|_| invalid("Routing controller unavailable."))
-                        .and_then(|routing| pool::finish_pending(&routing, &manager));
-                    next_pool_recovery = Instant::now() + Duration::from_secs(30);
-                    manager.state.lock().unwrap().pool_error = result.err();
-                }
-            }
-            if library(&manager).pool_pending.is_some() {
-                thread::sleep(Duration::from_millis(100));
-                continue;
+        if Instant::now() >= next_pool_recovery && library(&manager).pool_pending.is_some() {
+            if let Some(reservation) = manager.gate.background() {
+                let result = pool::finish_pending(&kernel, &manager, &reservation.stop, &shutdown);
+                next_pool_recovery = Instant::now() + Duration::from_secs(30);
+                manager.state.lock().unwrap().pool_error = result.err();
             }
         }
         if let Some(Dispatch {
@@ -852,7 +843,11 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
             let retry = matches!(work, Work::Replace { .. }).then(|| work.clone());
             let result = match work {
                 Work::Replace { selection, .. } => {
-                    replace(&kernel, &manager, &selection, &stop, &shutdown)
+                    if library(&manager).pool_pending.is_some() {
+                        Err(pool_recovering())
+                    } else {
+                        replace(&kernel, &manager, &selection, &stop, &shutdown)
+                    }
                 }
                 Work::Pool { task, .. } => {
                     let preview = matches!(task, pool::Task::Preview(_));
@@ -871,6 +866,9 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
                     }
                     if !preview && !changes_interval {
                         state.pool_error = result.as_ref().err().cloned();
+                    }
+                    if state.library.pool_pending.is_some() {
+                        next_pool_recovery = Instant::now();
                     }
                     result
                 }
@@ -941,7 +939,8 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
             manager.finish(id, result.err());
             continue;
         }
-        if let Some(reservation) = (Instant::now() >= next_source)
+        let pool_pending = library(&manager).pool_pending.is_some();
+        if let Some(reservation) = (!pool_pending && Instant::now() >= next_source)
             .then(|| manager.gate.background())
             .flatten()
         {
@@ -967,7 +966,7 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
                 }
             }
         }
-        if Instant::now() >= next_pool && library(&manager).pool.is_some() {
+        if !pool_pending && Instant::now() >= next_pool && library(&manager).pool.is_some() {
             if let Some(reservation) = manager.gate.background() {
                 manager.state.lock().unwrap().pool_busy = true;
                 let result = pool::perform(
@@ -993,7 +992,7 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
             let state = manager.state.lock().unwrap();
             state.error.is_none() && state.library.stash.is_some() && state.library.draft.is_some()
         };
-        if ready {
+        if ready && !pool_pending {
             let current = library(&manager);
             match profile(&kernel) {
                 Ok(observed) => {
@@ -1012,15 +1011,19 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
         if let Some(reservation) = ready.then(|| manager.gate.background()).flatten() {
             let stop = reservation.stop.clone();
             let current = library(&manager);
-            if let Some(group) = profile(&kernel).ok().and_then(|source| {
-                next_pending(
-                    &current,
-                    &source,
-                    &mut runtime_retry_after,
-                    &last_runtime_group,
-                    Instant::now(),
-                )
-            }) {
+            if let Some(group) = (!pool_pending)
+                .then(|| profile(&kernel).ok())
+                .flatten()
+                .and_then(|source| {
+                    next_pending(
+                        &current,
+                        &source,
+                        &mut runtime_retry_after,
+                        &last_runtime_group,
+                        Instant::now(),
+                    )
+                })
+            {
                 manager.begin(0, None, true, stop.clone());
                 last_runtime_group = group.to_owned();
                 if let Err(error) = apply_pending(&kernel, &manager, group, &stop, &shutdown) {

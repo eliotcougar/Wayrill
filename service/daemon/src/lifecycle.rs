@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use wayrill_protocol::{ApiError, Result};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CoreState {
     Stopped,

@@ -17,6 +17,7 @@ mod loopback;
 mod native;
 mod observation;
 mod operation_gate;
+mod operation_receipts;
 mod outbound_tests;
 #[path = "../../pool_access.rs"]
 mod pool_access;
@@ -658,7 +659,7 @@ async fn client(
             native::authorize_pipe(raw as windows_sys::Win32::Foundation::HANDLE, &owner)?;
             first = false;
         }
-        let request: Request = match serde_json::from_slice(&frame) {
+        let mut request: Request = match serde_json::from_slice(&frame) {
             Ok(r) => r,
             Err(_) => {
                 wayrill_ipc::write_message(
@@ -677,6 +678,29 @@ async fn client(
         };
         if let Err(error) = wayrill_protocol::check_request(&request) {
             wayrill_ipc::write_message(pipe.get_mut(), &Message::response(request.id, Err(error)))
+                .await?;
+            continue;
+        }
+        let fast_reply = match request.method.as_str() {
+            "service.operationPrepare" => Some(
+                events
+                    .receipts
+                    .prepare_routing(request.params.clone(), &events.instance_id),
+            ),
+            "service.operationGet" => Some(events.receipts.get_routing(request.params.clone())),
+            "routing.diagnosticPrepare" => {
+                Some(events.receipts.prepare_diagnostic(request.params.clone()))
+            }
+            "routing.diagnosticGet" | "routing.diagnosticCancel" => {
+                match events.receipts.diagnostic(&request.method, &request.params) {
+                    Ok(reply) => reply.map(Ok),
+                    Err(error) => Some(Err(error)),
+                }
+            }
+            _ => None,
+        };
+        if let Some(result) = fast_reply {
+            wayrill_ipc::write_message(pipe.get_mut(), &Message::response(request.id, result))
                 .await?;
             continue;
         }
@@ -761,6 +785,17 @@ async fn client(
                 }
             }
         }
+        let admission = match events.receipts.admit(&request.method, &mut request.params) {
+            Ok(admission) => admission,
+            Err(error) => {
+                wayrill_ipc::write_message(
+                    pipe.get_mut(),
+                    &Message::response(request.id, Err(error)),
+                )
+                .await?;
+                continue;
+            }
+        };
         let id = request.id;
         let command_name = request.method.clone();
         let command_started = std::time::Instant::now();
@@ -773,49 +808,58 @@ async fn client(
             // The permit follows the operation, not the response observer. A
             // disconnected client cannot make uncertain work stop counting.
             let _slot = slot;
-            // Admission must precede the kernel lock: draining a background
-            // probe or commit can itself need the kernel.
-            let mut reservation = operation_gate::requires_foreground(&request.method)
-                .then(|| gate.foreground(&STOPPING))
-                .transpose()?;
-            let mut k = lock_state(&k)?;
-            if STOPPING.load(Ordering::SeqCst) {
-                Err(ApiError::new(
-                    "SERVICE_STOPPING",
-                    "The service is shutting down; queued commands were not executed.",
-                ))
-            } else {
-                if request.method == "subscriptions.timezoneChoices" {
-                    let subscriptions = k.subscriptions.clone();
-                    drop(k);
-                    return subscriptions.timezone_choices(request.params);
+            let result = (|| {
+                // Admission must precede the kernel lock: draining a background
+                // probe or commit can itself need the kernel.
+                let mut reservation = operation_gate::requires_foreground(&request.method)
+                    .then(|| gate.foreground(&STOPPING))
+                    .transpose()?;
+                let mut k = lock_state(&k)?;
+                if STOPPING.load(Ordering::SeqCst) {
+                    Err(ApiError::new(
+                        "SERVICE_STOPPING",
+                        "The service is shutting down; queued commands were not executed.",
+                    ))
+                } else {
+                    if let Some(admission) = &admission {
+                        admission.begin()?;
+                    }
+                    if request.method == "subscriptions.timezoneChoices" {
+                        let subscriptions = k.subscriptions.clone();
+                        drop(k);
+                        return subscriptions.timezone_choices(request.params);
+                    }
+                    let result = activity::observe(
+                        move |a| {
+                            progress.send_replace(Some(a));
+                        },
+                        || k.handle(&request.method, request.params),
+                    );
+                    if let Some(job) = result
+                        .as_ref()
+                        .ok()
+                        .and_then(|reply| reply["job"].as_u64())
+                        .filter(|_| {
+                            matches!(
+                                request.method.as_str(),
+                                "outbounds.testStart"
+                                    | "outbounds.testPlanStart"
+                                    | "companion.timezoneStart"
+                            )
+                        })
+                    {
+                        k.retain_test_reservation(job, reservation.take());
+                    }
+                    if result.is_ok() && request.method == "routing.diagnosticStart" {
+                        k.retain_diagnostic_reservation(reservation.take());
+                    }
+                    result
                 }
-                let result = activity::observe(
-                    move |a| {
-                        progress.send_replace(Some(a));
-                    },
-                    || k.handle(&request.method, request.params),
-                );
-                if let Some(job) = result
-                    .as_ref()
-                    .ok()
-                    .and_then(|reply| reply["job"].as_u64())
-                    .filter(|_| {
-                        matches!(
-                            request.method.as_str(),
-                            "outbounds.testStart"
-                                | "outbounds.testPlanStart"
-                                | "companion.timezoneStart"
-                        )
-                    })
-                {
-                    k.retain_test_reservation(job, reservation.take());
-                }
-                if result.is_ok() && request.method == "routing.diagnosticStart" {
-                    k.retain_diagnostic_reservation(reservation.take());
-                }
-                result
+            })();
+            if let Some(admission) = &admission {
+                admission.finish(result.as_ref().map(|_| ()).map_err(Clone::clone));
             }
+            result
         });
         let result = loop {
             tokio::select! {

@@ -227,13 +227,15 @@ function GraphEditor({ layer, simulation }: AppProps) {
       ? 'Pool offline'
       : poolStatus.status?.applying
         ? 'Applying Pool update…'
-        : poolStatus.status?.busy
-          ? 'Checking Pool…'
-          : poolIssue?.code === 'POOL_LOCAL_ROUTING' || poolIssue?.code === 'POOL_REVIEW_REQUIRED'
-            ? 'Pool updates paused'
-            : poolIssue
-              ? 'Pool update issue'
-              : 'Pool connected';
+        : poolStatus.status?.recovering
+          ? 'Verifying Pool update…'
+          : poolStatus.status?.busy
+            ? 'Checking Pool…'
+            : poolIssue?.code === 'POOL_LOCAL_ROUTING' || poolIssue?.code === 'POOL_REVIEW_REQUIRED'
+              ? 'Pool updates paused'
+              : poolIssue
+                ? 'Pool update issue'
+                : 'Pool connected';
   const progress = runtimeProgress(runtime);
   const [switchingOutbound, setSwitchingOutbound] = useState(false);
   const switching = useRef(false);
@@ -1657,31 +1659,36 @@ function GraphEditor({ layer, simulation }: AppProps) {
                           </>
                         ) : (
                           <>
-                            {runtime.desktop && poolConnection && (
-                              <button
-                                className="pool-connection-indicator"
-                                data-state={
-                                  poolLabel === 'Pool connected'
-                                    ? 'connected'
-                                    : poolIssue
-                                      ? 'warning'
-                                      : 'idle'
-                                }
-                                title={
-                                  poolIssue?.message ??
-                                  (runtime.connected
-                                    ? `${poolConnection.poolName ?? poolConnection.name} · checks every ${poolConnection.refreshMinutes} min`
-                                    : 'The networking service is offline.')
-                                }
-                                onClick={() => setPoolOpen('connect')}
-                              >
-                                <Waves size={15} aria-hidden="true" />
-                                <span>{poolLabel}</span>
-                                <span className="pool-connection-name">
-                                  {poolConnection.poolName ?? poolConnection.name}
-                                </span>
-                              </button>
-                            )}
+                            {runtime.desktop &&
+                              (poolConnection || poolStatus.status?.recovering) && (
+                                <button
+                                  className="pool-connection-indicator"
+                                  data-state={
+                                    poolLabel === 'Pool connected'
+                                      ? 'connected'
+                                      : poolIssue
+                                        ? 'warning'
+                                        : 'idle'
+                                  }
+                                  title={
+                                    poolIssue?.message ??
+                                    (runtime.connected
+                                      ? poolConnection
+                                        ? `${poolConnection.poolName ?? poolConnection.name} · checks every ${poolConnection.refreshMinutes} min`
+                                        : 'Open the pending Pool connection.'
+                                      : 'The networking service is offline.')
+                                  }
+                                  onClick={() => setPoolOpen('connect')}
+                                >
+                                  <Waves size={15} aria-hidden="true" />
+                                  <span>{poolLabel}</span>
+                                  {poolConnection && (
+                                    <span className="pool-connection-name">
+                                      {poolConnection.poolName ?? poolConnection.name}
+                                    </span>
+                                  )}
+                                </button>
+                              )}
                             <button
                               className={`runtime-indicator${runtimeView.running ? ' running' : ''}`}
                               title={runtimeView.description}

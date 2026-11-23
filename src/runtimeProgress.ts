@@ -45,6 +45,7 @@ export function runtimeOperation(method: string): RuntimeOperation | undefined {
       'core.start': 'start',
       'core.restart': 'restart',
       'config.applyAndStart': 'apply',
+      'config.apply': 'apply',
       'config.refreshOutbounds': 'apply',
       'core.stop': 'stop',
     } as const
@@ -98,7 +99,7 @@ export function runtimeProgress(runtime: {
   } | null;
   nativeActivity?: NativeActivity;
   pendingOperation?: RuntimeOperation;
-  commandStage?: 'resources' | 'request' | 'refresh';
+  commandStage?: 'resources' | 'request' | 'reconcile' | 'refresh';
 }) {
   const active = runtime.connected ? runtime.snapshot?.lifecycle : null;
   const activity = runtime.connected ? runtime.nativeActivity : undefined;
@@ -130,9 +131,11 @@ export function runtimeProgress(runtime: {
           ? 'Waiting for service'
           : runtime.commandStage === 'resources'
             ? 'Preparing resource files'
-            : runtime.commandStage === 'refresh'
-              ? 'Refreshing runtime state'
-              : 'Waiting for service'),
+            : runtime.commandStage === 'reconcile'
+              ? 'Confirming command outcome'
+              : runtime.commandStage === 'refresh'
+                ? 'Refreshing runtime state'
+                : 'Waiting for service'),
       percent: null,
     };
   // Older services expose only the Xray transition. Never use cached offline state.

@@ -1,5 +1,6 @@
 import { isDisabledInbound } from './graph/inboundState';
 import { runtimeProgress } from './runtimeProgress';
+import { routingCommandSuperseded } from './runtimeSession';
 import { runtimePresentation } from './runtimePresentation';
 import { parseGraph, serializeGraph } from './graph/model';
 import { readSubscriptionDocument, stageSubscriptionGraph } from './profiles/serviceSubscriptions';
@@ -26,19 +27,20 @@ export default function createGraphRuntimeActions(
     issues = checks.issues;
   const errors = issues.filter((i) => i.severity === 'error');
   const canStop =
-    serviceReady &&
-    (!progress ||
-      (snapshot.lifecycle?.recovering && snapshot.recovery?.desiredState === 'running')) &&
-    (snapshot.recovery?.desiredState === 'running' ||
-      snapshot.recovery?.state === 'waiting' ||
-      snapshot.core.state !== 'stopped' ||
-      snapshot.capture?.state === 'running' ||
-      snapshot.capture?.firewallManaged ||
-      snapshot.systemProxy.managed ||
-      snapshot.systemCapture?.managed ||
-      snapshot.systemProxy.recoveryPending ||
-      snapshot.tun?.sharing?.managed ||
-      snapshot.tun?.sharing?.recoveryPending);
+    (desktop && runtime.commandStage === 'reconcile' && runtime.pendingOperation !== 'stop') ||
+    (serviceReady &&
+      (!progress ||
+        (snapshot.lifecycle?.recovering && snapshot.recovery?.desiredState === 'running')) &&
+      (snapshot.recovery?.desiredState === 'running' ||
+        snapshot.recovery?.state === 'waiting' ||
+        snapshot.core.state !== 'stopped' ||
+        snapshot.capture?.state === 'running' ||
+        snapshot.capture?.firewallManaged ||
+        snapshot.systemProxy.managed ||
+        snapshot.systemCapture?.managed ||
+        snapshot.systemProxy.recoveryPending ||
+        snapshot.tun?.sharing?.managed ||
+        snapshot.tun?.sharing?.recoveryPending));
   const winCapture = compiled?.capture?.inputs.some((i) => i.source !== 'tun');
   const tunApplications = compiled?.capture?.inputs.some((i) => i.source === 'tun');
   const captureAvailable =
@@ -160,10 +162,10 @@ export default function createGraphRuntimeActions(
   async function activate() {
     if (!canApply || !compiled || !snapshot) return false;
     if (mode !== 'apply') {
-      await runtime.run(mode === 'start' ? 'core.start' : 'core.restart', {
+      const result = await runtime.run(mode === 'start' ? 'core.start' : 'core.restart', {
         revision: snapshot.config.revision,
       });
-      return true;
+      return result !== routingCommandSuperseded;
     }
     if (graph.poolId) {
       const { text } = await readSubscriptionDocument('applied');
@@ -179,7 +181,7 @@ export default function createGraphRuntimeActions(
       )
         return false;
     }
-    await runtime.run(
+    const result = await runtime.run(
       'config.applyAndStart',
       {
         config: compiled.config,
@@ -194,7 +196,7 @@ export default function createGraphRuntimeActions(
         ? async () => ({ sourceGraphToken: await stageSubscriptionGraph(serializeGraph(graph)) })
         : undefined,
     );
-    return true;
+    return result !== routingCommandSuperseded;
   }
   async function stop() {
     if (!canStop) return false;

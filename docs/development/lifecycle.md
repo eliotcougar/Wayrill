@@ -119,6 +119,18 @@ ownership is independent of process/job lifetime. Explicit Stop releases it;
 installer retirement retains it across SCM Stop and replacement. This does not
 provide continuous containment between transitions; see SYSTEM-TRAFFIC-CAPTURE.md.
 
+Setup writes the upgrade intent before retiring the old service. The replacement
+service retries that intent independently of ordinary routing recovery. It
+atomically replaces the intent with a completion receipt after routing and its
+Windows settings are ready. Setup acknowledges only its own transaction and
+service version. An interrupted attempt retains its intent and last error.
+
+Pool-managed Loopback changes journal the affected package families before the
+native write. Recovery checks those packages individually so unrelated changes
+cannot discard Wayrill's ownership. The full Windows list is still checked before
+each write. If a package's attributes conflict with the pending change, Wayrill
+preserves the native exception and reports the conflict.
+
 ## Cleanup contract
 
 `Cleanup` collects results of independent retirement steps. Every step runs;
@@ -302,6 +314,34 @@ unfinished recovery retains its checkpoint and Running intent.
 
 Only eligible rule changes use the upstream RoutingService without a core
 restart. See [Apply plans](lifecycle.md).
+
+## Pool delivery recovery
+
+The subscriber commits a prepared Pool delivery only after verifying its applied
+graph and configuration. While that proof is unavailable, regular subscription
+maintenance can continue. Recovery replaces only the verified Pool's Stash
+groups if the library changed in the meantime. Disconnect clears the pending
+delivery and leaves routing recovery to the service.
+
+The publisher records a delivery's previous and intended file state in its
+protected settings before publishing or withdrawing it. Reopening the publisher
+verifies the file before updating the displayed status. It can finish a pending
+withdrawal when the original file still matches and leaves externally changed
+files for the operator to review.
+
+## Desktop command and diagnostic receipts
+
+The desktop reserves a single-use ticket before submitting a routing mutation.
+It checks that receipt if the command reply is lost. A check that finds an
+unused ticket closes it, so a delayed pipe request cannot execute after the
+desktop has reported it unsubmitted. Stop supersedes older tickets that have
+yet to enter the routing controller. Receipts are scoped to the service
+instance, and the desktop never replays an uncertain mutation across a restart.
+
+Routing Playground and DNS diagnostics reserve a ticket before starting their
+isolated core. A ticket can be checked or cancelled even when the start reply
+is lost. Early cancellation prevents a queued diagnostic from launching. A
+launched diagnostic retains its admission slot until its worker has exited.
 
 ## Keeper channel failure and cooperative drain
 

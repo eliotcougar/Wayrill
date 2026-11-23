@@ -35,9 +35,14 @@ import {
   simulatePoolInvitation,
   createPoolInvite,
   prepareDelivery,
-  publishMember,
+  preparePublication,
+  completeDelivery,
+  readDeliveryDigest,
+  recoverDelivery,
   readPublishers,
+  writeDelivery,
   writePublishers,
+  type DeliveryTransition,
   type Member,
   type Publisher,
 } from './publisher';
@@ -82,9 +87,14 @@ const navigation = [
   { key: 'publish', name: 'Publishing', Icon: Send },
 ] as const;
 const inboxIds = () => invoke<string[]>('pool_inbox');
+const withMember = (pool: Publisher, member: Member): Publisher => ({
+  ...pool,
+  members: pool.members.map((item) => (item.id === member.id ? member : item)),
+});
 
 export default function PoolWorkspace() {
   const [pools, setPools] = useState<Publisher[]>();
+  const savedPools = useRef<Publisher[]>([]);
   const [inbox, setInbox] = useState<string[]>([]);
   const [servers, setServers] = useState<ObservedServer[]>([]);
   const [accountError, setAccountError] = useState('');
@@ -136,8 +146,41 @@ export default function PoolWorkspace() {
           if (active) setFailure(errorText(reason));
         });
     void readPublishers()
-      .then((items) => {
-        if (active) setPools(items);
+      .then(async (items) => {
+        const recovered: Publisher[] = [];
+        const errors: string[] = [];
+        let changed = false;
+        for (const item of items) {
+          let pool = item;
+          for (const member of item.members) {
+            if (!active) return;
+            try {
+              const next = await recoverDelivery(pool, member);
+              if (next !== member) {
+                pool = withMember(pool, next);
+                changed = true;
+              }
+            } catch (reason) {
+              errors.push(`${member.name} — ${errorText(reason)}`);
+            }
+          }
+          recovered.push(pool);
+        }
+        if (!active) return;
+        try {
+          if (changed) await writePublishers(recovered);
+          if (active) {
+            savedPools.current = recovered;
+            setPools(recovered);
+            if (errors.length) setFailure(errors.slice(0, 5).join('\n'));
+          }
+        } catch (reason) {
+          if (active) {
+            savedPools.current = items;
+            setPools(items);
+            setFailure(errorText(reason));
+          }
+        }
       })
       .catch((reason: unknown) => {
         if (active) setFailure(errorText(reason));
@@ -191,11 +234,12 @@ export default function PoolWorkspace() {
 
   async function store(updated: Publisher[]) {
     await writePublishers(updated);
+    savedPools.current = updated;
     setPools(updated);
   }
 
   async function save(next: Publisher) {
-    const current = pools ?? [];
+    const current = savedPools.current;
     const updated = current.some((item) => item.id === next.id)
       ? current.map((item) => (item.id === next.id ? next : item))
       : [...current, next];
@@ -239,6 +283,29 @@ export default function PoolWorkspace() {
     setMessage(`${layerNames[data.kind]} layer saved.`);
   }
 
+  async function recoverMember(target: Publisher, member: Member) {
+    const recovered = await recoverDelivery(target, member);
+    const next = recovered === member ? target : withMember(target, recovered);
+    if (next !== target) await save(next);
+    return { target: next, member: recovered };
+  }
+
+  async function changeDelivery(
+    target: Publisher,
+    member: Member,
+    transition: DeliveryTransition,
+    text: string | null,
+  ) {
+    const staged = {
+      ...member,
+      deliveryChanged: transition.phase === 'publishing' ? false : member.deliveryChanged,
+      deliveryTransition: transition,
+    };
+    await save(withMember(target, staged));
+    await writeDelivery(target, member, text, transition.before);
+    await save(withMember(target, completeDelivery(staged, transition)));
+  }
+
   async function publish(members: Member[]) {
     if (!pool) return;
     const latest = members.some((member) => member.accounts?.length)
@@ -246,51 +313,28 @@ export default function PoolWorkspace() {
       : servers;
     setServers(latest);
     const failures: string[] = [];
-    const bundles = new Map(
-      members.flatMap((member) => {
-        try {
-          return [[member.id, prepareDelivery(pool, member, latest)] as const];
-        } catch (reason) {
-          failures.push(`${member.name} — ${errorText(reason)}`);
-          return [];
-        }
-      }),
-    );
-    if (bundles.size) {
-      const reserved = {
-        ...pool,
-        members: pool.members.map((member) =>
-          bundles.has(member.id) ? reserveDelivery(member) : member,
-        ),
-      };
-      await save(reserved);
-      const published = new Map<string, number>();
-      for (const member of reserved.members) {
-        const bundle = bundles.get(member.id);
-        if (!bundle) continue;
-        try {
-          await publishMember(reserved, member, false, bundle);
-          published.set(member.id, Date.now());
-        } catch (reason) {
-          failures.push(`${member.name} — ${errorText(reason)}`);
-        }
+    let published = 0;
+    for (const selected of members) {
+      const current = savedPools.current.find((item) => item.id === pool.id) ?? pool;
+      const saved = current.members.find((item) => item.id === selected.id);
+      if (!saved) continue;
+      try {
+        const { target, member } = await recoverMember(current, saved);
+        const reserved = reserveDelivery(member);
+        const bundle = prepareDelivery(target, member, latest);
+        const { transition, text } = await preparePublication(
+          target,
+          reserved,
+          bundle,
+          accountRevision(latest, member.accounts),
+        );
+        await changeDelivery(target, reserved, transition, text);
+        published++;
+      } catch (reason) {
+        failures.push(`${saved.name} — ${errorText(reason)}`);
       }
-      if (published.size)
-        await save({
-          ...reserved,
-          members: reserved.members.map((member) =>
-            published.has(member.id)
-              ? {
-                  ...member,
-                  publishedAt: published.get(member.id),
-                  publishedAccounts: accountRevision(latest, member.accounts),
-                  deliveryChanged: false,
-                }
-              : member,
-          ),
-        });
-      setMessage(`Published ${userCount(published.size)}.`);
     }
+    if (published) setMessage(`Published ${userCount(published)}.`);
     if (failures.length)
       throw new Error(
         failures.slice(0, 5).join('\n') +
@@ -299,25 +343,26 @@ export default function PoolWorkspace() {
   }
 
   async function withdraw(target: Publisher, members: readonly Member[]) {
-    const removed = new Set<string>();
+    let removed = 0;
     const failures: string[] = [];
-    for (const member of members.filter(mayHaveDelivery)) {
+    for (const selected of members) {
+      const current = savedPools.current.find((item) => item.id === target.id) ?? target;
+      const saved = current.members.find((item) => item.id === selected.id);
+      if (!saved || !mayHaveDelivery(saved)) continue;
       try {
-        await publishMember(target, member, true);
-        removed.add(member.id);
+        const { target, member } = await recoverMember(current, saved);
+        if (mayHaveDelivery(member)) {
+          const before = await readDeliveryDigest(target, member);
+          await changeDelivery(target, member, { phase: 'withdrawing', before }, null);
+        }
+        removed++;
       } catch (reason) {
-        failures.push(`${member.name} — ${errorText(reason)}`);
+        failures.push(`${saved.name} — ${errorText(reason)}`);
       }
     }
-    if (removed.size)
-      await save({
-        ...target,
-        members: target.members.map((member) =>
-          removed.has(member.id) ? { ...member, withdrawn: true } : member,
-        ),
-      });
     if (failures.length)
-      throw new Error(`Withdrew ${userCount(removed.size)}.\n${failures.slice(0, 5).join('\n')}`);
+      throw new Error(`Withdrew ${userCount(removed)}.\n${failures.slice(0, 5).join('\n')}`);
+    return savedPools.current.find((item) => item.id === target.id) ?? target;
   }
 
   const close = () => {
@@ -581,6 +626,12 @@ export default function PoolWorkspace() {
                 }
                 pending={pending}
                 publish={(members) => void run(() => publish(members))}
+                recheck={(member) =>
+                  void run(async () => {
+                    await recoverMember(pool, member);
+                    setMessage(`Delivery for ${member.name} checked.`);
+                  })
+                }
                 simulate={(member) => void run(() => simulatePoolInvitation(pool, member))}
                 copy={(member) =>
                   void run(async () => {
@@ -1077,11 +1128,11 @@ export default function PoolWorkspace() {
           onClose={close}
           onConfirm={() =>
             void run(async () => {
-              await withdraw(pool, [modal.member]);
+              const updated = await withdraw(pool, [modal.member]);
               const invite = createPoolInvite();
               await save({
-                ...pool,
-                members: pool.members.map((item) =>
+                ...updated,
+                members: updated.members.map((item) =>
                   item.id === modal.member.id
                     ? {
                         ...item,
@@ -1151,10 +1202,10 @@ export default function PoolWorkspace() {
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    await withdraw(pool, [modal.member]);
+                    const updated = await withdraw(pool, [modal.member]);
                     await save({
-                      ...pool,
-                      members: pool.members.filter((item) => item.id !== modal.member.id),
+                      ...updated,
+                      members: updated.members.filter((item) => item.id !== modal.member.id),
                     });
                     setModal(undefined);
                     setMessage('User removed.');

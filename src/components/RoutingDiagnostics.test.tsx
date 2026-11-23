@@ -7,7 +7,8 @@ import { serviceCall } from '../serviceClient';
 import type { RuntimeController } from '../useRuntime';
 import type { GraphState } from '../graph/types';
 import type { DiagnosticConfiguration } from '../routingDiagnostics';
-vi.mock('../serviceClient', () => ({
+vi.mock('../serviceClient', async (load) => ({
+  ...(await load<typeof import('../serviceClient')>()),
   serviceCall: vi.fn(),
   errorText: (error: unknown) => String(error),
 }));
@@ -141,6 +142,52 @@ it('remembers Cancel pressed before the service acknowledges the new job', async
     await Promise.resolve();
   });
   expect(serviceCall).toHaveBeenCalledWith('routing.diagnosticCancel', { job: 43 });
+});
+
+it('cancels by ticket when the start reply is still missing as the dialog closes', async () => {
+  vi.mocked(serviceCall).mockImplementation(async (method) => {
+    if (method === 'routing.diagnosticPrepare') return { ticket: 'probe-ticket' } as never;
+    if (method === 'routing.diagnosticStart') return new Promise(() => {});
+    return null as never;
+  });
+  await render(draft, {
+    ...runtime,
+    capabilities: ['routing.diagnostics', 'routing.commandReceipts'],
+  });
+  await destination('example.com');
+  await act(() => button('Evaluate route').click());
+  expect(serviceCall).toHaveBeenCalledWith(
+    'routing.diagnosticStart',
+    expect.objectContaining({ ticket: 'probe-ticket' }),
+  );
+  await act(() => root.render(null));
+  expect(serviceCall).toHaveBeenCalledWith('routing.diagnosticCancel', { ticket: 'probe-ticket' });
+});
+
+it('loads the result after a lost diagnostic start reply using the same ticket', async () => {
+  vi.mocked(serviceCall).mockImplementation(async (method) => {
+    if (method === 'routing.diagnosticPrepare') return { ticket: 'probe-ticket' } as never;
+    if (method === 'routing.diagnosticStart')
+      throw { code: 'DISCONNECTED', message: 'Missing reply.' };
+    return {
+      job: 11,
+      busy: false,
+      result: { ruleIndex: 0, outboundTag: 'direct' },
+      error: null,
+      cancelled: false,
+    } as never;
+  });
+  await render(draft, {
+    ...runtime,
+    capabilities: ['routing.diagnostics', 'routing.commandReceipts'],
+  });
+  await destination('example.com');
+  await act(() => button('Evaluate route').click());
+  expect(serviceCall).toHaveBeenCalledWith('routing.diagnosticGet', { ticket: 'probe-ticket' });
+  expect(host.querySelector('[aria-label="Diagnostic result"]')?.textContent).toContain('Direct');
+  expect(
+    vi.mocked(serviceCall).mock.calls.filter(([method]) => method === 'routing.diagnosticStart'),
+  ).toHaveLength(1);
 });
 
 it('does not bypass unavailable-service guards when Enter is pressed in the destination', async () => {

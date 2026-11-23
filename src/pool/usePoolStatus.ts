@@ -12,6 +12,7 @@ export type PoolStatus = {
   } | null;
   busy: boolean;
   applying?: boolean;
+  recovering?: boolean;
   error: ServiceError | null;
   deviceErrors?: ServiceError[];
   lastCheckAt?: number | null;

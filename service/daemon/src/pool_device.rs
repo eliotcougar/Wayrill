@@ -2,8 +2,9 @@
 //! precedes reconciliation of these independently managed native settings.
 use crate::{app_protection, capture, storage};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -53,17 +54,80 @@ struct Journal {
 }
 
 #[derive(Deserialize, Serialize)]
-struct Receipt {
-    after: String,
-    owned: Vec<String>,
+#[serde(untagged)]
+enum Receipt {
+    Changes { changes: Vec<Change> },
+    Legacy { after: String, owned: Vec<String> },
+}
+
+#[derive(Deserialize, Serialize)]
+struct Change {
+    family: String,
+    enabled: bool,
 }
 
 #[derive(Deserialize)]
 struct Plan {
     before: String,
-    after: String,
-    changes: Vec<Value>,
+    changes: Vec<Change>,
     owned: Vec<String>,
+    observed: BTreeMap<String, Option<u32>>,
+}
+
+impl Journal {
+    fn save(&self, path: &Path) -> Result<()> {
+        if self.owned.is_empty() && self.pending.is_none() {
+            storage::remove(path)
+        } else {
+            storage::write(path, self)
+        }
+    }
+
+    fn recover(&mut self, receipt: Receipt, plan: &Plan) -> Result<Option<ApiError>> {
+        match receipt {
+            Receipt::Legacy { after, owned } => {
+                if plan.before == after {
+                    self.owned = owned;
+                } else {
+                    return Ok(Some(ApiError::new("LOOPBACK_CONFLICT", "An interrupted older Pool update could not verify its Loopback changes. Unverified exceptions were preserved.")));
+                }
+            }
+            Receipt::Changes { changes } => {
+                let mut conflicts = Vec::new();
+                for change in changes {
+                    let current = plan.observed.get(&change.family).ok_or_else(|| {
+                        ApiError::new("POOL", "Missing Windows Loopback recovery observation.")
+                    })?;
+                    // Pool adds absent SIDs with attributes zero and removes
+                    // only its own zero-attribute SIDs. Other values are external.
+                    if *current == Some(0) {
+                        if change.enabled && !self.owns(&change.family) {
+                            self.owned.push(change.family);
+                        }
+                    } else {
+                        self.owned
+                            .retain(|family| !family.eq_ignore_ascii_case(&change.family));
+                        if current.is_some() {
+                            conflicts.push(change.family);
+                        }
+                    }
+                }
+                if !conflicts.is_empty() {
+                    return Ok(Some(ApiError::new(
+                        "LOOPBACK_CONFLICT",
+                        format!("Windows changed Loopback permissions for {} during a Pool update. Those exceptions were preserved.", conflicts.join(", ")),
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn owns(&self, family: &str) -> bool {
+        self.owned
+            .iter()
+            .any(|owned| owned.eq_ignore_ascii_case(family))
+    }
 }
 
 pub struct Loopback {
@@ -142,51 +206,111 @@ impl Loopback {
         }
         let mut journal = saved.unwrap_or_default();
         let mut worker = capture::Worker::spawn_attribution(attribution)?;
-        let mut plan = |owned: &[String]| -> Result<Plan> {
+        let mut plan = |owned: &[String], observe: &[&str]| -> Result<Plan> {
             serde_json::from_value(worker.call(
                 "loopback.poolPlan",
                 json!({
-                    "ownerSid":owner, "owned":owned, "desired":desired,
+                    "ownerSid":owner, "owned":owned, "desired":desired, "observe":observe,
                 }),
             )?)
             .map_err(|_| ApiError::new("POOL", "Invalid Windows Loopback plan."))
         };
-        let mut change = plan(&journal.owned)?;
+        let mut conflict = None;
         if let Some(pending) = journal.pending.take() {
-            // Only adopt newly introduced exceptions when the native state
-            // confirms the interrupted write. Preserve unrelated permissions.
-            if change.before == pending.after {
-                journal.owned = pending.owned;
-                change = plan(&journal.owned)?;
-            }
-            storage::write(path, &journal)?;
+            let observe = match &pending {
+                Receipt::Changes { changes } => changes.iter().map(|c| c.family.as_str()).collect(),
+                Receipt::Legacy { .. } => Vec::new(),
+            };
+            let current = plan(&journal.owned, &observe)?;
+            conflict = journal.recover(pending, &current)?;
+            journal.save(path)?;
         }
+        let change = plan(&journal.owned, &[])?;
         if !change.changes.is_empty() {
-            journal.pending = Some(Receipt {
-                after: change.after,
-                owned: change.owned.clone(),
+            let input = json!({
+                "ownerSid":owner, "owned":journal.owned, "before":change.before,
+                "changes":change.changes,
             });
-            storage::write(path, &journal)?;
-            worker.call(
-                "loopback.poolApply",
-                json!({
-                    "ownerSid":owner, "owned":journal.owned, "before":change.before,
-                    "changes":change.changes,
-                }),
-            )?;
+            journal.pending = Some(Receipt::Changes {
+                changes: change.changes,
+            });
+            journal.save(path)?;
+            let applied = worker.call("loopback.poolApply", input)?;
+            match applied.as_bool() {
+                Some(true) => {}
+                Some(false) => {
+                    // The worker proved it never wrote. Do not adopt somebody
+                    // else's change just because it matches our planned value.
+                    journal.pending = None;
+                    journal.save(path)?;
+                    return Err(ApiError::new("LOOPBACK_CONFLICT", "Windows Loopback permissions changed before the Pool update. Wayrill will retry."));
+                }
+                None => {
+                    return Err(ApiError::new(
+                        "POOL",
+                        "Invalid Windows Loopback write result.",
+                    ))
+                }
+            }
         } else if journal.owned == change.owned {
             if journal.owned.is_empty() {
-                storage::remove(path)?;
+                journal.save(path)?;
             }
-            return Ok(());
+            return conflict.map_or(Ok(()), Err);
         }
         journal.owned = change.owned;
         journal.pending = None;
-        if journal.owned.is_empty() {
-            storage::remove(path)?;
-        } else {
-            storage::write(path, &journal)?;
-        }
-        Ok(())
+        journal.save(path)?;
+        conflict.map_or(Ok(()), Err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovers_affected_packages_after_a_partial_or_interrupted_write() {
+        let mut journal = Journal {
+            owned: ["removed", "still-owned", "changed-externally"]
+                .map(str::to_owned)
+                .to_vec(),
+            pending: None,
+        };
+        let changes = [
+            ("added", true),
+            ("not-added", true),
+            ("removed", false),
+            ("still-owned", false),
+            ("changed-externally", false),
+        ]
+        .map(|(family, enabled)| Change {
+            family: family.into(),
+            enabled,
+        });
+        let plan = Plan {
+            before: "unrelated-exception-changed-the-global-version".into(),
+            changes: Vec::new(),
+            owned: Vec::new(),
+            observed: BTreeMap::from([
+                ("added".into(), Some(0)),
+                ("not-added".into(), None),
+                ("removed".into(), None),
+                ("still-owned".into(), Some(0)),
+                ("changed-externally".into(), Some(1)),
+            ]),
+        };
+        let conflict = journal
+            .recover(
+                Receipt::Changes {
+                    changes: changes.into(),
+                },
+                &plan,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(journal.owned, ["still-owned", "added"]);
+        assert_eq!(conflict.code, "LOOPBACK_CONFLICT");
+        assert!(conflict.message.contains("changed-externally"));
     }
 }

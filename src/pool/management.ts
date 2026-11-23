@@ -17,19 +17,22 @@ export const markDeliveryChanged = (member: Member): Member => ({
 });
 
 export function reserveDelivery(member: Member): Member {
+  const publication = (member.publication ?? 0) + 1;
+  if (!Number.isSafeInteger(publication))
+    throw new Error('The delivery version limit was reached.');
   return {
     ...markDeliveryChanged(member),
-    publication: (member.publication ?? 0) + 1,
-    publishedAt: member.withdrawn ? undefined : member.publishedAt,
-    withdrawn: false,
+    publication,
   };
 }
 
 export const mayHaveDelivery = (member: Member) =>
-  !member.withdrawn && !!(member.publishedAt || member.publication);
+  !!member.deliveryTransition ||
+  (!member.withdrawn && !!(member.publishedAt || member.publication));
 
 export const deliveryPending = (member: Member, servers: readonly ObservedServer[]) =>
   !member.withdrawn &&
+  !member.deliveryTransition &&
   (!member.publishedAt ||
     !!member.deliveryChanged ||
     accountRevision(servers, member.accounts) !== (member.publishedAccounts ?? ''));

@@ -34,6 +34,13 @@ fn invalid(message: &str) -> ApiError {
     ApiError::new("SUBSCRIPTION_STATE", message)
 }
 
+fn pool_recovering() -> ApiError {
+    ApiError::new(
+        "POOL_RECOVERY_PENDING",
+        "Wayrill is verifying the previous Pool update. You can disconnect while it waits.",
+    )
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Settings {
@@ -655,9 +662,12 @@ impl Manager {
                         }
                     }
                 };
-                if state.queue.len() >= 4
+                let resolving = state.library.pool_pending.is_some();
+                if resolving && !matches!(task, pool::Task::Disconnect { .. }) {
+                    return Err(pool_recovering());
+                }
+                if (!resolving && state.queue.len() >= 4)
                     || state.pool_busy
-                    || state.library.pool_pending.is_some()
                     || state
                         .queue
                         .iter()
@@ -671,11 +681,18 @@ impl Manager {
                 let id = u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
                     .map_err(|_| invalid("Cannot create Pool job identity."))?
                     .max(1);
-                state.queue.push_back(Work::Pool { id, task });
+                if resolving {
+                    state.queue.push_front(Work::Pool { id, task });
+                } else {
+                    state.queue.push_back(Work::Pool { id, task });
+                }
                 interrupt_maintenance(&state, true);
                 Ok(json!({"job":id}))
             }
             "subscriptions.replace" => {
+                if state.library.pool_pending.is_some() {
+                    return Err(pool_recovering());
+                }
                 let selection: Replacement = params(input)?;
                 if [&selection.node_id, &selection.group_id, &selection.entry_id]
                     .iter()
@@ -1025,6 +1042,54 @@ impl Drop for Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_deferred_pool_delivery_leaves_subscription_jobs_and_disconnect_available() {
+        let manager = manager();
+        {
+            let mut state = manager.state.lock().unwrap();
+            Arc::make_mut(&mut state.library).pool_pending = Some(serde_json::from_value(json!({
+                "connection": {"source":{"kind":"folder","address":"C:\\Pool","invite":"fixture"},
+                    "name":"Pending","digest":"delivery","checkedAt":1},
+                "sourceDigest":"graph","configHash":"config",
+                "stash":"{}", "catalog":[]
+            })).unwrap());
+            for id in 1..=4 {
+                state.queue.push_back(Work::Upload {
+                    id,
+                    kind: "context".into(),
+                    text: "{}".into(),
+                });
+            }
+        }
+        let status = manager.handle("pool.status", json!({})).unwrap();
+        assert_eq!(status["recovering"], true);
+        assert_eq!(status["busy"], false);
+        assert_eq!(
+            manager.handle("pool.refresh", json!({})).unwrap_err().code,
+            "POOL_RECOVERY_PENDING"
+        );
+        let dispatch = manager.next_work().unwrap();
+        assert!(matches!(dispatch.work, Work::Upload { id: 1, .. }));
+        manager.finish(1, None);
+        drop(dispatch);
+        // A full subscription queue must still admit the user's disconnect.
+        manager.state.lock().unwrap().queue.push_back(Work::Upload {
+            id: 5,
+            kind: "context".into(),
+            text: "{}".into(),
+        });
+        manager
+            .handle("pool.disconnect", json!({"keepStash":false}))
+            .unwrap();
+        assert!(matches!(
+            manager.next_work().unwrap().work,
+            Work::Pool {
+                task: pool::Task::Disconnect { keep_stash: false },
+                ..
+            }
+        ));
+    }
+
     #[test]
     fn replacement_choices_coalesce_only_while_queued_and_stop_does_not_discard_saves() {
         let manager = manager();

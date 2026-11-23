@@ -15,6 +15,7 @@ use wayrill_protocol::{params, ApiError, Result};
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Input {
+    pub ticket: Option<String>,
     pub config: Value,
     #[serde(default)]
     pub capture: Value,
@@ -38,6 +39,7 @@ pub(crate) struct Input {
 }
 struct State {
     job: u64,
+    ticket: Option<String>,
     busy: bool,
     result: Option<Value>,
     error: Option<ApiError>,
@@ -53,6 +55,7 @@ impl Manager {
         Self {
             state: Arc::new(Mutex::new(State {
                 job: 0,
+                ticket: None,
                 busy: false,
                 result: None,
                 error: None,
@@ -79,10 +82,19 @@ impl Manager {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Query {
-            job: u64,
+            job: Option<u64>,
+            ticket: Option<String>,
         }
         let query: Query = params(value)?;
-        if query.job == 0 || query.job != self.state.lock().unwrap().job {
+        let matches = {
+            let state = self.state.lock().unwrap();
+            match (query.job, query.ticket.as_ref()) {
+                (Some(job), None) => job != 0 && job == state.job,
+                (None, Some(ticket)) => state.ticket.as_ref() == Some(ticket),
+                _ => false,
+            }
+        };
+        if !matches {
             return Err(invalid("This diagnostic is no longer available."));
         }
         if method == "routing.diagnosticCancel" && self.busy() {
@@ -96,6 +108,7 @@ impl Manager {
         exe: PathBuf,
         owner: String,
         egress: Option<crate::tun::OutboundEgress>,
+        cancel: Option<Arc<AtomicBool>>,
     ) -> Result<Value> {
         if self.busy() {
             return Err(ApiError::new(
@@ -118,9 +131,12 @@ impl Manager {
         let id = u64::from_str_radix(&crate::tun::random_id()?[..12], 16)
             .map_err(|_| invalid("Cannot create diagnostic job."))?
             .max(1);
-        self.stop = Arc::new(AtomicBool::new(false));
+        let stop = cancel.unwrap_or_default();
+        check_cancelled(&stop)?;
+        self.stop = stop;
         self.state = Arc::new(Mutex::new(State {
             job: id,
+            ticket: input.ticket.clone(),
             busy: true,
             result: None,
             error: None,
@@ -165,6 +181,14 @@ impl Drop for Manager {
 }
 fn invalid(message: impl Into<String>) -> ApiError {
     ApiError::new("ROUTING_DIAGNOSTIC", message)
+}
+
+pub(crate) fn check_cancelled(stop: &AtomicBool) -> Result<()> {
+    if stop.load(Ordering::Acquire) {
+        Err(ApiError::new("CANCELLED", "The diagnostic was cancelled."))
+    } else {
+        Ok(())
+    }
 }
 
 fn process_context(input: &mut Input, root: &std::path::Path) -> Result<Vec<String>> {
@@ -379,6 +403,7 @@ fn run(
     egress: Option<&crate::tun::OutboundEgress>,
     stop: &AtomicBool,
 ) -> Result<Value> {
+    check_cancelled(stop)?;
     let root = exe
         .parent()
         .and_then(std::path::Path::parent)
@@ -400,9 +425,7 @@ fn run(
     {
         warnings.push("Loopback destinations use local Direct sockets after the routing decision. Explicit Block rules remain effective.".into());
     }
-    if stop.load(Ordering::Acquire) {
-        return Err(invalid("Diagnostic cancelled."));
-    }
+    check_cancelled(stop)?;
     if input.mode == "dns" {
         input.config = dns_config(&input.config, &input.handler, &input.server, egress)?;
         if input.config["observatory"].is_object() || input.config["burstObservatory"].is_object() {
@@ -446,6 +469,7 @@ fn query_core(
     request: &Value,
     stop: &AtomicBool,
 ) -> Result<Value> {
+    check_cancelled(stop)?;
     let root = assets
         .parent()
         .ok_or_else(|| invalid("Invalid assets path."))?;
@@ -468,9 +492,7 @@ fn query_core(
     // transfer the request and drain its response.
     let deadline = Instant::now() + native::XRAY_CONFIG_LOAD_TIMEOUT + Duration::from_secs(15);
     loop {
-        if stop.load(Ordering::Acquire) {
-            return Err(invalid("Diagnostic cancelled."));
-        }
+        check_cancelled(stop)?;
         if let Some(code) = process.exit_code()? {
             if code != 0 {
                 return Err(invalid("The isolated Xray diagnostic failed."));

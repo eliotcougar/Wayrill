@@ -111,7 +111,7 @@ pub async fn pool_simulation_route(
     simulation_only(&window).map_err(|error| ApiError::new("POOL", error))?;
     match method.as_str() {
         "routing.diagnosticStart" if params["mode"] == "route" => {}
-        "routing.diagnosticGet" | "routing.diagnosticCancel" => {}
+        "routing.diagnosticPrepare" | "routing.diagnosticGet" | "routing.diagnosticCancel" => {}
         _ => {
             return Err(ApiError::new(
                 "POOL",

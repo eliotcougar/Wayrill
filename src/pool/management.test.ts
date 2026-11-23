@@ -14,6 +14,7 @@ import {
   setLayerUsers,
 } from './management';
 import type { Member, Publisher } from './publisher';
+import { reconcileDelivery } from './publisher';
 
 function fixture() {
   const graph = bundledExamples.find((item) => item.id === 'traffic')!.create();
@@ -52,6 +53,45 @@ function fixture() {
   return { pool: putLayer(pool, 'filter', layer), filter, layer, user };
 }
 
+it('recovers delivery status only from the recorded file states and preserves later edits', () => {
+  const { user } = fixture();
+  const publishing: Member = {
+    ...user,
+    publication: 3,
+    deliveryChanged: true,
+    deliveryTransition: {
+      phase: 'publishing',
+      before: 'old',
+      digest: 'new',
+      accounts: 'snapshot',
+      at: 500,
+    },
+  };
+  const completed = reconcileDelivery(publishing, 'new');
+  expect(completed).toMatchObject({
+    publication: 3,
+    publishedAt: 500,
+    publishedAccounts: 'snapshot',
+    deliveryChanged: true,
+  });
+  expect(completed.deliveryTransition).toBeUndefined();
+  expect(reconcileDelivery(publishing, 'old')).toMatchObject({
+    publication: 3,
+    publishedAt: 123,
+    deliveryChanged: true,
+  });
+  expect(() => reconcileDelivery(publishing, 'external')).toThrow('publishing folder');
+  const withdrawing: Member = {
+    ...completed,
+    deliveryTransition: { phase: 'withdrawing', before: 'new' },
+  };
+  expect(reconcileDelivery(withdrawing, null)).toMatchObject({
+    withdrawn: true,
+    deliveryTransition: undefined,
+  });
+  expect(() => reconcileDelivery(withdrawing, 'external')).toThrow('publishing folder');
+});
+
 it('keeps the last delivery when bulk assigning, detaching and replacing layers', () => {
   const { pool, filter } = fixture();
   const assigned = setLayerUsers(pool, 'filter', new Map([['alice', filter.id]]));
@@ -76,9 +116,9 @@ it('keeps the last delivery when bulk assigning, detaching and replacing layers'
   expect(mayHaveDelivery({ ...unassigned, withdrawn: true })).toBe(false);
   expect(reserveDelivery(unassigned).publishedAt).toBe(123);
   const resumed = reserveDelivery({ ...unassigned, withdrawn: true });
-  expect(resumed).toMatchObject({ publication: 3, publishedAt: undefined, withdrawn: false });
-  expect(mayHaveDelivery(resumed)).toBe(true);
-  expect(deliveryPending(resumed, [])).toBe(true);
+  expect(resumed).toMatchObject({ publication: 3, publishedAt: 123, withdrawn: true });
+  expect(mayHaveDelivery(resumed)).toBe(false);
+  expect(deliveryPending(resumed, [])).toBe(false);
 });
 
 it('rejects malformed saved layer files before they can replace a layer', () => {

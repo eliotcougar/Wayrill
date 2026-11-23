@@ -57,4 +57,23 @@ $script:calls=@();$caught=$false
 try{Stop-WayrillRouting 'owner' -ForUpgrade}catch{$caught=$_.Exception.Message -eq 'Sharing protection unavailable'}
 Assert $caught 'An unavailable sharing barrier must abort the upgrade'
 Assert ($script:calls.Count -eq 0) 'No old-service command may run before sharing protection succeeds'
+$handoff=Join-Path ([IO.Path]::GetTempPath()) ('wayrill-upgrade-'+[Guid]::NewGuid().ToString('N')+'.json')
+function Protect-WayrillInstallerFile([string]$Path) {}
+try {
+    $id='a'*32
+    Save-WayrillUpgradeHandoff @{version=1;transactionId=$id} $handoff
+    Assert (-not (Get-WayrillUpgradeResult $handoff $id '1.0')) 'A prepared handoff must not be read as a result'
+    $result=@{transactionId=$id;serviceVersion='1.0';ok=$false;error=@{code='SETTINGS_CONFLICT'}}
+    Save-WayrillUpgradeHandoff @{phase='retrying';result=$result;intent=@{version=1;transactionId=$id}} $handoff
+    Assert ((Get-WayrillUpgradeResult $handoff $id '1.0').error.code -eq 'SETTINGS_CONFLICT') 'An interrupted resumption must still report the failure to setup'
+    $result.ok=$true
+    $result.error=$null
+    Save-WayrillUpgradeHandoff @{phase='completed';result=$result} $handoff
+    Assert ((Get-WayrillUpgradeResult $handoff $id '1.0').ok) 'Setup must still read completion after a restart'
+    Assert (-not (Get-WayrillUpgradeResult $handoff $id '2.0')) 'Setup must reject receipts from other versions'
+    Assert (-not (Get-WayrillUpgradeResult $handoff ('b'*32) '1.0')) 'Setup must reject receipts from other transactions'
+} finally {
+    if (Test-Path -LiteralPath $handoff) { Remove-Item -LiteralPath $handoff }
+    if (Test-Path -LiteralPath ($handoff+'.tmp')) { Remove-Item -LiteralPath ($handoff+'.tmp') }
+}
 @{passed=$true;checks=$script:checks}|ConvertTo-Json

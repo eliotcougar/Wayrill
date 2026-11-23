@@ -1,10 +1,51 @@
 //! One-shot installer handoff. No public elevated command or permanent preference.
-use crate::system_settings;
-use serde::Deserialize;
+use crate::{storage, system_settings};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use wayrill_protocol::{ApiError, Result};
+
+pub fn path(profile: &Path) -> std::path::PathBuf {
+    profile.with_file_name("upgrade-resume.json")
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Receipt {
+    pub transaction_id: String,
+    pub service_version: String,
+    pub ok: bool,
+    pub error: Option<ApiError>,
+    pub core: crate::lifecycle::CoreState,
+    pub revision: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "phase", rename_all = "camelCase")]
+pub enum Progress {
+    Retrying { intent: Value, result: Receipt },
+    Completed { result: Receipt },
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum Handoff {
+    Progress(Progress),
+    // The retiring installer must still be able to stage the original v1 intent.
+    Prepared(Value),
+}
+
+pub fn load(profile: &Path) -> Result<Option<Handoff>> {
+    storage::read(&path(profile))
+}
+
+pub fn pending(profile: &Path) -> bool {
+    !matches!(
+        load(profile),
+        Ok(None | Some(Handoff::Progress(Progress::Completed { .. })))
+    )
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -88,6 +129,62 @@ pub fn validate(value: Value, owner: &str, revision: u64, profile: &Path) -> Res
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn upgrade_result_replaces_pending_intent_without_a_missing_record() {
+        let dir =
+            std::env::temp_dir().join(format!("wayrill-upgrade-journal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join("profile.json");
+        let intent = json!({"version":1,"transactionId":"a".repeat(32),"ownerSid":"owner","revision":4,"resumeRouting":false,"settings":[]});
+        storage::write(&path(&profile), &intent).unwrap();
+        assert!(pending(&profile));
+
+        let receipt = |error: Option<ApiError>| Receipt {
+            transaction_id: "a".repeat(32),
+            service_version: "test".into(),
+            ok: error.is_none(),
+            error,
+            core: crate::lifecycle::CoreState::Stopped,
+            revision: 4,
+        };
+        storage::write(
+            &path(&profile),
+            &Progress::Retrying {
+                intent: intent.clone(),
+                result: receipt(Some(ApiError::new(
+                    "SETTINGS_CONFLICT",
+                    "Changed externally",
+                ))),
+            },
+        )
+        .unwrap();
+        assert!(pending(&profile));
+        let Handoff::Progress(Progress::Retrying {
+            intent: saved,
+            result,
+        }) = load(&profile).unwrap().unwrap()
+        else {
+            panic!("interrupted handoff lost its retry state");
+        };
+        assert_eq!(saved, intent);
+        assert_eq!(result.error.unwrap().code, "SETTINGS_CONFLICT");
+
+        storage::write(
+            &path(&profile),
+            &Progress::Completed {
+                result: receipt(None),
+            },
+        )
+        .unwrap();
+        assert!(!pending(&profile));
+        let state: Value = storage::read(&path(&profile)).unwrap().unwrap();
+        assert_eq!(state["phase"], "completed");
+        assert_eq!(state["result"]["transactionId"], intent["transactionId"]);
+        assert_eq!(state["result"]["ok"], true);
+        storage::remove(&path(&profile)).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
     #[test]
     fn resume_skips_only_identical_owned_bindings_and_preserves_unowned_cas() {
         let original: system_settings::Request = serde_json::from_value(

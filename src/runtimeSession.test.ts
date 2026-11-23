@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RuntimeSession, type ServiceRequest, type ServiceView } from './runtimeSession';
+import {
+  RuntimeSession,
+  routingCommandSuperseded,
+  type ServiceRequest,
+  type ServiceView,
+} from './runtimeSession';
 import type { ServiceError, ServiceSnapshot } from './serviceClient';
 
 const snapshot = (revision = 1, state = 'stopped', instanceId = 'service-a'): ServiceSnapshot => ({
@@ -336,6 +341,74 @@ describe('runtime synchronization', () => {
     expect(env.session.getSnapshot().error).toContain('command completed');
     expect(env.session.getSnapshot().busy).toBe(false);
     expect(env.request.mock.calls.filter(([m]) => m === 'core.stop')).toHaveLength(1);
+  });
+
+  it('recovers a lost restart reply from its receipt without submitting a second restart', async () => {
+    let generation = 1;
+    let queries = 0;
+    const request = vi.fn(async (method: string, _params?: Record<string, unknown>) => {
+      if (method === 'service.sync') {
+        const current = snapshot(1, 'running');
+        return {
+          ...view({ ...current, core: { ...current.core, generation } }),
+          hello: { instanceId: current.instanceId, capabilities: ['routing.commandReceipts'] },
+        };
+      }
+      if (method === 'service.operationPrepare') return { ticket: 'restart-ticket' };
+      if (method === 'core.restart') {
+        generation++;
+        throw { code: 'DISCONNECTED', message: 'The reply was lost.' };
+      }
+      if (method === 'service.operationGet')
+        return { state: ++queries === 1 ? 'pending' : 'succeeded' };
+      throw new Error(method);
+    });
+    const session = new RuntimeSession(request as ServiceRequest);
+    await session.refresh();
+    await session.run('core.restart', { revision: 1 });
+    expect(request.mock.calls.filter(([method]) => method === 'core.restart')).toEqual([
+      ['core.restart', { revision: 1, ticket: 'restart-ticket' }],
+    ]);
+    expect(queries).toBe(2);
+    expect(session.getSnapshot()).toMatchObject({
+      busy: false,
+      notice: expect.stringContaining('Restart completed.'),
+    });
+    expect(session.getSnapshot().snapshot?.core.generation).toBe(2);
+  });
+
+  it('lets Stop supersede a restart whose receipt is still being checked', async () => {
+    let stopped = false;
+    const unreachableReceipt = deferred<object>();
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'service.sync') {
+        const current = snapshot(1, stopped ? 'stopped' : 'running');
+        return {
+          ...view(current),
+          hello: { instanceId: current.instanceId, capabilities: ['routing.commandReceipts'] },
+        };
+      }
+      if (method === 'service.operationPrepare') return { ticket: params?.method };
+      if (method === 'core.restart') throw { code: 'TIMEOUT', message: 'The reply was lost.' };
+      if (method === 'service.operationGet') return unreachableReceipt.promise;
+      if (method === 'core.stop') {
+        stopped = true;
+        return {};
+      }
+      throw new Error(method);
+    });
+    const session = new RuntimeSession(request as ServiceRequest);
+    await session.refresh();
+    const restart = session.run('core.restart', { revision: 1 });
+    await vi.waitFor(() => expect(session.getSnapshot().commandStage).toBe('reconcile'));
+    await session.run('core.stop');
+    await expect(restart).resolves.toBe(routingCommandSuperseded);
+    unreachableReceipt.resolve({ state: 'succeeded' });
+    expect(request).toHaveBeenCalledWith('core.stop', { ticket: 'core.stop' });
+    expect(session.getSnapshot()).toMatchObject({
+      busy: false,
+      notice: expect.stringContaining('Stop completed.'),
+    });
   });
   it.each([true, false])(
     'retries only the busy status read after a restart (recovers: %s)',

@@ -145,6 +145,8 @@ pub(super) struct Pending {
     config_hash: String,
     stash: String,
     catalog: Vec<Group>,
+    #[serde(default)]
+    base_version: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -343,9 +345,10 @@ pub(super) fn view(state: &State) -> Value {
             "personalSettings": !connection.preference_base.is_null(),
         })
     });
+    let pending = state.library.pool_pending.is_some();
     json!({"connection":connection,"error":state.pool_error,"lastCheckAt":state.pool_last_check,
-        "applying":state.library.pool_pending.is_some(),
-        "busy":state.pool_busy || state.library.pool_pending.is_some() || state.queue.iter().any(|work| matches!(work, Work::Pool { .. }))})
+        "applying":pending && state.pool_busy,"recovering":pending && !state.pool_busy,
+        "busy":state.pool_busy || state.queue.iter().any(|work| matches!(work, Work::Pool { .. }))})
 }
 
 fn verify_routing(
@@ -385,6 +388,9 @@ pub(super) fn perform(
     let initial = match &task {
         Task::Disconnect { keep_stash } => {
             let mut next = (*current).clone();
+            // Disconnect abandons only the unverified delivery. The routing
+            // controller retains its own applied profile and recovery checkpoint.
+            next.pool_pending = None;
             if let Some(connection) = next.pool.as_ref().filter(|_| !keep_stash) {
                 let (recipient, _) = connection.source.parts()?;
                 let prefix = format!("pool-{recipient}-");
@@ -799,6 +805,7 @@ pub(super) fn perform(
         config_hash: Kernel::subscription_candidate_hash(&candidate)?,
         stash: stash.into(),
         catalog,
+        base_version: Some(current.version),
     };
     let (plans, proxy) = kernel
         .lock()
@@ -836,7 +843,8 @@ pub(super) fn perform(
     next.pool_pending = Some(pending);
     manager.commit(next)?;
     if already_applied {
-        return finish_pending(&routing, manager);
+        drop(routing);
+        return finish_pending(kernel, manager, stop, shutdown);
     }
     let activate =
         observed.wants_running || observed.running || initial.is_some_and(|input| input.start);
@@ -844,44 +852,90 @@ pub(super) fn perform(
         "config":candidate["config"],"capture":candidate["capture"],"displayNames":candidate["displayNames"],
         "sourceGraph":graph,"expectedRevision":observed.revision,
     }));
+    drop(routing);
     if let Err(failure) = result {
         // Reconcile against the authoritative profile after any guarded rollback.
         // If recovery still owns a checkpoint, leave the Pool journal intact.
-        if routing.pool_source().is_ok() {
-            finish_pending(&routing, manager)?;
-        }
+        let _ = finish_pending(kernel, manager, stop, shutdown);
         return Err(failure);
     }
-    finish_pending(&routing, manager)
+    finish_pending(kernel, manager, stop, shutdown)
 }
 
-pub(super) fn finish_pending(routing: &Kernel, manager: &Manager) -> Result<()> {
+pub(super) fn finish_pending(
+    kernel: &Mutex<Kernel>,
+    manager: &Manager,
+    stop: &AtomicBool,
+    shutdown: &AtomicBool,
+) -> Result<()> {
     let current = manager.state.lock().unwrap().library.clone();
     let Some(pending) = &current.pool_pending else {
         return Ok(());
     };
+    let controller = || {
+        kernel
+            .lock()
+            .map_err(|_| error("Routing controller unavailable."))
+    };
+    let mut routing = controller()?;
     let mut next = (*current).clone();
-    if let Some((graph, revision, hash, source_hash)) = routing.pool_source()? {
-        if hash == pending.config_hash && digest(&graph) == pending.source_digest {
-            let mut connection = pending.connection.clone();
-            connection.verified_source = Some(source_hash.clone());
-            next.pool = Some(connection);
-            next.stash = Some(pending.stash.clone());
-            next.catalog = pending.catalog.clone();
-            next.applied = Some(Applied {
-                graph,
-                revision,
-                hash,
-                source_hash,
-            });
-            next.version = next
-                .version
-                .checked_add(1)
-                .ok_or_else(|| error("Stash version exhausted."))?;
-        }
-    }
     next.pool_pending = None;
+    let Some((graph, revision, hash, source_hash)) =
+        routing.pool_source()?.filter(|(graph, _, hash, _)| {
+            hash == &pending.config_hash && digest(graph) == pending.source_digest
+        })
+    else {
+        return manager.commit(next);
+    };
+    let applied = Applied {
+        graph,
+        revision,
+        hash,
+        source_hash,
+    };
+    let mut connection = pending.connection.clone();
+    connection.verified_source = Some(applied.source_hash.clone());
+    next.pool = Some(connection);
+    if pending.base_version != Some(current.version) {
+        // Regular subscriptions can change while the routing proof is deferred.
+        // Only the committed Pool's groups come from the frozen delivery.
+        drop(routing);
+        let (recipient, _) = pending.connection.source.parts()?;
+        let stash = worker::helper(
+            &json!({"operation":"poolReconcileStash","recipient":recipient,"stash":current.stash,
+                    "local":pending.stash,"trusted":true}),
+            stop,
+            shutdown,
+        )?;
+        routing = controller()?;
+        require_same_source(&routing, &applied)?;
+        next.applied = Some(applied);
+        return worker::accept(manager, next, stash, []);
+    }
+    next.applied = Some(applied);
+    next.stash = Some(pending.stash.clone());
+    next.catalog = pending.catalog.clone();
+    next.version = next
+        .version
+        .checked_add(1)
+        .ok_or_else(|| error("Stash version exhausted."))?;
     manager.commit(next)
+}
+
+fn require_same_source(routing: &Kernel, applied: &Applied) -> Result<()> {
+    if routing
+        .pool_source()?
+        .is_none_or(|(_, revision, hash, source_hash)| {
+            revision != applied.revision
+                || hash != applied.hash
+                || source_hash != applied.source_hash
+        })
+    {
+        return Err(error(
+            "Routing changed while restoring the Pool delivery. Wayrill will check again.",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn next_check(connection: Option<&Connection>) -> Instant {

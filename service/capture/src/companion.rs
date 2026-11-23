@@ -71,8 +71,9 @@ impl Companion {
                 let owned: Vec<String> = serde_json::from_value(data["owned"].clone())?;
                 if request.method == "loopback.poolPlan" {
                     let desired: Vec<String> = serde_json::from_value(data["desired"].clone())?;
+                    let observe: Vec<String> = serde_json::from_value(data["observe"].clone())?;
                     return Ok(serde_json::to_value(native::loopback::plan_pool(
-                        &packages, &desired, &owned,
+                        &packages, &desired, &owned, &observe,
                     )?)?);
                 }
                 let before = data["before"]
@@ -80,8 +81,9 @@ impl Companion {
                     .ok_or_else(|| Error::invalid("Missing loopback version."))?;
                 let changes: Vec<native::loopback::Change> =
                     serde_json::from_value(data["changes"].clone())?;
-                native::loopback::apply_pool(&packages, before, &changes, &owned)?;
-                Ok(Value::Null)
+                Ok(json!(native::loopback::apply_pool(
+                    &packages, before, &changes, &owned,
+                )?))
             }
 
             "applications.start" => {

@@ -256,6 +256,7 @@ export default function PoolConnection({
       options.filters.some(({ choices, defaultLayer }) => choices.length > 0 || !!defaultLayer) ||
       options.outbounds.some(({ accepts }) => accepts.length > 0));
   const connected = !!status?.connection;
+  const recovering = !!status?.recovering;
   const defaultChoice =
     selection?.graph === options?.defaultGraph &&
     !selection?.stashes &&
@@ -263,7 +264,7 @@ export default function PoolConnection({
     !Object.keys(selection?.outbounds ?? {}).length &&
     !Object.keys(selection?.stashOverrides ?? {}).length &&
     !Object.keys(selection?.filterOverrides ?? {}).length;
-  const blocked = busy || !!status?.busy;
+  const blocked = busy || !!status?.busy || recovering;
   const readyToReview =
     !!address.trim() &&
     invitePattern.test(invite.trim()) &&
@@ -315,9 +316,11 @@ export default function PoolConnection({
             ? 'Review Pool configuration'
             : status?.connection
               ? 'Pool connection'
-              : simulation
-                ? 'Test Pool invitation'
-                : 'Connect to Pool'
+              : recovering
+                ? 'Pool recovery'
+                : simulation
+                  ? 'Test Pool invitation'
+                  : 'Connect to Pool'
       }
       onClose={onClose}
       busy={busy}
@@ -329,7 +332,7 @@ export default function PoolConnection({
           <>
             <button
               className="secondary-button"
-              disabled={blocked}
+              disabled={busy || status?.busy}
               onClick={() => {
                 setPreview(undefined);
                 setFailure('');
@@ -360,7 +363,7 @@ export default function PoolConnection({
                   : 'Connect to Pool'}
             </button>
           </>
-        ) : connected ? undefined : (
+        ) : connected || recovering ? undefined : (
           <>
             <button className="secondary-button" disabled={busy} onClick={onClose}>
               Cancel
@@ -378,7 +381,9 @@ export default function PoolConnection({
     >
       {disconnect ? (
         <fieldset disabled={busy || status?.busy}>
-          <legend>{status?.connection?.poolName ?? status?.connection?.name}</legend>
+          <legend>
+            {status?.connection?.poolName ?? status?.connection?.name ?? 'Pending connection'}
+          </legend>
           <p>
             Disconnecting ends Pool updates. The applied graph can still use its saved server
             settings.
@@ -413,6 +418,13 @@ export default function PoolConnection({
             </button>
           </div>
         </fieldset>
+      ) : recovering && !connected ? (
+        <div className="notice">
+          <p>Wayrill is waiting to verify the last Pool configuration against the applied graph.</p>
+          <button className="secondary-button" disabled={busy} onClick={() => setDisconnect(true)}>
+            Disconnect…
+          </button>
+        </div>
       ) : preview ? (
         <fieldset disabled={busy || status?.busy}>
           <legend>Routing setup</legend>
@@ -896,13 +908,14 @@ export default function PoolConnection({
             )}
             <button
               className={status.error ? 'primary-button' : 'secondary-button'}
-              disabled={revision === undefined}
+              disabled={revision === undefined || recovering}
               onClick={() => void run(() => inspect(true), 'Reading Pool configuration…')}
             >
               Edit configuration choices…
             </button>
             <button
               className="secondary-button"
+              disabled={recovering}
               onClick={() => void run(checkNow, 'Checking for updates…')}
             >
               Check for updates
@@ -937,7 +950,11 @@ export default function PoolConnection({
               )}
               <button
                 className="secondary-button"
-                disabled={!intervalValid || refreshMinutes === status.connection.refreshMinutes}
+                disabled={
+                  recovering ||
+                  !intervalValid ||
+                  refreshMinutes === status.connection.refreshMinutes
+                }
                 onClick={() =>
                   void run(async () => {
                     await command('pool.setInterval', { refreshMinutes });
@@ -1077,6 +1094,10 @@ export default function PoolConnection({
       {busy || status?.busy ? (
         <p role="status" className="field-help">
           {activity || (status?.applying ? 'Applying Pool configuration…' : 'Checking Pool…')}
+        </p>
+      ) : recovering && connected ? (
+        <p role="status" className="field-help">
+          Waiting to verify the last Pool update. The current configuration remains available.
         </p>
       ) : null}
       {(failure || statusError || (!preview && status?.error) || live?.editorError) && (

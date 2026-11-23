@@ -1,6 +1,7 @@
 import type { SubscriptionStatus } from './profiles/serviceSubscriptions';
 import { runtimeOperation, type RuntimeOperation, type NativeActivity } from './runtimeProgress';
 import { mutationOutcomeUnknown } from './serviceClient';
+import { interruptible, waitForTestJob } from './outboundTestJobs';
 import { resourceDependencies } from './graph/resources';
 import { jsonEqual, jsonRecord } from './graph/xrayJson';
 import type { CapturePlan } from './graph/capture';
@@ -50,13 +51,23 @@ export interface RuntimeState {
   busy: boolean;
   pendingOperation?: RuntimeOperation;
   nativeActivity?: NativeActivity;
-  commandStage?: 'resources' | 'request' | 'refresh';
+  commandStage?: 'resources' | 'request' | 'reconcile' | 'refresh';
   error: string;
   errorAction?: string;
   notice: string;
   capabilities: string[];
   protocols: ServiceProtocols | null;
   limits: { configBytes: number; outbounds: number; routingRules: number } | null;
+}
+
+type RoutingReceipt =
+  | { state: 'pending' | 'succeeded' | 'notSubmitted' | 'unavailable' }
+  | { state: 'failed'; error: import('./serviceClient').ServiceError };
+
+export const routingCommandSuperseded = Symbol();
+
+function commandOutcomeError(code: string, message: string) {
+  return Object.assign(new Error(message), { code });
 }
 
 function commandNotice(method: string, snapshot: ServiceSnapshot | null): string {
@@ -140,6 +151,8 @@ export class RuntimeSession {
   private cursor = { instanceId: '', sequence: 0 };
   private fetching: Promise<void> | null = null;
   private refreshRequested = false;
+  private command = 0;
+  private receiptWait?: AbortController;
 
   constructor(private request: ServiceRequest) {}
 
@@ -353,12 +366,67 @@ export class RuntimeSession {
     return task;
   };
 
+  private async reconcile(ticket: string, instanceId: string, signal: AbortSignal) {
+    for (;;) {
+      signal.throwIfAborted();
+      if (this.state.connected && this.state.snapshot?.instanceId !== instanceId)
+        throw commandOutcomeError(
+          'COMMAND_OUTCOME_UNAVAILABLE',
+          'The service restarted before the command outcome could be confirmed. Review the current routing state.',
+        );
+      let receipt: RoutingReceipt | undefined;
+      try {
+        receipt = await interruptible(signal, () =>
+          this.request<RoutingReceipt>('service.operationGet', { ticket }),
+        );
+      } catch (error) {
+        signal.throwIfAborted();
+        if (jsonRecord(error) && error.code === 'METHOD_NOT_FOUND')
+          throw commandOutcomeError(
+            'COMMAND_OUTCOME_UNAVAILABLE',
+            'The command outcome is unavailable. Review the current routing state.',
+          );
+        if (
+          !mutationOutcomeUnknown(error) &&
+          !isServiceBusy(error) &&
+          !(jsonRecord(error) && error.code === 'SERVICE_STOPPING')
+        )
+          throw error;
+      }
+      switch (receipt?.state) {
+        case 'succeeded':
+          return;
+        case 'failed':
+          throw Object.assign(new Error(receipt.error.message), receipt.error);
+        case 'notSubmitted':
+          throw commandOutcomeError(
+            'COMMAND_NOT_SUBMITTED',
+            'The routing command did not reach the service. You can try it again.',
+          );
+        case 'unavailable':
+          throw commandOutcomeError(
+            'COMMAND_OUTCOME_UNAVAILABLE',
+            'The command outcome is unavailable. Review the current routing state.',
+          );
+        default:
+          await waitForTestJob(receipt ? 250 : 1000, signal);
+      }
+    }
+  }
+
   run = async (
     method: string,
     params: Record<string, unknown> = {},
     prepare?: () => Promise<Record<string, unknown>>,
   ) => {
-    if (this.state.busy) throw new Error('Wait for the current service operation to finish.');
+    if (
+      this.state.busy &&
+      !(method === 'core.stop' && this.receiptWait && this.state.pendingOperation !== 'stop')
+    )
+      throw new Error('Wait for the current service operation to finish.');
+    this.receiptWait?.abort();
+    this.receiptWait = undefined;
+    const command = ++this.command;
     this.update({
       busy: true,
       pendingOperation: runtimeOperation(method),
@@ -368,6 +436,7 @@ export class RuntimeSession {
     });
     let acknowledged = false;
     let dispatched = false;
+    let tracked = false;
     try {
       let payload = params;
       if (params.resources && params.config) {
@@ -392,14 +461,42 @@ export class RuntimeSession {
       }
       this.update({ commandStage: 'request' });
       if (prepare) payload = { ...payload, ...(await prepare()) };
+      const instanceId = this.state.snapshot?.instanceId;
+      tracked =
+        !!instanceId &&
+        !!runtimeOperation(method) &&
+        this.state.capabilities.includes('routing.commandReceipts');
+      const ticket = tracked
+        ? (
+            await this.request<{ ticket: string }>('service.operationPrepare', {
+              method,
+              instanceId,
+            })
+          ).ticket
+        : undefined;
       dispatched = true;
-      const result = await this.request<unknown>(method, payload);
+      let result: unknown;
+      try {
+        result = await this.request<unknown>(method, ticket ? { ...payload, ticket } : payload);
+      } catch (error) {
+        if (!ticket || !instanceId || !mutationOutcomeUnknown(error)) throw error;
+        const wait = new AbortController();
+        this.receiptWait = wait;
+        this.update({ commandStage: 'reconcile' });
+        try {
+          await this.reconcile(ticket, instanceId, wait.signal);
+        } finally {
+          if (this.receiptWait === wait) this.receiptWait = undefined;
+        }
+      }
+      if (this.command !== command) return routingCommandSuperseded;
       acknowledged = true;
       this.update({ commandStage: 'refresh' });
       await this.refresh();
       this.update({ notice: commandNotice(method, this.state.snapshot) });
       return result;
     } catch (error) {
+      if (this.command !== command) return routingCommandSuperseded;
       if (!acknowledged) {
         try {
           await this.refresh();
@@ -411,18 +508,19 @@ export class RuntimeSession {
         errorAction: method,
         error: acknowledged
           ? `The command completed, but runtime status could not be refreshed: ${errorText(error)}`
-          : dispatched && method !== 'config.validate' && mutationOutcomeUnknown(error)
+          : dispatched && !tracked && method !== 'config.validate' && mutationOutcomeUnknown(error)
             ? `The command outcome is unknown. Check the current runtime state before retrying. ${errorText(error)}`
             : errorText(error),
       });
       throw error;
     } finally {
-      this.update({
-        busy: false,
-        pendingOperation: undefined,
-        commandStage: undefined,
-        nativeActivity: undefined,
-      });
+      if (this.command === command)
+        this.update({
+          busy: false,
+          pendingOperation: undefined,
+          commandStage: undefined,
+          nativeActivity: undefined,
+        });
     }
   };
 }

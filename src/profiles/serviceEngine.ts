@@ -54,6 +54,7 @@ interface Request {
     | 'poolPrepare'
     | 'poolRoutingState'
     | 'poolForgetStash'
+    | 'poolReconcileStash'
     | 'poolInspect';
   bundle?: unknown;
   recipient?: string;
@@ -148,9 +149,15 @@ export function subscriptionEngine(request: Request) {
       : parseStash(request.stash)
     : { format: 'wayrill.stash', version: 3, groups: [defaultGroup()] };
   let summary: unknown;
-  if (request.operation === 'poolForgetStash') {
+  if (request.operation === 'poolForgetStash' || request.operation === 'poolReconcileStash') {
     const prefix = `pool-${request.recipient!}-`;
-    const next = { ...stash, groups: stash.groups.filter((group) => !group.id.startsWith(prefix)) };
+    const groups = stash.groups.filter((group) => !group.id.startsWith(prefix));
+    if (request.operation === 'poolReconcileStash') {
+      groups.push(
+        ...readValidatedStash(request.local!).groups.filter((group) => group.id.startsWith(prefix)),
+      );
+    }
+    const next = { ...stash, groups };
     return { stash: serializeStash(next), catalog: libraryCatalog(next) };
   }
   if (request.operation === 'poolPrepare') {

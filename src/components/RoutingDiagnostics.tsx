@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlaskConical, Search } from 'lucide-react';
 import Dialog from './Dialog';
 import { EditorTabs, EditorTabPanel, useEditorTabs } from './EditorTabs';
-import { serviceCall, errorText, type ServiceError } from '../serviceClient';
+import {
+  serviceCall,
+  errorText,
+  mutationOutcomeUnknown,
+  type ServiceError,
+} from '../serviceClient';
+import { interruptible, waitForTestJob } from '../outboundTestJobs';
 import type { RuntimeController } from '../useRuntime';
 import type { Diagnostic, GraphState } from '../graph/types';
 import {
@@ -25,81 +31,121 @@ type Job = {
   cancelled: boolean;
 };
 
-function useDiagnosticJob(request: typeof serviceCall) {
+type Selector = { ticket: string } | { job: number };
+type DiagnosticRun = { controller: AbortController; selector?: Selector };
+
+function serviceCode(error: unknown, code: string) {
+  return !!error && typeof error === 'object' && 'code' in error && error.code === code;
+}
+
+async function cancelDiagnostic(request: typeof serviceCall, selector: Selector) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await request('routing.diagnosticCancel', selector);
+      return;
+    } catch (error) {
+      if (!mutationOutcomeUnknown(error) && !serviceCode(error, 'BUSY')) return;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
+function useDiagnosticJob(request: typeof serviceCall, tickets: boolean) {
   const [state, setState] = useState<{
     busy: boolean;
     result?: RoutingDiagnosticResult;
     error?: string;
   }>({ busy: false });
-  const active = useRef(true),
-    job = useRef<number | null>(null),
-    pending = useRef(false),
-    cancelRequested = useRef(false),
-    cancelSent = useRef<number | null>(null),
-    timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
-    sequence = useRef(0);
-  const cancel = useCallback(() => {
-    cancelRequested.current = true;
-    const id = job.current;
-    if (id != null && cancelSent.current !== id) {
-      cancelSent.current = id;
-      void request('routing.diagnosticCancel', { job: id }).catch(() => {
-        if (cancelSent.current === id) cancelSent.current = null;
-      });
-    }
-  }, [request]);
+  const current = useRef<DiagnosticRun | null>(null);
   const retire = useCallback(() => {
-    active.current = false;
-    sequence.current++;
-    clearTimeout(timer.current);
-    cancel();
-  }, [cancel]);
-  useEffect(() => {
-    active.current = true;
-    return retire;
-  }, [retire]);
+    const run = current.current;
+    if (!run) return;
+    current.current = null;
+    run.controller.abort();
+    if (run.selector) void cancelDiagnostic(request, run.selector);
+  }, [request]);
+  useEffect(() => retire, [retire]);
+  const cancel = () => {
+    retire();
+    setState({ busy: false, error: 'Test cancelled.' });
+  };
+
   const run = async (input: Record<string, unknown>) => {
-    if (pending.current) return;
-    pending.current = true;
-    cancelRequested.current = false;
-    cancelSent.current = null;
-    const id = ++sequence.current;
+    if (current.current) return;
+    const job: DiagnosticRun = { controller: new AbortController() };
+    current.current = job;
+    const signal = job.controller.signal;
     setState({ busy: true });
-    const accept = (reply: Job) => {
-      if (!active.current || sequence.current !== id) {
-        if (reply.busy)
-          void request('routing.diagnosticCancel', { job: reply.job }).catch(() => {});
-        return;
-      }
-      job.current = reply.busy ? reply.job : null;
-      if (reply.busy && cancelRequested.current) cancel();
-      pending.current = reply.busy;
-      setState({
-        busy: reply.busy,
-        result: reply.result ?? undefined,
-        error: reply.error
-          ? errorText(reply.error)
-          : reply.cancelled
-            ? 'Test cancelled.'
-            : undefined,
-      });
-      if (reply.busy)
-        timer.current = setTimeout(() => {
-          void request<Job>('routing.diagnosticGet', { job: reply.job }).then(accept).catch(fail);
-        }, 150);
-    };
-    const fail = (error: unknown) => {
-      if (active.current && sequence.current === id) {
-        cancel();
-        job.current = null;
-        pending.current = false;
-        setState({ busy: false, error: errorText(error) });
+    const status = async () => {
+      for (;;) {
+        try {
+          return await interruptible(signal, () =>
+            request<Job>('routing.diagnosticGet', job.selector),
+          );
+        } catch (error) {
+          signal.throwIfAborted();
+          if (
+            !job.selector ||
+            !('ticket' in job.selector) ||
+            (!mutationOutcomeUnknown(error) &&
+              !serviceCode(error, 'BUSY') &&
+              !serviceCode(error, 'SERVICE_STOPPING'))
+          )
+            throw error;
+          await waitForTestJob(250, signal);
+        }
       }
     };
     try {
-      accept(await request<Job>('routing.diagnosticStart', input));
+      if (tickets) {
+        try {
+          job.selector = await interruptible(signal, () =>
+            request<{ ticket: string }>('routing.diagnosticPrepare'),
+          );
+        } catch (error) {
+          if (!serviceCode(error, 'METHOD_NOT_FOUND')) throw error;
+        }
+      }
+      signal.throwIfAborted();
+      const start = request<Job>('routing.diagnosticStart', { ...input, ...job.selector });
+      if (!job.selector) {
+        void start.then(
+          (reply) => {
+            if (!reply.busy) return;
+            job.selector = { job: reply.job };
+            if (signal.aborted) void cancelDiagnostic(request, job.selector);
+          },
+          () => {},
+        );
+      }
+      let reply: Job;
+      try {
+        reply = await interruptible(signal, () => start);
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!job.selector || !('ticket' in job.selector) || !mutationOutcomeUnknown(error))
+          throw error;
+        reply = await status();
+      }
+      while (reply.busy) {
+        await waitForTestJob(150, signal);
+        reply = await status();
+      }
+      if (current.current !== job) return;
+      current.current = null;
+      setState({
+        busy: false,
+        result: reply.result ?? undefined,
+        error: reply.cancelled
+          ? 'Test cancelled.'
+          : reply.error
+            ? errorText(reply.error)
+            : undefined,
+      });
     } catch (error) {
-      fail(error);
+      if (current.current !== job) return;
+      retire();
+      setState({ busy: false, error: errorText(error) });
     }
   };
   return { ...state, run, cancel, clear: () => setState({ busy: false }) };
@@ -167,7 +213,10 @@ export default function RoutingDiagnostics({
     mode: Mode;
     destination: string;
   } | null>(null);
-  const test = useDiagnosticJob(simulation ?? serviceCall);
+  const test = useDiagnosticJob(
+    simulation ?? serviceCall,
+    !!simulation || runtime.capabilities.includes('routing.commandReceipts'),
+  );
   const tabs = useEditorTabs(
     simulation
       ? [{ key: 'route', label: 'Route' }]
