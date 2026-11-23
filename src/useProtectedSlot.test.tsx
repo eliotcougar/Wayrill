@@ -68,6 +68,24 @@ describe('protected document lifecycle', () => {
     expect(storage.error).toContain('parse failure');
     expect(mock.write).not.toHaveBeenCalled();
   });
+  it('resumes the same startup load after a service restart without saving over the journal', async () => {
+    mock.read
+      .mockRejectedValueOnce({ code: 'SERVICE_UNAVAILABLE', message: 'Starting' })
+      .mockRejectedValueOnce({ code: 'SUBSCRIPTION_JOB_UNAVAILABLE', message: 'Lost job' })
+      .mockResolvedValueOnce('restored workspace');
+    const load = vi.fn();
+    await act(() => root.render(<Harness text="initial example" load={load} />));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(storage.ready).toBe(false);
+    expect(storage.loading).toBe(true);
+    expect(load).not.toHaveBeenCalled();
+    expect(mock.write).not.toHaveBeenCalled();
+
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(load).toHaveBeenCalledExactlyOnceWith('restored workspace');
+    expect(storage.ready).toBe(true);
+    expect(storage.error).toBe('');
+  });
 });
 
 it('defers serialization until the latest debounced save and catches a serialization failure', async () => {

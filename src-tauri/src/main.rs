@@ -10,6 +10,8 @@ mod companion;
 mod diagnostics;
 mod editor_memory;
 mod export;
+#[path = "../../service/http_source_url.rs"]
+mod http_source_url;
 mod picker;
 mod pool_open;
 #[allow(dead_code)]
@@ -315,6 +317,7 @@ fn main() {
             picker::process_picker,
             routing_source::routing_source_file,
             routing_source::routing_source_download,
+            routing_source::routing_source_download_cancel,
             diagnostics::diagnostics_read,
             diagnostics::diagnostics_open,
             diagnostics::diagnostics_record

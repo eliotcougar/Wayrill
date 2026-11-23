@@ -2,6 +2,8 @@
 
 #[path = "../../src/export.rs"]
 mod export;
+#[path = "../../../service/http_source_url.rs"]
+mod http_source_url;
 #[path = "../../src/picker.rs"]
 mod picker;
 #[path = "../../../service/pool_access.rs"]
@@ -16,10 +18,10 @@ mod pool_transfer;
 #[path = "../../src/routing_source.rs"]
 mod routing_source;
 mod simulation;
+#[path = "../../../service/subscription_http.rs"]
+mod subscription_http;
 #[path = "../../src/vault.rs"]
 mod vault;
-
-use routing_source::http as subscription_http;
 
 use std::{
     path::PathBuf,
@@ -162,6 +164,7 @@ fn main() {
             pool_discard,
             routing_source::routing_source_file,
             routing_source::routing_source_download,
+            routing_source::routing_source_download_cancel,
             pool_publisher::pool_publish,
             pool_publisher::pool_delivery_digest,
             pool_publisher::pool_validate_folder,

@@ -117,9 +117,11 @@ it('resumes the same Stash commit after an interruption before the draft is save
   });
   let receipt: string | undefined;
   let committed = 0;
+  let serviceStarting = false;
   mock.restore.mockImplementation(async (id, base, document) => {
     expect(base).toBe('original stash');
     expect(document).toBe('restored stash');
+    if (serviceStarting) throw { code: 'SERVICE_UNAVAILABLE', message: 'The service is starting.' };
     if (receipt !== id) {
       receipt = id;
       committed++;
@@ -137,9 +139,18 @@ it('resumes the same Stash commit after an interruption before the draft is save
   await expect(protectedWrite('workspace', 'stale autosave')).rejects.toThrow('pending backup');
 
   failWorkspace = false;
+  serviceStarting = true;
   vi.resetModules();
   const restarted = await import('./protectedStorage');
   mock.read.mockResolvedValue('restored stash');
+  const unavailable = await Promise.allSettled([
+    restarted.protectedRead('workspace'),
+    restarted.protectedRead('stash'),
+  ]);
+  expect(unavailable.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+  expect(files.get('workspace')).toBe('original graph');
+  expect(JSON.parse(files.get('restore')!).id).toBe(receipt);
+  serviceStarting = false;
   await expect(
     Promise.all([restarted.protectedRead('workspace'), restarted.protectedRead('stash')]),
   ).resolves.toEqual(['restored graph', 'restored stash']);

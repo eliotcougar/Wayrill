@@ -768,7 +768,8 @@ impl Manager {
                 {
                     return Ok(json!({"busy":true,"error":null}));
                 }
-                Err(invalid(
+                Err(ApiError::new(
+                    "SUBSCRIPTION_JOB_UNAVAILABLE",
                     "Subscription job is unavailable; refresh the library before retrying.",
                 ))
             }

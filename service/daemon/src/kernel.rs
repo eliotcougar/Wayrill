@@ -452,6 +452,22 @@ impl Kernel {
     pub(crate) fn attribution_root(&self) -> PathBuf {
         self.capture.attribution_root()
     }
+    pub(crate) fn decorate_catalog(&self, mut result: Value) -> Result<Value> {
+        let excluded = self.tun.excluded_capture_interfaces()?;
+        if let Some(adapters) = result["interfaces"].as_array_mut() {
+            for adapter in adapters {
+                let owned = adapter["id"].as_str().is_some_and(|id| {
+                    excluded
+                        .iter()
+                        .any(|ours| ours.eq_ignore_ascii_case(id.trim_matches(['{', '}'])))
+                });
+                adapter["captureExcluded"] = json!(owned);
+            }
+        }
+        result["captureInterfaces"] = json!(self.capture.catalog_interfaces());
+        result["excludedCaptureInterfaces"] = json!(excluded);
+        Ok(result)
+    }
     pub(crate) fn validate_pool_resources(&mut self, config: &Value) -> Result<()> {
         let projection = self.resources.project(config)?;
         if let Some(first) = projection.report.skipped_selectors.first() {
@@ -1417,31 +1433,10 @@ impl Kernel {
                     json!({"ownerSid":self.owner,"path":request.path}),
                 )
             }
-            "windows.catalog" | "windows.loopback.get" => {
+            "windows.loopback.get" => {
                 let _: Empty = params(input)?;
-                let mut result = self.capture.once(
-                    if method == "windows.catalog" {
-                        "catalog"
-                    } else {
-                        "loopback.get"
-                    },
-                    json!({"ownerSid":self.owner}),
-                )?;
-                if method == "windows.catalog" {
-                    let excluded = self.tun.excluded_capture_interfaces()?;
-                    result["excludedCaptureInterfaces"] = json!(excluded);
-                    if let Some(adapters) = result["interfaces"].as_array_mut() {
-                        for adapter in adapters {
-                            let owned = adapter["id"].as_str().is_some_and(|id| {
-                                excluded.iter().any(|ours| {
-                                    ours.eq_ignore_ascii_case(id.trim_matches(['{', '}']))
-                                })
-                            });
-                            adapter["captureExcluded"] = json!(owned);
-                        }
-                    }
-                }
-                Ok(result)
+                self.capture
+                    .once("loopback.get", json!({"ownerSid":self.owner}))
             }
             "windows.loopback.set" => {
                 if self.pool_loopback.busy() {

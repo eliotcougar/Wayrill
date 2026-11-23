@@ -1,4 +1,4 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { Channel, invoke, isTauri } from '@tauri-apps/api/core';
 import { LIMITS, CONFIG_LIMIT_LABEL } from './limits';
 
 export function routingUrl(value: string, allowHttp: boolean): string {
@@ -31,18 +31,32 @@ export async function downloadRoutingRules(
   const url = routingUrl(value, allowHttp);
   signal.throwIfAborted();
   if (isTauri()) {
+    const id = crypto.randomUUID().replaceAll('-', '');
+    const cancel = () => void invoke('routing_source_download_cancel', { id }).catch(() => {});
+    let admitted = false;
+    const ready = new Channel<null>(() => {
+      admitted = true;
+      if (signal.aborted) cancel();
+    });
+    let onAbort: () => void = () => {};
     let text: string;
     try {
-      text = await invoke<string>('routing_source_download', {
-        url,
-        allowHttp,
-        viaWayrill,
+      const aborted = new Promise<never>((_, reject) => {
+        onAbort = () => {
+          if (admitted) cancel();
+          reject(new DOMException('Routing download cancelled.', 'AbortError'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
       });
+      text = await Promise.race([
+        aborted,
+        invoke<string>('routing_source_download', { id, ready, url, allowHttp, viaWayrill }),
+      ]);
     } catch (error) {
-      throw new Error(
-        String(error).replaceAll('Subscription', 'Routing').replaceAll('subscription', 'routing'),
-        { cause: error },
-      );
+      signal.throwIfAborted();
+      throw new Error(String(error), { cause: error });
+    } finally {
+      signal.removeEventListener('abort', onAbort);
     }
     signal.throwIfAborted();
     if (new TextEncoder().encode(text).length > LIMITS.configBytes)

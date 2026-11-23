@@ -1,32 +1,13 @@
 // Subscription downloads run in the service's restricted LocalService helper.
+pub use crate::http_source_url::validate_http_source as validate_url;
 use std::{
     collections::BTreeMap,
     ptr,
     time::{Duration, Instant},
 };
-use url::Url;
 use windows_sys::Win32::Networking::WinHttp::*;
+
 const MAX: usize = 32 * 1024 * 1024;
-pub fn validate_url(text: &str, allow_http: bool) -> Result<Url, String> {
-    if text.len() > 8192 {
-        return Err("Subscription URL is too long.".into());
-    }
-    let url = Url::parse(text).map_err(|_| "Enter a valid subscription URL.")?;
-    if url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(
-            "Subscription URLs require a host and cannot contain login credentials or a fragment."
-                .into(),
-        );
-    }
-    if url.scheme() != "https" && !(allow_http && url.scheme() == "http") {
-        return Err("Use HTTPS, or explicitly allow HTTP for this subscription.".into());
-    }
-    Ok(url)
-}
 pub fn validate_headers(headers: &BTreeMap<String, String>, agent: &str) -> Result<(), String> {
     if headers.len() > 32 || agent.len() > 512 || agent.contains(['\r', '\n', '\0']) {
         return Err("Invalid subscription request headers.".into());
@@ -89,19 +70,8 @@ fn download_error() -> String {
         _ => format!("Subscription download failed (Windows error {code})."),
     }
 }
-pub fn fetch(
-    text: &str,
-    allow_http: bool,
-    agent: &str,
-    headers: &BTreeMap<String, String>,
-    proxy_port: Option<u16>,
-) -> Result<String, String> {
-    fetch_with_policy(text, allow_http, agent, headers, proxy_port, false)?
-        .text
-        .ok_or_else(|| "Subscription server returned no document.".into())
-}
-
 #[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(Debug))]
 pub struct Fetched {
     pub text: Option<String>,
     pub etag: Option<String>,
@@ -403,16 +373,17 @@ mod http_integration {
             )
             .unwrap();
         });
-        let reply = fetch(
+        let reply = fetch_with_policy(
             &format!("http://127.0.0.1:{port}/subscription"),
             true,
             "Wayrill QA",
             &BTreeMap::from([("Authorization".into(), "Bearer test-only".into())]),
             None,
+            false,
         )
         .unwrap();
         worker.join().unwrap();
-        assert_eq!(reply, "fictional-subscription-跳");
+        assert_eq!(reply.text.as_deref(), Some("fictional-subscription-跳"));
     }
     #[test]
     fn decompresses_http_responses_before_decoding_subscription_text() {
@@ -433,7 +404,7 @@ mod http_integration {
             } else {
                 format!("http://127.0.0.1:{port}/subscription")
             };
-            let result = fetch(
+            let result = fetch_with_policy(
                 &url,
                 true,
                 "",
@@ -443,9 +414,13 @@ mod http_integration {
                     BTreeMap::new()
                 },
                 proxy.then_some(port),
+                false,
             );
             let request = worker.join().unwrap().to_ascii_lowercase();
-            assert_eq!(result.unwrap(), r#"[{"remarks":"Tokyo 東京"}]"#);
+            assert_eq!(
+                result.unwrap().text.as_deref(),
+                Some(r#"[{"remarks":"Tokyo 東京"}]"#)
+            );
             assert!(request.contains("accept-encoding: gzip\r\n"), "{request}");
             assert!(
                 request.starts_with(if proxy {
@@ -468,15 +443,16 @@ mod http_integration {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]")
                 .unwrap();
         });
-        let result = fetch(
+        let result = fetch_with_policy(
             &format!("http://[::1]:{port}/subscription"),
             true,
             "",
             &BTreeMap::new(),
             None,
+            false,
         );
         worker.join().unwrap();
-        assert_eq!(result.unwrap(), "[]");
+        assert_eq!(result.unwrap().text.as_deref(), Some("[]"));
     }
 }
 
@@ -497,12 +473,13 @@ mod failure_integration {
                 super::http_integration::read_request(&mut socket);
                 write!(socket, "HTTP/1.1 {status} Failure\r\nContent-Length: 0\r\nLocation: http://127.0.0.1:{port}/private\r\nConnection: close\r\n\r\n").unwrap();
             });
-            let error = fetch(
+            let error = fetch_with_policy(
                 &format!("http://127.0.0.1:{port}/sub?token=private"),
                 true,
                 "",
                 &BTreeMap::new(),
                 None,
+                false,
             )
             .unwrap_err();
             worker.join().unwrap();
@@ -523,12 +500,13 @@ mod failure_integration {
             super::http_integration::read_request(&mut socket);
             socket.write_all(b"Not an HTTP response\r\n\r\n").unwrap();
         });
-        let error = fetch(
+        let error = fetch_with_policy(
             &format!("http://127.0.0.1:{port}/sub?token=private"),
             true,
             "",
             &BTreeMap::new(),
             None,
+            false,
         )
         .unwrap_err();
         worker.join().unwrap();

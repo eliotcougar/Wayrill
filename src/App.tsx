@@ -1345,7 +1345,11 @@ function GraphEditor({ layer, simulation }: AppProps) {
     return (
       <div className="workspace-loading" role="status">
         <span className="brand-mark" aria-hidden="true" />
-        <p>Opening protected workspace…</p>
+        <p>
+          {editor.storageError
+            ? 'Waiting for the Wayrill service…'
+            : 'Opening protected workspace…'}
+        </p>
       </div>
     );
 

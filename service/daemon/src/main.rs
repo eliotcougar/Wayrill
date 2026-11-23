@@ -10,6 +10,8 @@ mod driver;
 mod events;
 mod fakedns;
 mod geodata;
+#[path = "../../http_source_url.rs"]
+mod http_source_url;
 mod kernel;
 mod lifecycle;
 mod live;
@@ -115,13 +117,19 @@ fn main() {
                             "Invalid download operation.",
                         ));
                     }
-                    subscription_http::fetch(
+                    subscription_http::fetch_with_policy(
                         &request.url,
                         request.allow_http,
                         &request.user_agent,
                         &request.headers,
                         request.proxy_port,
+                        false,
                     )
+                    .and_then(|reply| {
+                        reply
+                            .text
+                            .ok_or_else(|| "Subscription server returned no document.".into())
+                    })
                     .map(serde_json::Value::String)
                     .map_err(|message| ApiError::new("SUBSCRIPTION_DOWNLOAD", message))
                 } else {
@@ -627,6 +635,13 @@ fn reserve_request(
     if method == "service.activity" {
         return Ok(None);
     }
+    static CATALOG_REQUESTS: std::sync::LazyLock<Arc<Semaphore>> =
+        std::sync::LazyLock::new(|| Arc::new(Semaphore::new(2)));
+    let requests = if method == "windows.catalog" {
+        &*CATALOG_REQUESTS
+    } else {
+        requests
+    };
     requests.clone().try_acquire_owned().map(Some).map_err(|_| {
         let mut error = ApiError::new(
             "BUSY",
@@ -816,6 +831,7 @@ async fn client(
         let command_started = std::time::Instant::now();
         let k = kernel.clone();
         let gate = gate.clone();
+        let catalog_owner = (request.method == "windows.catalog").then(|| owner.clone());
         // Bounded latest-value channel: a slow/disconnected observer cannot
         // block the native operation or grow an unbounded progress queue.
         let (progress, mut activities) = tokio::sync::watch::channel(None);
@@ -829,7 +845,7 @@ async fn client(
                 let mut reservation = operation_gate::requires_foreground(&request.method)
                     .then(|| gate.foreground(&STOPPING))
                     .transpose()?;
-                let mut k = lock_state(&k)?;
+                let mut state = lock_state(&k)?;
                 if STOPPING.load(Ordering::SeqCst) {
                     Err(ApiError::new(
                         "SERVICE_STOPPING",
@@ -839,34 +855,35 @@ async fn client(
                     if let Some(admission) = &admission {
                         admission.begin()?;
                     }
+                    if let Some(owner) = catalog_owner {
+                        let _: kernel::Empty = wayrill_protocol::params(request.params)?;
+                        let root = state.attribution_root();
+                        drop(state);
+                        let result = capture::Worker::spawn_attribution(&root)?
+                            .call("catalog", json!({"ownerSid":owner}))?;
+                        return lock_state(&k)?.decorate_catalog(result);
+                    }
                     if request.method == "subscriptions.timezoneChoices" {
-                        let subscriptions = k.subscriptions.clone();
-                        drop(k);
+                        let subscriptions = state.subscriptions.clone();
+                        drop(state);
                         return subscriptions.timezone_choices(request.params);
                     }
                     let result = activity::observe(
                         move |a| {
                             progress.send_replace(Some(a));
                         },
-                        || k.handle(&request.method, request.params),
+                        || state.handle(&request.method, request.params),
                     );
                     if let Some(job) = result
                         .as_ref()
                         .ok()
                         .and_then(|reply| reply["job"].as_u64())
-                        .filter(|_| {
-                            matches!(
-                                request.method.as_str(),
-                                "outbounds.testStart"
-                                    | "outbounds.testPlanStart"
-                                    | "companion.timezoneStart"
-                            )
-                        })
+                        .filter(|_| operation_gate::starts_outbound_job(&request.method))
                     {
-                        k.retain_test_reservation(job, reservation.take());
+                        state.retain_test_reservation(job, reservation.take());
                     }
                     if result.is_ok() && request.method == "routing.diagnosticStart" {
-                        k.retain_diagnostic_reservation(reservation.take());
+                        state.retain_diagnostic_reservation(reservation.take());
                     }
                     result
                 }
@@ -905,6 +922,19 @@ async fn client(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_catalog_reads_leave_routing_request_capacity_available() {
+        let requests = Arc::new(Semaphore::new(1));
+        let first = reserve_request("windows.catalog", &requests).unwrap();
+        let _second = reserve_request("windows.catalog", &requests).unwrap();
+        let saturation = reserve_request("windows.catalog", &requests).unwrap_err();
+        assert_eq!(saturation.code, "BUSY");
+        assert!(saturation.retryable);
+        let _stop = reserve_request("core.stop", &requests).unwrap().unwrap();
+        drop(first);
+        assert!(reserve_request("windows.catalog", &requests).is_ok());
+    }
     #[test]
     fn saturated_request_admission_rejects_kernel_dispatch_but_keeps_progress_available() {
         let requests = Arc::new(Semaphore::new(MAX_KERNEL_REQUESTS));

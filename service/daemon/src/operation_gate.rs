@@ -78,31 +78,39 @@ impl Drop for Background {
     }
 }
 
-pub(crate) fn requires_foreground(method: &str) -> bool {
+pub(crate) fn starts_outbound_job(method: &str) -> bool {
     matches!(
         method,
-        "config.validate"
-            | "config.apply"
-            | "config.applyAndStart"
-            | "config.refreshOutbounds"
-            | "core.start"
-            | "core.restart"
-            | "core.stop"
-            | "core.stopForUpgrade"
-            | "appProtection.set"
-            | "startup.set"
-            | "outbounds.testStart"
+        "outbounds.testStart"
             | "outbounds.testPlanStart"
             | "companion.timezoneStart"
-            | "routing.diagnosticStart"
-            | "resources.update"
-            | "resources.ensure"
-            | "resources.uploadCommit"
-            | "tun.sharing.keep"
-            | "tun.sharing.restore"
-            | "tun.adapters.set"
-            | "tun.adapters.remove"
+            | "timezone.probeStart"
     )
+}
+
+pub(crate) fn requires_foreground(method: &str) -> bool {
+    starts_outbound_job(method)
+        || matches!(
+            method,
+            "config.validate"
+                | "config.apply"
+                | "config.applyAndStart"
+                | "config.refreshOutbounds"
+                | "core.start"
+                | "core.restart"
+                | "core.stop"
+                | "core.stopForUpgrade"
+                | "appProtection.set"
+                | "startup.set"
+                | "routing.diagnosticStart"
+                | "resources.update"
+                | "resources.ensure"
+                | "resources.uploadCommit"
+                | "tun.sharing.keep"
+                | "tun.sharing.restore"
+                | "tun.adapters.set"
+                | "tun.adapters.remove"
+        )
 }
 
 #[cfg(test)]

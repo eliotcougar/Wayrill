@@ -1,25 +1,43 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { downloadRoutingRules } from './routingDownload';
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), native: false, serviceCall: vi.fn() }));
-vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, isTauri: () => mocks.native }));
-vi.mock('./serviceClient', () => ({ serviceCall: mocks.serviceCall }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), native: false }));
+vi.mock('@tauri-apps/api/core', () => ({
+  Channel: class {
+    constructor(readonly onmessage: () => void) {}
+  },
+  invoke: mocks.invoke,
+  isTauri: () => mocks.native,
+}));
 beforeEach(() => {
   mocks.native = false;
   mocks.invoke.mockReset();
-  mocks.serviceCall.mockReset();
 });
 afterEach(() => vi.unstubAllGlobals());
-it('does not accept a stale native download after cancellation', async () => {
-  mocks.native = true;
-  const controller = new AbortController();
-  mocks.invoke.mockImplementation(() => {
+it.each([false, true])(
+  'cancels exactly the native request, admitted first: %s',
+  async (admitted) => {
+    mocks.native = true;
+    const controller = new AbortController();
+    mocks.invoke.mockReturnValueOnce(new Promise<string>(() => {})).mockResolvedValue(undefined);
+    const result = downloadRoutingRules(
+      'https://example.net/list',
+      false,
+      false,
+      controller.signal,
+    );
+    const [command, { id, ready }] = mocks.invoke.mock.calls[0];
+    expect(command).toBe('routing_source_download');
+    if (admitted) ready.onmessage();
     controller.abort();
-    return Promise.resolve('[]');
-  });
-  await expect(
-    downloadRoutingRules('https://example.net/list', false, false, controller.signal),
-  ).rejects.toThrow();
-});
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    if (!admitted) {
+      expect(mocks.invoke).toHaveBeenCalledTimes(1);
+      ready.onmessage();
+    }
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+    expect(mocks.invoke).toHaveBeenLastCalledWith('routing_source_download_cancel', { id });
+  },
+);
 it('does not parse error pages or invalid UTF-8 as routing rules', async () => {
   const fetcher = vi
     .fn()

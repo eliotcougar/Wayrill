@@ -7,6 +7,19 @@ import {
   type StorageSlot,
 } from './protectedStorage';
 
+function canRetryRead(error: unknown) {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return [
+    'BUSY',
+    'DISCONNECTED',
+    'OS_ERROR',
+    'SERVICE_STOPPING',
+    'SERVICE_UNAVAILABLE',
+    'SUBSCRIPTION_JOB_UNAVAILABLE',
+    'TIMEOUT',
+  ].includes(String(error.code));
+}
+
 export default function useProtectedSlot(
   slot: StorageSlot,
   serialize: () => string,
@@ -26,24 +39,43 @@ export default function useProtectedSlot(
   useEffect(() => {
     if (!desktop) return;
     let active = true;
-    void protectedRead(slot)
-      .then(async (text) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
+    const fail = (error: unknown) => {
+      setError(errorText(error));
+      setStatus('unavailable');
+      setLoading(false);
+    };
+    async function read() {
+      let text: string | null;
+      try {
+        text = await protectedRead(slot);
+      } catch (error) {
         if (!active) return;
-        // A corrupt or unsupported document leaves this slot unwritable, including on close.
+        if (canRetryRead(error)) {
+          setError(errorText(error));
+          timer = setTimeout(() => void read(), delay);
+          delay = Math.min(delay * 2, 10_000);
+        } else fail(error);
+        return;
+      }
+      if (!active) return;
+      try {
         await load.current(text);
-        if (active) setReady(true);
-      })
-      .catch((e) => {
-        if (active) {
-          setError(errorText(e));
-          setStatus('unavailable');
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      } catch (error) {
+        // Parsing failures leave the saved document intact and the slot unwritable.
+        if (active) fail(error);
+        return;
+      }
+      if (!active) return;
+      setError('');
+      setReady(true);
+      setLoading(false);
+    }
+    void read();
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [desktop, slot]);
 

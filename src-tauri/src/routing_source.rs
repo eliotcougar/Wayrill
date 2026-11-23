@@ -1,11 +1,70 @@
 //! Manual rule imports run under the signed-in user's token in Wayrill and Pool.
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, fs::File, io::Read, path::Path};
+use std::{
+    collections::BTreeMap, fs::File, future::Future, io::Read, path::Path, sync::Mutex,
+    time::Duration,
+};
+use tauri::ipc::Channel;
+use tokio::sync::watch;
 use wayrill_ipc::windows::request;
 use wayrill_protocol::{http_proxy_input, MAX_CONFIG};
 
-#[path = "../../service/subscription_http.rs"]
-pub(crate) mod http;
+use crate::http_source_url::validate_http_source;
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DownloadKey(String, String);
+
+static DOWNLOADS: Mutex<BTreeMap<DownloadKey, watch::Sender<bool>>> = Mutex::new(BTreeMap::new());
+
+struct ActiveDownload {
+    key: DownloadKey,
+    cancelled: watch::Receiver<bool>,
+}
+
+impl ActiveDownload {
+    fn start(window: &str, id: &str) -> Result<Self, String> {
+        if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("Invalid routing download ID.".into());
+        }
+        let mut active = DOWNLOADS
+            .lock()
+            .map_err(|_| "Routing download state is unavailable.")?;
+        let key = DownloadKey(window.into(), id.into());
+        if active.len() >= 4 || active.contains_key(&key) {
+            return Err("Too many routing downloads are active. Try again in a moment.".into());
+        }
+        let (cancel, cancelled) = watch::channel(false);
+        active.insert(key.clone(), cancel);
+        Ok(Self { key, cancelled })
+    }
+
+    async fn run(
+        mut self,
+        work: impl Future<Output = Result<String, String>>,
+    ) -> Result<String, String> {
+        tokio::select! {
+            biased;
+            _ = self.cancelled.changed() => Err("Routing download cancelled.".into()),
+            result = work => result,
+        }
+    }
+
+    fn cancel(window: &str, id: String) {
+        if let Ok(active) = DOWNLOADS.lock() {
+            if let Some(cancel) = active.get(&DownloadKey(window.into(), id)) {
+                cancel.send_replace(true);
+            }
+        }
+    }
+}
+
+impl Drop for ActiveDownload {
+    fn drop(&mut self) {
+        if let Ok(mut active) = DOWNLOADS.lock() {
+            active.remove(&self.key);
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn routing_source_file(
@@ -29,24 +88,78 @@ pub async fn routing_source_file(
 
 #[tauri::command]
 pub async fn routing_source_download(
+    window: tauri::WebviewWindow,
+    id: String,
+    ready: Channel<()>,
     url: String,
     allow_http: bool,
     via_wayrill: bool,
 ) -> Result<String, String> {
-    let proxy = if via_wayrill {
-        Some(running_proxy_port().await?)
-    } else {
-        None
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let text = http::fetch(&url, allow_http, "", &BTreeMap::new(), proxy)?;
-        if text.len() > MAX_CONFIG {
+    let url = validate_http_source(&url, allow_http)?;
+    let active = ActiveDownload::start(window.label(), &id)?;
+    // Acknowledge only after registering, so an abort cannot miss its native request.
+    ready
+        .send(())
+        .map_err(|_| "The routing editor is no longer available.")?;
+    active
+        .run(async {
+            let proxy = if via_wayrill {
+                Some(running_proxy_port().await?)
+            } else {
+                None
+            };
+            download(url, proxy).await
+        })
+        .await
+}
+
+#[tauri::command]
+pub fn routing_source_download_cancel(window: tauri::WebviewWindow, id: String) {
+    ActiveDownload::cancel(window.label(), id);
+}
+
+async fn download(url: url::Url, proxy: Option<u16>) -> Result<String, String> {
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("Wayrill/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60));
+    if let Some(port) = proxy {
+        builder = builder.proxy(
+            reqwest::Proxy::all(format!("http://127.0.0.1:{port}")).map_err(download_error)?,
+        );
+    }
+    let mut response = builder
+        .build()
+        .map_err(download_error)?
+        .get(url)
+        .send()
+        .await
+        .map_err(download_error)?;
+    let status = response.status();
+    if status.is_redirection() {
+        return Err("Redirects are not followed. Use the final routing source URL.".into());
+    }
+    if !status.is_success() {
+        return Err(format!("Routing server returned HTTP {}.", status.as_u16()));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(download_error)? {
+        if bytes.len() + chunk.len() > MAX_CONFIG {
             return Err(size_error());
         }
-        Ok(text)
-    })
-    .await
-    .map_err(|_| "Routing download task failed.")?
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| "Routing files must be UTF-8 text.".into())
+}
+
+fn download_error(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        return "Routing download timed out.".into();
+    }
+    format!("Routing download failed. {}", error.without_url())
 }
 
 async fn running_proxy_port() -> Result<u16, String> {
@@ -147,6 +260,84 @@ fn decode(bytes: Vec<u8>) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelling_a_stalled_response_closes_its_socket() {
+        use tokio::{
+            io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+            net::TcpListener,
+            sync::oneshot,
+            time::timeout,
+        };
+
+        tauri::async_runtime::block_on(async {
+            for send_headers in [false, true] {
+                let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let proxy = send_headers.then_some(address.port());
+                let url = if proxy.is_some() {
+                    "http://source.invalid/rules".into()
+                } else {
+                    format!("http://{address}/rules")
+                };
+                let id = "e7c8851605324354a8b3312f9ce25be7";
+                let (requested, sent) = oneshot::channel();
+                let server = tokio::spawn(async move {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    let mut stream = BufReader::new(stream);
+                    let mut request = String::new();
+                    stream.read_line(&mut request).await.unwrap();
+                    assert!(request.starts_with(if proxy.is_some() {
+                        "GET http://source.invalid/rules "
+                    } else {
+                        "GET /rules "
+                    }));
+                    loop {
+                        let mut line = String::new();
+                        assert_ne!(stream.read_line(&mut line).await.unwrap(), 0);
+                        if line == "\r\n" {
+                            break;
+                        }
+                    }
+                    if send_headers {
+                        stream
+                            .get_mut()
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 200\r\n\r\n[")
+                            .await
+                            .unwrap();
+                    }
+                    requested.send(()).unwrap();
+                    match stream.read(&mut [0]).await {
+                        Ok(0) => (),
+                        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => (),
+                        result => {
+                            panic!("The cancelled client must close its connection: {result:?}")
+                        }
+                    }
+                });
+                let request = tokio::spawn(
+                    ActiveDownload::start("test", id)
+                        .unwrap()
+                        .run(download(url.parse().unwrap(), proxy)),
+                );
+                timeout(Duration::from_secs(5), sent)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                ActiveDownload::cancel("test", id.into());
+                let error = timeout(Duration::from_secs(5), request)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap_err();
+                assert_eq!(error, "Routing download cancelled.");
+                timeout(Duration::from_secs(5), server)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            }
+        });
+    }
     #[test]
     fn accepts_windows_encodings_and_rejects_invalid_input() {
         let text = "[{\"remarks\":\"Правила\"}]";

@@ -15,9 +15,10 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 url = "2"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Controls_Dialogs", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Networking_WinHttp"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Controls_Dialogs", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com"] }
 webview2-com = "0.39.1"
-tokio = { version = "1.53", features = ["time", "sync"] }
+tokio.workspace = true
+reqwest.workspace = true
 wayrill-ipc = { path = "../service/ipc" }
 wayrill-protocol = { path = "../service/protocol" }
 tauri-plugin-single-instance = "2.5.2"
@@ -26,6 +27,10 @@ tauri-plugin-single-instance = "2.5.2"
 members = ["pool"]
 default-members = ["."]
 resolver = "2"
+
+[workspace.dependencies]
+reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls", "gzip"] }
+tokio = { version = "1.53", features = ["time", "sync", "macros"] }
 
 [profile.release]
 codegen-units = 1

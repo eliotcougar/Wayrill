@@ -1072,7 +1072,6 @@ impl Manager {
     }
     pub fn once(&self, method: &str, data: Value) -> Result<Value> {
         let mut worker = if [
-            "catalog",
             "applications.describe",
             "loopback.get",
             "loopback.set",
@@ -1085,11 +1084,10 @@ impl Manager {
         } else {
             Worker::spawn(&self.root)?
         };
-        let mut result = worker.call(method, data)?;
-        if method == "catalog" {
-            result["captureInterfaces"] = json!(self.known);
-        }
-        Ok(result)
+        worker.call(method, data)
+    }
+    pub(crate) fn catalog_interfaces(&self) -> &[Interface] {
+        &self.known
     }
     pub(crate) fn attribution_root(&self) -> PathBuf {
         self.root.parent().unwrap().join("attribution")
