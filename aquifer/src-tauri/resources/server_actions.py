@@ -159,7 +159,7 @@ def _poll(identifier):
         if result['action'] == 'applyConfig':
             recover_config(identifier)
             recovered = load(path)
-            if recovered['state'] in TERMINAL:
+            if recovered['state'] in TERMINAL or recovered.get('errorCode') == 'CONFIG_RESTART_PENDING':
                 return recovered
         result.update(state='succeeded' if result['action'] == 'reboot' else 'interrupted',
                       stage='Server rebooted' if result['action'] == 'reboot' else 'Interrupted by reboot',
@@ -178,7 +178,7 @@ def _poll(identifier):
             if result['action'] == 'applyConfig':
                 recover_config(identifier)
                 recovered = load(path)
-                if recovered['state'] in TERMINAL:
+                if recovered['state'] in TERMINAL or recovered.get('errorCode') == 'CONFIG_RESTART_PENDING':
                     return recovered
             # Reboot can stop the worker before SSH stops accepting sessions.
             if result['action'] != 'reboot' or time.time() - result['createdAt'] > 180:
@@ -228,7 +228,7 @@ def start(request):
         if request['action'] == 'applyConfig':
             # Runs even after SIGKILL or RuntimeMaxSec. It is part of the
             # detached job, independent of the UI and its SSH connection.
-            guard = ['--property=RuntimeMaxSec=180', '--property=TimeoutStopSec=60',
+            guard = ['--property=RuntimeMaxSec=180', '--property=TimeoutStopSec=240',
                      '--property=ExecStopPost={} {} --recover {}'.format(sys.executable, directory + '/worker.py', request['id'])]
         launched = capture(['systemd-run', '--quiet', '--collect', '--service-type=exec',
                             '--unit=' + unit_name(request['id']), '--property=TimeoutStartSec=infinity',
@@ -430,6 +430,9 @@ def worker(identifier):
             return  # Success is confirmed by a changed boot ID, never just command acceptance.
         state.update(state='succeeded', stage='Configuration applied' if request['action'] == 'applyConfig' else 'Completed', percent=100, message='')
     except ActionError as error:
+        if error.code == 'CONFIG_RESTART_PENDING':
+            # apply_config persisted the recovery state. ExecStopPost owns retries.
+            return
         stage = 'Previous configuration restored' if error.code == 'CONFIG_RESTORED' else 'Restoration needs attention' if error.code == 'CONFIG_ROLLBACK' else 'Failed'
         state.update(state='failed', stage=stage, percent=None, message=error.message, errorCode=error.code)
     except Exception:
@@ -490,7 +493,7 @@ def respond(value):
 if __name__ == '__main__':
     if 'REQUEST' not in globals():
         if len(sys.argv) == 3 and sys.argv[1] in ('--recover', '--boot-recover') and re.fullmatch(r'[a-f0-9]{32}', sys.argv[2]) and os.geteuid() == 0:
-            recover_config(sys.argv[2], before_start=sys.argv[1] == '--boot-recover')
+            recover_config(sys.argv[2], before_start=sys.argv[1] == '--boot-recover', retry_restart=sys.argv[1] == '--recover')
         elif os.path.basename(__file__) == 'verify-plan':
             sys.exit(upgrade_hook(os.path.dirname(os.path.abspath(__file__))))
         elif len(sys.argv) == 2 and re.fullmatch(r'[a-f0-9]{32}', sys.argv[1]) and os.geteuid() == 0:

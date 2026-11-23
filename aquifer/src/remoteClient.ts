@@ -172,7 +172,7 @@ export interface ServerJob {
     originalSha256: string;
     installedSha256: string;
     wayrillSha256?: string;
-    rollback: 'not-needed' | 'succeeded' | 'failed';
+    rollback: 'not-needed' | 'pending' | 'succeeded' | 'failed';
   } | null;
 }
 export interface RemoteClient {

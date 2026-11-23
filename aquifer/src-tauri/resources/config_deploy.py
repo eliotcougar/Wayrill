@@ -19,6 +19,7 @@ import uuid
 
 CONFIG_LIMIT = 16 * 1024 * 1024
 CONFIG_PLAN_SECONDS = 15 * 60
+RESTORE_RETRY_DELAYS = (2, 5)
 BOOT_UNITS = '/etc/systemd/system'
 
 
@@ -276,12 +277,13 @@ def deploy_check_companion(plan):
     return data
 
 
-def deploy_companion_restore_check(journal):
+def deploy_companion_restore_check(journal, restored=False):
     companion = journal.get('companion')
     if not companion:
         return
     data, _ = deploy_companion_read(companion['target'])
-    if deploy_optional_hash(data) not in (companion['sourceSha256'], companion['configSha256']):
+    allowed = (companion['sourceSha256'],) if restored else (companion['sourceSha256'], companion['configSha256'])
+    if deploy_optional_hash(data) not in allowed:
         raise ActionError('CONFIG_ROLLBACK_CONFLICT', 'The Wayrill file changed outside Wayrill. Both backups were retained for review.')
     if companion['sourceSha256'] is not None:
         original, _ = deploy_read(os.path.dirname(journal['result']['backupPath']) + '/wayrill.backup')
@@ -410,28 +412,43 @@ def deploy_restart(service):
 
 
 def deploy_restore(directory, journal, before_start=False):
+    restored = journal['phase'] == 'file-restored'
     current, _ = deploy_read(journal['target'])
     current_hash = deploy_digest(current)
-    if os.path.realpath(journal['path']) != journal['target'] or current_hash not in (journal['configSha256'], journal['sourceSha256']):
+    allowed = (journal['sourceSha256'],) if restored else (journal['sourceSha256'], journal['configSha256'])
+    if os.path.realpath(journal['path']) != journal['target'] or current_hash not in allowed:
         raise ActionError('CONFIG_ROLLBACK_CONFLICT', 'The configuration changed outside Wayrill. It was left unchanged; restore the retained backup after reviewing the external changes.')
-    deploy_companion_restore_check(journal)
-    original, _ = deploy_read(directory + '/config.backup')
-    if deploy_digest(original) != journal['sourceSha256']:
-        raise ActionError('CONFIG_BACKUP', 'The saved backup failed its integrity check. Automatic restoration was stopped.')
-    if current_hash != journal['sourceSha256']:
-        deploy_replace(journal['target'], original, journal['metadata'])
-    deploy_companion_restore(directory, journal)
-    restart_needed = journal.get('restartRequired', True) and (current_hash != journal['sourceSha256'] or journal['phase'] != 'prepared')
-    journal['phase'] = 'file-restored'
-    deploy_save(directory + '/deployment.json', journal)
+    deploy_companion_restore_check(journal, restored)
+    restart_needed = journal.get('restoreRestartRequired', journal.get('restartRequired', True))
+    if not restored:
+        original, _ = deploy_read(directory + '/config.backup')
+        if deploy_digest(original) != journal['sourceSha256']:
+            raise ActionError('CONFIG_BACKUP', 'The saved backup failed its integrity check. Automatic restoration was stopped.')
+        if current_hash != journal['sourceSha256']:
+            deploy_replace(journal['target'], original, journal['metadata'])
+        deploy_companion_restore(directory, journal)
+        restart_needed = restart_needed and (current_hash != journal['sourceSha256'] or journal['phase'] != 'prepared')
+        journal.update(phase='file-restored', restoreRestartRequired=restart_needed)
+        deploy_save(directory + '/deployment.json', journal)
     # The original bytes are durable before removing the boot guard. Removing
     # it before restart also avoids a dependency waiting on our transaction lock.
     deploy_disarm_boot_guard(os.path.basename(directory), journal['guardService'], reload=not before_start)
     if not before_start and restart_needed:
+        attempts = journal.get('restoreAttempts', 0)
+        if attempts > len(RESTORE_RETRY_DELAYS):
+            raise ActionError('CONFIG_ROLLBACK', 'The previous configuration is on disk. Xray could not be restarted automatically.')
+        if 0 < journal.get('restoreRetryAt', 0) - time.time() <= max(RESTORE_RETRY_DELAYS):
+            raise ActionError('CONFIG_RESTART_PENDING', 'The previous configuration is on disk. Waiting to retry the Xray restart.')
+        journal['restoreAttempts'] = attempts + 1
+        deploy_save(directory + '/deployment.json', journal)
         try:
             deploy_restart(journal['service'])
-        except Exception as error:
-            raise ActionError('CONFIG_ROLLBACK', 'The backup file was restored, but Xray did not return to a healthy running state. The backup was retained.') from error
+        except ActionError as error:
+            if error.code in ('COMMAND', 'CONFIG_RESTART', 'CONFIG_HEALTH') and attempts < len(RESTORE_RETRY_DELAYS):
+                journal['restoreRetryAt'] = time.time() + RESTORE_RETRY_DELAYS[attempts]
+                deploy_save(directory + '/deployment.json', journal)
+                raise ActionError('CONFIG_RESTART_PENDING', 'The previous configuration is on disk. Wayrill will retry the Xray restart.') from error
+            raise ActionError('CONFIG_ROLLBACK', 'The previous configuration is on disk. Xray could not be restarted automatically.') from error
     journal['phase'] = 'restored'
     deploy_save(directory + '/deployment.json', journal)
 
@@ -444,7 +461,7 @@ def deploy_lock():
         yield
 
 
-def recover_config(identifier, before_start=False):
+def recover_config(identifier, before_start=False, retry_restart=False):
     if before_start:
         try:
             journal = load(BASE + '/' + identifier + '/deployment.json')
@@ -470,8 +487,12 @@ def recover_config(identifier, before_start=False):
                     time.sleep(0.1)
             _recover_config(identifier, True)
         return
-    with deploy_lock():
-        _recover_config(identifier, before_start)
+    while True:
+        with deploy_lock():
+            retry_at = _recover_config(identifier, before_start)
+        if not retry_restart or retry_at is None:
+            return
+        time.sleep(min(max(retry_at - time.time(), 0), max(RESTORE_RETRY_DELAYS)))
 
 
 def _recover_config(identifier, before_start):
@@ -492,6 +513,8 @@ def _recover_config(identifier, before_start):
         state.update(state='succeeded' if committed else 'failed', stage='Configuration applied' if committed else 'Apply stopped',
                      percent=100 if committed else None, updatedAt=journal.get('committedAt', int(time.time())))
         state['configResult']['rollback'] = 'succeeded' if journal['phase'] == 'restored' else 'failed' if journal['phase'] == 'needs-attention' else 'not-needed'
+        if journal['phase'] == 'restored':
+            state.update(stage='Previous configuration restored', message='The previous configuration was restored.', errorCode='CONFIG_RECOVERED')
         deploy_save(directory + '/state.json', state)
         return
     try:
@@ -499,6 +522,11 @@ def _recover_config(identifier, before_start):
         state.update(stage='Previous configuration restored', message='The backup was restored before Xray startup.' if before_start else 'The apply worker stopped; its backup was restored and Xray is running.', errorCode='CONFIG_RECOVERED')
         state['configResult']['rollback'] = 'succeeded'
     except Exception as error:
+        if isinstance(error, ActionError) and error.code == 'CONFIG_RESTART_PENDING':
+            report_restart_pending(state, error)
+            state['updatedAt'] = int(time.time())
+            deploy_save(directory + '/state.json', state)
+            return journal.get('restoreRetryAt', time.time())
         state.update(stage='Restoration needs attention', message=error.message if isinstance(error, ActionError) else 'Automatic restoration failed. The backup was retained.', errorCode='CONFIG_ROLLBACK')
         state['configResult']['rollback'] = 'failed'
         journal['phase'] = 'needs-attention'
@@ -506,6 +534,12 @@ def _recover_config(identifier, before_start):
     state.update(state='failed', percent=None, updatedAt=int(time.time()))
     deploy_save(directory + '/state.json', state)
     deploy_disarm_boot_guard(identifier, journal['guardService'], reload=not before_start)
+
+
+def report_restart_pending(state, error):
+    state.update(state='running', stage='Retrying Xray restart', percent=None,
+                 message=error.message, errorCode=error.code)
+    state['configResult']['rollback'] = 'pending'
 
 
 def apply_config(request, state, write):
@@ -613,6 +647,10 @@ def _apply_config(request, state, write):
             deploy_restore(directory, journal)
             state['configResult']['rollback'] = 'succeeded'
         except Exception as rollback_error:
+            if isinstance(rollback_error, ActionError) and rollback_error.code == 'CONFIG_RESTART_PENDING':
+                report_restart_pending(state, rollback_error)
+                write()
+                raise
             state['configResult']['rollback'] = 'failed'
             journal['phase'] = 'needs-attention'
             deploy_save(directory + '/deployment.json', journal)

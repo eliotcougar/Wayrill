@@ -748,8 +748,9 @@ fn parse_job_value(value: serde_json::Value) -> Result<ServerJob> {
             })
             || !matches!(
                 result.rollback.as_str(),
-                "not-needed" | "succeeded" | "failed"
+                "not-needed" | "pending" | "succeeded" | "failed"
             )
+            || (result.rollback == "pending" && job.state != JobState::Running)
         {
             return Err(RemoteError::new(
                 "ACTION",
@@ -1008,6 +1009,16 @@ mod tests {
         let parsed = parse_job(framed(&serde_json::json!({"job":job})).as_bytes()).unwrap();
         assert_eq!(parsed.state, JobState::Running);
         assert_eq!(parsed.action, ServerAction::RestartNginx);
+        let mut recovering = job.clone();
+        recovering["action"] = serde_json::json!("applyConfig");
+        recovering["configResult"] = serde_json::json!({
+            "path":"/etc/xray/config.json", "service":"xray.service", "planId":"b".repeat(32),
+            "backupPath":"/private/config.backup", "originalSha256":"c".repeat(64),
+            "installedSha256":"d".repeat(64), "rollback":"pending"
+        });
+        assert!(parse_job_value(serde_json::json!({"job":recovering})).is_ok());
+        recovering["state"] = serde_json::json!("failed");
+        assert!(parse_job_value(serde_json::json!({"job":recovering})).is_err());
         let mut bad = job.clone();
         bad["percent"] = serde_json::json!(101);
         assert!(parse_job(framed(&serde_json::json!({"job":bad})).as_bytes()).is_err());

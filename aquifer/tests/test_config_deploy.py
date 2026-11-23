@@ -89,6 +89,28 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), self.original)
         self.assertEqual(self.state['configResult']['rollback'], 'succeeded')
 
+    def test_detached_recovery_retries_restart_after_restoring_files(self):
+        restarted = []
+
+        def restart(service):
+            restarted.append(self.target.read_bytes())
+            if len(restarted) < 3:
+                raise self.ns['ActionError']('CONFIG_RESTART', 'synthetic failure')
+
+        with patch.dict(self.ns, deploy_restart=restart, RESTORE_RETRY_DELAYS=(0, 0)):
+            with self.assertRaises(self.ns['ActionError']) as error:
+                self.apply()
+            self.assertEqual(error.exception.code, 'CONFIG_RESTART_PENDING')
+            self.assertEqual(self.state['state'], 'running')
+            self.assertEqual(self.state['configResult']['rollback'], 'pending')
+            self.assertEqual(self.target.read_bytes(), self.original)
+            self.ns['recover_config'](self.identifier, retry_restart=True)
+
+        result = json.loads((self.directory / 'state.json').read_text(encoding='utf-8'))
+        self.assertEqual(restarted, [self.candidate, self.original, self.original])
+        self.assertEqual(result['state'], 'failed')  # The apply failed, rollback succeeded.
+        self.assertEqual(result['configResult']['rollback'], 'succeeded')
+
     def test_unexpected_exception_also_restores_original(self):
         calls = []
         def restart(service):
