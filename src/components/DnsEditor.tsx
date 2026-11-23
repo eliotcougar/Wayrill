@@ -237,7 +237,7 @@ export default function DnsEditor({
   onExportPool?: (filter: DnsFilter) => Promise<void>;
   onClose: () => void;
 }) {
-  const { save, saveError } = useEditorSave(onClose);
+  const { save, close, saving, saveError } = useEditorSave(onClose);
   const handler = isNativeDnsHandler(node.data),
     group = node.data.kind === 'dns-servers';
   const requested = useRequestedDiagnostic();
@@ -470,8 +470,12 @@ export default function DnsEditor({
         ref={dialog}
         className="rule-editor-window dns-editor-window"
         aria-labelledby="dns-editor-title"
-        onCancel={onClose}
-        onClose={onClose}
+        closedby={saving ? 'none' : undefined}
+        onCancel={(event) => {
+          event.preventDefault();
+          close();
+        }}
+        onClose={close}
       >
         <div className="rule-editor-titlebar">
           <div>
@@ -488,12 +492,17 @@ export default function DnsEditor({
                     : 'Matching groups are tried in order, then eligible fallback servers. Answer IP checks follow resolution.'}
             </p>
           </div>
-          <button className="icon-button" aria-label="Close editor" onClick={onClose}>
+          <button
+            className="icon-button"
+            aria-label="Close editor"
+            disabled={saving}
+            onClick={close}
+          >
             <X size={18} />
           </button>
         </div>
-        <EditorTabs tabs={tabs} label="DNS editor sections" />
-        <EditorTabPanels tabs={tabs} className="rule-editor-body">
+        <EditorTabs tabs={tabs} label="DNS editor sections" disabled={saving} />
+        <EditorTabPanels tabs={tabs} className="rule-editor-body" inert={saving}>
           {(tab) => (
             <>
               {tab === 'main' ? (
@@ -1297,7 +1306,7 @@ export default function DnsEditor({
             </>
           )}
         </EditorTabPanels>
-        <div className="rule-editor-diagnostics" aria-live="polite">
+        <div className="rule-editor-diagnostics" aria-live="polite" inert={saving}>
           {removed.length > 0 && (
             <p className="warning">
               Apply removes {removed.length} connection(s) belonging to removed outputs. Undo
@@ -1316,22 +1325,23 @@ export default function DnsEditor({
           {onTest && (
             <button
               className="secondary-button"
-              disabled={errors.length > 0}
+              disabled={saving || errors.length > 0}
               onClick={() => onTest(configured)}
             >
               Test this domain…
             </button>
           )}
           {errors.length > 0 && <span>{errors.length} issue(s) to correct</span>}
-          <button className="secondary-button" onClick={onClose}>
+          <button className="secondary-button" disabled={saving} onClick={close}>
             Cancel
           </button>
           <button
             className="primary-button"
-            disabled={errors.length > 0}
+            aria-busy={saving}
+            disabled={saving || errors.length > 0}
             onClick={() => save(() => onApply(node.id, { settings: configured }))}
           >
-            Apply changes
+            {saving ? 'Saving…' : 'Apply changes'}
           </button>
         </div>
       </dialog>

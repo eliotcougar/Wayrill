@@ -1,19 +1,39 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
-/** A rejected save must leave the editor's local draft available for inspection/retry. */
+type SaveState = { phase: 'editing'; error: string } | { phase: 'saving' };
+
+/** A rejected save leaves the editor's local draft available for retry. */
 export default function useEditorSave(onClose: () => void) {
-  const [saveError, setSaveError] = useState('');
-  const showError = (error: unknown) =>
-    setSaveError(error instanceof Error ? error.message : String(error));
+  const [state, setState] = useState<SaveState>({ phase: 'editing', error: '' });
+  const pending = useRef(false);
+  const close = () => {
+    if (!pending.current) onClose();
+  };
   const save = (commit: () => void | Promise<void>) => {
-    setSaveError('');
+    if (pending.current) return;
+    pending.current = true;
+    setState({ phase: 'saving' });
+    const finish = () => {
+      pending.current = false;
+      setState({ phase: 'editing', error: '' });
+      onClose();
+    };
+    const fail = (error: unknown) => {
+      pending.current = false;
+      setState({ phase: 'editing', error: error instanceof Error ? error.message : String(error) });
+    };
     try {
-      const pending = commit();
-      if (pending) void pending.then(onClose, showError);
-      else onClose();
+      const result = commit();
+      if (result) void result.then(finish, fail);
+      else finish();
     } catch (error) {
-      showError(error);
+      fail(error);
     }
   };
-  return { save, saveError };
+  return {
+    save,
+    close,
+    saving: state.phase === 'saving',
+    saveError: state.phase === 'editing' ? state.error : '',
+  };
 }

@@ -88,7 +88,7 @@ export default function RuleTableEditor({
     () => new Map(graphTagChoices(graph, 'inbound').map((choice) => [choice.tag, choice.name])),
     [graph],
   );
-  const { save, saveError } = useEditorSave(onClose);
+  const { save, close, saving, saveError } = useEditorSave(onClose);
   const [expanded, setExpanded] = useState<{
     key: string;
     label: string;
@@ -444,14 +444,15 @@ export default function RuleTableEditor({
       ref={dialog}
       className="rule-editor-window"
       aria-labelledby="rule-editor-title"
+      closedby={saving ? 'none' : undefined}
       onCancel={(event) => {
+        event.preventDefault();
         if (expanded) {
-          event.preventDefault();
           setExpanded(null);
           requestAnimationFrame(() => expandTrigger.current?.focus());
-        } else onClose();
+        } else close();
       }}
-      onClose={onClose}
+      onClose={close}
     >
       <div className="rule-editor-titlebar">
         <div>
@@ -468,12 +469,12 @@ export default function RuleTableEditor({
               ' A child filter finishes that path, including its default; evaluation does not return to the parent.'}
           </p>
         </div>
-        <button className="icon-button" aria-label="Close editor" onClick={onClose}>
+        <button className="icon-button" aria-label="Close editor" disabled={saving} onClick={close}>
           <X size={18} />
         </button>
       </div>
-      <EditorTabs tabs={tabs} label="Node editor sections" disabled={!!expanded} />
-      <EditorTabPanels tabs={tabs} className="rule-editor-body">
+      <EditorTabs tabs={tabs} label="Node editor sections" disabled={saving || !!expanded} />
+      <EditorTabPanels tabs={tabs} className="rule-editor-body" inert={saving}>
         {(tab) => (
           <>
             {tab === 'rules' ? (
@@ -1062,7 +1063,7 @@ export default function RuleTableEditor({
           </>
         )}
       </EditorTabPanels>
-      <div className="rule-editor-diagnostics" aria-live="polite">
+      <div className="rule-editor-diagnostics" aria-live="polite" inert={saving}>
         {poolRulesChanged && (
           <p className="field-help">
             The Pool updated this filter while you were editing. Reopen the filter to see the latest
@@ -1081,12 +1082,13 @@ export default function RuleTableEditor({
       )}
       <div className="rule-editor-footer">
         {errors.length > 0 && <span>{errors.length} issue(s) to correct</span>}
-        <button className="secondary-button" onClick={onClose}>
+        <button className="secondary-button" disabled={saving} onClick={close}>
           Cancel
         </button>
         <button
           className="primary-button"
-          disabled={errors.length > 0 || !!expanded}
+          aria-busy={saving}
+          disabled={saving || errors.length > 0 || !!expanded}
           onClick={() =>
             save(() => {
               return onApply(
@@ -1112,7 +1114,7 @@ export default function RuleTableEditor({
             })
           }
         >
-          Apply changes
+          {saving ? 'Saving…' : 'Apply changes'}
         </button>
       </div>
     </dialog>

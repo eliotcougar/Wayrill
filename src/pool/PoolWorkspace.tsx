@@ -937,7 +937,8 @@ export default function PoolWorkspace() {
           layer={editingFilter}
           onClose={close}
           onSave={async (layer) => {
-            if (operation.current) return;
+            if (operation.current)
+              throw new Error('Wait for the current Pool operation to finish.');
             operation.current = true;
             setBusy(true);
             try {
