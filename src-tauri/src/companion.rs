@@ -1,12 +1,97 @@
 //! Normal-user browser integration. Fixed bundled helper, no service activation.
+use serde::Serialize;
 use serde_json::Value;
-use std::{collections::VecDeque, sync::Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 use std::{os::windows::process::CommandExt, path::PathBuf, process::Command};
 use tauri::{Emitter, Manager};
 use wayrill_protocol::companion::RuleRequest;
 
+#[derive(Clone, Serialize)]
+pub struct PendingRule {
+    id: u32,
+    #[serde(flatten)]
+    rule: RuleRequest,
+}
+
 #[derive(Default)]
-pub struct Requests(Mutex<VecDeque<RuleRequest>>);
+struct Queue {
+    next_id: u32,
+    items: VecDeque<PendingRule>,
+}
+
+#[derive(Default)]
+pub struct Requests(Mutex<Queue>);
+
+impl Requests {
+    pub fn finish_with(
+        &self,
+        id: u32,
+        save: impl FnOnce(bool) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let active = self.front(None)?.is_some_and(|request| request.id == id);
+        save(active)?;
+        self.front(Some(id))?;
+        Ok(())
+    }
+
+    fn front(&self, completed: Option<u32>) -> Result<Option<PendingRule>, String> {
+        let mut queue = self
+            .0
+            .lock()
+            .map_err(|_| "Cannot read the Companion request.")?;
+        if completed.is_some() && queue.items.front().map(|request| request.id) == completed {
+            queue.items.pop_front();
+        }
+        Ok(queue.items.front().cloned())
+    }
+}
+
+#[cfg(test)]
+mod request_tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_save_keeps_the_request_and_success_retires_only_that_request() {
+        let requests = Requests::default();
+        let request = |id| PendingRule {
+            id,
+            rule: RuleRequest {
+                host: "example.test".into(),
+                filter_ids: vec![],
+            },
+        };
+        requests
+            .0
+            .lock()
+            .unwrap()
+            .items
+            .extend([request(1), request(2)]);
+        assert!(requests
+            .finish_with(1, |active| {
+                assert!(active);
+                Err("locked workspace".into())
+            })
+            .is_err());
+        assert_eq!(requests.front(None).unwrap().unwrap().id, 1);
+
+        requests
+            .finish_with(1, |active| {
+                assert!(active);
+                Ok(())
+            })
+            .unwrap();
+        requests
+            .finish_with(1, |active| {
+                assert!(!active);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(requests.front(None).unwrap().unwrap().id, 2);
+    }
+}
 
 pub fn receive(app: &tauri::AppHandle, args: &[String]) {
     let Some(raw) = args
@@ -29,32 +114,29 @@ pub fn receive(app: &tauri::AppHandle, args: &[String]) {
     };
     let state = app.state::<Requests>();
     if let Ok(mut queue) = state.inner().0.lock() {
-        if queue.len() < 16 && !queue.contains(&request) {
-            queue.push_back(request);
+        if queue.items.len() < 16 && !queue.items.iter().any(|item| item.rule == request) {
+            queue.next_id = queue.next_id.wrapping_add(1);
+            let id = queue.next_id;
+            queue.items.push_back(PendingRule { id, rule: request });
         }
     }
     let _ = app.emit("wayrill-companion-request", ());
 }
 
 #[tauri::command]
-pub fn companion_rule_request(
-    state: tauri::State<Requests>,
-    completed: Option<RuleRequest>,
-) -> Result<Option<RuleRequest>, String> {
-    state
-        .inner()
-        .0
-        .lock()
-        .map(|mut queue| {
-            if completed
-                .as_ref()
-                .is_some_and(|request| queue.front() == Some(request))
-            {
-                queue.pop_front();
-            }
-            queue.front().cloned()
-        })
-        .map_err(|_| "Cannot read the Companion request.".into())
+pub async fn companion_rule_request(
+    app: tauri::AppHandle,
+    lock: tauri::State<'_, Arc<crate::VaultLock>>,
+    completed: Option<u32>,
+) -> Result<Option<PendingRule>, String> {
+    let lock = lock.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // Order peeks and dismissals with the protected workspace save.
+        let _guard = lock.write.lock().map_err(|_| "Storage is busy.")?;
+        app.state::<Requests>().front(completed)
+    })
+    .await
+    .map_err(|_| "Companion request task failed.")?
 }
 
 fn run(

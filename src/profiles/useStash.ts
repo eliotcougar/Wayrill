@@ -24,12 +24,17 @@ const empty = (): Stash => ({
   version: 3,
   groups: [defaultGroup()],
 });
-export default function useStash(initial?: Stash) {
+export default function useStash(initial?: Stash, blocked = false) {
   const [stash, setStash] = useState<Stash>(() => initial ?? empty());
   const [base, setBase] = useState('');
   const source = useRef('');
   const [serviceError, setServiceError] = useState('');
   const current = useRef(stash);
+  const locked = useRef(blocked);
+  locked.current = blocked;
+  const requireEditable = () => {
+    if (locked.current) throw new Error('Wayrill is finishing its final save before closing.');
+  };
   const runtimeGraph = useRef<GraphState | undefined>(undefined);
   const commit = (value: Stash) => {
     current.current = value;
@@ -89,6 +94,7 @@ export default function useStash(initial?: Stash) {
     };
   }, [initial]);
   function importResult(result: ImportResult, replaceId?: string, expected?: StashGroup) {
+    requireEditable();
     if (!storage.ready)
       throw new Error('Protected stash is not available. Existing data was preserved.');
     if (expected && current.current.groups.find((g) => g.id === replaceId) !== expected)
@@ -106,6 +112,7 @@ export default function useStash(initial?: Stash) {
     signal?: AbortSignal,
     graph?: GraphState,
   ) {
+    requireEditable();
     if (!storage.ready) throw new Error('Protected stash is not available.');
     const snapshot = current.current;
     if (previous && !snapshot.groups.includes(previous))
@@ -122,6 +129,7 @@ export default function useStash(initial?: Stash) {
       signal,
     );
     signal?.throwIfAborted();
+    requireEditable();
     if (current.current !== snapshot)
       throw new Error(
         'The stash changed while its update was processing. Existing entries were preserved; try again.',
@@ -133,6 +141,7 @@ export default function useStash(initial?: Stash) {
     return prepared;
   }
   function update(transform: (current: Stash) => Stash) {
+    requireEditable();
     if (!storage.ready) throw new Error('Protected stash is not available.');
     const next = transform(current.current);
     if (next === current.current) return next;

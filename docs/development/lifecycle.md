@@ -216,6 +216,10 @@ still detect/settle link changes; they no longer own a second retry timer.
 An explicit Stop cancels durable Running intent before cleanup. The saved boot
 auto-start preference can start a new run at the next Windows boot, even after a
 previous-session Stop; it cannot re-arm Stop on a same-session service restart.
+A new run started by that preference remains a pending boot start until its
+first usable activation. Turning off the preference cancels that pending
+start. An established run retains its recovery intent through later faults
+and service restarts.
 Failed cleanup can retry toward Stopped without starting a core. A failed intent write is retried
 alongside retirement, so successful native cleanup cannot leave a saved Running
 intent that would reactivate routing on the next service restart.

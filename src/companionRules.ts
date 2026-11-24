@@ -6,6 +6,7 @@ import { sourceEntryKey } from './graph/ruleSourceEdits';
 import { LIMITS } from './limits';
 
 export interface CompanionRuleRequest {
+  id: number;
   host: string;
   filterIds: string[];
 }

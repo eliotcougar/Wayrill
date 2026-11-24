@@ -604,7 +604,7 @@ impl Kernel {
         // A new Windows boot is explicit saved auto-start authorization. A
         // service crash/restart or installer handoff cannot re-arm a user Stop.
         if startup.requests_boot_start(session.is_new, crate::upgrade::pending(&profile_path)) {
-            recovery.request(crate::recovery::Origin::Boot)?;
+            recovery.arm_boot()?;
         }
         // Commit after durable Running intent, so an interrupted initialization
         // cannot consume this boot's auto-start before recording it.
@@ -1141,8 +1141,12 @@ impl Kernel {
                         })?;
                 }
                 self.startup.set(change.enabled)?;
-                if !change.enabled && self.recovery.boot_waiting() && self.core.is_none() {
-                    self.recovery.stop()?;
+                if !change.enabled && self.recovery.boot_pending() {
+                    let intent = self.recovery.stop();
+                    self.finish_stopped_routing(intent).inspect_err(|error| {
+                        self.recovery
+                            .retirement_failed(error.clone(), Instant::now());
+                    })?;
                 }
                 self.changed("startup.changed");
                 Ok(self.snapshot())
@@ -1403,7 +1407,8 @@ impl Kernel {
                 let profile = self.profile.clone().ok_or_else(|| {
                     ApiError::new("NO_CONFIG", "Apply a configuration before starting.")
                 })?;
-                self.recovery.request(crate::recovery::Origin::Manual)?;
+                self.recovery
+                    .request(crate::recovery::RunIntent::Established)?;
                 if method == "core.start"
                     && self.healthy_runtime(&profile.config, profile.capture.as_ref())?
                 {
@@ -1480,12 +1485,6 @@ impl Kernel {
                     .once("loopback.get", json!({"ownerSid":self.owner}))
             }
             "windows.loopback.set" => {
-                if self.pool_loopback.busy() {
-                    return Err(ApiError::new(
-                        "BUSY",
-                        "Pool is updating Loopback permissions. Try again in a moment.",
-                    ));
-                }
                 let p: capture::LoopbackChanges = params(input)?;
                 if p.expected_version.len() != 64
                     || !p.expected_version.bytes().all(|b| b.is_ascii_hexdigit())
@@ -1499,6 +1498,7 @@ impl Kernel {
                 {
                     return Err(ApiError::new("INVALID_PARAMS", "Invalid loopback changes."));
                 }
+                self.pool_loopback.authorize_manual(&p.changes)?;
                 let result = self.capture.once("loopback.set",json!({"ownerSid":self.owner,"expectedVersion":p.expected_version,"changes":p.changes}))?;
                 self.events.publish(
                     "windows.loopbackChanged",
@@ -1731,8 +1731,10 @@ impl Kernel {
             self.proxy.check_owned()?;
             let settings = crate::upgrade::remaining(intent.settings, &self.proxy.requests()?)?;
             if intent.resume_routing {
-                self.recovery
-                    .request(crate::recovery::Origin::ServiceRecovery)?;
+                if !self.recovery.wants_running() {
+                    self.recovery
+                        .request(crate::recovery::RunIntent::Established)?;
+                }
                 let profile = self.profile.as_ref().ok_or_else(|| {
                     ApiError::new("NO_CONFIG", "The upgrade's applied profile is unavailable.")
                 })?;
@@ -1823,16 +1825,14 @@ impl Kernel {
         true
     }
     pub fn resume_routing(&mut self) {
-        // A committed Running intent survives both service and Windows restarts.
-        // The pre-sign-in setting chooses the validated account, not whether an
-        // intermittent failure is allowed to revoke the user's routing intent.
-        if self.recovery.wants_running() && self.startup.enabled() {
-            if let Err(error) = self.recovery.request(crate::recovery::Origin::Boot) {
-                self.last_error = Some(error);
-                return;
-            }
-        }
         self.retry_routing();
+    }
+    fn finish_stopped_routing(&mut self, intent: Result<()>) -> Result<()> {
+        let retirement = self.tun.finish_retirement().and_then(|()| self.stop_core());
+        let mut cleanup = Cleanup::default();
+        cleanup.record("cancel automatic recovery", intent);
+        cleanup.record("retire routing", retirement);
+        cleanup.finish()
     }
     fn retry_routing(&mut self) {
         let now = Instant::now();
@@ -1846,6 +1846,19 @@ impl Kernel {
             return;
         }
         if !self.recovery.due(now) {
+            return;
+        }
+        let intent = self.recovery.resolve_intent(now).and_then(|()| {
+            if !self.startup.enabled() && self.recovery.boot_pending() {
+                // The preference may have been saved just before the service
+                // exited, leaving cancellation to this instance.
+                self.recovery.stop()?;
+            }
+            Ok(())
+        });
+        if let Err(error) = intent {
+            self.last_error = Some(error);
+            self.changed("recovery.waiting");
             return;
         }
         let checkpoint = self.profile_path.with_file_name("activation-rollback.json");
@@ -1880,21 +1893,12 @@ impl Kernel {
             progress.recover();
         }
         self.changed("recovery.attempting");
-        if let Err(error) = self.recovery.resolve_intent(Instant::now()) {
-            self.last_error = Some(error);
-            self.end_progress();
-            self.changed("recovery.waiting");
-            return;
-        }
+        let boot_start = self.recovery.boot_pending();
         let restoring_running = self.recovery.wants_running();
         let result = (|| {
             if !restoring_running {
                 let intent = self.recovery.persist_stop();
-                let retirement = self.tun.finish_retirement().and_then(|()| self.stop_core());
-                let mut cleanup = Cleanup::default();
-                cleanup.record("cancel automatic recovery", intent);
-                cleanup.record("explicit routing stop", retirement);
-                return cleanup.finish();
+                return self.finish_stopped_routing(intent);
             }
             // Cleanup belongs to the prior transition. Finish it even when a
             // disabled-sharing/invalid-new-plan guard will prohibit activation.
@@ -1960,7 +1964,7 @@ impl Kernel {
                 ActivationKind::Restart,
             )
         })();
-        if self.recovery.is_boot() {
+        if boot_start {
             self.startup.attempted(&result);
         }
         if let Err(error) = &result {

@@ -73,21 +73,25 @@ export default function useCompanionRuleRequest(ready: boolean) {
   useEffect(() => {
     if (ready) wake.current();
   }, [ready]);
+  const finish = useCallback((id: number) => {
+    if (current.current?.id !== id) return;
+    current.current = null;
+    setRequest(null);
+    wake.current();
+  }, []);
   const close = useCallback(() => {
     const completed = current.current;
     if (!completed || dismissing.current) return;
     dismissing.current = true;
-    void invoke('companion_rule_request', { completed })
+    void invoke('companion_rule_request', { completed: completed.id })
       .then(() => {
         dismissing.current = false;
-        current.current = null;
-        setRequest(null);
-        wake.current();
+        finish(completed.id);
       })
       .catch((failure: unknown) => {
         dismissing.current = false;
         setError(String(failure));
       });
-  }, []);
-  return { request, close, error };
+  }, [finish]);
+  return { request, close, finish, error };
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Dialog from './Dialog';
 import {
@@ -20,12 +20,14 @@ export default function CompanionRuleDialog({
   graph,
   blocked,
   onAdd,
+  onSaveDraft,
   onClose,
 }: {
   request: CompanionRuleRequest;
   graph: GraphState;
   blocked: boolean;
   onAdd: (addition: DomainAddition) => void;
+  onSaveDraft: () => Promise<void>;
   onClose: () => void;
 }) {
   const filters = graph.nodes.filter((node) => node.data.kind === 'routing-filter');
@@ -42,7 +44,8 @@ export default function CompanionRuleDialog({
   const [mode, setMode] = useState('full');
   const [entry, setEntry] = useState(`full:${request.host}`);
   const [error, setError] = useState('');
-  const [added, setAdded] = useState(false);
+  const [phase, setPhase] = useState<'editing' | 'saving' | 'retry'>('editing');
+  const saving = useRef(false);
   const { defaults, poolSettings } = graph;
   const sources = useMemo(
     () => geoSources(readGraphResources({ defaults, poolSettings }), 'geosite'),
@@ -79,17 +82,24 @@ export default function CompanionRuleDialog({
     (newRule
       ? !!table?.outputs.some((row) => row.id === output)
       : !!selectedRule && !selectedRule.matchAll) &&
-    !problem &&
-    !added &&
-    !blocked;
-  const add = () => {
-    if (!canAdd) return;
+    !problem;
+  const add = async () => {
+    if (saving.current || blocked || (phase === 'editing' && !canAdd)) return;
+    let staged = phase === 'retry';
+    saving.current = true;
     try {
-      onAdd({ filterId, ruleId, entry, ...(newRule ? { newRule: { name, output } } : {}) });
-      setAdded(true);
-      onClose();
+      setError('');
+      if (!staged) {
+        onAdd({ filterId, ruleId, entry, ...(newRule ? { newRule: { name, output } } : {}) });
+        staged = true;
+      }
+      setPhase('saving');
+      await onSaveDraft();
     } catch (failure) {
       setError(errorText(failure));
+      setPhase(staged ? 'retry' : 'editing');
+    } finally {
+      saving.current = false;
     }
   };
   const chooseMode = (value: string) => {
@@ -102,19 +112,24 @@ export default function CompanionRuleDialog({
     <Dialog
       title="Add domain to rule"
       className="companion-rule-dialog"
+      busy={phase === 'saving'}
       onClose={onClose}
       footer={
         <>
-          <button className="secondary-button" onClick={onClose}>
-            Cancel
+          <button className="secondary-button" disabled={phase === 'saving'} onClick={onClose}>
+            {phase === 'retry' ? 'Keep draft and close' : 'Cancel'}
           </button>
-          <button className="primary-button" disabled={!canAdd} onClick={add}>
-            Add to draft
+          <button
+            className="primary-button"
+            disabled={blocked || phase === 'saving' || (phase === 'editing' && !canAdd)}
+            onClick={() => void add()}
+          >
+            {phase === 'saving' ? 'Saving…' : phase === 'retry' ? 'Retry save' : 'Add to draft'}
           </button>
         </>
       }
     >
-      <div className="companion-rule-fields">
+      <div className="companion-rule-fields" inert={phase !== 'editing'}>
         <label className="editor-field">
           <span>Traffic filter</span>
           <select
@@ -315,15 +330,20 @@ export default function CompanionRuleDialog({
         {selectedRule && !selectedRule.enabled && (
           <p className="notice">The selected rule is disabled.</p>
         )}
-        <p className="companion-rule-hint">
-          Saved to the draft. Apply the graph to activate the change.
-        </p>
-        {error && (
-          <p role="alert" className="notice error">
-            {error}
-          </p>
-        )}
+        <p className="companion-rule-hint">Apply the graph after saving to activate the change.</p>
       </div>
+      {phase !== 'editing' && (
+        <p role="status">
+          {phase === 'saving'
+            ? 'Saving the graph draft…'
+            : 'The draft still contains the addition.'}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="notice error">
+          {error}
+        </p>
+      )}
     </Dialog>
   );
 }

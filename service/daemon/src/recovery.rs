@@ -8,16 +8,15 @@ use std::time::{Duration, Instant};
 use wayrill_protocol::{ApiError, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Origin {
-    Manual,
-    Boot,
-    ServiceRecovery,
+pub enum RunIntent {
+    Established,
+    BootPending,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Desired {
     Unknown,
     Stopped,
-    Running,
+    Running(RunIntent),
 }
 enum State {
     Stopped,
@@ -30,11 +29,21 @@ enum State {
 struct SavedIntent {
     owner_sid: String,
     running: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    boot_pending: bool,
+}
+impl SavedIntent {
+    fn desired(&self) -> Desired {
+        match (self.running, self.boot_pending) {
+            (false, _) => Desired::Stopped,
+            (true, false) => Desired::Running(RunIntent::Established),
+            (true, true) => Desired::Running(RunIntent::BootPending),
+        }
+    }
 }
 pub struct Supervisor {
     desired: Desired,
     state: State,
-    origin: Origin,
     attempts: u32,
     owner: String,
     intent: Option<PathBuf>,
@@ -54,7 +63,7 @@ impl Supervisor {
                 },
             ),
             Ok(Some(saved)) if saved.running => (
-                Desired::Running,
+                saved.desired(),
                 State::Waiting {
                     at: Instant::now(),
                     error: ApiError::new(
@@ -75,13 +84,12 @@ impl Supervisor {
         Ok(Self {
             desired,
             state,
-            origin: Origin::ServiceRecovery,
             attempts: 0,
             owner: owner.into(),
             intent: Some(path),
         })
     }
-    fn persist(&self, running: bool) -> Result<()> {
+    fn persist(&self, desired: Desired) -> Result<()> {
         let Some(path) = &self.intent else {
             return Ok(());
         };
@@ -89,7 +97,8 @@ impl Supervisor {
             path,
             &SavedIntent {
                 owner_sid: self.owner.clone(),
-                running,
+                running: matches!(desired, Desired::Running(_)),
+                boot_pending: desired == Desired::Running(RunIntent::BootPending),
             },
         )
     }
@@ -108,11 +117,11 @@ impl Supervisor {
                     "Routing intent belongs to another installation owner.",
                 ));
             }
-            Ok(saved.is_some_and(|s| s.running))
+            Ok(saved.map_or(Desired::Stopped, |s| s.desired()))
         })();
         match result {
-            Ok(true) => {
-                self.desired = Desired::Running;
+            Ok(desired @ Desired::Running(_)) => {
+                self.desired = desired;
                 self.state = State::Waiting {
                     at: now,
                     error: ApiError::new(
@@ -122,7 +131,7 @@ impl Supervisor {
                 };
                 Ok(())
             }
-            Ok(false) => {
+            Ok(_) => {
                 self.stopped();
                 Ok(())
             }
@@ -142,7 +151,7 @@ impl Supervisor {
         self.desired != Desired::Stopped
     }
     pub fn wants_running(&self) -> bool {
-        self.desired == Desired::Running
+        matches!(self.desired, Desired::Running(_))
     }
     /// Called at the scheduled retry, before beginning another activation.
     pub fn recheck_uplink(
@@ -166,15 +175,21 @@ impl Supervisor {
         Some(error)
     }
     pub fn boot_waiting(&self) -> bool {
-        self.origin == Origin::Boot && matches!(self.state, State::Waiting { .. })
+        self.boot_pending() && matches!(self.state, State::Waiting { .. })
     }
-    pub fn is_boot(&self) -> bool {
-        self.origin == Origin::Boot
+    pub fn boot_pending(&self) -> bool {
+        self.desired == Desired::Running(RunIntent::BootPending)
     }
-    pub fn request(&mut self, origin: Origin) -> Result<()> {
-        self.persist(true)?;
-        self.desired = Desired::Running;
-        self.origin = origin;
+    pub fn arm_boot(&mut self) -> Result<()> {
+        if self.desired == Desired::Stopped {
+            self.request(RunIntent::BootPending)?;
+        }
+        Ok(())
+    }
+    pub fn request(&mut self, intent: RunIntent) -> Result<()> {
+        let desired = Desired::Running(intent);
+        self.persist(desired)?;
+        self.desired = desired;
         self.attempts = 0;
         self.state = State::Waiting {
             at: Instant::now(),
@@ -195,14 +210,14 @@ impl Supervisor {
     /// Cleanup can succeed even if the first durable cancellation failed. Retry
     /// the cancellation with retirement, without resetting its backoff.
     pub fn persist_stop(&self) -> Result<()> {
-        self.persist(false)
+        self.persist(Desired::Stopped)
     }
     pub fn healthy(&mut self, now: Instant) -> Result<()> {
-        if !self.wants_running() {
-            self.persist(true)?;
-            self.origin = Origin::Manual;
+        let established = Desired::Running(RunIntent::Established);
+        if self.desired != established {
+            self.persist(established)?;
+            self.desired = established;
         }
-        self.desired = Desired::Running;
         if !matches!(self.state, State::Healthy(_)) {
             self.state = State::Healthy(now);
         }
@@ -264,7 +279,7 @@ impl Supervisor {
             ),
             State::Blocked(error) => ("blocked", Some(error), None),
         };
-        json!({"desiredState":match self.desired { Desired::Running=>"running",Desired::Stopped=>"stopped",Desired::Unknown=>"unknown" },"state":state,"attempts":self.attempts,"nextAttemptMs":next,"lastError":error})
+        json!({"desiredState":match self.desired { Desired::Running(_)=>"running",Desired::Stopped=>"stopped",Desired::Unknown=>"unknown" },"state":state,"attempts":self.attempts,"nextAttemptMs":next,"lastError":error})
     }
 }
 #[cfg(test)]
@@ -274,7 +289,6 @@ mod tests {
         Supervisor {
             desired: Desired::Stopped,
             state: State::Stopped,
-            origin: Origin::Manual,
             attempts: 0,
             owner: "test".into(),
             intent: None,
@@ -283,7 +297,7 @@ mod tests {
     #[test]
     fn intermittent_failures_back_off_without_expiring_and_success_needs_stability() {
         let mut s = supervisor();
-        s.request(Origin::Manual).unwrap();
+        s.request(RunIntent::Established).unwrap();
         let now = Instant::now();
         s.healthy(now).unwrap();
         let failure = ApiError::new("ICS_CONFLICT", "native service is temporarily unavailable");
@@ -307,7 +321,7 @@ mod tests {
     #[test]
     fn explicit_stop_cancels_even_a_very_late_retry() {
         let mut s = supervisor();
-        s.request(Origin::Boot).unwrap();
+        s.arm_boot().unwrap();
         s.fail(
             ApiError::new("TUN_UPLINK_UNAVAILABLE", "offline"),
             Instant::now(),
@@ -321,7 +335,7 @@ mod tests {
     #[test]
     fn unsafe_uplink_waits_for_native_readiness_and_explicit_stop_cancels_probes() {
         let mut s = supervisor();
-        s.request(Origin::Manual).unwrap();
+        s.request(RunIntent::Established).unwrap();
         let now = Instant::now();
         let unsafe_uplink = ApiError::new("TUN_UPLINK_ROUTING", "WeakHostSend is enabled");
         s.fail(unsafe_uplink.clone(), now);
@@ -354,7 +368,7 @@ mod tests {
             "NO_CONFIG",
         ] {
             let mut s = supervisor();
-            s.request(Origin::Manual).unwrap();
+            s.request(RunIntent::Established).unwrap();
             s.fail(ApiError::new(code, "blocked"), Instant::now());
             assert!(!s.due(Instant::now() + Duration::from_secs(86400)));
             assert_eq!(s.snapshot()["state"], "blocked");
@@ -363,7 +377,7 @@ mod tests {
     #[test]
     fn incomplete_stop_retries_cleanup_without_rearming_running_intent() {
         let mut s = supervisor();
-        s.request(Origin::Manual).unwrap();
+        s.request(RunIntent::Established).unwrap();
         s.stop().unwrap();
         let now = Instant::now();
         s.retirement_failed(ApiError::new("ICS_BUSY", "still draining"), now);
@@ -382,7 +396,7 @@ mod tests {
         std::fs::create_dir(&dir).unwrap();
         let path = dir.join("intent.json");
         let mut s = Supervisor::new("owner", path.clone()).unwrap();
-        s.request(Origin::Manual).unwrap();
+        s.request(RunIntent::Established).unwrap();
         // An unavailable atomic-write destination must not turn an explicit
         // Stop into a durable Running intent after cleanup has completed.
         let temporary = path.with_extension("tmp");
@@ -406,7 +420,7 @@ mod tests {
             .wants_running());
 
         // A subsequent explicit Start supersedes the successfully retired Stop.
-        s.request(Origin::Manual).unwrap();
+        s.request(RunIntent::Established).unwrap();
         assert!(Supervisor::new("owner", path).unwrap().wants_running());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -427,6 +441,8 @@ mod tests {
         drop(first);
         let mut resumed = Supervisor::new("owner", path.clone()).unwrap();
         assert!(resumed.wants_running());
+        resumed.arm_boot().unwrap();
+        assert!(!resumed.boot_pending());
         assert!(resumed.due(Instant::now()));
         resumed.stop().unwrap();
         assert!(!resumed.retain_assignments());
@@ -448,6 +464,7 @@ mod tests {
             &SavedIntent {
                 owner_sid: "owner".into(),
                 running: true,
+                boot_pending: false,
             },
         )
         .unwrap();
@@ -456,6 +473,33 @@ mod tests {
             invalid.wants_running(),
             "Restored trusted metadata must resume without operator input"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pending_boot_start_survives_restart_but_a_later_fault_recovers_an_established_run() {
+        let dir = std::env::temp_dir().join(format!(
+            "wayrill-boot-intent-{}",
+            crate::tun::random_id().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("intent.json");
+        Supervisor::new("owner", path.clone())
+            .unwrap()
+            .arm_boot()
+            .unwrap();
+        let mut resumed = Supervisor::new("owner", path.clone()).unwrap();
+        assert!(resumed.boot_waiting());
+        resumed.healthy(Instant::now()).unwrap();
+        resumed.fail(
+            ApiError::new("XRAY_EXITED", "worker failed"),
+            Instant::now(),
+        );
+        assert!(!resumed.boot_pending());
+        let mut restarted = Supervisor::new("owner", path).unwrap();
+        restarted.arm_boot().unwrap();
+        assert!(restarted.wants_running());
+        assert!(!restarted.boot_pending());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

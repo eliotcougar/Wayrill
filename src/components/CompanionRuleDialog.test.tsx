@@ -14,6 +14,7 @@ vi.mock('../serviceClient', () => ({
 }));
 let root: Root, host: HTMLDivElement;
 const add = vi.fn(),
+  save = vi.fn<() => Promise<void>>(),
   close = vi.fn();
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -21,6 +22,7 @@ beforeEach(() => {
     this.open = true;
   };
   vi.clearAllMocks();
+  save.mockReset().mockResolvedValue(undefined);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -71,10 +73,11 @@ it('preselects an observed filter and supports every entry mode and exact core-b
   await act(() =>
     root.render(
       <CompanionRuleDialog
-        request={{ host: 'page.test', filterIds: ['filter'] }}
+        request={{ id: 1, host: 'page.test', filterIds: ['filter'] }}
         graph={graph}
         blocked={false}
         onAdd={add}
+        onSaveDraft={save}
         onClose={close}
       />,
     ),
@@ -114,20 +117,22 @@ it('preselects an observed filter and supports every entry mode and exact core-b
     ruleId: 'web',
     entry: 'geosite:work',
   });
-  expect(close).toHaveBeenCalledOnce();
+  expect(save).toHaveBeenCalledOnce();
+  expect(close).not.toHaveBeenCalled();
   expect(graph.nodes[0].data.settings.rules).toContain('old.test');
 });
 
-it('requires an existing output for a new rule and blocks saving during activation', async () => {
+it('retries a failed workspace write without adding a duplicate rule', async () => {
   const filter = makeNode('routing-filter', { x: 0, y: 0 }, 'filter');
   const graph: GraphState = { name: 'Draft', nodes: [filter], edges: [] };
-  const request = { host: 'page.test', filterIds: [] };
+  const request = { id: 1, host: 'page.test', filterIds: [] };
   const render = (blocked: boolean) => (
     <CompanionRuleDialog
       request={request}
       graph={graph}
       blocked={blocked}
       onAdd={add}
+      onSaveDraft={save}
       onClose={close}
     />
   );
@@ -141,6 +146,7 @@ it('requires an existing output for a new rule and blocks saving during activati
   await click('Add to draft');
   expect(add).not.toHaveBeenCalled();
   await act(() => root.render(render(false)));
+  save.mockRejectedValueOnce(new Error('Workspace file is locked'));
   await click('Add to draft');
   expect(add).toHaveBeenCalledExactlyOnceWith({
     filterId: 'filter',
@@ -148,4 +154,9 @@ it('requires an existing output for a new rule and blocks saving during activati
     entry: 'full:page.test',
     newRule: { name: 'page.test', output },
   });
+  expect(close).not.toHaveBeenCalled();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Workspace file is locked');
+  await click('Retry save');
+  expect(add).toHaveBeenCalledOnce();
+  expect(save).toHaveBeenCalledTimes(2);
 });

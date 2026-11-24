@@ -5,6 +5,7 @@ import { writePreferences } from './backup/preferences';
 import {
   backupRestorePending,
   protectedStorageAvailable,
+  saveCompanionDraft,
   restoreProtectedWorkspace,
   takeBackupRecoveryNotice,
 } from './protectedStorage';
@@ -221,7 +222,8 @@ function GraphEditor({ layer, simulation }: AppProps) {
 
   const [backupOpen, setBackupOpen] = useState<BackupRequestState | null>(null);
   const [restoringBackup, setRestoringBackup] = useState(false);
-  const stash = useStash((layer ?? simulation)?.stash);
+  const [closeHandoff, setCloseHandoff] = useState(false);
+  const stash = useStash((layer ?? simulation)?.stash, closeHandoff);
   const { runtime, session } = useRuntime();
   const poolStatus = usePoolStatus(
     !layer && runtime.connected && runtime.capabilities.includes('pool.managed'),
@@ -246,7 +248,8 @@ function GraphEditor({ layer, simulation }: AppProps) {
   const progress = runtimeProgress(runtime);
   const [switchingOutbound, setSwitchingOutbound] = useState(false);
   const switching = useRef(false);
-  const graphBlocked = !!progress || switchingOutbound || savingLayer || restoringBackup;
+  const graphBlocked =
+    !!progress || switchingOutbound || savingLayer || restoringBackup || closeHandoff;
   const flowStore = useStoreApi<RuleNodeType, RuleEdge>();
   const editor = useGraphEditor(
     stash.ready ? stash.stash : undefined,
@@ -456,6 +459,7 @@ function GraphEditor({ layer, simulation }: AppProps) {
     stash.ready,
     (message) => notify(message, true),
     stash.getBase,
+    setCloseHandoff,
   );
   const [view, setView] = useState<Viewport>(
     () => editor.graph.viewport ?? { x: 0, y: 0, zoom: 1 },
@@ -1362,7 +1366,7 @@ function GraphEditor({ layer, simulation }: AppProps) {
               <GraphDiagnosticsContext.Provider value={issuesByNode}>
                 <NodeEditorContext.Provider value={openNodeEditor}>
                   <DiagnosticFocusContext.Provider value={diagnosticFocus}>
-                    <div className="app-shell">
+                    <div className="app-shell" inert={closeHandoff}>
                       <MenuBar
                         brand={
                           simulation
@@ -1415,7 +1419,7 @@ function GraphEditor({ layer, simulation }: AppProps) {
                       )}
                       {companionRule.request && (
                         <CompanionRuleDialog
-                          key={JSON.stringify(companionRule.request)}
+                          key={companionRule.request.id}
                           request={companionRule.request}
                           graph={editor.graph}
                           blocked={graphBlocked}
@@ -1423,7 +1427,12 @@ function GraphEditor({ layer, simulation }: AppProps) {
                             requireGraphSave(
                               editor.change((current) => addCompanionDomain(current, addition)),
                             );
-                            notify('Domain added to the draft.');
+                          }}
+                          onSaveDraft={async () => {
+                            const id = companionRule.request!.id;
+                            await saveCompanionDraft(editor.serializeForClose(), id);
+                            companionRule.finish(id);
+                            notify('Domain saved to the draft.');
                           }}
                           onClose={companionRule.close}
                         />

@@ -34,14 +34,16 @@ function Harness({
   ready = true,
   error,
   base = () => 'stash-base',
+  handoff,
 }: {
   workspace: () => string;
   stash: () => string;
   ready?: boolean;
   error: (text: string) => void;
   base?: () => string;
+  handoff?: (frozen: boolean) => void;
 }) {
-  const close = useClosePersistence(workspace, ready, stash, ready, error, base);
+  const close = useClosePersistence(workspace, ready, stash, ready, error, base, handoff);
   return <button onClick={close}>Close Wayrill</button>;
 }
 beforeEach(() => {
@@ -118,4 +120,33 @@ it('keeps the window open after write failure and permits a fresh close attempt'
   expect(
     mock.invoke.mock.calls.filter(([command]) => command === 'desktop_close_complete'),
   ).toHaveLength(2);
+});
+
+it('freezes edits before native close and unlocks the draft if destruction fails', async () => {
+  let text = 'graph';
+  let frozen = false;
+  let reject!: (error: Error) => void;
+  const error = vi.fn();
+  const handoff = vi.fn((value: boolean) => {
+    frozen = value;
+    // Focus changes during the freeze can finish an existing text edit.
+    if (value) text = 'last edit';
+  });
+  mock.invoke.mockImplementation(async (command) => {
+    if (command !== 'desktop_close_complete') return true;
+    expect(frozen).toBe(true);
+    expect(mock.write).toHaveBeenCalledWith('workspace', 'last edit');
+    return new Promise<never>((_, fail) => (reject = fail));
+  });
+  await act(() =>
+    root.render(
+      <Harness workspace={() => text} stash={() => 'stash'} error={error} handoff={handoff} />,
+    ),
+  );
+  await act(() => close(1));
+  expect(frozen).toBe(true);
+  await act(() => reject(new Error('The window is still open')));
+  expect(frozen).toBe(false);
+  expect(handoff.mock.calls).toEqual([[true], [false]]);
+  expect(error).toHaveBeenCalledWith(expect.stringContaining('The window is still open'));
 });

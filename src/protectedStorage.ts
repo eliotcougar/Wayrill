@@ -166,7 +166,16 @@ export function protectedRead(key: StorageSlot): Promise<string | null> {
   });
 }
 
-export function protectedWrite(key: StorageSlot, text: string, base?: string): Promise<void> {
+export function saveCompanionDraft(text: string, request: number): Promise<void> {
+  return protectedWrite('workspace', text, undefined, request);
+}
+
+export function protectedWrite(
+  key: StorageSlot,
+  text: string,
+  base?: string,
+  companionRequest?: number,
+): Promise<void> {
   // The service library already owns its ordered lane. Capture its snapshot
   // provenance now, before another queued read can acknowledge a newer base.
   if ((key === 'stash' || key === 'workspace') && restorePhase !== 'idle')
@@ -177,8 +186,12 @@ export function protectedWrite(key: StorageSlot, text: string, base?: string): P
     // in-flight write. Only successful reads/writes establish the saved value.
     // The service owns Stash and can update it independently. Its versioned
     // client handles deduplication; only the desktop-owned workspace is cached.
-    if (key === 'workspace' && savedWorkspace === text) return;
-    await invoke<void>('protected_write', { key, text });
+    if (key === 'workspace' && savedWorkspace === text && companionRequest === undefined) return;
+    await invoke<void>('protected_write', {
+      key,
+      text,
+      ...(companionRequest === undefined ? {} : { companionRequest }),
+    });
     if (key === 'workspace') savedWorkspace = text;
   });
 }

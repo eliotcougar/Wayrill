@@ -20,11 +20,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   queue = [
-    { host: 'one.test', filterIds: ['filter'] },
-    { host: 'two.test', filterIds: [] },
+    { id: 1, host: 'one.test', filterIds: ['filter'] },
+    { id: 2, host: 'two.test', filterIds: [] },
   ];
   mocks.invoke.mockImplementation(async (_name, args) => {
-    if (args?.completed?.host === queue[0]?.host) queue.shift();
+    if (args?.completed !== undefined && args.completed === queue[0]?.id) queue.shift();
     return queue[0] ?? null;
   });
   mocks.listen.mockImplementation(async (_name, callback) => {

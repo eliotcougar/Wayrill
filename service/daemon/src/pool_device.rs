@@ -75,6 +75,18 @@ struct Plan {
 }
 
 impl Journal {
+    fn pending_for(&self, requested: &[capture::LoopbackChange]) -> bool {
+        match &self.pending {
+            Some(Receipt::Legacy { .. }) => true,
+            Some(Receipt::Changes { changes }) => changes.iter().any(|pending| {
+                requested
+                    .iter()
+                    .any(|change| pending.family.eq_ignore_ascii_case(&change.family))
+            }),
+            None => false,
+        }
+    }
+
     fn save(&self, path: &Path) -> Result<()> {
         if self.owned.is_empty() && self.pending.is_none() {
             storage::remove(path)
@@ -179,6 +191,28 @@ impl Loopback {
 
     pub fn busy(&self) -> bool {
         self.active.as_ref().is_some_and(|job| !job.is_finished())
+    }
+
+    pub(crate) fn authorize_manual(&mut self, changes: &[capture::LoopbackChange]) -> Result<()> {
+        let busy = self.busy();
+        if !busy
+            && !storage::read::<Journal>(&self.path)?
+                .is_some_and(|journal| journal.pending_for(changes))
+        {
+            return Ok(());
+        }
+        if !busy {
+            // The finished worker left an uncertain native write. Move its
+            // next reconciliation forward before permitting an overlapping edit.
+            self.next_check = None;
+            self.idle = false;
+        }
+        let mut error = ApiError::new(
+            "BUSY",
+            "Pool Loopback changes are still being verified. Refresh before applying permissions.",
+        );
+        error.retryable = true;
+        Err(error)
     }
 
     pub fn drain(&mut self) -> Option<Result<()>> {
@@ -299,6 +333,52 @@ impl Loopback {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupted_pool_write_excludes_only_overlapping_manual_edits() {
+        let dir = std::env::temp_dir().join(format!(
+            "wayrill-loopback-admission-{}",
+            crate::tun::random_id().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join(LOOPBACK_JOURNAL);
+        let mut manager = Loopback::new(path.clone(), PathBuf::new());
+        let mut journal = Journal {
+            owned: vec![],
+            pending: Some(Receipt::Changes {
+                changes: vec![Change {
+                    family: "Example.App_123456789abcd".into(),
+                    enabled: true,
+                }],
+            }),
+        };
+        journal.save(&path).unwrap();
+        let change = |family: &str| {
+            [capture::LoopbackChange {
+                family: family.into(),
+                enabled: true,
+            }]
+        };
+        let overlapping = change("example.app_123456789abcd");
+        let unrelated = change("other.app_123456789abcd");
+        assert!(manager.authorize_manual(&unrelated).is_ok());
+        assert!(
+            manager
+                .authorize_manual(&overlapping)
+                .unwrap_err()
+                .retryable
+        );
+        journal.pending = Some(Receipt::Legacy {
+            after: "snapshot".into(),
+            owned: vec![],
+        });
+        journal.save(&path).unwrap();
+        assert!(manager.authorize_manual(&unrelated).is_err());
+        journal.pending = None;
+        journal.save(&path).unwrap();
+        assert!(manager.authorize_manual(&overlapping).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn recovers_affected_packages_after_a_partial_or_interrupted_write() {

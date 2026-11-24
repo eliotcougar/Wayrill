@@ -67,6 +67,7 @@ async fn protected_write(
     app: tauri::AppHandle,
     key: String,
     text: String,
+    companion_request: Option<u32>,
     lock: tauri::State<'_, Arc<VaultLock>>,
 ) -> Result<(), String> {
     if key == "pools" {
@@ -79,7 +80,25 @@ async fn protected_write(
     let lock = lock.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock.write.lock().map_err(|_| "Storage is busy.")?;
-        vault::write(&base, &key, &text)
+        match companion_request {
+            Some(id) if key == "workspace" => {
+                app.state::<companion::Requests>()
+                    .finish_with(id, |active| {
+                        if active {
+                            return vault::write(&base, &key, &text);
+                        }
+                        // The saved workspace proves a completed write if its reply
+                        // was lost. Never overwrite a newer draft for a stale request.
+                        if vault::read(&base, &key)?.as_deref() == Some(text.as_str()) {
+                            Ok(())
+                        } else {
+                            Err("The Companion request has already changed.".into())
+                        }
+                    })
+            }
+            Some(_) => Err("Companion requests can only save the workspace.".into()),
+            None => vault::write(&base, &key, &text),
+        }
     })
     .await
     .map_err(|_| "Storage task failed.")?
