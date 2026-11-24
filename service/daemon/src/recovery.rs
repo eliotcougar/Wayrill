@@ -153,6 +153,9 @@ impl Supervisor {
     pub fn wants_running(&self) -> bool {
         matches!(self.desired, Desired::Running(_))
     }
+    pub fn established(&self) -> bool {
+        self.desired == Desired::Running(RunIntent::Established)
+    }
     /// Called at the scheduled retry, before beginning another activation.
     pub fn recheck_uplink(
         &mut self,
@@ -279,7 +282,7 @@ impl Supervisor {
             ),
             State::Blocked(error) => ("blocked", Some(error), None),
         };
-        json!({"desiredState":match self.desired { Desired::Running(_)=>"running",Desired::Stopped=>"stopped",Desired::Unknown=>"unknown" },"state":state,"attempts":self.attempts,"nextAttemptMs":next,"lastError":error})
+        json!({"desiredState":match self.desired { Desired::Running(_)=>"running",Desired::Stopped=>"stopped",Desired::Unknown=>"unknown" },"bootPending":self.boot_pending(),"state":state,"attempts":self.attempts,"nextAttemptMs":next,"lastError":error})
     }
 }
 #[cfg(test)]

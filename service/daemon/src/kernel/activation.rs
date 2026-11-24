@@ -32,7 +32,7 @@ struct PreviousRuntime {
     was_running: bool,
     wanted_running: bool,
     sharing_native: Option<bool>,
-    bootstrap: Option<(String, Value)>,
+    bootstrap: Option<Value>,
     fake_dns: Option<Arc<crate::fakedns::Pool>>,
 }
 
@@ -66,7 +66,13 @@ impl<'a> KernelActivation<'a> {
             was_running: kernel.core.is_some(),
             wanted_running: kernel.recovery.wants_running(),
             sharing_native: kernel.tun.status()["sharing"]["restoreNativeOnBoot"].as_bool(),
-            bootstrap: kernel.bootstrap_cache.clone(),
+            bootstrap: kernel
+                .profile
+                .as_ref()
+                .filter(|p| crate::tun::uses_tun(&p.config))
+                .and(kernel.control.as_ref())
+                .and_then(|control| control.config["dns"].get("hosts"))
+                .cloned(),
             fake_dns: kernel.fake_dns.clone(),
         };
         let checkpoint = kernel
@@ -116,7 +122,6 @@ impl<'a> KernelActivation<'a> {
         if !self.previous.wanted_running {
             self.kernel.recovery.stop()?;
         }
-        self.kernel.bootstrap_cache = self.previous.bootstrap.clone();
         Ok(())
     }
     fn finish_restore(&mut self) -> Result<()> {
@@ -279,17 +284,24 @@ impl crate::activation::Activation for KernelActivation<'_> {
         } else if let Some(live) = self.prepare_live()? {
             ActivationPlan::Rules(Box::new(live))
         } else {
-            self.bootstrap_hosts = self.kernel.prepare_bootstrap(&self.config)?;
             // Live resource proofs decide retention even if the main core died.
             // A process-state flag cannot invalidate healthy TUN/ICS ownership.
             let network = if self
                 .kernel
-                .tun
-                .can_replace(&self.config, self.capture.as_ref())?
+                .needs_capture_retirement_to_resolve(&self.resource_config)?
             {
-                RestartMode::PreserveNetwork
+                RestartMode::Rebootstrap
             } else {
-                RestartMode::Reconfigure
+                self.bootstrap_hosts = crate::tun::bootstrap_hosts(&self.resource_config)?;
+                if self
+                    .kernel
+                    .tun
+                    .can_replace(&self.config, self.capture.as_ref())?
+                {
+                    RestartMode::PreserveNetwork
+                } else {
+                    RestartMode::Reconfigure
+                }
             };
             ActivationPlan::Replace(network)
         };
@@ -329,7 +341,7 @@ impl crate::activation::Activation for KernelActivation<'_> {
             return Ok(());
         };
         self.kernel.network.cancel();
-        if network == RestartMode::Reconfigure {
+        if network != RestartMode::PreserveNetwork {
             self.retained_adapter = self
                 .kernel
                 .tun
@@ -352,7 +364,13 @@ impl crate::activation::Activation for KernelActivation<'_> {
             SharingExit::Suspend
         };
         self.kernel
-            .retire_core(Retirement::Replace(network, sharing))
+            .retire_core(Retirement::Replace(network, sharing))?;
+        if network == RestartMode::Rebootstrap {
+            if let Some(adapter) = &self.retained_adapter {
+                adapter.park()?;
+            }
+        }
+        Ok(())
     }
     fn apply(&mut self) -> Result<()> {
         if self.kind != ActivationKind::Apply {
@@ -382,9 +400,6 @@ impl crate::activation::Activation for KernelActivation<'_> {
                 .tun
                 .rename(&self.config, self.capture.as_ref())?;
             self.kernel.statistics.revision(self.kernel.revision());
-            if let Some((hash, _)) = &mut self.kernel.bootstrap_cache {
-                *hash = config_hash(&self.config);
-            }
             self.kernel.changed("tun.renamed");
             return Ok(());
         }
@@ -414,9 +429,6 @@ impl crate::activation::Activation for KernelActivation<'_> {
             self.kernel.statistics_bridge.as_mut().unwrap().config =
                 self.kernel.control.as_ref().unwrap().config.clone();
             self.kernel.statistics.revision(self.kernel.revision());
-            if let Some((hash, _)) = &mut self.kernel.bootstrap_cache {
-                *hash = config_hash(&self.config);
-            }
             self.kernel.changed("core.rulesUpdated");
             return Ok(());
         }
@@ -577,16 +589,12 @@ impl crate::activation::Activation for KernelActivation<'_> {
                     .restore_sharing_intent(self.previous.sharing_native)?;
             }
             if self.previous.was_running {
-                let hosts = self
-                    .previous
-                    .bootstrap
-                    .as_ref()
-                    .map(|(_, hosts)| hosts.clone());
+                let hosts = self.previous.bootstrap.clone();
                 if let Err(warm) = self
                     .kernel
                     .start_core_with_runtime(hosts.clone(), None, network)
                 {
-                    if network == RestartMode::Reconfigure {
+                    if network != RestartMode::PreserveNetwork {
                         return Err(warm);
                     }
                     self.kernel

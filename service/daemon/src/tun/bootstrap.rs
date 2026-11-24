@@ -311,7 +311,7 @@ fn bootstrap_names(names: &mut BTreeSet<String>, hosts: &Value) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn bootstrap(main: &mut Value) -> Result<()> {
+pub(super) fn unresolved_names(main: &Value) -> Result<BTreeSet<String>> {
     let mut names = BTreeSet::new();
     addresses(&main["outbounds"], &mut names);
     for server in main["dns"]["servers"]
@@ -329,10 +329,22 @@ pub(super) fn bootstrap(main: &mut Value) -> Result<()> {
     if names.len() > LIMIT {
         return Err(invalid("TUN bootstrap has more than 1,024 distinct server names. Use IP endpoints or explicit DNS hosts."));
     }
+    Ok(names)
+}
+
+pub(super) fn bootstrap(main: &mut Value) -> Result<()> {
+    apply_bootstrap(main, |names| resolve(names, BUDGET))
+}
+
+fn apply_bootstrap(
+    main: &mut Value,
+    resolve_names: impl FnOnce(BTreeSet<String>) -> Result<BTreeMap<String, Vec<String>>>,
+) -> Result<()> {
+    let names = unresolved_names(main)?;
     if names.is_empty() {
         return Ok(());
     }
-    let resolved = resolve(names, BUDGET)?;
+    let resolved = resolve_names(names)?;
     if !main["dns"].is_object() {
         main["dns"] = json!({});
     }
@@ -348,6 +360,33 @@ pub(super) fn bootstrap(main: &mut Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_resolutions_replace_generated_hosts_without_changing_explicit_overrides() {
+        let source = json!({
+            "outbounds": [{"settings":{"address":"dynamic.example"}},
+                          {"settings":{"address":"explicit.example"}}],
+            "dns":{"hosts":{"full:explicit.example":"192.0.2.3"}}
+        });
+        let mut first = source.clone();
+        let mut recovered = source.clone();
+        for (runtime, ip) in [(&mut first, "192.0.2.4"), (&mut recovered, "192.0.2.5")] {
+            apply_bootstrap(runtime, |names| {
+                assert_eq!(names, BTreeSet::from(["dynamic.example".into()]));
+                Ok(BTreeMap::from([(
+                    "dynamic.example".into(),
+                    vec![ip.into()],
+                )]))
+            })
+            .unwrap();
+            assert_eq!(runtime["dns"]["hosts"]["full:dynamic.example"], json!([ip]));
+            assert_eq!(
+                runtime["dns"]["hosts"]["full:explicit.example"],
+                "192.0.2.3"
+            );
+        }
+        assert!(source["dns"]["hosts"].get("full:dynamic.example").is_none());
+    }
     #[test]
     fn endpoint_names_include_single_labels_but_not_ipv6_literals() {
         for value in [

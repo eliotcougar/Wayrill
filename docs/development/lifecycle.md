@@ -69,6 +69,7 @@ booleans. The shared policy is in `lifecycle.rs`.
 | Unexpected service exit, Running intent | Retain | Retire; suspend sharing for recovery | Release |
 | Replace, preserve network | Retain | Retain network; replace runtime | Retain until commit |
 | Replace, reconfigure | Retain | Retain WinDivert handle; reconfigure TUN network | Retain until commit |
+| Replace, resolve endpoints | Retain | Retire capture before native DNS; suspend sharing | Retain until commit |
 | Main-core fault | Retain | Retain healthy workers and network | Retain |
 | Capture, TUN or network fault | Retain | Retire dependent routing; suspend sharing for recovery | Retain healthy authority for recovery |
 | FakeDNS fault | Retain | Retire dependent routing; suspend sharing for recovery | Release failed authority |
@@ -90,6 +91,9 @@ main core retains healthy workers, so those workers continue to be monitored.
 A subsequent fault retires that scope and is appended to the original error.
 Failure retirement emits its terminal failure after cleanup; it does not briefly
 advertise a successful Stop. Unexpected child exit retains the committed Running intent.
+When a dead relay leaves capture active, an unresolved TUN peer requires fresh
+native DNS after retiring capture. Only rollback of the previous live runtime
+uses its resolved hosts. Explicit host rules remain part of the applied graph.
 
 This remains an application router rather than an atomic firewall boundary.
 Ending TUN or WinDivert capture can release applications to Windows networking.
@@ -132,6 +136,8 @@ service retries that intent independently of ordinary routing recovery. It
 atomically replaces the intent with a completion receipt after routing and its
 Windows settings are ready. Setup acknowledges only its own transaction and
 service version. An interrupted attempt retains its intent and last error.
+The handoff distinguishes a pending boot start from an established session.
+Only a pending boot start remains conditional on the current startup preference.
 
 Pool-managed Loopback changes journal the affected package families before the
 native write. Recovery checks those packages individually so unrelated changes

@@ -61,6 +61,12 @@ $handoff=Join-Path ([IO.Path]::GetTempPath()) ('wayrill-upgrade-'+[Guid]::NewGui
 function Protect-WayrillInstallerFile([string]$Path) {}
 try {
     $id='a'*32
+    $boot=Get-WayrillUpgradeRouting @{core=@{state='failed'};recovery=@{desiredState='running';bootPending=$true}} $null
+    Assert ($boot.resume -and $boot.bootPending) 'A pending boot start remains conditional in the handoff'
+    $retired=Get-WayrillUpgradeRouting (Retired) @{resumeRouting=$true;bootPending=$true}
+    Assert ($retired.resume -and $retired.bootPending) 'Retry after retirement preserves boot authorization'
+    $running=Get-WayrillUpgradeRouting @{core=@{state='running'};recovery=@{desiredState='running'}} @{resumeRouting=$true;bootPending=$true}
+    Assert ($running.resume -and -not $running.bootPending) 'Current established routing supersedes pending boot authorization'
     Save-WayrillUpgradeHandoff @{version=1;transactionId=$id} $handoff
     Assert (-not (Get-WayrillUpgradeResult $handoff $id '1.0')) 'A prepared handoff must not be read as a result'
     $result=@{transactionId=$id;serviceVersion='1.0';ok=$false;error=@{code='SETTINGS_CONFLICT'}}

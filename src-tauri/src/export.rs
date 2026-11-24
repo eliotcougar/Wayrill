@@ -105,7 +105,7 @@ fn wide(path: &Path) -> Vec<u16> {
 }
 // Copy a selected existing file's DACL before writing plaintext into its replacement.
 // A new export uses the chosen directory's normal inherited access permissions.
-fn preserve_access(path: &Path, temporary: &Path) -> io::Result<()> {
+pub(crate) fn preserve_access(path: &Path, temporary: &Path) -> io::Result<()> {
     match fs::metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),

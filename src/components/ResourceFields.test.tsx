@@ -136,3 +136,52 @@ it('shows a failed automatic filter refresh with its diagnostic and retry action
     'Resource runtime refresh failed. Apply to retry.',
   );
 });
+
+it('stages the selected DAT until Save and keeps it selected after an import failure', async () => {
+  const status = { busy: false, files: [] };
+  const onChange = vi.fn();
+  let rejected = false;
+  vi.mocked(serviceCall).mockImplementation(async (method) => {
+    if (method === 'resources.uploadBegin') {
+      if (!rejected) {
+        rejected = true;
+        throw new Error('Resource transfer is in progress.');
+      }
+      return { upload: 'qa' };
+    }
+    return status;
+  });
+  await act(async () =>
+    root.render(<ResourceFields value={factoryResources()} onChange={onChange} />),
+  );
+  const button = (name: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (element) =>
+        element.textContent?.trim() === name || element.getAttribute('aria-label') === name,
+    )!;
+  const select = async () => {
+    await act(() => button('Add GeoSite file').click());
+    const file = new File(['bytes'], 'geosite-local.dat');
+    Object.defineProperty(file, 'slice', {
+      value: () => ({ arrayBuffer: async () => Uint8Array.of(1, 2, 3, 4, 5).buffer }),
+    });
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, 'files', { value: [file] });
+    await act(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+  };
+  await select();
+  await act(() => button('Cancel').click());
+  expect(vi.mocked(serviceCall).mock.calls.every(([method]) => method === 'resources.status')).toBe(
+    true,
+  );
+  expect(onChange).not.toHaveBeenCalled();
+  await select();
+  await act(() => button('Save file').click());
+  expect(container.textContent).toContain('Resource transfer is in progress.');
+  expect(container.textContent).toContain('geosite-local.dat');
+  expect(onChange).not.toHaveBeenCalled();
+  await act(() => button('Save file').click());
+  expect(serviceCall).toHaveBeenCalledWith('resources.uploadCommit', { upload: 'qa' });
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('.resource-file-dialog')).toBeNull();
+});

@@ -72,8 +72,9 @@ switch($Action) {
     $taskProfile=Join-Path $env:ProgramData 'Wayrill\profile.json'
     $taskProfileHash=if(Test-Path -LiteralPath $taskProfile){(Get-FileHash -LiteralPath $taskProfile -Algorithm SHA256).Hash.ToLowerInvariant()}else{$null}
     $taskId=if($taskIntent){$taskIntent.transactionId}else{[Guid]::NewGuid().ToString('N')}
-    $taskResumeRouting=($taskBefore.core.state -eq 'running' -or $taskBefore.recovery.desiredState -eq 'running' -or ($taskIntent -and $taskIntent.resumeRouting))
-    $taskIntent=[ordered]@{version=1;transactionId=$taskId;ownerSid=$taskOwner;revision=$taskBefore.config.revision;profileSha256=$taskProfileHash;resumeRouting=$taskResumeRouting;settings=@($taskBindings)}
+    $taskRouting=Get-WayrillUpgradeRouting $taskBefore $taskIntent
+    $taskIntent=[ordered]@{version=1;transactionId=$taskId;ownerSid=$taskOwner;revision=$taskBefore.config.revision;profileSha256=$taskProfileHash;resumeRouting=$taskRouting.resume;settings=@($taskBindings)}
+    if ($taskRouting.bootPending) { $taskIntent.bootPending=$true }
     # Write intent before retirement. A canceled installer must not lose the
     # information needed to resume routing and its protected applications.
     if ($InstallerPid) { Set-WayrillInstallerRecoveryPhase $InstallerPid $taskOwner 'replacing' }

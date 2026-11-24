@@ -26,6 +26,7 @@ pub enum ServiceExit {
 pub enum NetworkChange {
     Reconfigure,
     PreserveNetwork,
+    Rebootstrap,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -87,7 +88,13 @@ impl Retirement {
         matches!(self, Self::Stop(_) | Self::Shutdown(ServiceExit::Stop))
     }
     pub fn retain_capture(self) -> bool {
-        matches!(self, Self::Replace(..) | Self::Fault(Fault::Core))
+        matches!(
+            self,
+            Self::Replace(
+                NetworkChange::Reconfigure | NetworkChange::PreserveNetwork,
+                _
+            ) | Self::Fault(Fault::Core)
+        )
     }
     pub fn retain_network(self) -> bool {
         matches!(
@@ -242,7 +249,11 @@ mod tests {
     #[test]
     fn sharing_intent_is_explicit_and_replacements_never_default_to_native_handback() {
         assert_eq!(SharingExit::default(), SharingExit::Suspend);
-        for network in [NetworkChange::Reconfigure, NetworkChange::PreserveNetwork] {
+        for network in [
+            NetworkChange::Reconfigure,
+            NetworkChange::PreserveNetwork,
+            NetworkChange::Rebootstrap,
+        ] {
             assert_eq!(
                 Retirement::Replace(network, SharingExit::Native).sharing(),
                 SharingExit::Suspend
@@ -289,6 +300,13 @@ mod tests {
                 false,
                 true,
                 true,
+                false,
+            ),
+            (
+                Retirement::Replace(Rebootstrap, SharingExit::Suspend),
+                false,
+                false,
+                false,
                 false,
             ),
             (Retirement::Fault(Fault::Core), false, true, true, false),

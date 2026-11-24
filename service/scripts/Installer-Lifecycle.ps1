@@ -261,6 +261,12 @@ function Stop-WayrillRouting([string]$OwnerSid,[switch]$ForUpgrade) {
     if (-not (Test-WayrillRetiredRuntime $taskState)) { throw 'Routing has not fully stopped. Installed files were preserved.' }
     Assert-WayrillRecoveryComplete
 }
+function Get-WayrillUpgradeRouting($Snapshot,$Pending) {
+    if ($Snapshot.core.state -eq 'running' -or $Snapshot.recovery.desiredState -eq 'running') {
+        return @{resume=$true;bootPending=($Snapshot.recovery.bootPending -eq $true)}
+    }
+    return @{resume=($Pending.resumeRouting -eq $true);bootPending=($Pending.bootPending -eq $true)}
+}
 function Save-WayrillUpgradeHandoff($Intent,[string]$Path) {
     $taskTemporary=$Path+'.tmp'
     $taskBytes=[Text.Encoding]::UTF8.GetBytes(($Intent | ConvertTo-Json -Depth 20))

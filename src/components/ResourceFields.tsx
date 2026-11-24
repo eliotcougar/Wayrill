@@ -96,40 +96,30 @@ export default function ResourceFields({
         files: resourceFiles({ ...value, files }),
       }),
     );
-  const importFile = (file: File, entry: ResourceFile) =>
-    run(async () => {
-      const uploaded = { ...entry, url: '', autoUpdate: false };
-      parseResources({
-        ...value,
-        files: value.files.some((current) => current.id === entry.id)
-          ? value.files.map((current) => (current.id === entry.id ? uploaded : current))
-          : [...value.files, uploaded],
-      });
-      if (!file.size || file.size > 128 * 1024 * 1024)
-        throw new Error('Choose a nonempty DAT file up to 128 MiB.');
-      let upload: string | undefined;
-      try {
-        upload = (
-          await serviceCall<{ upload: string }>('resources.uploadBegin', {
-            id: entry.id,
-            file: resourceFilename(entry),
-            kind: entry.kind,
-            bytes: file.size,
-          })
-        ).upload;
-        for (let offset = 0; offset < file.size; offset += 512 * 1024) {
-          const bytes = new Uint8Array(await file.slice(offset, offset + 512 * 1024).arrayBuffer());
-          const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-          await serviceCall('resources.uploadChunk', { upload, offset, hex });
-        }
-        const result = await serviceCall<ResourceStatus>('resources.uploadCommit', { upload });
-        setEditing((current) => (current?.id === entry.id ? uploaded : current));
-        return result;
-      } catch (e) {
-        if (upload) await serviceCall('resources.uploadCancel', { upload }).catch(() => {});
-        throw e;
+  const importFile = async (file: File, entry: ResourceFile) => {
+    if (!file.size || file.size > 128 * 1024 * 1024)
+      throw new Error('Choose a nonempty DAT file up to 128 MiB.');
+    let upload: string | undefined;
+    try {
+      upload = (
+        await serviceCall<{ upload: string }>('resources.uploadBegin', {
+          id: entry.id,
+          file: resourceFilename(entry),
+          kind: entry.kind,
+          bytes: file.size,
+        })
+      ).upload;
+      for (let offset = 0; offset < file.size; offset += 512 * 1024) {
+        const bytes = new Uint8Array(await file.slice(offset, offset + 512 * 1024).arrayBuffer());
+        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+        await serviceCall('resources.uploadChunk', { upload, offset, hex });
       }
-    });
+      return await serviceCall<ResourceStatus>('resources.uploadCommit', { upload });
+    } catch (e) {
+      if (upload) await serviceCall('resources.uploadCancel', { upload }).catch(() => {});
+      throw e;
+    }
+  };
   const add = (kind: ResourceKind) => {
     const names = new Set(value.files.map((file) => file.name.toLowerCase()));
     let n = 1;
@@ -145,7 +135,7 @@ export default function ResourceFields({
       throughWayrill: false,
     });
   };
-  const save = (entry: ResourceFile) => {
+  const save = (entry: ResourceFile, file: File | null) => {
     const previous = value.files.find((file) => file.id === entry.id);
     if (
       previous &&
@@ -165,8 +155,16 @@ export default function ResourceFields({
         ? value.files.map((file) => (file.id === entry.id ? entry : file))
         : [...value.files, entry],
     });
-    onChange(next);
-    setEditing(null);
+    const finish = () => {
+      onChange(next);
+      setEditing(null);
+    };
+    if (!file) return finish();
+    void run(async () => {
+      const result = await importFile(file, entry);
+      finish();
+      return result;
+    });
   };
   const waiting = busy || !!status?.busy;
   return (
@@ -366,8 +364,11 @@ export default function ResourceFields({
           key={editing.id}
           value={editing}
           onSave={save}
-          onClose={() => setEditing(null)}
-          onImport={(file, entry) => void importFile(file, entry)}
+          onClose={() => {
+            if (operation.current) return;
+            setEditing(null);
+            setError('');
+          }}
           canImport={desktop && !waiting}
           busy={busy}
           error={error}
@@ -381,20 +382,19 @@ function ResourceFileEditor({
   value,
   onSave,
   onClose,
-  onImport,
   canImport,
   busy,
   error,
 }: {
   value: ResourceFile;
-  onSave: (file: ResourceFile) => void;
+  onSave: (file: ResourceFile, staged: File | null) => void;
   onClose: () => void;
-  onImport: (file: File, entry: ResourceFile) => void;
   canImport: boolean;
   busy: boolean;
   error: string;
 }) {
   const [draft, setDraft] = useState(value),
+    [selectedFile, setSelectedFile] = useState<File | null>(null),
     [problem, setProblem] = useState('');
   useEffect(() => {
     setDraft(value);
@@ -403,24 +403,26 @@ function ResourceFileEditor({
     <Dialog
       title={`${kindName(draft.kind)} file`}
       onClose={onClose}
+      busy={busy}
       className="resource-file-dialog"
       footer={
         <>
-          <button className="secondary-button" onClick={onClose}>
+          <button className="secondary-button" disabled={busy} onClick={onClose}>
             Cancel
           </button>
           <button
             className="primary-button"
-            disabled={busy}
+            disabled={busy || (!!selectedFile && !canImport)}
             onClick={() => {
               try {
-                onSave(draft);
+                setProblem('');
+                onSave(draft, selectedFile);
               } catch (e) {
                 setProblem(errorText(e));
               }
             }}
           >
-            Save file
+            {busy ? 'Saving…' : 'Save file'}
           </button>
         </>
       }
@@ -448,7 +450,10 @@ function ResourceFileEditor({
           maxLength={8192}
           spellCheck={false}
           placeholder="https://…"
-          onChange={(url) => setDraft({ ...draft, url, autoUpdate: !!url && draft.autoUpdate })}
+          onChange={(url) => {
+            if (url) setSelectedFile(null);
+            setDraft({ ...draft, url, autoUpdate: !!url && draft.autoUpdate });
+          }}
         />
       </div>
       <div className="form-row resource-update-controls">
@@ -492,11 +497,20 @@ function ResourceFileEditor({
           disabled={!canImport}
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) onImport(file, draft);
+            if (file) {
+              setSelectedFile(file);
+              setProblem('');
+              setDraft({ ...draft, url: '', autoUpdate: false });
+            }
             e.target.value = '';
           }}
         />
       </label>
+      {selectedFile && (
+        <p className="field-help">
+          Save file installs {selectedFile.name} and can reload running routing.
+        </p>
+      )}
       {(problem || error) && (
         <p className="field-message error" role="alert">
           {problem || error}

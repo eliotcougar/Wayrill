@@ -174,7 +174,6 @@ pub struct Kernel {
     capture: capture::Manager,
     driver: crate::driver::Driver,
     runtime_capture: Option<Value>,
-    bootstrap_cache: Option<(String, Value)>,
     pub events: Arc<Events>,
     started: Instant,
     shutting_down: bool,
@@ -669,7 +668,6 @@ impl Kernel {
             divert: DivertManager::new(base.join("windivert")),
             driver: crate::driver::Driver::new(base.join("windivert")),
             runtime_capture: None,
-            bootstrap_cache: None,
             capture: capture::Manager::new(
                 base.join("capture"),
                 data.join("capture-interfaces.json"),
@@ -1729,11 +1727,19 @@ impl Kernel {
             )?;
             self.tun.finish_retirement()?;
             self.proxy.check_owned()?;
-            let settings = crate::upgrade::remaining(intent.settings, &self.proxy.requests()?)?;
-            if intent.resume_routing {
+            let run = intent.routing(self.startup.enabled(), self.recovery.established());
+            let canceled_boot = run.is_none() && intent.boot_pending;
+            if canceled_boot && self.recovery.boot_pending() {
+                self.recovery.stop()?;
+            }
+            let mut requests = intent.settings;
+            if canceled_boot {
+                requests.retain(|request| request.mode != "proxy");
+            }
+            let settings = crate::upgrade::remaining(requests, &self.proxy.requests()?)?;
+            if let Some(run) = run {
                 if !self.recovery.wants_running() {
-                    self.recovery
-                        .request(crate::recovery::RunIntent::Established)?;
+                    self.recovery.request(run)?;
                 }
                 let profile = self.profile.as_ref().ok_or_else(|| {
                     ApiError::new("NO_CONFIG", "The upgrade's applied profile is unavailable.")
@@ -1750,7 +1756,6 @@ impl Kernel {
             let profile = self.profile.as_ref();
             let config = profile.map(|p| p.config.clone()).unwrap_or(json!({}));
             let plan = profile.and_then(|p| p.capture.clone());
-            let resume_routing = intent.resume_routing;
             for request in settings {
                 if request.mode == "proxy" && self.core.is_none() {
                     return Err(ApiError::new(
@@ -1762,11 +1767,10 @@ impl Kernel {
                 // during installation must fail rather than be overwritten.
                 self.proxy.set_capture(request, &config, plan.as_ref())?;
             }
-            if resume_routing {
-                self.recovery.healthy(Instant::now())?;
-            }
             self.protection.ready()?;
-            if !resume_routing {
+            if run.is_some() {
+                self.recovery.healthy(Instant::now())?;
+            } else {
                 self.core_state = CoreState::Stopped;
                 self.health_fault = None;
             }
@@ -1986,26 +1990,16 @@ impl Kernel {
             "recovery.waiting"
         });
     }
-    fn prepare_bootstrap(&mut self, config: &Value) -> Result<Option<Value>> {
-        // Recovery from a dead core must not send DNS through its retained relay.
-        // Cache only belongs to this exact configuration and only to this service run.
-        let cached = if self.core.is_none()
+    fn needs_capture_retirement_to_resolve(&self, config: &Value) -> Result<bool> {
+        // A dead relay cannot carry fresh native DNS through remaining capture.
+        let relay_alive = self
+            .core
+            .as_ref()
+            .is_some_and(|core| matches!(core.exit_code(), Ok(None)));
+        Ok(!relay_alive
             && (self.capture.status()["state"] == "running"
                 || self.tun.status()["state"] == "running")
-        {
-            self.bootstrap_cache
-                .as_ref()
-                .filter(|(hash, _)| *hash == config_hash(config))
-                .map(|(_, hosts)| hosts.clone())
-        } else {
-            None
-        };
-        let projected = self.resources.project(config)?;
-        let cached = cached
-            .map(|hosts| self.resources.project(&json!({"dns":{"hosts":hosts}})))
-            .transpose()?
-            .map(|p| p.config["dns"]["hosts"].clone());
-        crate::tun::bootstrap_hosts(&projected.config, cached.as_ref())
+            && crate::tun::needs_bootstrap(config)?)
     }
     fn healthy_runtime(&mut self, config: &Value, capture: Option<&Plan>) -> Result<bool> {
         if self.core_state != CoreState::Running
@@ -2125,19 +2119,23 @@ impl Kernel {
         if self.core.is_some() {
             return Ok(());
         }
-        if let Some(profile) = &self.profile {
+        let hosts = if let Some(profile) = &self.profile {
             let config = self.network.configuration(&profile.config)?;
             self.tun.preflight(&config, profile.capture.as_ref())?;
-        }
-        self.progress(crate::lifecycle::Stage::Resolve);
-        let hosts = self
-            .profile
-            .as_ref()
-            .map(|p| p.config.clone())
-            .as_ref()
-            .map(|config| self.prepare_bootstrap(config))
-            .transpose()?
-            .flatten();
+            let projected = self.resources.project(&profile.config)?;
+            if self.needs_capture_retirement_to_resolve(&projected.config)? {
+                self.retire_core(Retirement::Replace(
+                    RestartMode::Rebootstrap,
+                    SharingExit::Suspend,
+                ))?;
+                None
+            } else {
+                self.progress(crate::lifecycle::Stage::Resolve);
+                crate::tun::bootstrap_hosts(&projected.config)?
+            }
+        } else {
+            None
+        };
         self.start_core_with_hosts(hosts)
     }
     fn start_core_with_hosts(&mut self, bootstrap_hosts: Option<Value>) -> Result<()> {
@@ -2211,7 +2209,7 @@ impl Kernel {
         self.divert.stop()?;
         // A main-core failure can retain healthy capture. Release our old TUN
         // before selecting the next uplink; otherwise its own split routes win.
-        if mode == RestartMode::Reconfigure {
+        if mode != RestartMode::PreserveNetwork {
             self.tun.retire(
                 if profile.capture.as_ref().is_some_and(|p| p.sharing_disabled) {
                     SharingExit::Disable
@@ -2226,8 +2224,8 @@ impl Kernel {
             if !runtime_config["dns"].is_object() {
                 runtime_config["dns"] = json!({});
             }
-            // Cached bootstrap hosts can predate a DAT update. Keep resolved
-            // full: addresses, but do not reinsert now-unavailable selectors.
+            // Rollback hosts can predate a DAT update. Keep resolved addresses
+            // without reinserting now-unavailable selectors.
             let projected = self.resources.project(&json!({"dns":{"hosts":hosts}}))?;
             runtime_config["dns"]["hosts"] = projected.config["dns"]["hosts"].clone();
         }
@@ -2244,6 +2242,7 @@ impl Kernel {
         if let Some(pool) = &fake_dns {
             pool.instrument(&mut runtime_config)?;
         }
+        self.progress(crate::lifecycle::Stage::Resolve);
         let mut tun_plan = crate::tun::prepare_with_applications(
             &runtime_config,
             profile.capture.as_ref(),
@@ -2253,10 +2252,6 @@ impl Kernel {
                     .flatten()
             }),
         )?;
-        let resolved_hosts = tun_plan
-            .as_ref()
-            .and_then(|plan| plan.main["dns"].get("hosts"))
-            .cloned();
         let uplinks =
             crate::tun::network::PreparedUplinks::new(&profile.config, tun_plan.as_ref())?;
         if let Some(plan) = &mut tun_plan {
@@ -2421,8 +2416,6 @@ impl Kernel {
                 self.resource_issues = projection.report;
                 self.resource_issues_generation = self.resources.generation();
                 self.runtime_capture = worker_plan;
-                self.bootstrap_cache =
-                    resolved_hosts.map(|hosts| (config_hash(&profile.config), hosts));
                 self.core = Some(core);
                 self.fake_dns = fake_dns;
                 self.core_state = CoreState::Running;
@@ -2439,7 +2432,7 @@ impl Kernel {
                 if error.code == "PRIVATE_LISTENER_RETRY" {
                     return Err(error);
                 }
-                if mode == RestartMode::Reconfigure {
+                if mode != RestartMode::PreserveNetwork {
                     let cleanup = self.tun.retire(SharingExit::Suspend);
                     let error = Cleanup::after_failure(error, "candidate TUN retirement", cleanup);
                     self.core_state = CoreState::Failed;
@@ -2864,9 +2857,6 @@ impl Kernel {
         }
         self.begin_progress(crate::lifecycle::Operation::Restart);
         self.changed("network.reconnecting");
-        // A settled link change invalidates automatically resolved hosts even
-        // when the graph is identical. Never feed them into the new runtime.
-        self.bootstrap_cache = None;
         let result = preflight.and_then(|()| {
             let retained = self
                 .tun

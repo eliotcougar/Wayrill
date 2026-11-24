@@ -1306,22 +1306,21 @@ impl Plan {
 }
 // Resolve while the previous routing core is still usable. Only temporary DNS
 // hosts cross the activation boundary; saved/exported configuration is unchanged.
-pub fn bootstrap_hosts(config: &Value, cached: Option<&Value>) -> Result<Option<Value>> {
-    if !config["inbounds"]
+pub(crate) fn uses_tun(config: &Value) -> bool {
+    config["inbounds"]
         .as_array()
         .into_iter()
         .flatten()
         .any(|i| i["protocol"] == "tun")
-    {
+}
+pub(crate) fn needs_bootstrap(config: &Value) -> Result<bool> {
+    Ok(uses_tun(config) && !bootstrap::unresolved_names(config)?.is_empty())
+}
+pub fn bootstrap_hosts(config: &Value) -> Result<Option<Value>> {
+    if !uses_tun(config) {
         return Ok(None);
     }
     let mut runtime = config.clone();
-    if let Some(hosts) = cached {
-        if !runtime["dns"].is_object() {
-            runtime["dns"] = json!({});
-        }
-        runtime["dns"]["hosts"] = hosts.clone();
-    }
     bootstrap(&mut runtime)?;
     Ok(Some(runtime["dns"]["hosts"].clone()))
 }
@@ -2715,23 +2714,19 @@ mod tests {
         let mut config = json!({"inbounds":[{"protocol":"tun"}],"outbounds":[{"settings":{"address":"peer.example"}}],"dns":{"hosts":{"full:peer.example":"192.0.2.1"},"servers":["1.1.1.1"]}});
         let original = config.clone();
         assert_eq!(
-            bootstrap_hosts(&config, None).unwrap(),
+            bootstrap_hosts(&config).unwrap(),
             Some(config["dns"]["hosts"].clone())
         );
         assert_eq!(config, original);
         config["inbounds"][0]["protocol"] = json!("socks");
-        assert_eq!(bootstrap_hosts(&config, None).unwrap(), None);
+        assert_eq!(bootstrap_hosts(&config).unwrap(), None);
     }
     #[test]
-    fn cached_bootstrap_hosts_recover_without_resolving_through_dead_capture() {
-        let config = json!({"inbounds":[{"protocol":"tun"}],"outbounds":[{"settings":{"address":"unresolvable.invalid"}}],"dns":{"servers":["1.1.1.1"]}});
-        let original = config.clone();
-        let cached = json!({"full:unresolvable.invalid":["192.0.2.2"]});
-        assert_eq!(
-            bootstrap_hosts(&config, Some(&cached)).unwrap(),
-            Some(cached)
-        );
-        assert_eq!(config, original);
+    fn capture_only_needs_retirement_for_unresolved_tun_endpoints() {
+        let mut config = json!({"inbounds":[{"protocol":"tun"}],"outbounds":[{"settings":{"address":"unresolvable.invalid"}}],"dns":{"servers":["1.1.1.1"]}});
+        assert!(needs_bootstrap(&config).unwrap());
+        config["dns"]["hosts"] = json!({"full:unresolvable.invalid":["192.0.2.2"]});
+        assert!(!needs_bootstrap(&config).unwrap());
     }
 
     fn config() -> Value {

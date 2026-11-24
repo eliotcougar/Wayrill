@@ -55,8 +55,30 @@ pub struct Intent {
     owner_sid: String,
     revision: u64,
     profile_sha256: Option<String>,
-    pub resume_routing: bool,
+    resume_routing: bool,
+    #[serde(default)]
+    pub boot_pending: bool,
     pub settings: Vec<system_settings::Request>,
+}
+impl Intent {
+    pub fn routing(
+        &self,
+        startup_enabled: bool,
+        established: bool,
+    ) -> Option<crate::recovery::RunIntent> {
+        use crate::recovery::RunIntent;
+        match (
+            self.resume_routing,
+            self.boot_pending,
+            established,
+            startup_enabled,
+        ) {
+            (false, _, _, _) => None,
+            (true, false, _, _) | (true, true, true, _) => Some(RunIntent::Established),
+            (true, true, false, true) => Some(RunIntent::BootPending),
+            (true, true, false, false) => None,
+        }
+    }
 }
 /// A prior resume attempt may already have restored some scopes. Only matching
 /// owned assignments are resumable; external edits still fail check_owned/CAS.
@@ -84,6 +106,7 @@ pub fn validate(value: Value, owner: &str, revision: u64, profile: &Path) -> Res
     let intent: Intent = serde_json::from_value(value)
         .map_err(|_| ApiError::new("UPGRADE_STATE", "Invalid protected upgrade handoff."))?;
     if intent.version != 1
+        || (intent.boot_pending && !intent.resume_routing)
         || intent.owner_sid != owner
         || intent.revision != revision
         || intent.transaction_id.len() != 32
@@ -129,6 +152,23 @@ pub fn validate(value: Value, owner: &str, revision: u64, profile: &Path) -> Res
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn upgrade_resume_keeps_boot_authorization_conditional_until_routing_is_established() {
+        use crate::recovery::RunIntent;
+        let legacy = json!({"version":1,"transactionId":"a".repeat(32),"ownerSid":"owner","revision":4,"profileSha256":null,"resumeRouting":true,"settings":[]});
+        let legacy_intent: Intent = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(
+            legacy_intent.routing(false, false),
+            Some(RunIntent::Established)
+        );
+        let mut handoff = legacy;
+        handoff["bootPending"] = json!(true);
+        let intent: Intent = serde_json::from_value(handoff).unwrap();
+        assert_eq!(intent.routing(true, false), Some(RunIntent::BootPending));
+        assert_eq!(intent.routing(false, false), None);
+        assert_eq!(intent.routing(false, true), Some(RunIntent::Established));
+    }
 
     #[test]
     fn upgrade_result_replaces_pending_intent_without_a_missing_record() {
