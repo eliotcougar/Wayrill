@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 pub const MAX_HOSTS: usize = 128;
 
 /// A reference to service-owned Stash data, never a browser-supplied config.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TimezoneSelection {
     pub group_id: String,

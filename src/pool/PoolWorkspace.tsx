@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Folder, Layers, Plus, Send, Settings, Users, Waves } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Dialog from '../components/Dialog';
 import useFieldValidity from '../components/useFieldValidity';
 import { PoolSettingFields } from './PoolSettingFields';
@@ -96,6 +96,7 @@ export default function PoolWorkspace() {
   const [pools, setPools] = useState<Publisher[]>();
   const savedPools = useRef<Publisher[]>([]);
   const [inbox, setInbox] = useState<string[]>([]);
+  const inboxState = useRef<{ accepted?: Set<string>; read: number }>({ read: 0 });
   const [servers, setServers] = useState<ObservedServer[]>([]);
   const [accountError, setAccountError] = useState('');
   const [selected, setSelected] = useState('');
@@ -135,18 +136,34 @@ export default function PoolWorkspace() {
           : 'publish'
       : undefined;
 
+  const refreshInbox = useCallback(async () => {
+    const state = inboxState.current;
+    const accepted = state.accepted;
+    if (!accepted) return;
+    const read = ++state.read;
+    const pending = [...accepted];
+    const discarded = await Promise.allSettled(pending.map((id) => invoke('pool_discard', { id })));
+    const ids = await inboxIds();
+    if (read !== state.read) return;
+    setInbox(ids.filter((id) => !accepted.has(id)));
+    // Keep failed receipts and retry when the inbox next refreshes.
+    discarded.forEach((result, index) => {
+      if (result.status === 'fulfilled') accepted.delete(pending[index]);
+    });
+  }, []);
+
   useEffect(() => {
+    const state = inboxState.current;
     let active = true;
     const updateInbox = () =>
-      void inboxIds()
-        .then((ids) => {
-          if (active) setInbox(ids);
-        })
-        .catch((reason: unknown) => {
-          if (active) setFailure(errorText(reason));
-        });
+      void refreshInbox().catch((reason: unknown) => {
+        if (active) setFailure(errorText(reason));
+      });
     void readPublishers()
-      .then(async (items) => {
+      .then(async ({ pools: items, acceptedImports: accepted }) => {
+        if (!active) return;
+        state.accepted = new Set(accepted);
+        updateInbox();
         const recovered: Publisher[] = [];
         const errors: string[] = [];
         let changed = false;
@@ -168,7 +185,7 @@ export default function PoolWorkspace() {
         }
         if (!active) return;
         try {
-          if (changed) await writePublishers(recovered);
+          if (changed) await writePublishers(recovered, [...state.accepted]);
           if (active) {
             savedPools.current = recovered;
             setPools(recovered);
@@ -197,7 +214,6 @@ export default function PoolWorkspace() {
           if (active) setAccountError(errorText(reason));
         },
       );
-    updateInbox();
     updateAccounts();
     const subscription = listen('pool-inbox-changed', updateInbox);
     void subscription.catch((reason: unknown) => {
@@ -207,6 +223,8 @@ export default function PoolWorkspace() {
     window.addEventListener('focus', updateAccounts);
     return () => {
       active = false;
+      state.read++;
+      state.accepted = undefined;
       window.removeEventListener('focus', updateInbox);
       window.removeEventListener('focus', updateAccounts);
       void subscription.then(
@@ -214,7 +232,7 @@ export default function PoolWorkspace() {
         () => {},
       );
     };
-  }, []);
+  }, [refreshInbox]);
 
   async function run(action: () => Promise<void>) {
     if (operation.current) return;
@@ -232,22 +250,31 @@ export default function PoolWorkspace() {
     }
   }
 
-  async function store(updated: Publisher[]) {
-    await writePublishers(updated);
+  async function store(updated: Publisher[], acceptedImport?: string) {
+    const state = inboxState.current;
+    const pending = state.accepted;
+    if (!pending) throw new Error('Pool settings are still loading.');
+    await writePublishers(updated, acceptedImport ? [...pending, acceptedImport] : [...pending]);
+    if (acceptedImport) {
+      pending.add(acceptedImport);
+      state.read++;
+      setInbox((ids) => ids.filter((id) => id !== acceptedImport));
+    }
     savedPools.current = updated;
     setPools(updated);
   }
 
-  async function save(next: Publisher) {
+  async function save(next: Publisher, acceptedImport?: string) {
     const current = savedPools.current;
     const updated = current.some((item) => item.id === next.id)
       ? current.map((item) => (item.id === next.id ? next : item))
       : [...current, next];
-    await store(updated);
+    await store(updated, acceptedImport);
     setSelected(next.id);
   }
 
   async function review(id: string) {
+    if (inboxState.current.accepted?.has(id)) return;
     try {
       setModal({
         kind: 'import',
@@ -262,7 +289,7 @@ export default function PoolWorkspace() {
 
   async function removeImport(id: string) {
     await invoke('pool_discard', { id });
-    setInbox(await inboxIds());
+    await refreshInbox();
   }
 
   async function importLayer(
@@ -272,15 +299,13 @@ export default function PoolWorkspace() {
     replacement: string,
     fromFile?: boolean,
   ) {
-    if (!pool) return;
-    // Use the transfer identity for new layers so retrying after a failed inbox
-    // cleanup never creates a second layer.
+    if (!pool || (!fromFile && inboxState.current.accepted?.has(transferId))) return;
     const id = replacement || transferId;
-    await save(putLayer(pool, id, { ...data, name }));
+    await save(putLayer(pool, id, { ...data, name }), fromFile ? undefined : transferId);
     setModal(undefined);
-    if (!fromFile) await removeImport(transferId);
     setView('layers');
     setMessage(`${layerNames[data.kind]} layer saved.`);
+    if (!fromFile) await refreshInbox().catch(() => {});
   }
 
   async function recoverMember(target: Publisher, member: Member) {

@@ -31,7 +31,7 @@ pub struct Browser {
 pub struct Input {
     browser: Browser,
     #[serde(default)]
-    policy: Option<Policy>,
+    pub(crate) policy: Option<Policy>,
     #[serde(default)]
     expected_revision: Option<u64>,
 }
@@ -40,7 +40,8 @@ pub struct Input {
 pub struct Edit {
     id: String,
     expected_revision: u64,
-    policy: Policy,
+    pub(crate) policy: Policy,
+    pub(crate) probe_job: Option<u64>,
     #[serde(default)]
     startup: Option<bool>,
 }
@@ -447,6 +448,7 @@ mod tests {
                 thread::spawn(move || {
                     gate.wait();
                     manager.edit(Edit {
+                        probe_job: None,
                         id,
                         expected_revision: 1,
                         startup: None,
@@ -727,6 +729,7 @@ mod tests {
             .statuses
             .insert(id.clone(), json!({"phase":"applied","revision":1}));
         let edit = |revision| Edit {
+            probe_job: None,
             id: id.clone(),
             expected_revision: revision,
             policy: serde_json::from_value(json!({"mode":"off","zone":""})).unwrap(),

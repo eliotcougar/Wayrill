@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/session"
 	stdnet "net"
@@ -13,6 +14,35 @@ import (
 	"testing"
 	"time"
 )
+
+type failedPacketReader struct {
+	Tun
+	err error
+}
+
+func (r failedPacketReader) ReadPacket([]byte) ([]byte, error) {
+	return nil, r.err
+}
+
+func TestWayrillCaptureReportsReaderFailureOnlyWhileRunning(t *testing.T) {
+	readError := errors.New("Wintun session ended")
+	for _, closing := range []bool{false, true} {
+		var reported error
+		s := &stack{
+			tun:           failedPacketReader{err: readError},
+			onReadFailure: func(err error) { reported = err },
+		}
+		if closing {
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s.read()
+		if closing && reported != nil || !closing && reported != readError {
+			t.Fatalf("closing=%t: unexpected reported fault %v", closing, reported)
+		}
+	}
+}
 
 func wayrillProcessEmail(ctx context.Context, source, destination net.Destination) (string, error) {
 	return wayrillProcessIdentity(ctx, source, destination, nil)

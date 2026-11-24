@@ -23,8 +23,8 @@ use std::{
     time::{Duration, Instant},
 };
 use wayrill_protocol::{
-    listener_endpoints, normalize_config, params, ApiError, ListenerEndpoint, ListenerNetwork,
-    Result,
+    companion::Policy as TimezonePolicy, listener_endpoints, normalize_config, params, ApiError,
+    ListenerEndpoint, ListenerNetwork, Result,
 };
 struct ResourceReload {
     generation: u64,
@@ -703,6 +703,24 @@ impl Kernel {
             .unwrap_or(0)
             .max(self.empty_revision)
     }
+    fn save_timezone<T>(
+        &self,
+        policy: TimezonePolicy,
+        probe_job: Option<u64>,
+        save: impl FnOnce(TimezonePolicy) -> Result<T>,
+    ) -> Result<T> {
+        // The kernel already owns the applied revision. Also hold the Stash
+        // publication lock when the policy depends on a Stash selection.
+        let policy =
+            self.outbound_tests
+                .resolve_timezone_policy(policy, self.revision(), probe_job)?;
+        if let Some(version) = policy.selection.as_ref().map(|selection| selection.version) {
+            self.subscriptions
+                .with_stash_version(version, || save(policy))
+        } else {
+            save(policy)
+        }
+    }
     fn fake_dns_status(&self) -> Value {
         if self.core_state != CoreState::Running {
             return Value::Null;
@@ -957,16 +975,34 @@ impl Kernel {
                 let _: Empty = params(input)?;
                 self.browser_timezone.list()
             }
-            "browserTimezone.set" => self.browser_timezone.edit(params(input)?),
+            "browserTimezone.set" => {
+                let mut request: crate::browser_timezone::Edit = params(input)?;
+                self.save_timezone(
+                    std::mem::take(&mut request.policy),
+                    request.probe_job,
+                    |policy| {
+                        request.policy = policy;
+                        self.browser_timezone.edit(request)
+                    },
+                )
+            }
             "browserTimezone.refresh" => {
                 let _: Empty = params(input)?;
                 self.browser_timezone.refresh()
             }
             "browserTimezone.add" => self.browser_timezone.add(params(input)?),
             "browserTimezone.remove" => self.browser_timezone.remove(params(input)?),
-            "companion.timezoneGet" | "companion.timezoneSet" => self
-                .browser_timezone
-                .request(params(input)?, method == "companion.timezoneSet"),
+            "companion.timezoneGet" => self.browser_timezone.request(params(input)?, false),
+            "companion.timezoneSet" => {
+                let mut request: crate::browser_timezone::Input = params(input)?;
+                let policy = request.policy.take().ok_or_else(|| {
+                    ApiError::new("INVALID_REQUEST", "Missing browser timezone policy.")
+                })?;
+                self.save_timezone(policy, None, |policy| {
+                    request.policy = Some(policy);
+                    self.browser_timezone.request(request, true)
+                })
+            }
             "appProtection.get" => {
                 let _: Empty = params(input)?;
                 Ok(self.protection.snapshot())
@@ -1205,6 +1241,11 @@ impl Kernel {
                         active,
                     )?
                 };
+                self.outbound_tests.remember_timezone_probe(
+                    revision,
+                    request.selection,
+                    main.as_ref().map(|(_, _, name)| name.clone()),
+                );
                 result["revision"] = json!(revision);
                 if let Some((_, tag, name)) = main {
                     result["outbound"] = json!(tag);

@@ -1,7 +1,83 @@
-//! Prototype: measure the saved Main definition through an isolated, bound probe.
+//! Measure a saved outbound through an isolated, bound probe.
+use super::{Job, Manager};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
-use wayrill_protocol::{ApiError, Result};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
+use wayrill_protocol::{
+    companion::{Policy, TimezoneSelection},
+    ApiError, Result,
+};
+
+pub(super) struct Probe {
+    pub(super) job: Job,
+    revision: u64,
+    selection: Option<TimezoneSelection>,
+    name: Option<String>,
+    started: Instant,
+}
+
+impl Manager {
+    pub(crate) fn remember_timezone_probe(
+        &mut self,
+        revision: u64,
+        selection: Option<TimezoneSelection>,
+        name: Option<String>,
+    ) {
+        self.last_timezone = Some(Probe {
+            job: self.current.clone(),
+            revision,
+            selection,
+            name,
+            started: Instant::now(),
+        });
+    }
+
+    pub(crate) fn resolve_timezone_policy(
+        &self,
+        mut policy: Policy,
+        revision: u64,
+        job: Option<u64>,
+    ) -> Result<Policy> {
+        if !matches!(policy.mode.as_str(), "main" | "custom") {
+            return Ok(policy);
+        }
+        let stale = || {
+            ApiError::new(
+                "CONFIG_CHANGED",
+                "The outbound timezone lookup has changed or expired. Run the lookup again.",
+            )
+        };
+        let probe = self
+            .last_timezone
+            .as_ref()
+            .filter(|probe| {
+                probe.revision == revision
+                    && probe.selection == policy.selection
+                    && probe.selection.is_some() == (policy.mode == "custom")
+                    && probe.started.elapsed() < Duration::from_secs(180)
+            })
+            .ok_or_else(stale)?;
+        let state = probe.job.state.lock().unwrap();
+        if state.phase.busy() || job.is_some_and(|id| id != state.job) {
+            return Err(stale());
+        }
+        let Some(result) = state.results.first() else {
+            return Err(stale());
+        };
+        // Signed Companion clients return the probed IP instead of a job ID.
+        // Persist the service's result, including its zone rather than an alias
+        // canonicalized by a particular browser.
+        if result.ip.is_none() || policy.ip != result.ip {
+            return Err(stale());
+        }
+        policy.zone = result.timezone.clone().ok_or_else(stale)?;
+        policy.ip = result.ip.clone();
+        policy.name = result.name.clone().or_else(|| probe.name.clone());
+        Ok(policy)
+    }
+}
 
 pub(crate) fn input(config: &Value, source: Option<&str>) -> Result<(Value, String, String)> {
     let graph: Value = serde_json::from_str(source.ok_or_else(|| {
@@ -133,6 +209,48 @@ pub(crate) fn response(bytes: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timezone_policy_uses_the_completed_probe_only_for_its_configuration() {
+        let mut manager = Manager::new();
+        let mut result = super::super::failed("main".into(), "");
+        result.error = None;
+        result.ip = Some("192.0.2.1".into());
+        result.timezone = Some("Europe/Berlin".into());
+        {
+            let mut state = manager.current.state.lock().unwrap();
+            state.job = 42;
+            state.results.push(result);
+        }
+        manager.remember_timezone_probe(7, None, Some("Main".into()));
+        // An unrelated speed test may occupy the current job after the lookup.
+        manager.current = Job::default();
+        let policy = Policy {
+            mode: "main".into(),
+            zone: "UTC".into(),
+            ip: Some("192.0.2.1".into()),
+            ..Policy::default()
+        };
+        for job in [None, Some(42)] {
+            let resolved = manager
+                .resolve_timezone_policy(policy.clone(), 7, job)
+                .unwrap();
+            assert_eq!(resolved.zone, "Europe/Berlin");
+            assert_eq!(resolved.name.as_deref(), Some("Main"));
+        }
+        for (revision, job) in [(8, Some(42)), (7, Some(43))] {
+            assert!(matches!(
+                manager.resolve_timezone_policy(policy.clone(), revision, job),
+                Err(error) if error.code == "CONFIG_CHANGED"
+            ));
+        }
+        let mut different_ip = policy;
+        different_ip.ip = Some("192.0.2.2".into());
+        assert!(manager
+            .resolve_timezone_policy(different_ip, 7, None)
+            .is_err());
+    }
+
     #[test]
     fn main_probe_is_pinned_and_never_exposes_or_keeps_capture_or_api_listeners() {
         let config = json!({"api":{"tag":"admin"},"inbounds":[{"port":123}],"outbounds":[{"tag":"direct","protocol":"freedom"}],"routing":{"rules":[{"inboundTag":["admin"],"outboundTag":"admin"}],"balancers":[{"tag":"main","selector":["direct"]}]}});

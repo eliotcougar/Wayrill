@@ -138,7 +138,6 @@ it('saves an outbound timezone when the service probe takes longer than thirty s
         return finished
           ? { busy: false, results: [{ timezone: 'UTC', ip: '192.0.2.1' }] }
           : { busy: true, results: [] };
-      if (method === 'config.get') return { revision: 9 };
       return snapshot;
     });
     await act(async () => root.render(<TimezoneSettings onClose={() => {}} />));
@@ -153,20 +152,22 @@ it('saves an outbound timezone when the service probe takes longer than thirty s
     await act(() => vi.advanceTimersByTimeAsync(200));
     expect(serviceCall).toHaveBeenCalledWith(
       'browserTimezone.set',
-      expect.objectContaining({ policy: { mode: 'main', zone: 'UTC', ip: '192.0.2.1' } }),
+      expect.objectContaining({
+        probeJob: 7,
+        policy: { mode: 'main', zone: 'UTC', ip: '192.0.2.1' },
+      }),
     );
     expect(serviceCall).not.toHaveBeenCalledWith('outbounds.testCancel', { job: 7 });
   } finally {
     vi.useRealTimers();
   }
 });
-it('does not save a completed lookup when the dialog closes during revision validation', async () => {
-  let release!: (value: { revision: number }) => void;
+it('does not commit a timezone probe that completes after the dialog closes', async () => {
+  const result = { busy: false, results: [{ timezone: 'UTC', ip: '192.0.2.1' }] };
+  let release!: (value: typeof result) => void;
   vi.mocked(serviceCall).mockImplementation(async (method) => {
     if (method === 'timezone.probeStart') return { job: 7, revision: 9 };
     if (method === 'outbounds.testGet')
-      return { busy: false, results: [{ timezone: 'UTC', ip: '192.0.2.1' }] };
-    if (method === 'config.get')
       return new Promise((resolve) => {
         release = resolve;
       });
@@ -179,9 +180,9 @@ it('does not save a completed lookup when the dialog closes during revision vali
     field('Mode').dispatchEvent(new Event('change', { bubbles: true }));
   });
   await click('Save');
-  expect(serviceCall).toHaveBeenCalledWith('config.get');
+  expect(serviceCall).toHaveBeenCalledWith('outbounds.testGet', { job: 7 });
   await act(() => root.render(null));
-  await act(async () => release({ revision: 9 }));
+  await act(async () => release(result));
   expect(
     vi.mocked(serviceCall).mock.calls.some(([method]) => method === 'browserTimezone.set'),
   ).toBe(false);

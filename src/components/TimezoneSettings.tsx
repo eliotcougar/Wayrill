@@ -161,10 +161,11 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
   const save = async (): Promise<Snapshot> => {
     if (!editor) throw new Error('Select an application first.');
     let policy: Policy = { mode, zone: mode === 'off' ? '' : zone };
+    let probeJob: number | undefined;
     if (mode === 'main' || mode === 'custom') {
       const selected = mode === 'custom' ? selection : undefined;
       if (mode === 'custom' && !selected) throw new Error('Choose an outbound from Stash.');
-      const started = await serviceCall<{ job: number; revision: number; name?: string }>(
+      const started = await serviceCall<{ job: number; name?: string }>(
         'timezone.probeStart',
         selected ? { selection: selected } : {},
       );
@@ -182,15 +183,7 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
             const result = current.results[0];
             if (!result?.timezone || !result.ip)
               throw new Error(result?.error || 'Cannot determine the outbound’s exit timezone.');
-            const config = await serviceCall<{ revision: number }>('config.get');
-            const stash = selected
-              ? await serviceCall<{ version: number }>('subscriptions.status')
-              : undefined;
-            if (
-              config.revision !== started.revision ||
-              (selected && stash?.version !== selected.version)
-            )
-              throw new Error('Outbound settings changed during lookup. Try again.');
+            probeJob = started.job;
             policy = {
               mode,
               zone: result.timezone,
@@ -212,6 +205,7 @@ export default function TimezoneSettings({ onClose }: { onClose: () => void }) {
       id: editor.id,
       expectedRevision: editor.revision,
       policy,
+      ...(probeJob === undefined ? {} : { probeJob }),
       startup,
     });
   };

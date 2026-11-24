@@ -163,6 +163,7 @@ struct Status {
 }
 struct Upload {
     id: String,
+    job: u64,
     kind: String,
     expected: usize,
     text: String,
@@ -418,6 +419,20 @@ impl Manager {
             "groupId":selection.group_id,"entryIds":[selection.entry_id],"mode":"speed"}),
         )
     }
+    pub(crate) fn with_stash_version<T>(
+        &self,
+        expected: u64,
+        save: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let state = self.state.lock().unwrap();
+        if state.library.version != expected {
+            return Err(ApiError::new(
+                "CONFIG_CHANGED",
+                "Stash changed. Select the outbound again.",
+            ));
+        }
+        save()
+    }
     fn view(state: &State) -> Value {
         json!({"version":state.library.version,"initialized":state.library.stash.is_some(),"error":state.error,
             "busy":state.active.is_some(),"automatic":state.active.as_ref().is_some_and(|a|a.automatic),
@@ -508,14 +523,18 @@ impl Manager {
                     ));
                 }
                 let id = crate::tun::random_id()?;
+                let job = u64::from_str_radix(&id[..13], 16)
+                    .map_err(|_| invalid("Cannot create subscription job identity."))?
+                    .max(1);
                 state.upload = Some(Upload {
                     id: id.clone(),
+                    job,
                     kind: p.kind,
                     expected: p.bytes,
                     text: String::new(),
                     at: Instant::now(),
                 });
-                Ok(json!({"token":id,"chunkBytes":CHUNK}))
+                Ok(json!({"token":id,"job":job,"chunkBytes":CHUNK}))
             }
             "subscriptions.uploadChunk" => {
                 let p: Chunk = params(input)?;
@@ -593,9 +612,7 @@ impl Manager {
                     ));
                 }
                 let upload = state.upload.take().unwrap();
-                let id = u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
-                    .map_err(|_| invalid("Cannot create subscription job identity."))?
-                    .max(1);
+                let id = upload.job;
                 let automatic_only = upload.kind == "context";
                 state.queue.push_back(Work::Upload {
                     id,

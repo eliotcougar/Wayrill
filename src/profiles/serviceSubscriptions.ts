@@ -12,10 +12,27 @@ let base = '',
   version = -1;
 interface SaveCheckpoint {
   authored: string;
-  uncertain?: { base: string; document: string };
+  uncertain?: { base: string; document: string; receipt?: UploadReceipt };
 }
 let checkpoint: SaveCheckpoint | undefined,
   pendingSaves = 0;
+
+async function settleSave() {
+  const pending = checkpoint?.uncertain;
+  if (!pending?.receipt) return;
+  const { token, job } = pending.receipt;
+  // Commit and abort share the service's upload lock. Either the upload is
+  // retired here, or the job already exists and must settle before we read.
+  await serviceCall('subscriptions.uploadAbort', { token });
+  try {
+    await subscriptionJobResult(job);
+  } catch (error) {
+    if ((error as ServiceError).code !== 'SUBSCRIPTION_JOB_UNAVAILABLE') throw error;
+    // The transfer was aborted, the service restarted, or its receipt expired.
+    // The next document read can now settle the outcome without a live writer.
+  }
+  pending.receipt = undefined;
+}
 
 async function confirmSave(current: string | null) {
   if (!checkpoint?.uncertain) return;
@@ -112,11 +129,7 @@ export async function readSubscriptionProgress<T>(
   }
 }
 
-export async function waitSubscriptionJob(
-  job: number,
-  signal?: AbortSignal,
-  onRejected?: () => void,
-) {
+async function subscriptionJobResult(job: number, signal?: AbortSignal) {
   for (;;) {
     signal?.throwIfAborted();
     const result = await readSubscriptionProgress<{ busy: boolean; error: ServiceError | null }>(
@@ -124,27 +137,36 @@ export async function waitSubscriptionJob(
       { job },
       signal,
     );
-    if (!result.busy) {
-      if (result.error) {
-        onRejected?.();
-        throw Object.assign(new Error(result.error.message), result.error);
-      }
-      return;
-    }
+    if (!result.busy) return result.error;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
+
+export async function waitSubscriptionJob(
+  job: number,
+  signal?: AbortSignal,
+  onRejected?: () => void,
+) {
+  const error = await subscriptionJobResult(job, signal);
+  if (error) {
+    onRejected?.();
+    throw Object.assign(new Error(error.message), error);
+  }
+}
+
 type TransferKind = 'save' | 'context' | 'source' | 'outbound-tests';
+type UploadReceipt = { token: string; job: number };
 async function transferSubscriptionDocument(
   kind: TransferKind,
   payload: unknown,
   signal?: AbortSignal,
+  onSubmit?: (receipt: UploadReceipt) => void,
 ) {
   signal?.throwIfAborted();
   const bytes = new TextEncoder().encode(
     kind === 'source' ? String(payload) : JSON.stringify(payload),
   );
-  const started = await serviceCall<{ token: string; chunkBytes: number }>(
+  const started = await serviceCall<UploadReceipt & { chunkBytes: number }>(
     'subscriptions.uploadStart',
     { kind, bytes: bytes.length },
   );
@@ -159,6 +181,7 @@ async function transferSubscriptionDocument(
       offset = end;
     }
     signal?.throwIfAborted();
+    onSubmit?.(started);
     const result = await serviceCall<{
       job: number;
       sourceGraphToken?: string;
@@ -176,10 +199,15 @@ async function transferSubscriptionDocument(
 // Only byte transfers share the service's single upload slot. Waiting for a
 // library job must not block staging the graph for a command that will drain it.
 let transfers: Promise<unknown> = Promise.resolve();
-function transferDocument(kind: TransferKind, payload: unknown, signal?: AbortSignal) {
+function transferDocument(
+  kind: TransferKind,
+  payload: unknown,
+  signal?: AbortSignal,
+  onSubmit?: (receipt: UploadReceipt) => void,
+) {
   const transfer = transfers
     .catch(() => {})
-    .then(() => transferSubscriptionDocument(kind, payload, signal));
+    .then(() => transferSubscriptionDocument(kind, payload, signal, onSubmit));
   transfers = transfer;
   return transfer;
 }
@@ -196,7 +224,9 @@ export async function uploadSubscriptionDocument(
 }
 export function readServiceStash() {
   return enqueue(async () => {
+    await settleSave();
     const result = await readSubscriptionDocument('stash');
+    await confirmSave(result.text);
     base = result.text ?? '';
     version = result.version;
     if (!pendingSaves) checkpoint = undefined;
@@ -210,6 +240,7 @@ export function writeServiceStash(text: string, sourceBase = base) {
   pendingSaves++;
   return enqueue(async () => {
     if (checkpoint?.uncertain) {
+      await settleSave();
       const current = await readSubscriptionDocument('stash');
       await confirmSave(current.text);
     }
@@ -217,8 +248,18 @@ export function writeServiceStash(text: string, sourceBase = base) {
     if (text === expectedBase) return;
     // A lost response is not cancellation. Retain both possible outcomes until
     // the next successful read confirms which authored delta reached storage.
-    checkpoint = { authored: expectedBase, uncertain: { base: expectedBase, document: text } };
-    await uploadSubscriptionDocument('save', { base: expectedBase, document: text });
+    const { job } = await transferDocument(
+      'save',
+      { base: expectedBase, document: text },
+      undefined,
+      (receipt) => {
+        checkpoint = {
+          authored: expectedBase,
+          uncertain: { base: expectedBase, document: text, receipt },
+        };
+      },
+    );
+    await waitSubscriptionJob(job);
     checkpoint = { authored: text };
     const result = await readSubscriptionDocument('stash');
     if (!result.text) throw new Error('The service did not retain the subscription library.');
@@ -238,6 +279,7 @@ export function restoreServiceStash(
   onRejected: () => void,
 ) {
   return enqueue(async () => {
+    await settleSave();
     let current = await readSubscriptionDocument('stash');
     if (current.stashRestoreId !== id) {
       const { job } = await transferDocument('save', { base: sourceBase, document, restoreId: id });
@@ -255,6 +297,7 @@ export function restoreServiceStash(
 export function refreshServiceStash(expectedVersion?: number) {
   return enqueue(async () => {
     if (expectedVersion !== undefined && version === expectedVersion && !checkpoint) return;
+    await settleSave();
     const result = await readSubscriptionDocument('stash');
     if (result.text) {
       await confirmSave(result.text);
@@ -306,13 +349,14 @@ export async function stageOutboundTests(draft: unknown, signal: AbortSignal) {
 
 /** An explicit assignment, ordered after library saves, resolved by the service. */
 export async function replaceRunningOutbound(nodeId: string, link: StashLink) {
-  const { job } = await enqueue(() =>
-    serviceCall<{ job: number }>('subscriptions.replace', {
+  const { job } = await enqueue(async () => {
+    await settleSave();
+    return serviceCall<{ job: number }>('subscriptions.replace', {
       nodeId,
       groupId: link.groupId,
       entryId: link.entryId,
-    }),
-  );
+    });
+  });
   try {
     await waitSubscriptionJob(job);
     return true;

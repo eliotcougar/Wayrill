@@ -27,6 +27,13 @@ func wayrillReuseAdapterSettings() bool {
 	return os.Getenv("WAYRILL_TUN_REUSE_SETTINGS") == "1"
 }
 
+// A dedicated capture process owns this reader. Signal its supervisor through
+// the same exit path it uses to recover a failed worker.
+func wayrillEndCapture(err error) {
+	fmt.Fprintln(os.Stderr, "TUN packet reader failed:", err)
+	os.Exit(74)
+}
+
 type wayrillQuery struct {
 	Auth                    string `json:"auth"`
 	Network                 string `json:"network"`

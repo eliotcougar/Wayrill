@@ -137,25 +137,29 @@ function isPublisher(value: unknown): value is Publisher {
   );
 }
 
-export async function readPublishers(): Promise<Publisher[]> {
+export async function readPublishers(): Promise<{ pools: Publisher[]; acceptedImports: string[] }> {
   const data = await invoke<string | null>('pool_read');
-  if (!data) return [];
+  if (!data) return { pools: [], acceptedImports: [] };
   const value = parseJson(data);
   if (
     !jsonRecord(value) ||
     value.version !== 1 ||
     !jsonArray(value.pools) ||
-    !value.pools.every(isPublisher)
+    !value.pools.every(isPublisher) ||
+    (value.acceptedImports !== undefined &&
+      (!jsonArray(value.acceptedImports) || !value.acceptedImports.every(text)))
   )
     throw new Error('The protected Pool settings could not be read.');
   for (const pool of value.pools) {
     for (const { bundle } of pool.configurations) parsePoolBundle(bundle);
     for (const member of pool.members) parsePoolSettings(member.settings);
   }
-  return value.pools;
+  return { pools: value.pools, acceptedImports: value.acceptedImports ?? [] };
 }
-export function writePublishers(pools: Publisher[]) {
-  return invoke<void>('pool_write', { text: JSON.stringify({ version: 1, pools }) });
+export function writePublishers(pools: Publisher[], acceptedImports: string[]) {
+  return invoke<void>('pool_write', {
+    text: JSON.stringify({ version: 1, pools, acceptedImports }),
+  });
 }
 
 const hex = (size: number) =>

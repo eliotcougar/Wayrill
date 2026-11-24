@@ -173,16 +173,17 @@ var proof string
     $taskHook=$taskHook.Replace('\t',"`t")
     [IO.File]::WriteAllText($taskHandler,$taskText.Replace($taskAnchor,$taskHook+"`n"+$taskAnchor))
     Get-ChildItem (Join-Path $taskProject 'service\tun-core') -Filter '*.go' | Copy-Item -Destination (Join-Path $taskSource 'proxy\tun') -Force
-    # ICMP passthrough shares the new lightweight stack's owned lifetime.
+    # Native ICMP and fatal read errors belong only to real TUN handlers.
     $taskStack=Join-Path $taskSource 'proxy\tun\stack.go'
     $taskStackText=[IO.File]::ReadAllText($taskStack)
     foreach($taskReplacement in @(
-        @("`tctx context.Context", "`tctx context.Context`n`ticmp *wayrillICMP"),
+        @("`tctx context.Context", "`tctx context.Context`n`ticmp *wayrillICMP`n`tonReadFailure func(error)"),
         @("`treturn s, nil`n}`n`n// Start is called", "`tif owner, ok := handler.(*Handler); ok {`n`t`ts.icmp = newWayrillICMP(ctx, owner)`n`t}`n`treturn s, nil`n}`n`n// Start is called"),
         @("func (s *stack) Close() error {", "func (s *stack) Close() error {`n`tif s.icmp != nil {`n`t`ts.icmp.close()`n`t}"),
+        @("`tif !closed {`n`t`terrors.LogErrorInner(s.ctx, err, ", "`tif !closed {`n`t`tif s.onReadFailure != nil {`n`t`t`ts.onReadFailure(err)`n`t`t`treturn`n`t`t}`n`t`terrors.LogErrorInner(s.ctx, err, "),
         @("`t// what was put together may be of two packets", "`tif s.icmp != nil && s.wayrillEcho(b, p) {`n`t`treturn`n`t}`n`t// what was put together may be of two packets")
     )) {
-        if([regex]::Matches($taskStackText,[regex]::Escape($taskReplacement[0])).Count -ne 1){throw 'Pinned lightweight TUN ICMP hook has moved.'}
+        if([regex]::Matches($taskStackText,[regex]::Escape($taskReplacement[0])).Count -ne 1){throw 'Pinned lightweight TUN stack hook has moved.'}
         $taskStackText=$taskStackText.Replace($taskReplacement[0],$taskReplacement[1])
     }
     [IO.File]::WriteAllText($taskStack,$taskStackText)
@@ -191,6 +192,7 @@ var proof string
     $taskWindowsTun=Join-Path $taskSource 'proxy\tun\tun_windows.go'
     $taskWindowsText=[IO.File]::ReadAllText($taskWindowsTun)
     foreach($taskReplacement in @(
+        @('_, _ = windows.WaitForSingleObject(t.readWait, windows.INFINITE)', "if _, err := windows.WaitForSingleObject(t.readWait, windows.INFINITE); err != nil {`n`t`t`treturn nil, err`n`t`t}"),
         @("retryTimes++`n`tfor _, family := range []winipcfg.AddressFamily{windows.AF_INET, windows.AF_INET6} {", "retryTimes++`n`tfor _, family := range []winipcfg.AddressFamily{windows.AF_INET, windows.AF_INET6} {`n`t`tif wayrillReuseAdapterSettings() {`n`t`t`tcontinue`n`t`t}"),
         @("if address4 || address6 {`n`t`tif err := disableDNSRegistration", "if !wayrillReuseAdapterSettings() && (address4 || address6) {`n`t`tif err := disableDNSRegistration"),
         @("if len(dns) > 0 || route4 || route6 {`n`t`tif err := flushDNSCache", "if !wayrillReuseAdapterSettings() && (len(dns) > 0 || route4 || route6) {`n`t`tif err := flushDNSCache")
@@ -210,6 +212,10 @@ var proof string
     } finally {
         $env:GIT_CEILING_DIRECTORIES = $taskOldGitCeiling
     }
+    $taskStackText=[IO.File]::ReadAllText($taskStack)
+    $taskAnchor='s.icmp = newWayrillICMP(ctx, owner)'
+    if([regex]::Matches($taskStackText,[regex]::Escape($taskAnchor)).Count -ne 1){throw 'Pinned TUN read failure hook has moved.'}
+    [IO.File]::WriteAllText($taskStack,$taskStackText.Replace($taskAnchor,"$taskAnchor`n`t`ts.onReadFailure = wayrillEndCapture"))
     Get-ChildItem (Join-Path $taskProject 'service\core-control') -Filter '*.go' | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $taskSource ('main\wayrill_control_'+$_.Name)) -Force }
     Push-Location $taskSource
     try {

@@ -67,6 +67,15 @@ binary patch. The bounded log supplies observations rather than per-tab attribut
 | X16 | DNS resolver attempt counters | Shared | Uses the existing stats manager and metrics handler. The query counter is a private hook. |
 | X17 | XUDP resumption boundaries and large Direct UDP replies | Shared | Source-pinned fixes for the XUDP server and Freedom packet reader |
 | X18 | Direct IPv6 route availability on Windows | Shared | Checks the native route at Direct egress and resumes after route recovery |
+| X19 | Recovery after a Windows TUN read failure | Worker | Connects unexpected reader termination to Wayrill's existing worker supervision |
+
+### X19 — TUN reader recovery
+
+The private build hooks the read loop in `proxy/tun/stack.go` for real TUN
+inbounds. When Wintun can no longer supply packets, the worker logs the
+native error and exits so the service or ICS keeper can start guarded
+recovery. Normal stack shutdown and outbound-only stack users retain their
+existing behavior. The build also propagates a failed Windows read wait.
 
 ### X18 — Direct IPv6 route availability on Windows
 

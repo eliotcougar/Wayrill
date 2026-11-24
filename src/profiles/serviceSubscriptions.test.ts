@@ -35,7 +35,7 @@ it('coalesces pending context without holding saves or route assignments behind 
   mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
     if (method === 'subscriptions.uploadStart') {
       upload = '';
-      return { token: String(p.kind), chunkBytes: 512 };
+      return { token: String(p.kind), job: job + 1, chunkBytes: 512 };
     }
     if (method === 'subscriptions.uploadChunk') {
       upload += String(p.text);
@@ -91,7 +91,7 @@ it('orders identity-only replacement after the saved library without staging a r
     finish = resolve;
   });
   mock.call.mockImplementation(async (method: string) => {
-    if (method === 'subscriptions.uploadStart') return { token: 'save', chunkBytes: 512 };
+    if (method === 'subscriptions.uploadStart') return { token: 'save', job: 1, chunkBytes: 512 };
     if (method === 'subscriptions.uploadChunk') return {};
     if (method === 'subscriptions.uploadCommit') return { job: 1 };
     if (method === 'subscriptions.job') {
@@ -178,9 +178,11 @@ function libraryServer(initialized = true) {
   };
   let remote: string | null = initialized ? serializeStash(original) : null,
     version = 1,
+    job = 0,
     upload = '',
     stashRestoreId: string | undefined,
-    failCommit: 'before' | 'after' | undefined;
+    failCommit: 'before' | 'after' | 'queued' | undefined,
+    queued: (() => void) | undefined;
   mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
     if (method === 'subscriptions.read')
       return {
@@ -193,7 +195,7 @@ function libraryServer(initialized = true) {
       };
     if (method === 'subscriptions.uploadStart') {
       upload = '';
-      return { token: 'save', chunkBytes: 512 * 1024 };
+      return { token: 'save', job: ++job, chunkBytes: 512 * 1024 };
     }
     if (method === 'subscriptions.uploadChunk') {
       upload += String(p.text);
@@ -205,26 +207,39 @@ function libraryServer(initialized = true) {
         throw new Error('Disconnected before commit');
       }
       const save = JSON.parse(upload) as { base: string; document: string; restoreId?: string };
-      remote =
-        remote === null
-          ? serializeStash(parseStash(save.document))
-          : mergeStashDocuments(save.base, save.document, remote);
-      stashRestoreId = save.restoreId ?? stashRestoreId;
-      version++;
+      const apply = () => {
+        remote =
+          remote === null
+            ? serializeStash(parseStash(save.document))
+            : mergeStashDocuments(save.base, save.document, remote);
+        stashRestoreId = save.restoreId ?? stashRestoreId;
+        version++;
+      };
+      if (failCommit === 'queued') {
+        failCommit = undefined;
+        queued = apply;
+        throw new Error('Reply lost after queueing');
+      }
+      apply();
       if (failCommit === 'after') {
         failCommit = undefined;
         throw new Error('Reply lost after commit');
       }
-      return { job: version };
+      return { job };
     }
-    if (method === 'subscriptions.job') return { busy: false, error: null };
+    if (method === 'subscriptions.uploadAbort') return {};
+    if (method === 'subscriptions.job') return { busy: !!queued, error: null };
     throw new Error(`Unexpected ${method}`);
   });
   return {
     original,
     get: () => parseStash(remote!),
-    failNextSave: (when: 'before' | 'after' = 'before') => {
+    failNextSave: (when: 'before' | 'after' | 'queued' = 'before') => {
       failCommit = when;
+    },
+    finishQueuedSave() {
+      queued?.();
+      queued = undefined;
     },
     replace(value: Stash) {
       remote = serializeStash(value);
@@ -402,18 +417,22 @@ it('keeps remote additions through consecutive local saves authored before their
   expect(group.entries[1].id).toBe('new-server');
 });
 
-it('confirms a lost commit reply before applying a queued deliberate reversion', async () => {
+it('waits for a save with a lost reply before applying a deliberate reversion', async () => {
   const server = libraryServer();
   const { readServiceStash, writeServiceStash } = await import('./serviceSubscriptions');
   const base = (await readServiceStash())!;
   const changed = structuredClone(server.original);
   changed.groups[0].name = 'Temporary';
-  server.failNextSave('after');
+  server.failNextSave('queued');
   const first = writeServiceStash(serializeStash(changed), base);
+  await expect(first).rejects.toThrow('Reply lost after queueing');
   const reverted = writeServiceStash(base, base);
-  const outcomes = await Promise.allSettled([first, reverted]);
-  expect(outcomes[0]).toMatchObject({ status: 'rejected', reason: expect.any(Error) });
-  expect(outcomes[1].status).toBe('fulfilled');
+  try {
+    await vi.waitFor(() => expect(mock.call).toHaveBeenCalledWith('subscriptions.job', { job: 1 }));
+  } finally {
+    server.finishQueuedSave();
+  }
+  await reverted;
   expect(server.get().groups[0].name).toBe(server.original.groups[0].name);
 });
 

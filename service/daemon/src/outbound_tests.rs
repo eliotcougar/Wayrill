@@ -256,6 +256,7 @@ impl Job {
 pub struct Manager {
     current: Job,
     last_planned: Option<Job>,
+    last_timezone: Option<timezone::Probe>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Manager {
@@ -263,6 +264,7 @@ impl Manager {
         Self {
             current: Job::default(),
             last_planned: None,
+            last_timezone: None,
             worker: None,
         }
     }
@@ -645,10 +647,14 @@ impl Manager {
                     None => None,
                 }
             }
-            (None, id) if id != 0 => ([Some(&self.current), self.last_planned.as_ref()])
-                .into_iter()
-                .flatten()
-                .find(|job| job.state.lock().unwrap().job == id),
+            (None, id) if id != 0 => ([
+                Some(&self.current),
+                self.last_planned.as_ref(),
+                self.last_timezone.as_ref().map(|probe| &probe.job),
+            ])
+            .into_iter()
+            .flatten()
+            .find(|job| job.state.lock().unwrap().job == id),
             _ => return Err(invalid("Specify one outbound test job or draft token.")),
         };
         let job = job.ok_or_else(|| {
