@@ -18,6 +18,12 @@ enum Desired {
     Stopped,
     Running(RunIntent),
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BootObservation {
+    Observed,
+    PendingDecision,
+    PendingAcknowledgement,
+}
 enum State {
     Stopped,
     Healthy(Instant),
@@ -44,6 +50,7 @@ impl SavedIntent {
 pub struct Supervisor {
     desired: Desired,
     state: State,
+    boot: BootObservation,
     attempts: u32,
     owner: String,
     intent: Option<PathBuf>,
@@ -84,6 +91,7 @@ impl Supervisor {
         Ok(Self {
             desired,
             state,
+            boot: BootObservation::Observed,
             attempts: 0,
             owner: owner.into(),
             intent: Some(path),
@@ -102,7 +110,7 @@ impl Supervisor {
             },
         )
     }
-    pub fn resolve_intent(&mut self, now: Instant) -> Result<()> {
+    fn resolve_intent(&mut self, now: Instant) -> Result<()> {
         if self.desired != Desired::Unknown {
             return Ok(());
         }
@@ -183,9 +191,51 @@ impl Supervisor {
     pub fn boot_pending(&self) -> bool {
         self.desired == Desired::Running(RunIntent::BootPending)
     }
-    pub fn arm_boot(&mut self) -> Result<()> {
+    fn arm_boot(&mut self) -> Result<()> {
         if self.desired == Desired::Stopped {
             self.request(RunIntent::BootPending)?;
+        }
+        Ok(())
+    }
+    pub fn begin_boot(&mut self) {
+        self.boot = BootObservation::PendingDecision;
+    }
+    pub fn cancel_boot(&mut self) {
+        if self.boot == BootObservation::PendingDecision {
+            self.boot = BootObservation::PendingAcknowledgement;
+        }
+    }
+    pub fn reconcile_intent(&mut self, now: Instant, boot_enabled: bool) -> Result<()> {
+        self.reconcile_intent_with(now, boot_enabled, acknowledge_boot)
+    }
+    fn reconcile_intent_with(
+        &mut self,
+        now: Instant,
+        boot_enabled: bool,
+        acknowledge: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        self.resolve_intent(now)?;
+        let result: Result<()> = (|| {
+            if self.boot == BootObservation::PendingDecision {
+                if boot_enabled {
+                    self.arm_boot()?;
+                }
+                self.boot = BootObservation::PendingAcknowledgement;
+            }
+            self.acknowledge_boot_with(acknowledge)
+        })();
+        if let Err(error) = &result {
+            self.state = State::Waiting {
+                at: self.retry_at(now),
+                error: error.clone(),
+            };
+        }
+        result
+    }
+    fn acknowledge_boot_with(&mut self, acknowledge: impl FnOnce() -> Result<()>) -> Result<()> {
+        if self.boot == BootObservation::PendingAcknowledgement {
+            acknowledge()?;
+            self.boot = BootObservation::Observed;
         }
         Ok(())
     }
@@ -201,6 +251,7 @@ impl Supervisor {
         Ok(())
     }
     pub fn stop(&mut self) -> Result<()> {
+        self.cancel_boot();
         self.desired = Desired::Stopped;
         self.state = State::Stopped;
         self.attempts = 0;
@@ -212,7 +263,8 @@ impl Supervisor {
     }
     /// Cleanup can succeed even if the first durable cancellation failed. Retry
     /// the cancellation with retirement, without resetting its backoff.
-    pub fn persist_stop(&self) -> Result<()> {
+    pub fn persist_stop(&mut self) -> Result<()> {
+        self.acknowledge_boot_with(acknowledge_boot)?;
         self.persist(Desired::Stopped)
     }
     pub fn healthy(&mut self, now: Instant) -> Result<()> {
@@ -285,6 +337,10 @@ impl Supervisor {
         json!({"desiredState":match self.desired { Desired::Running(_)=>"running",Desired::Stopped=>"stopped",Desired::Unknown=>"unknown" },"bootPending":self.boot_pending(),"state":state,"attempts":self.attempts,"nextAttemptMs":next,"lastError":error})
     }
 }
+fn acknowledge_boot() -> Result<()> {
+    crate::startup::session::Session::open()?.acknowledge()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +348,7 @@ mod tests {
         Supervisor {
             desired: Desired::Stopped,
             state: State::Stopped,
+            boot: BootObservation::Observed,
             attempts: 0,
             owner: "test".into(),
             intent: None,
@@ -476,6 +533,50 @@ mod tests {
             invalid.wants_running(),
             "Restored trusted metadata must resume without operator input"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_new_boot_is_acknowledged_only_after_trusted_intent_and_a_durable_decision() {
+        let dir = std::env::temp_dir().join(format!(
+            "wayrill-boot-read-{}",
+            crate::tun::random_id().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("intent.json");
+        std::fs::write(&path, b"invalid JSON").unwrap();
+        let mut recovery = Supervisor::new("owner", path.clone()).unwrap();
+        recovery.begin_boot();
+        let now = Instant::now();
+        assert!(recovery
+            .reconcile_intent_with(now, true, || panic!("must keep the boot pending"))
+            .is_err());
+        storage::write(
+            &path,
+            &SavedIntent {
+                owner_sid: "owner".into(),
+                running: false,
+                boot_pending: false,
+            },
+        )
+        .unwrap();
+        let failed = recovery.reconcile_intent_with(now, true, || {
+            assert!(
+                storage::read::<SavedIntent>(&path)
+                    .unwrap()
+                    .unwrap()
+                    .boot_pending
+            );
+            Err(ApiError::new("IO", "registry temporarily unavailable"))
+        });
+        assert!(failed.is_err());
+        assert!(recovery.boot_pending());
+        recovery
+            .reconcile_intent_with(now, true, || Ok(()))
+            .unwrap();
+        recovery
+            .reconcile_intent_with(now, true, || panic!("must observe a boot once"))
+            .unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 

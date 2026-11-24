@@ -66,6 +66,7 @@ function Harness({
     run: serviceRun,
     cancel: vi.fn(),
     cancelAutomatic: vi.fn(),
+    cancellableGroup: undefined,
     clearStatus: vi.fn(),
     available: true,
     foregroundBusy: false,

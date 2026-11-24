@@ -35,20 +35,29 @@ it('waits for the saved workspace and resends its schedule after a lost reply or
   const graph = createTrafficExample();
   graph.defaults = { ...factoryDefaults(), resources: factoryResources() };
   graph.defaults.resources!.reloadAfterAutoUpdates = false;
-  vi.mocked(serviceCall)
+  let instanceId = 'first';
+  let revision = 0;
+  const configure = vi
+    .fn()
     .mockRejectedValueOnce({ code: 'TIMEOUT', message: 'Reply lost' })
     .mockResolvedValue({});
+  vi.mocked(serviceCall).mockImplementation(async (method, params) =>
+    method === 'resources.scheduleVersion'
+      ? { instanceId, revision: ++revision }
+      : configure(params),
+  );
   await act(() => root.render(<Fixture graph={null} />));
   expect(serviceCall).not.toHaveBeenCalled();
 
   await act(() => root.render(<Fixture graph={graph} />));
   await act(() => vi.advanceTimersByTimeAsync(250));
-  await act(() => root.render(<Fixture graph={graph} instanceId="replacement" />));
-  expect(serviceCall).toHaveBeenCalledTimes(3);
-  for (const [method, schedule] of vi.mocked(serviceCall).mock.calls) {
-    expect(method).toBe('resources.configure');
-    expect(schedule).toMatchObject({ reloadAfterAutoUpdates: false });
-  }
+  instanceId = 'replacement';
+  await act(() => root.render(<Fixture graph={graph} instanceId={instanceId} />));
+  expect(configure.mock.calls.map(([params]) => params.base)).toEqual([
+    { instanceId: 'first', revision: 1 },
+    { instanceId: 'first', revision: 2 },
+    { instanceId: 'replacement', revision: 3 },
+  ]);
 });
 afterEach(async () => {
   await act(() => root.unmount());
@@ -57,16 +66,21 @@ afterEach(async () => {
 it('retries busy configuration and cancellation releases the queue for the next graph', async () => {
   const graph = createTrafficExample();
   graph.defaults = { ...factoryDefaults(), resources: factoryResources() };
-  vi.mocked(serviceCall).mockRejectedValueOnce({ code: 'BUSY' }).mockResolvedValue({});
+  const configure = vi.fn().mockRejectedValueOnce({ code: 'BUSY' }).mockResolvedValue({});
+  vi.mocked(serviceCall).mockImplementation(async (method, params) =>
+    method === 'resources.scheduleVersion'
+      ? { instanceId: 'first', revision: 0 }
+      : configure(params),
+  );
   await act(() => root.render(<Fixture graph={graph} />));
-  expect(serviceCall).toHaveBeenCalledTimes(1);
+  expect(configure).toHaveBeenCalledTimes(1);
   const next = structuredClone(graph);
   next.defaults!.resources!.reloadAfterAutoUpdates = false;
   await act(() => root.render(<Fixture graph={next} />));
-  expect(serviceCall).toHaveBeenCalledTimes(2);
-  expect(vi.mocked(serviceCall).mock.lastCall?.[1]).toMatchObject({
-    reloadAfterAutoUpdates: false,
+  expect(configure).toHaveBeenCalledTimes(2);
+  expect(configure.mock.lastCall?.[0]).toMatchObject({
+    schedule: { reloadAfterAutoUpdates: false },
   });
   await act(() => vi.advanceTimersByTime(10000));
-  expect(serviceCall).toHaveBeenCalledTimes(2);
+  expect(configure).toHaveBeenCalledTimes(2);
 });

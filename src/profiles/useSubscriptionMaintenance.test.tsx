@@ -11,17 +11,20 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   context: vi.fn(),
   wait: vi.fn(),
+  progress: vi.fn(),
 }));
 vi.mock('../serviceClient', () => ({
   desktopServiceAvailable: () => true,
   serviceCall: mocks.call,
   errorText: (e: Error) => e.message,
+  mutationOutcomeUnknown: (e: { code: string }) => e.code === 'TIMEOUT',
 }));
 vi.mock('../protectedStorage', () => ({ protectedWrite: mocks.write }));
 vi.mock('./serviceSubscriptions', () => ({
   refreshServiceStash: mocks.refresh,
   sendSubscriptionContext: mocks.context,
   waitSubscriptionJob: mocks.wait,
+  readSubscriptionProgress: mocks.progress,
 }));
 let root: Root, latest: ReturnType<typeof useSubscriptionMaintenance>, stash: Stash;
 const graph = { name: 'Subscriptions', nodes: [], edges: [] };
@@ -66,7 +69,7 @@ beforeEach(() => {
   mocks.call.mockImplementation(async (method: string) =>
     method === 'subscriptions.status'
       ? { version: 3, statuses: {}, error: null }
-      : method === 'subscriptions.run'
+      : method === 'subscriptions.prepareRun'
         ? { job: 42 }
         : {},
   );
@@ -86,6 +89,7 @@ it('flushes edited settings before requesting a service refresh and reloads its 
   await act(async () => latest.run(stash.groups[0].id, 'refresh'));
   expect(mocks.write).toHaveBeenCalledWith('stash', expect.any(String), store.getBase());
   expect(mocks.call).toHaveBeenCalledWith('subscriptions.run', {
+    job: 42,
     groupId: stash.groups[0].id,
     operation: 'refresh',
   });
@@ -118,29 +122,42 @@ it('queues overlapping edits and releases the next one after a failed edit', asy
   expect(secondAction).toHaveBeenCalledOnce();
   expect(latest.foregroundBusy).toBe(false);
 });
-it('cancels a job when cancellation arrives during submission, but not when its view closes', async () => {
+it('cancels the exact job when a start reply is lost and lets it finish when the view closes', async () => {
   await act(async () => root.render(<Harness />));
   for (const viewClosed of [false, true]) {
-    let submitted!: (value: { job: number }) => void;
-    mocks.call.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          submitted = resolve;
-        }),
-    );
-    const signal = new AbortController();
-    const running = latest.run(stash.groups[0].id, 'refresh', undefined, signal.signal);
-    const cancelled = expect(running).rejects.toBeDefined();
-    await Promise.resolve();
-    signal.abort(new DOMException('Closed', viewClosed ? 'ViewClosed' : 'AbortError'));
-    submitted({ job: 42 });
-    mocks.wait.mockImplementationOnce(async () => {
-      signal.signal.throwIfAborted();
+    let finish!: () => void;
+    let loseReply!: (error: unknown) => void;
+    let started!: () => void;
+    const starting = new Promise<void>((resolve) => {
+      started = resolve;
     });
-    await cancelled;
-    expect(mocks.call.mock.calls.some(([method]) => method === 'subscriptions.cancel')).toBe(
-      !viewClosed,
-    );
-    mocks.call.mockClear();
+    mocks.call.mockImplementation(async (method: string) => {
+      if (method === 'subscriptions.prepareRun') return { job: 42 };
+      if (method === 'subscriptions.status') return { version: 3, statuses: {}, error: null };
+      return new Promise<void>((resolve, reject) => {
+        finish = resolve;
+        loseReply = reject;
+        started();
+      });
+    });
+    const signal = new AbortController();
+    const cancelled = Object.assign(new Error('Subscription cancelled'), { code: 'CANCELLED' });
+    if (!viewClosed) mocks.wait.mockRejectedValueOnce(cancelled);
+    const running = latest.run(stash.groups[0].id, 'refresh', undefined, signal.signal);
+    const result = viewClosed
+      ? expect(running).resolves.toBeUndefined()
+      : expect(running).rejects.toBe(cancelled);
+    await starting;
+    signal.abort(new DOMException('Closed', viewClosed ? 'ViewClosed' : 'AbortError'));
+    if (viewClosed) {
+      expect(mocks.progress).not.toHaveBeenCalled();
+      finish();
+    } else {
+      expect(mocks.progress).toHaveBeenCalledExactlyOnceWith('subscriptions.cancel', { job: 42 });
+      loseReply({ code: 'TIMEOUT' });
+    }
+    await result;
+    expect(mocks.wait).toHaveBeenLastCalledWith(42, undefined);
+    mocks.progress.mockClear();
   }
 });

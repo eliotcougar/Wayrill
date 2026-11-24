@@ -239,6 +239,7 @@ struct State {
     error: Option<ApiError>,
     statuses: BTreeMap<String, Status>,
     upload: Option<Upload>,
+    prepared_runs: BTreeMap<u64, Instant>,
     queue: VecDeque<Work>,
     active: Option<Active>,
     completed: VecDeque<Completed>,
@@ -290,16 +291,18 @@ struct Job {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Run {
+    job: Option<u64>,
     group_id: String,
     operation: String,
     entry_ids: Option<Vec<String>>,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Cancel {
-    group_id: Option<String>,
-    #[serde(default)]
-    automatic_only: bool,
+
+const RUN_PREPARATION_LIFETIME: Duration = Duration::from_secs(120);
+
+fn run_id() -> Result<u64> {
+    u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
+        .map(|id| id.max(1))
+        .map_err(|_| invalid("Cannot create subscription job identity."))
 }
 
 impl Manager {
@@ -328,6 +331,7 @@ impl Manager {
                 error,
                 statuses: BTreeMap::new(),
                 upload: None,
+                prepared_runs: BTreeMap::new(),
                 queue: VecDeque::new(),
                 active: None,
                 completed: VecDeque::new(),
@@ -434,9 +438,16 @@ impl Manager {
         save()
     }
     fn view(state: &State) -> Value {
+        let run = state.active.as_ref().and_then(|active| {
+            let group = active.group.as_ref()?;
+            (active.job != 0).then(|| {
+                json!({"job":active.job,"groupId":group,"automatic":active.automatic,
+                    "cancelling":active.cancelled_by_user})
+            })
+        });
         json!({"version":state.library.version,"initialized":state.library.stash.is_some(),"error":state.error,
             "busy":state.active.is_some(),"automatic":state.active.as_ref().is_some_and(|a|a.automatic),
-            "statuses":state.statuses,"appliedRevision":state.library.applied.as_ref().map(|a|a.revision),
+            "activeRun":run,"statuses":state.statuses,"appliedRevision":state.library.applied.as_ref().map(|a|a.revision),
             "appliedSourceHash":state.library.applied.as_ref().map(|a|&a.source_hash)})
     }
     fn notify(&self, state: &State, kind: &str) {
@@ -752,8 +763,47 @@ impl Manager {
                 interrupt_maintenance(&state, false);
                 Ok(json!({"job":id}))
             }
+            "subscriptions.prepareRun" => {
+                let _: crate::kernel::Empty = params(input)?;
+                state
+                    .prepared_runs
+                    .retain(|_, at| at.elapsed() < RUN_PREPARATION_LIFETIME);
+                if state.prepared_runs.len() >= 8 {
+                    return Err(ApiError::new(
+                        "BUSY",
+                        "Too many subscription runs are pending.",
+                    ));
+                }
+                let job = run_id()?;
+                state.prepared_runs.insert(job, Instant::now());
+                Ok(json!({"job":job}))
+            }
             "subscriptions.run" => {
                 let p: Run = params(input)?;
+                let id = match p.job {
+                    Some(id) => {
+                        if let Some(done) = state.completed.iter().find(|done| done.job == id) {
+                            if let Some(error) = &done.error {
+                                return Err(error.clone());
+                            }
+                            return Ok(json!({"job":id}));
+                        }
+                        if state.active.as_ref().is_some_and(|a| a.job == id)
+                            || state.queue.iter().any(|work| work.id() == id)
+                        {
+                            return Ok(json!({"job":id}));
+                        }
+                        if !state
+                            .prepared_runs
+                            .remove(&id)
+                            .is_some_and(|at| at.elapsed() < RUN_PREPARATION_LIFETIME)
+                        {
+                            return Err(run_not_submitted());
+                        }
+                        id
+                    }
+                    None => run_id()?,
+                };
                 if !["refresh", "test"].contains(&p.operation.as_str())
                     || p.group_id.len() > 128
                     || p.entry_ids.as_ref().is_some_and(|e| e.len() > 50000)
@@ -763,9 +813,6 @@ impl Manager {
                 if state.queue.len() >= 4 {
                     return Err(ApiError::new("BUSY", "Subscription work queue is full."));
                 }
-                let id = u64::from_str_radix(&crate::tun::random_id()?[..13], 16)
-                    .map_err(|_| invalid("Cannot create subscription job identity."))?
-                    .max(1);
                 state.queue.push_back(Work::Run {
                     id,
                     group: p.group_id,
@@ -785,43 +832,33 @@ impl Manager {
                 {
                     return Ok(json!({"busy":true,"error":null}));
                 }
+                if state.prepared_runs.remove(&p.job).is_some() {
+                    let error = run_not_submitted();
+                    Self::complete_locked(&mut state, p.job, Some(error.clone()));
+                    return Ok(json!({"busy":false,"error":error}));
+                }
                 Err(ApiError::new(
                     "SUBSCRIPTION_JOB_UNAVAILABLE",
                     "Subscription job is unavailable; refresh the library before retrying.",
                 ))
             }
             "subscriptions.cancel" => {
-                let p: Cancel = params(input)?;
-                if let Some(active) = &mut state.active {
-                    if (active.automatic || active.group.is_some())
-                        && (!p.automatic_only || active.automatic)
-                        && p.group_id
-                            .as_ref()
-                            .is_none_or(|g| active.group.as_ref() == Some(g))
-                    {
-                        active.cancelled_by_user = true;
-                        active.stop.store(true, Ordering::Release);
-                    }
-                }
-                if !p.automatic_only {
-                    let mut cancelled = vec![];
-                    state.queue.retain(|work| {
-                        if let Work::Run { id, group, .. } = work {
-                            if p.group_id.as_ref().is_none_or(|g| g == group) {
-                                cancelled.push(*id);
-                                return false;
-                            }
-                        }
-                        true
-                    });
-                    for job in cancelled {
-                        state.completed.push_back(Completed {
-                            job,
-                            error: Some(worker::cancelled()),
-                        });
-                    }
-                    while state.completed.len() > 8 {
-                        state.completed.pop_front();
+                let Job { job } = params(input)?;
+                if let Some(active) = state
+                    .active
+                    .as_mut()
+                    .filter(|a| job != 0 && a.job == job && a.group.is_some())
+                {
+                    active.cancelled_by_user = true;
+                    active.stop.store(true, Ordering::Release);
+                    self.notify(&state, "subscriptions.progress");
+                } else {
+                    let length = state.queue.len();
+                    state
+                        .queue
+                        .retain(|work| !matches!(work, Work::Run { id, .. } if *id == job));
+                    if state.prepared_runs.remove(&job).is_some() || state.queue.len() != length {
+                        Self::complete_locked(&mut state, job, Some(worker::cancelled()));
                     }
                 }
                 Ok(json!({}))
@@ -1015,6 +1052,12 @@ impl Manager {
             .as_ref()
             .is_some_and(|a| a.cancelled_by_user)
     }
+}
+fn run_not_submitted() -> ApiError {
+    ApiError::new(
+        "SUBSCRIPTION_NOT_STARTED",
+        "The subscription run did not reach the service.",
+    )
 }
 // Authored library changes and route assignments take precedence over checks or
 // downloads. The actor drains the interrupted work before accepting the edit;
@@ -1301,27 +1344,34 @@ mod tests {
         assert!(manager.take_outbound_test_source(draft_token).is_err());
     }
     #[test]
-    fn cancellation_removes_only_matching_queued_runs_and_preserves_saves() {
+    fn cancellation_is_bound_to_the_reserved_run_before_and_after_admission() {
         let manager = manager();
         let a = manager
-            .handle(
-                "subscriptions.run",
-                json!({"groupId":"a","operation":"test"}),
-            )
+            .handle("subscriptions.prepareRun", json!({}))
             .unwrap()["job"]
             .as_u64()
             .unwrap();
         let b = manager
             .handle(
                 "subscriptions.run",
-                json!({"groupId":"b","operation":"refresh"}),
+                json!({"groupId":"a","operation":"refresh"}),
             )
             .unwrap()["job"]
             .as_u64()
             .unwrap();
         manager
-            .handle("subscriptions.cancel", json!({"groupId":"a"}))
+            .handle("subscriptions.cancel", json!({"job":a}))
             .unwrap();
+        assert_eq!(
+            manager
+                .handle(
+                    "subscriptions.run",
+                    json!({"job":a,"groupId":"a","operation":"test"})
+                )
+                .unwrap_err()
+                .code,
+            "CANCELLED",
+        );
         assert_eq!(
             manager
                 .handle("subscriptions.job", json!({"job":a}))
@@ -1389,7 +1439,7 @@ mod tests {
         let reservation = manager.gate.foreground(&AtomicBool::new(false)).unwrap();
         assert!(manager.next_work().is_none());
         manager
-            .handle("subscriptions.cancel", json!({"groupId":"g"}))
+            .handle("subscriptions.cancel", json!({"job":job}))
             .unwrap();
         assert_eq!(
             manager
@@ -1419,7 +1469,9 @@ mod tests {
             .unwrap();
         let dispatch = manager.next_work().unwrap();
         assert!(matches!(dispatch.work, Work::Upload { id, .. } if id == saved));
-        manager.handle("subscriptions.cancel", json!({})).unwrap();
+        manager
+            .handle("subscriptions.cancel", json!({"job":saved}))
+            .unwrap();
         assert!(!dispatch.stop.load(Ordering::Acquire));
         manager.finish(saved, None);
         assert_eq!(

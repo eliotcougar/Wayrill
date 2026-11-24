@@ -1057,7 +1057,8 @@ pub(super) fn run(kernel: Arc<Mutex<Kernel>>, manager: Manager, shutdown: Arc<At
             if let Some((group, operation)) =
                 next_task(&current, now()).filter(|_| check(&stop, &shutdown).is_ok())
             {
-                manager.begin(0, Some(group.id.clone()), true, stop.clone());
+                let job = run_id().unwrap_or_default();
+                manager.begin(job, Some(group.id.clone()), true, stop.clone());
                 let result = if operation == "refresh" {
                     refresh(&kernel, &manager, &group, false, &stop, &shutdown)
                 } else {

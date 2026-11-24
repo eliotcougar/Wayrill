@@ -8,6 +8,7 @@ import type { CapturePlan } from './graph/capture';
 import type { DisplayNames } from './graph/displayNames';
 import {
   errorText,
+  type ResourceScheduleVersion,
   type ServiceEvent,
   type ServiceMessage,
   type ServiceSnapshot,
@@ -445,10 +446,11 @@ export class RuntimeSession {
         if (required.length) {
           this.update({ commandStage: 'resources' });
           const deadline = Date.now() + 300_000;
+          const base = await this.request<ResourceScheduleVersion>('resources.scheduleVersion');
           for (;;) {
             const prepared = await this.request<{ ready: boolean; busy: boolean }>(
               'resources.ensure',
-              { files: resources, required },
+              { files: resources, required, base },
             );
             if (prepared.ready && !prepared.busy) break;
             if (!prepared.busy || Date.now() > deadline)

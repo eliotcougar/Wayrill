@@ -49,7 +49,7 @@ it('refreshes sequentially, continues after failure, includes manually refreshed
   });
   expect(progress.mock.calls.at(-1)?.[0].active).toBe('');
 });
-it('does not advance a cancelled queue or publish late completion of its native request', async () => {
+it('stops a cancelled queue and counts a native refresh that was already committed', async () => {
   const groups = [group('a'), group('b'), group('c')];
   const controller = new AbortController();
   let finish!: () => void;
@@ -73,8 +73,8 @@ it('does not advance a cancelled queue or publish late completion of its native 
   await expect(result).rejects.toThrow();
   expect(refresh).toHaveBeenCalledTimes(2);
   expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
-    completed: 1,
-    updated: ['a'],
-    active: 'b',
+    completed: 2,
+    updated: ['a', 'b'],
+    active: '',
   });
 });

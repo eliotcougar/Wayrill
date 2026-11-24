@@ -26,6 +26,7 @@ export default function SubscriptionGroups({
   onRemove,
   onTest,
   onCancel,
+  cancellableGroup,
 }: {
   groups: StashGroup[];
   busy: boolean;
@@ -44,6 +45,7 @@ export default function SubscriptionGroups({
   onRemove: (group: StashGroup) => void;
   onTest: (group: StashGroup) => void;
   onCancel: (id: string) => void;
+  cancellableGroup?: string;
 }) {
   const interval = (minutes: number) =>
     minutes % 1440 === 0
@@ -178,7 +180,7 @@ export default function SubscriptionGroups({
                       disabled: busy || !canTest || !group.entries.length,
                       action: () => onTest(group),
                     },
-                    ...(running
+                    ...(cancellableGroup === group.id
                       ? [{ label: 'Cancel current run', action: () => onCancel(group.id) }]
                       : []),
                     { label: 'Export group…', disabled: busy, action: () => onExport(group) },

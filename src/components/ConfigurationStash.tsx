@@ -106,6 +106,7 @@ export default function ConfigurationStash({
     [notice, setNotice] = useState(''),
     [error, setError] = useState('');
   const [committing, setCommitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [editor, setEditor] = useState<{ group?: StashGroup } | null>(null);
   const [removeId, setRemoveId] = useState('');
   const [batch, setBatch] = useState<RefreshProgress | null>(null);
@@ -209,15 +210,17 @@ export default function ConfigurationStash({
       dialog.current?.querySelector<HTMLElement>('.stash-remove-confirmation button')?.focus();
   }, [removeId]);
   function cancelOperation() {
-    restoreOperationFocus.current = true;
-    operation.current?.abort();
-    operation.current = null;
-    setBusy(false);
+    const controller = operation.current;
+    if (!controller || controller.signal.aborted) return;
+    controller.abort();
+    setCancelling(true);
+  }
+  function reportCancellation() {
     const progress = batchRef.current;
     setNotice(
       progress
         ? `Refresh cancelled: ${progress.updated.length} updated · ${progress.failed.length} failed · ${progress.total - progress.completed} not completed.`
-        : 'Operation cancelled. Existing configurations were preserved.',
+        : 'Operation cancelled. Committed changes were kept.',
     );
   }
   async function perform(action: (signal: AbortSignal) => void | Promise<void>) {
@@ -236,12 +239,22 @@ export default function ConfigurationStash({
         await maintenance.withForeground(() => action(controller.signal), controller.signal);
       else await action(controller.signal);
     } catch (e) {
-      if (operation.current === controller) setError(e instanceof Error ? e.message : String(e));
+      if (operation.current === controller) {
+        if (
+          (controller.signal.aborted && e === controller.signal.reason) ||
+          (e && typeof e === 'object' && 'code' in e && e.code === 'CANCELLED')
+        ) {
+          reportCancellation();
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }
     } finally {
       if (operation.current === controller) {
         operation.current = null;
         restoreOperationFocus.current = true;
         setBusy(false);
+        setCancelling(false);
       }
     }
   }
@@ -351,7 +364,6 @@ export default function ConfigurationStash({
       (group) => download(group, signal, false),
       signal,
       (progress) => {
-        if (signal.aborted) return;
         batchRef.current = progress;
         setBatch(progress);
       },
@@ -666,7 +678,7 @@ export default function ConfigurationStash({
                         <span>
                           <bdi>{groups.find((g) => g.id === id)?.name}</bdi> · {value.message}
                         </span>
-                        {['refreshing', 'testing'].includes(value.state) && (
+                        {maintenance.cancellableGroup === id && (
                           <button
                             className="secondary-button"
                             onClick={() => maintenance.cancel(id)}
@@ -732,7 +744,11 @@ export default function ConfigurationStash({
                       maintenance.foregroundBusy ||
                       !protectedStorageAvailable()
                     }
-                    onClick={() => void maintenance?.run(selectedGroup!.id, 'test')}
+                    onClick={() =>
+                      void perform((signal) =>
+                        maintenance?.run(selectedGroup!.id, 'test', undefined, signal),
+                      )
+                    }
                   >
                     Retest group
                   </button>
@@ -1020,8 +1036,11 @@ export default function ConfigurationStash({
                   file.current?.click();
                 }}
                 onRemove={(group) => setRemoveId(group.id)}
-                onTest={(group) => void maintenance?.run(group.id, 'test')}
+                onTest={(group) =>
+                  void perform((signal) => maintenance?.run(group.id, 'test', undefined, signal))
+                }
                 onCancel={(id) => maintenance?.cancel(id)}
+                cancellableGroup={maintenance?.cancellableGroup}
               />
             )}
           </>
@@ -1153,8 +1172,8 @@ export default function ConfigurationStash({
                   : 'Session only · export to keep configurations'}
         </span>
         {busy && !committing && (
-          <button className="secondary-button" onClick={cancelOperation}>
-            Cancel operation
+          <button className="secondary-button" onClick={cancelOperation} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : 'Cancel operation'}
           </button>
         )}
         {replaceLabel && (

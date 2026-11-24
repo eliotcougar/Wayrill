@@ -398,13 +398,29 @@ struct State {
     stored: Stored,
     busy: bool,
 }
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ScheduleVersion {
+    instance_id: String,
+    revision: u64,
+}
 struct Upload {
     file: String,
     kind: String,
     bytes: usize,
     received: usize,
     path: PathBuf,
-    last_activity_ms: u64,
+    last_activity: Instant,
+}
+
+const UPLOAD_LEASE: Duration = Duration::from_secs(300);
+const UPLOAD_RECEIPTS: usize = 16;
+
+enum UploadPhase {
+    Prepared(Instant),
+    Receiving(Upload),
+    Complete { result: Result<()>, at: Instant },
+    Cancelled(Instant),
 }
 #[derive(Serialize, Deserialize)]
 struct Journal {
@@ -427,8 +443,8 @@ pub struct Manager {
     state: Arc<Mutex<State>>,
     stop: Arc<AtomicBool>,
     events: Arc<Events>,
-    uploads: BTreeMap<String, Upload>,
-    next_upload: u64,
+    uploads: BTreeMap<String, UploadPhase>,
+    schedule_revision: u64,
     worker: Option<std::thread::JoinHandle<()>>,
     launch_retry: Option<LaunchRetry>,
     proxy_port: Option<u16>,
@@ -717,7 +733,7 @@ impl Manager {
             stop: Arc::new(AtomicBool::new(false)),
             events,
             uploads: BTreeMap::new(),
-            next_upload: 0,
+            schedule_revision: 0,
             worker: None,
             launch_retry: None,
             proxy_port: None,
@@ -726,6 +742,51 @@ impl Manager {
     fn reconcile(&self) -> Result<()> {
         let mut state = self.state.lock().unwrap();
         recover_stored(&self.assets, &self.data, &mut state.stored)
+    }
+    fn upload_active(&self) -> bool {
+        self.uploads
+            .values()
+            .any(|phase| matches!(phase, UploadPhase::Receiving(_)))
+    }
+    fn expire_uploads(&mut self, now: Instant) {
+        self.uploads.retain(|_, phase| match phase {
+            UploadPhase::Prepared(at)
+            | UploadPhase::Complete { at, .. }
+            | UploadPhase::Cancelled(at) => now.duration_since(*at) < UPLOAD_LEASE,
+            UploadPhase::Receiving(upload) => {
+                if now.duration_since(upload.last_activity) >= UPLOAD_LEASE {
+                    let _ = fs::remove_file(&upload.path);
+                    *phase = UploadPhase::Cancelled(now);
+                }
+                true
+            }
+        });
+    }
+    fn prepare_upload(&mut self) -> Result<String> {
+        let now = Instant::now();
+        self.expire_uploads(now);
+        if self.uploads.len() >= UPLOAD_RECEIPTS {
+            let oldest_receipt = self
+                .uploads
+                .iter()
+                .filter_map(|(token, phase)| match phase {
+                    UploadPhase::Complete { at, .. } | UploadPhase::Cancelled(at) => {
+                        Some((token, at))
+                    }
+                    _ => None,
+                })
+                .min_by_key(|(_, at)| **at)
+                .map(|(token, _)| token.clone());
+            if let Some(token) = oldest_receipt {
+                self.uploads.remove(&token);
+            } else {
+                return Err(ApiError::new("BUSY", "Too many pending DAT imports."));
+            }
+        }
+        let token = crate::tun::random_id()?;
+        self.uploads
+            .insert(token.clone(), UploadPhase::Prepared(now));
+        Ok(token)
     }
     pub fn project(&mut self, config: &Value) -> Result<crate::resource_rules::Projection> {
         let mut state = self.state.lock().unwrap();
@@ -794,7 +855,7 @@ impl Manager {
             return Ok(());
         }
         let mut s = self.state.lock().unwrap();
-        if s.busy || !self.uploads.is_empty() {
+        if s.busy || self.upload_active() {
             return Err(ApiError::new(
                 "BUSY",
                 "Wait for the resource update or import to finish.",
@@ -906,11 +967,28 @@ impl Manager {
         }
         Ok(files)
     }
-    pub fn configure(
+    fn check_schedule_version(&self, base: &ScheduleVersion) -> Result<()> {
+        if base.instance_id != self.events.instance_id {
+            return Err(ApiError::new(
+                "SERVICE_INSTANCE_CHANGED",
+                "The service restarted while updating the resource schedule.",
+            ));
+        }
+        if base.revision != self.schedule_revision {
+            let mut error = ApiError::new(
+                "RESOURCE_SCHEDULE_CHANGED",
+                "The resource schedule changed. Read the current revision before trying again.",
+            );
+            error.retryable = true;
+            return Err(error);
+        }
+        Ok(())
+    }
+    fn configure(
         &mut self,
         mut files: Vec<FilePlan>,
         reload_after_auto_updates: bool,
-    ) -> Result<Value> {
+    ) -> Result<()> {
         for file in &mut files {
             if file.id.is_empty() {
                 file.id = plan_id(&file.file);
@@ -922,7 +1000,7 @@ impl Manager {
         if s.stored.files != files
             || s.stored.reload_after_auto_updates != reload_after_auto_updates
         {
-            if s.busy || !self.uploads.is_empty() {
+            if s.busy || self.upload_active() {
                 return Err(ApiError::new(
                     "BUSY",
                     "Wait for the resource update or import to finish.",
@@ -1008,7 +1086,9 @@ impl Manager {
             s.stored = next;
         }
         drop(s);
-        Ok(self.snapshot())
+        // An accepted no-op still supersedes older writes based on this revision.
+        self.schedule_revision += 1;
+        Ok(())
     }
     fn start(&mut self, files: Vec<FilePlan>, automatic: bool) -> Result<Value> {
         validate_plans(&files)?;
@@ -1017,7 +1097,7 @@ impl Manager {
             return Err(invalid("Choose DAT files from disk before updating them."));
         }
         let mut s = self.state.lock().unwrap();
-        if s.busy || !self.uploads.is_empty() {
+        if s.busy || self.upload_active() {
             return Err(ApiError::new(
                 "BUSY",
                 "A resource update or file import is already in progress.",
@@ -1085,13 +1165,7 @@ impl Manager {
         Ok(self.snapshot())
     }
     pub fn tick(&mut self) {
-        self.uploads.retain(|_, u| {
-            let keep = now().saturating_sub(u.last_activity_ms) < 300000;
-            if !keep {
-                let _ = fs::remove_file(&u.path);
-            }
-            keep
-        });
+        self.expire_uploads(Instant::now());
         if self.stop.load(Ordering::SeqCst)
             || self
                 .launch_retry
@@ -1101,7 +1175,7 @@ impl Manager {
             return;
         }
         let s = self.state.lock().unwrap();
-        if s.busy || !self.uploads.is_empty() {
+        if s.busy || self.upload_active() {
             return;
         }
         let due = s
@@ -1148,8 +1222,10 @@ impl Manager {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        for u in self.uploads.values() {
-            let _ = fs::remove_file(&u.path);
+        for phase in self.uploads.values() {
+            if let UploadPhase::Receiving(upload) = phase {
+                let _ = fs::remove_file(&upload.path);
+            }
         }
         self.uploads.clear();
     }
@@ -1166,13 +1242,21 @@ impl Manager {
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
+        struct Configure {
+            base: ScheduleVersion,
+            schedule: Files,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct Ensure {
+            base: Option<ScheduleVersion>,
             files: Vec<FilePlan>,
             required: Vec<String>,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Begin {
+            upload: Option<String>,
             #[serde(default)]
             id: String,
             file: String,
@@ -1251,9 +1335,18 @@ impl Manager {
                 }
                 Ok(self.snapshot())
             }
+            "resources.scheduleVersion" => {
+                let _: crate::kernel::Empty = params(input)?;
+                Ok(json!(ScheduleVersion {
+                    instance_id: self.events.instance_id.clone(),
+                    revision: self.schedule_revision,
+                }))
+            }
             "resources.configure" => {
-                let p: Files = params(input)?;
-                self.configure(p.files, p.reload_after_auto_updates)
+                let Configure { base, schedule } = params(input)?;
+                self.check_schedule_version(&base)?;
+                self.configure(schedule.files, schedule.reload_after_auto_updates)?;
+                Ok(self.snapshot())
             }
             "resources.update" => {
                 let p: Files = params(input)?;
@@ -1278,11 +1371,14 @@ impl Manager {
                     .any(|(current, expected)| current.file != expected.file)
                 {
                     let s = self.state.lock().unwrap();
-                    if s.busy || !self.uploads.is_empty() {
+                    if s.busy || self.upload_active() {
                         return Ok(json!({"ready":false,"busy":true}));
                     }
                     let reload = s.stored.reload_after_auto_updates;
                     drop(s);
+                    self.check_schedule_version(p.base.as_ref().ok_or_else(|| {
+                        invalid("Read the resource schedule version before preparing a rename.")
+                    })?)?;
                     self.configure(p.files.clone(), reload)?;
                 }
                 let s = self.state.lock().unwrap();
@@ -1346,6 +1442,10 @@ impl Manager {
                 }
                 Ok(json!({"ready":missing.is_empty(),"busy":self.state.lock().unwrap().busy}))
             }
+            "resources.uploadPrepare" => {
+                let _: crate::kernel::Empty = params(input)?;
+                Ok(json!({"upload":self.prepare_upload()?}))
+            }
             "resources.uploadBegin" => {
                 let mut p: Begin = params(input)?;
                 let files = self.current_plans(vec![FilePlan {
@@ -1372,34 +1472,38 @@ impl Manager {
                 if p.bytes == 0 || p.bytes > MAX {
                     return Err(invalid("Choose a nonempty DAT file up to 128 MiB."));
                 }
-                if self.state.lock().unwrap().busy || !self.uploads.is_empty() {
+                if self.state.lock().unwrap().busy || self.upload_active() {
                     return Err(ApiError::new("BUSY", "A resource transfer is in progress."));
                 }
-                self.next_upload += 1;
-                let token = format!("{}-{}", now(), self.next_upload);
+                let token = match p.upload {
+                    Some(token) if matches!(self.uploads.get(&token), Some(UploadPhase::Prepared(at)) if at.elapsed() < UPLOAD_LEASE) => {
+                        token
+                    }
+                    Some(_) => return Err(invalid("The DAT import reservation is unavailable.")),
+                    None => self.prepare_upload()?,
+                };
                 let stage = self.assets.join(".wayrill-resource-stage");
                 fs::create_dir_all(&stage).map_err(|e| ApiError::io("Stage import", e))?;
                 let path = stage.join("upload.tmp");
                 fs::File::create(&path).map_err(|e| ApiError::io("Stage import", e))?;
                 self.uploads.insert(
                     token.clone(),
-                    Upload {
+                    UploadPhase::Receiving(Upload {
                         file: p.file,
                         kind: p.kind,
                         bytes: p.bytes,
                         received: 0,
                         path,
-                        last_activity_ms: now(),
-                    },
+                        last_activity: Instant::now(),
+                    }),
                 );
                 Ok(json!({"upload":token}))
             }
             "resources.uploadChunk" => {
                 let p: Chunk = params(input)?;
-                let u = self
-                    .uploads
-                    .get_mut(&p.upload)
-                    .ok_or_else(|| invalid("Unknown upload."))?;
+                let Some(UploadPhase::Receiving(u)) = self.uploads.get_mut(&p.upload) else {
+                    return Err(invalid("No DAT data transfer is open for this import."));
+                };
                 if p.offset != u.received
                     || p.hex.is_empty()
                     || p.hex.len() > 2 * 1024 * 1024
@@ -1432,22 +1536,42 @@ impl Manager {
                     .and_then(|mut f| f.write_all(&decoded))
                     .map_err(|e| ApiError::io("Write resource chunk", e))?;
                 u.received += decoded.len();
-                u.last_activity_ms = now();
+                u.last_activity = Instant::now();
                 Ok(json!({"received":u.received}))
             }
             "resources.uploadCancel" => {
                 let p: Token = params(input)?;
-                if let Some(u) = self.uploads.remove(&p.upload) {
-                    let _ = fs::remove_file(u.path);
+                match self.uploads.get_mut(&p.upload) {
+                    Some(UploadPhase::Complete { result, .. }) => {
+                        result.clone()?;
+                        Ok(self.snapshot())
+                    }
+                    Some(phase) => {
+                        if let UploadPhase::Receiving(upload) = phase {
+                            let _ = fs::remove_file(&upload.path);
+                        }
+                        *phase = UploadPhase::Cancelled(Instant::now());
+                        Ok(Value::Null)
+                    }
+                    None => Err(ApiError::new(
+                        "RESOURCE_IMPORT_UNAVAILABLE",
+                        "The DAT import outcome is unavailable. Check the resource list before retrying.",
+                    )),
                 }
-                Ok(self.snapshot())
             }
             "resources.uploadCommit" => {
                 let p: Token = params(input)?;
-                let u = self
-                    .uploads
-                    .remove(&p.upload)
-                    .ok_or_else(|| invalid("Unknown upload."))?;
+                match self.uploads.get(&p.upload) {
+                    Some(UploadPhase::Complete { result, .. }) => {
+                        result.clone()?;
+                        return Ok(self.snapshot());
+                    }
+                    Some(UploadPhase::Receiving(_)) => {}
+                    _ => return Err(invalid("No DAT data transfer is open for this import.")),
+                }
+                let Some(UploadPhase::Receiving(u)) = self.uploads.remove(&p.upload) else {
+                    unreachable!("receiving upload checked above");
+                };
                 let result: Result<()> = (|| {
                     if u.bytes != u.received {
                         return Err(invalid("Resource upload is incomplete."));
@@ -1478,6 +1602,13 @@ impl Manager {
                     Ok(())
                 })();
                 let _ = fs::remove_file(u.path);
+                self.uploads.insert(
+                    p.upload,
+                    UploadPhase::Complete {
+                        result: result.clone(),
+                        at: Instant::now(),
+                    },
+                );
                 result?;
                 self.events
                     .publish("resources.updated", json!({"files":[u.file],"ok":true}));
@@ -1883,16 +2014,22 @@ mod transactional_tests {
             .as_str()
             .unwrap()
             .to_owned();
-        assert_eq!(manager.uploads[&upload].file, "qa.dat");
+        assert!(matches!(
+            manager.uploads.get(&upload),
+            Some(UploadPhase::Receiving(upload)) if upload.file == "qa.dat"
+        ));
         manager
             .handle("resources.uploadCancel", json!({"upload":upload}))
             .unwrap();
         current.file = "office.dat".into();
+        let base = manager
+            .handle("resources.scheduleVersion", json!({}))
+            .unwrap();
         assert_eq!(
             manager
                 .handle(
                     "resources.ensure",
-                    json!({"files":[current],"required":["office.dat"]})
+                    json!({"files":[current],"required":["office.dat"],"base":base})
                 )
                 .unwrap()["ready"],
             true
@@ -2466,6 +2603,58 @@ mod transactional_tests {
             .is_ok());
     }
     #[test]
+    fn a_late_resource_schedule_cannot_replace_a_newer_accepted_schedule() {
+        let lab = Lab::new();
+        let mut manager = lab.manager();
+        let version = manager
+            .handle("resources.scheduleVersion", json!({}))
+            .unwrap();
+        let configure = |base: Value, reload: bool| {
+            json!({
+                "base": base,
+                "schedule": {"files": [], "reloadAfterAutoUpdates": reload},
+            })
+        };
+        // Reaffirming the current schedule must also fence older requests.
+        manager
+            .handle("resources.configure", configure(version.clone(), true))
+            .unwrap();
+        let stale = manager
+            .handle("resources.configure", configure(version, false))
+            .unwrap_err();
+        assert_eq!(stale.code, "RESOURCE_SCHEDULE_CHANGED");
+        assert!(
+            manager
+                .state
+                .lock()
+                .unwrap()
+                .stored
+                .reload_after_auto_updates
+        );
+        let current = manager
+            .handle("resources.scheduleVersion", json!({}))
+            .unwrap();
+        manager
+            .handle("resources.configure", configure(current.clone(), false))
+            .unwrap();
+        let mut restarted = lab.manager();
+        assert_eq!(
+            restarted
+                .handle("resources.configure", configure(current, true))
+                .unwrap_err()
+                .code,
+            "SERVICE_INSTANCE_CHANGED"
+        );
+        assert!(
+            !restarted
+                .state
+                .lock()
+                .unwrap()
+                .stored
+                .reload_after_auto_updates
+        );
+    }
+    #[test]
     fn auto_schedule_persists_and_abandoned_uploads_expire() {
         let lab = Lab::new();
         let mut m = lab.manager();
@@ -2486,9 +2675,67 @@ mod transactional_tests {
             .as_str()
             .unwrap()
             .to_owned();
-        m.uploads.get_mut(&upload).unwrap().last_activity_ms = 0;
-        m.tick();
-        assert!(m.uploads.is_empty());
+        let now = Instant::now();
+        m.expire_uploads(now + UPLOAD_LEASE);
+        assert!(!m.upload_active());
+        assert!(matches!(
+            m.uploads.get(&upload),
+            Some(UploadPhase::Cancelled(_))
+        ));
+    }
+    #[test]
+    fn interrupted_dat_import_can_be_retired_or_confirmed_with_its_reserved_token() {
+        let lab = Lab::new();
+        let mut manager = lab.manager();
+        let reserve = |manager: &mut Manager| {
+            manager
+                .handle("resources.uploadPrepare", json!({}))
+                .unwrap()["upload"]
+                .clone()
+        };
+        let begin = |upload: &Value| {
+            json!({
+                "upload": upload, "file": "qa.dat", "kind": "geoip", "bytes": dat().len()
+            })
+        };
+        let first = reserve(&mut manager);
+        manager
+            .handle("resources.uploadBegin", begin(&first))
+            .unwrap();
+        assert!(manager.upload_active());
+        assert_eq!(
+            manager
+                .handle("resources.uploadCancel", json!({"upload":first}))
+                .unwrap(),
+            Value::Null
+        );
+        assert!(!manager.upload_active());
+        assert!(manager
+            .handle("resources.uploadBegin", begin(&first))
+            .is_err());
+        assert!(manager
+            .handle("resources.uploadCommit", json!({"upload":first}))
+            .is_err());
+
+        let second = reserve(&mut manager);
+        manager
+            .handle("resources.uploadBegin", begin(&second))
+            .unwrap();
+        let hex = dat().iter().map(|b| format!("{b:02x}")).collect::<String>();
+        manager
+            .handle(
+                "resources.uploadChunk",
+                json!({"upload":second, "offset":0, "hex":hex}),
+            )
+            .unwrap();
+        let committed = manager
+            .handle("resources.uploadCommit", json!({"upload":second}))
+            .unwrap();
+        let recovered = manager
+            .handle("resources.uploadCancel", json!({"upload":second}))
+            .unwrap();
+        assert_eq!(recovered["generation"], committed["generation"]);
+        assert_eq!(fs::read(lab.root.join("assets/qa.dat")).unwrap(), dat());
     }
     #[test]
     fn failed_auto_launch_remains_due_and_retries_after_the_journal_is_readable() {

@@ -603,11 +603,13 @@ impl Kernel {
         // A new Windows boot is explicit saved auto-start authorization. A
         // service crash/restart or installer handoff cannot re-arm a user Stop.
         if startup.requests_boot_start(session.is_new, crate::upgrade::pending(&profile_path)) {
-            recovery.arm_boot()?;
+            recovery.begin_boot();
+            // A temporarily unreadable intent leaves the boot unobserved and
+            // enters the same retry loop as other recovery work.
+            let _ = recovery.reconcile_intent(Instant::now(), true);
+        } else {
+            session.acknowledge()?;
         }
-        // Commit after durable Running intent, so an interrupted initialization
-        // cannot consume this boot's auto-start before recording it.
-        session.acknowledge()?;
         let mut kernel = Self {
             browser_timezone: crate::browser_timezone::Manager::new(
                 data.join("browser-timezones.json"),
@@ -1139,6 +1141,9 @@ impl Kernel {
                         })?;
                 }
                 self.startup.set(change.enabled)?;
+                if !change.enabled {
+                    self.recovery.cancel_boot();
+                }
                 if !change.enabled && self.recovery.boot_pending() {
                     let intent = self.recovery.stop();
                     self.finish_stopped_routing(intent).inspect_err(|error| {
@@ -1852,14 +1857,17 @@ impl Kernel {
         if !self.recovery.due(now) {
             return;
         }
-        let intent = self.recovery.resolve_intent(now).and_then(|()| {
-            if !self.startup.enabled() && self.recovery.boot_pending() {
-                // The preference may have been saved just before the service
-                // exited, leaving cancellation to this instance.
-                self.recovery.stop()?;
-            }
-            Ok(())
-        });
+        let intent = self
+            .recovery
+            .reconcile_intent(now, self.startup.enabled())
+            .and_then(|()| {
+                if !self.startup.enabled() && self.recovery.boot_pending() {
+                    // The preference may have been saved just before the service
+                    // exited, leaving cancellation to this instance.
+                    self.recovery.stop()?;
+                }
+                Ok(())
+            });
         if let Err(error) = intent {
             self.last_error = Some(error);
             self.changed("recovery.waiting");

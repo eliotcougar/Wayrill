@@ -42,10 +42,9 @@ export async function refreshSubscriptionGroups(
       progress({ ...result, active: group.name });
       try {
         await refresh(group);
-        signal.throwIfAborted();
         result = { ...result, completed: result.completed + 1, updated: [...result.updated, id] };
       } catch (error) {
-        signal.throwIfAborted();
+        if (signal.aborted) throw error;
         result = {
           ...result,
           completed: result.completed + 1,

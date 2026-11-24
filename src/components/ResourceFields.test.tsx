@@ -137,18 +137,22 @@ it('shows a failed automatic filter refresh with its diagnostic and retry action
   );
 });
 
-it('stages the selected DAT until Save and keeps it selected after an import failure', async () => {
+it('recovers lost DAT begin and commit replies without leaving an open transfer or losing the selection', async () => {
   const status = { busy: false, files: [] };
   const onChange = vi.fn();
-  let rejected = false;
+  let attempts = 0;
+  let committed = false;
   vi.mocked(serviceCall).mockImplementation(async (method) => {
+    if (method === 'resources.uploadPrepare') return { upload: `qa${++attempts}` };
     if (method === 'resources.uploadBegin') {
-      if (!rejected) {
-        rejected = true;
-        throw new Error('Resource transfer is in progress.');
-      }
-      return { upload: 'qa' };
+      if (attempts === 1) throw new Error('Upload begin reply was lost.');
+      return {};
     }
+    if (method === 'resources.uploadCommit') {
+      committed = true;
+      throw new Error('Upload commit reply was lost.');
+    }
+    if (method === 'resources.uploadCancel') return committed ? status : null;
     return status;
   });
   await act(async () =>
@@ -177,11 +181,13 @@ it('stages the selected DAT until Save and keeps it selected after an import fai
   expect(onChange).not.toHaveBeenCalled();
   await select();
   await act(() => button('Save file').click());
-  expect(container.textContent).toContain('Resource transfer is in progress.');
+  expect(container.textContent).toContain('Upload begin reply was lost.');
+  expect(serviceCall).toHaveBeenCalledWith('resources.uploadCancel', { upload: 'qa1' });
   expect(container.textContent).toContain('geosite-local.dat');
   expect(onChange).not.toHaveBeenCalled();
   await act(() => button('Save file').click());
-  expect(serviceCall).toHaveBeenCalledWith('resources.uploadCommit', { upload: 'qa' });
+  expect(serviceCall).toHaveBeenCalledWith('resources.uploadCommit', { upload: 'qa2' });
+  expect(serviceCall).toHaveBeenCalledWith('resources.uploadCancel', { upload: 'qa2' });
   expect(onChange).toHaveBeenCalledTimes(1);
   expect(container.querySelector('.resource-file-dialog')).toBeNull();
 });

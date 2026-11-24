@@ -1,9 +1,15 @@
 import { createContext, useCallback, useEffect, useRef, useState } from 'react';
-import { desktopServiceAvailable, errorText, serviceCall } from '../serviceClient';
+import {
+  desktopServiceAvailable,
+  errorText,
+  mutationOutcomeUnknown,
+  serviceCall,
+} from '../serviceClient';
 import { protectedWrite } from '../protectedStorage';
 import { serializeStash } from './import';
 import { serializeGraph } from '../graph/model';
 import {
+  readSubscriptionProgress,
   refreshServiceStash,
   sendSubscriptionContext,
   waitSubscriptionJob,
@@ -28,12 +34,23 @@ export default function useSubscriptionMaintenance(
   current.current = { store, ready, graph, testUrl };
   const foreground = useRef({ count: 0, done: Promise.resolve() });
   const testContext = JSON.stringify([graph.defaults, egress]);
-  const cancel = useCallback((id?: string) => {
-    void serviceCall('subscriptions.cancel', { ...(id ? { groupId: id } : {}) }).catch(() => {});
-  }, []);
-  const cancelAutomatic = useCallback((id: string) => {
-    void serviceCall('subscriptions.cancel', { groupId: id, automaticOnly: true }).catch(() => {});
-  }, []);
+  const activeRun = serviceStatus?.activeRun;
+  function cancel(id: string, automaticOnly = false) {
+    if (
+      !activeRun ||
+      activeRun.groupId !== id ||
+      activeRun.cancelling ||
+      (automaticOnly && !activeRun.automatic)
+    )
+      return;
+    void readSubscriptionProgress('subscriptions.cancel', { job: activeRun.job }).catch(
+      (error: unknown) =>
+        setStatuses((previous) => ({
+          ...previous,
+          [id]: { state: 'error', message: errorText(error) },
+        })),
+    );
+  }
   const clearStatus = useCallback((id: string) => {
     setStatuses((previous) => {
       const next = { ...previous };
@@ -80,25 +97,41 @@ export default function useSubscriptionMaintenance(
       const store = current.current.store;
       await protectedWrite('stash', serializeStash(store.get()), store.getBase());
       checkCancelled();
-      const { job } = await serviceCall<{ job: number }>('subscriptions.run', {
-        groupId: id,
-        operation,
-        ...(entryIds ? { entryIds } : {}),
-      });
+      const { job } = await serviceCall<{ job: number }>('subscriptions.prepareRun');
+      let cancellation: Promise<unknown> | undefined;
       const abort = () => {
-        if (!viewClosed()) cancel(id);
+        if (!viewClosed()) {
+          cancellation ??= readSubscriptionProgress('subscriptions.cancel', { job }).catch(
+            (error: unknown) => error,
+          );
+        }
       };
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
       try {
-        await waitSubscriptionJob(job, signal);
+        if (!cancellation) {
+          try {
+            await serviceCall('subscriptions.run', {
+              job,
+              groupId: id,
+              operation,
+              ...(entryIds ? { entryIds } : {}),
+            });
+          } catch (error) {
+            // The job query settles a lost start reply. An unused reservation
+            // is closed by the query so a late submission cannot run.
+            if (!mutationOutcomeUnknown(error) && !cancellation) throw error;
+          }
+        }
+        if (cancellation) await cancellation;
+        await waitSubscriptionJob(job, undefined);
       } finally {
         signal?.removeEventListener('abort', abort);
       }
       const state = await serviceCall<SubscriptionStatus>('subscriptions.status');
       await refreshServiceStash(state.version);
     },
-    [cancel],
+    [],
   );
   useEffect(() => {
     if (!ready || !serviceStatus) return;
@@ -144,7 +177,8 @@ export default function useSubscriptionMaintenance(
     statuses,
     run,
     cancel,
-    cancelAutomatic,
+    cancelAutomatic: (id: string) => cancel(id, true),
+    cancellableGroup: activeRun?.cancelling ? undefined : activeRun?.groupId,
     clearStatus,
     withForeground,
     foregroundBusy,

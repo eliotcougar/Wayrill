@@ -7,6 +7,7 @@ import { formatBytes } from '../traffic';
 import {
   desktopServiceAvailable,
   errorText,
+  mutationOutcomeUnknown,
   serviceCall,
   type ResourceWarningReport,
 } from '../serviceClient';
@@ -99,16 +100,15 @@ export default function ResourceFields({
   const importFile = async (file: File, entry: ResourceFile) => {
     if (!file.size || file.size > 128 * 1024 * 1024)
       throw new Error('Choose a nonempty DAT file up to 128 MiB.');
-    let upload: string | undefined;
+    const { upload } = await serviceCall<{ upload: string }>('resources.uploadPrepare');
     try {
-      upload = (
-        await serviceCall<{ upload: string }>('resources.uploadBegin', {
-          id: entry.id,
-          file: resourceFilename(entry),
-          kind: entry.kind,
-          bytes: file.size,
-        })
-      ).upload;
+      await serviceCall('resources.uploadBegin', {
+        upload,
+        id: entry.id,
+        file: resourceFilename(entry),
+        kind: entry.kind,
+        bytes: file.size,
+      });
       for (let offset = 0; offset < file.size; offset += 512 * 1024) {
         const bytes = new Uint8Array(await file.slice(offset, offset + 512 * 1024).arrayBuffer());
         const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -116,8 +116,25 @@ export default function ResourceFields({
       }
       return await serviceCall<ResourceStatus>('resources.uploadCommit', { upload });
     } catch (e) {
-      if (upload) await serviceCall('resources.uploadCancel', { upload }).catch(() => {});
-      throw e;
+      // Retire the reservation before retrying. If Commit already won, this
+      // returns its committed status even when the original reply was lost.
+      const deadline = Date.now() + 120_000;
+      for (;;) {
+        let committed: ResourceStatus | null;
+        try {
+          committed = await serviceCall<ResourceStatus | null>('resources.uploadCancel', {
+            upload,
+          });
+        } catch (error) {
+          const busy =
+            !!error && typeof error === 'object' && 'code' in error && error.code === 'BUSY';
+          if (Date.now() >= deadline || (!busy && !mutationOutcomeUnknown(error))) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+        if (committed) return committed;
+        throw e;
+      }
     }
   };
   const add = (kind: ResourceKind) => {

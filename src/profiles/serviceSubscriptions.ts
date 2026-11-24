@@ -1,5 +1,10 @@
 import type { StashLink } from '../graph/types';
-import { errorText, serviceCall, type ServiceError } from '../serviceClient';
+import {
+  errorText,
+  mutationOutcomeUnknown,
+  serviceCall,
+  type ServiceError,
+} from '../serviceClient';
 import { confirmServiceStashSave } from './importClient';
 export type { SubscriptionStatus } from '../serviceClient';
 
@@ -112,7 +117,7 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
   throw new Error('Subscription document changed while reading.');
 }
 export async function readSubscriptionProgress<T>(
-  method: 'subscriptions.job' | 'pool.status',
+  method: 'subscriptions.job' | 'subscriptions.cancel' | 'pool.status',
   params?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
@@ -123,7 +128,10 @@ export async function readSubscriptionProgress<T>(
       return await serviceCall<T>(method, params);
     } catch (error) {
       const failure = error as Partial<ServiceError> | null;
-      if (failure?.code !== 'BUSY' || !failure.retryable || Date.now() >= deadline) throw error;
+      const retry =
+        (failure?.code === 'BUSY' && failure.retryable) ||
+        (method === 'subscriptions.cancel' && mutationOutcomeUnknown(error));
+      if (!retry || Date.now() >= deadline) throw error;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }

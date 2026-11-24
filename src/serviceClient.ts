@@ -15,6 +15,7 @@ export type SubscriptionStatus = {
   error: ServiceError | null;
   busy: boolean;
   automatic: boolean;
+  activeRun?: { job: number; groupId: string; automatic: boolean; cancelling: boolean } | null;
   statuses: Record<string, { state: 'refreshing' | 'testing' | 'idle' | 'error'; message: string }>;
   appliedRevision: number | null;
   appliedSourceHash: string | null;
@@ -23,6 +24,7 @@ export type ResourceWarningReport = {
   skippedSelectorCount: number;
   skippedSelectors: { selector: string; context: string }[];
 };
+export type ResourceScheduleVersion = { instanceId: string; revision: number };
 export type ConfigValidationResult = { resourceWarnings?: ResourceWarningReport };
 export type ServiceSnapshot = {
   fakeDns?: {

@@ -5,6 +5,7 @@ import {
   errorText,
   mutationOutcomeUnknown,
   serviceCall,
+  type ResourceScheduleVersion,
 } from './serviceClient';
 import { readResources, resourceFiles } from './graph/resources';
 import type { GraphState } from './graph/types';
@@ -39,16 +40,20 @@ export default function useResourceSync(graph: GraphState | null, instanceId: st
         if (!active) return;
         for (let delay = 250; active; delay = Math.min(delay * 2, 5000)) {
           try {
-            await serviceCall('resources.configure', schedule);
+            const base = await serviceCall<ResourceScheduleVersion>('resources.scheduleVersion');
+            if (!active || base.instanceId !== instanceId) return;
+            await serviceCall('resources.configure', { base, schedule });
             if (active) setError('');
             return;
           } catch (e) {
             if (!active) return;
             const busy = !!e && typeof e === 'object' && 'code' in e && e.code === 'BUSY';
-            if (!busy) setError('Resource files: ' + errorText(e));
+            const conflict =
+              !!e && typeof e === 'object' && 'code' in e && e.code === 'RESOURCE_SCHEDULE_CHANGED';
+            if (!busy && !conflict) setError('Resource files: ' + errorText(e));
             const retryable = !!e && typeof e === 'object' && 'retryable' in e && e.retryable;
-            // The service serializes these writes and accepts an identical schedule again
-            // if the previous reply was lost.
+            // Read a fresh revision while this schedule is still current. The
+            // service rejects any older request that arrives after it commits.
             if (!busy && !retryable && !mutationOutcomeUnknown(e)) return;
             await new Promise<void>((resolve) => {
               wake = resolve;
