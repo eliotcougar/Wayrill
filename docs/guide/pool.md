@@ -268,9 +268,10 @@ and closing the window discards the simulation.
 
 ## Connect as a subscriber
 
-1. Open **Tools → Connect to Pool** and paste the invitation. Wayrill shows its
-   folder or URL. If you received the private key separately, enter it and use
-   **Enter folder or URL manually** to supply the source.
+1. Open **Tools → Connect to Pool** and paste or scan the single-line invitation
+   code. Wayrill shows its folder or URL. Older multiline invitations still work.
+   If you received the private key separately, enter it and use **Enter folder
+   or URL manually** to supply the source.
 2. Choose **Proxy** for apps you point at a local listener, **TUN** for
    whole-computer capture, or **Both**. If you already have custom inbounds,
    **Keep existing inbounds** preserves them. Choose **Review configuration**.

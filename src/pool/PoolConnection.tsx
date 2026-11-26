@@ -24,7 +24,12 @@ import PoolOutboundChoice from './PoolOutboundChoice';
 import type { PoolPreferenceResets } from './preferences';
 import { PoolSettingSummary } from './PoolSettingFields';
 import type usePoolStatus from './usePoolStatus';
-import { inviteLength, invitePattern, parsePoolInvitation, type PoolSource } from './invitation';
+import {
+  invitePattern,
+  parsePoolInvitation,
+  poolInvitationMaxLength,
+  type PoolSource,
+} from './invitation';
 export type { PoolSource } from './invitation';
 
 export type PoolPreview = PoolEntries & {
@@ -145,13 +150,14 @@ export default function PoolConnection({
     live.onTestGraph(graph);
   }
   const source = () => ({ kind, address: address.trim(), invite: invite.trim() });
-  function pasteInvitation(text: string) {
+  function acceptInvitation(text: string) {
     const invitation = parsePoolInvitation(text);
     if (!invitation) return false;
     setKind(invitation.kind);
     setAddress(invitation.address);
     setInvite(invitation.invite);
     setManual(false);
+    setFailure('');
     return true;
   }
   async function inspect(
@@ -991,20 +997,19 @@ export default function PoolConnection({
                   <input
                     type="password"
                     autoComplete="off"
-                    maxLength={inviteLength}
+                    maxLength={poolInvitationMaxLength}
                     value={invite}
                     autoFocus
-                    placeholder="Paste the invitation you received"
+                    placeholder="Paste or scan your invitation code"
                     onChange={(event) => {
-                      setInvite(event.currentTarget.value);
-                      if (!address && invitePattern.test(event.currentTarget.value.trim()))
-                        setManual(true);
+                      const value = event.currentTarget.value;
+                      if (acceptInvitation(value)) return;
+                      setInvite(value);
+                      if (!address && invitePattern.test(value.trim())) setManual(true);
                     }}
                     onPaste={(event) => {
-                      if (pasteInvitation(event.clipboardData.getData('text'))) {
+                      if (acceptInvitation(event.clipboardData.getData('text')))
                         event.preventDefault();
-                        setFailure('');
-                      }
                     }}
                   />
                 </label>
