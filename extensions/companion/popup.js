@@ -91,6 +91,62 @@ function time(timestamp) {
     second: '2-digit',
   });
 }
+/** @param {import('./native.js').Match[]} matches */
+function routeLine(matches) {
+  const route = node('div', '', `route-line${matches.length ? ' observed' : ''}`);
+  if (!matches.length) {
+    route.append(node('span', 'No route observed yet'));
+    return route;
+  }
+
+  /** @type {Map<string, {prefix:string, outbounds:Set<string>}>} */
+  const groups = new Map();
+  for (const match of matches) {
+    const outbound = match.action === 'block' ? `Blocked (${match.outbound})` : match.outbound;
+    const path = match.path.map(({ filterId, ruleId, rule, output }) => [
+      filterId,
+      ruleId,
+      rule,
+      output,
+    ]);
+    // A truncated path does not establish that two observed outbounds share all its hops.
+    const key = JSON.stringify([path, !path.length || match.pathTruncated ? outbound : null]);
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        prefix: match.path.flatMap((hop) => [hop.rule, hop.output]).join(' → '),
+        outbounds: new Set(),
+      };
+      groups.set(key, group);
+    }
+    group.outbounds.add(outbound);
+  }
+
+  const paths = node('span', '', 'route-paths');
+  for (const { prefix, outbounds } of groups.values()) {
+    if (outbounds.size === 1) {
+      const outbound = [...outbounds][0];
+      paths.append(node('span', prefix ? `${prefix} → ${outbound}` : outbound));
+      continue;
+    }
+    const path = node('span', '', 'route-branching');
+    const branches = node('span', '', 'route-branches');
+    branches.setAttribute('role', 'list');
+    branches.setAttribute('aria-label', 'Observed outbounds');
+    for (const outbound of outbounds) {
+      const branch = node('span', '', 'route-branch');
+      branch.setAttribute('role', 'listitem');
+      const arrow = node('span', '', 'route-branch-arrow');
+      arrow.setAttribute('aria-hidden', 'true');
+      branch.append(arrow, node('span', outbound));
+      branches.append(branch);
+    }
+    path.append(node('span', prefix), branches);
+    paths.append(path);
+  }
+  route.append(paths);
+  return route;
+}
 /** @param {import('./capture.js').Domain} domain */
 function domainRow(domain) {
   const row = document.createElement('details');
@@ -99,19 +155,6 @@ function domainRow(domain) {
   const summary = document.createElement('summary');
   const evidence = routes?.hosts.find((item) => item.host === domain.host);
   const matches = evidence?.matches ?? [];
-  const paths = [
-    ...new Set(
-      matches.map((match) =>
-        [
-          ...match.path.flatMap((hop) => [hop.rule, hop.output]),
-          match.action === 'block' ? `Blocked (${match.outbound})` : match.outbound,
-        ].join(' → '),
-      ),
-    ),
-  ];
-  const label = paths.length ? paths.join(' · ') : 'No route observed yet';
-  const route = node('div', '', `route-line${matches.length ? ' observed' : ''}`);
-  route.append(node('span', label));
   const title = node('div', '', 'domain-title');
   title.append(node('span', domain.host, 'domain-name'));
   const transports = new Set(matches.map((match) => match.transport.toLowerCase()));
@@ -121,7 +164,7 @@ function domainRow(domain) {
       protocols.append(node('span', protocol.toUpperCase(), `protocol-badge ${protocol}`));
   if (protocols.childElementCount) title.append(protocols);
   const heading = node('div', '', 'domain-heading');
-  heading.append(title, route);
+  heading.append(title, routeLine(matches));
   summary.append(heading, node('span', `${domain.count} req`, 'request-count'));
   const body = node('div', '', 'domain-body');
   const observations = node('div', '', 'domain-observations');

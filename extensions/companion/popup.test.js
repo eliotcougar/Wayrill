@@ -15,6 +15,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
   let empty = false;
   let blocked = false;
   let transports = ['udp', 'tcp', 'udp'];
+  let routeVariants = [];
   let instanceId = 'instance-a';
   let serviceStartedAtMs;
   let lastHosts;
@@ -115,7 +116,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
                             host: 'page.test',
                             matches: empty
                               ? []
-                              : transports.map((transport) => ({
+                              : transports.map((transport, index) => ({
                                   outbound: blocked
                                     ? 'Renamed deny output'
                                     : '<img src=x onerror=alert(1)>',
@@ -140,6 +141,7 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
                                     },
                                   ],
                                   source: 'Xray',
+                                  ...routeVariants[index],
                                 })),
                           },
                         ],
@@ -174,6 +176,30 @@ test('current-tab popup retains last known Block, preserves focus, and recovers 
       ['TCP', 'UDP'],
     );
     assert.equal(document.querySelectorAll('#domains img').length, 0);
+    transports = ['udp', 'tcp', 'udp', 'tcp', 'udp'];
+    routeVariants = [
+      {},
+      { outbound: 'First proxy' },
+      { outbound: 'Second proxy' },
+      { outbound: 'First proxy' },
+      {
+        outbound: 'Direct',
+        path: [{ rule: 'Local sites', output: 'Direct' }],
+      },
+    ];
+    await poll();
+    const shared = document.querySelector('.route-branching');
+    assert.equal(
+      shared.firstElementChild.textContent,
+      'Unmatched traffic → Work → Foreign sites → US',
+    );
+    assert.deepEqual(
+      [...shared.querySelectorAll('[role="listitem"]')].map((branch) => branch.textContent),
+      ['<img src=x onerror=alert(1)>', 'First proxy', 'Second proxy'],
+    );
+    assert.equal(shared.nextElementSibling.textContent, 'Local sites → Direct → Direct');
+    assert.equal(document.querySelectorAll('#domains img').length, 0);
+    routeVariants = [];
     const add = document.querySelector('.add-domain');
     add.click();
     await settle();
