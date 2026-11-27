@@ -40,7 +40,7 @@ export function compileNatRouting(
         String(input.data.settings.tag),
         typeof input.data.native?.original.tag === 'string' ? input.data.native.original.tag : '',
       ]);
-      if (natRuleVariants(row).length !== captureRuleVariants(row, 'capture').length)
+      if (separate && natRuleVariants(row).length !== captureRuleVariants(row, 'capture').length)
         warnings.push(
           `${node.data.label}: ${row.name} — host application and account conditions do not match Windows NAT traffic.`,
         );

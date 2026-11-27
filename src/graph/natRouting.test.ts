@@ -72,3 +72,54 @@ it('preserves guest source conditions, ordered rules and fallback', () => {
   });
   expect(selected[1]).toMatchObject({ outboundTag: 'block' });
 });
+
+it('warns about application conditions only on a dedicated NAT path', () => {
+  const g = fixture(false);
+  const filter = makeNode('routing-filter', { x: 200, y: 200 }, 'filter');
+  Object.assign(
+    filter.data.settings,
+    tableSettings({
+      outputs: [
+        { id: 'chosen', name: 'Application' },
+        { id: 'fallback', name: 'Other' },
+      ],
+      defaultOutput: 'fallback',
+      rules: [
+        {
+          ...row,
+          name: 'Specific app',
+          conditions: {},
+          applications: [
+            {
+              kind: 'process',
+              value: 'launcher.exe',
+              mode: 'name',
+              children: true,
+              enabled: true,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  g.nodes.push(filter);
+  g.edges = [
+    edge('tun', 'traffic', 'filter'),
+    edge('filter', 'chosen', 'direct'),
+    edge('filter', 'fallback', 'block'),
+  ];
+
+  const shared = compileRuntimeGraph(g);
+  expect(shared.warnings.join('\n')).not.toContain('do not match Windows NAT traffic');
+  expect(shared.config.routing).toMatchObject({
+    rules: expect.arrayContaining([
+      expect.objectContaining({ inboundTag: [NAT_ROUTING_TAG], outboundTag: 'block' }),
+    ]),
+  });
+
+  g.nodes[0].data.settings.separateNatTraffic = true;
+  g.edges.push(edge('tun', 'nat-data', 'filter'));
+  expect(compileRuntimeGraph(g).warnings.join('\n')).toContain(
+    'Specific app — host application and account conditions do not match Windows NAT traffic.',
+  );
+});
