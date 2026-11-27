@@ -91,6 +91,19 @@ const nativeStages: Record<NativeActivity['phase'], string> = {
   waitAdapter: 'Waiting for shared adapter IP and DHCP',
   verifySharing: 'Verifying Windows sharing state',
 };
+export type CommandStage = 'prepare' | 'resources' | 'request' | 'reconcile' | 'refresh';
+
+export function canSupersedeRoutingCommand(
+  operation: RuntimeOperation | undefined,
+  stage: CommandStage | undefined,
+) {
+  return (
+    !!operation &&
+    operation !== 'stop' &&
+    (stage === 'prepare' || stage === 'resources' || stage === 'reconcile')
+  );
+}
+
 export function runtimeProgress(runtime: {
   connected: boolean;
   snapshot: {
@@ -99,7 +112,7 @@ export function runtimeProgress(runtime: {
   } | null;
   nativeActivity?: NativeActivity;
   pendingOperation?: RuntimeOperation;
-  commandStage?: 'resources' | 'request' | 'reconcile' | 'refresh';
+  commandStage?: CommandStage;
 }) {
   const active = runtime.connected ? runtime.snapshot?.lifecycle : null;
   const activity = runtime.connected ? runtime.nativeActivity : undefined;
@@ -135,7 +148,9 @@ export function runtimeProgress(runtime: {
               ? 'Confirming command outcome'
               : runtime.commandStage === 'refresh'
                 ? 'Refreshing runtime state'
-                : 'Waiting for service'),
+                : runtime.commandStage === 'prepare'
+                  ? 'Preparing configuration'
+                  : 'Waiting for service'),
       percent: null,
     };
   // Older services expose only the Xray transition. Never use cached offline state.

@@ -169,6 +169,35 @@ struct Upload {
     text: String,
     at: Instant,
 }
+
+const UPLOAD_LIFETIME: Duration = Duration::from_secs(120);
+
+impl Upload {
+    fn prepare(input: Begin) -> Result<Self> {
+        if !["save", "context"].contains(&input.kind.as_str()) && !staged_document(&input.kind)
+            || input.bytes > MAX_UPLOAD
+            || input.kind == "source" && input.bytes > 64 * 1024 * 1024
+        {
+            return Err(invalid("Invalid subscription upload."));
+        }
+        let id = crate::tun::random_id()?;
+        let job = u64::from_str_radix(&id[..13], 16)
+            .map_err(|_| invalid("Cannot create subscription job identity."))?
+            .max(1);
+        Ok(Self {
+            id,
+            job,
+            kind: input.kind,
+            expected: input.bytes,
+            text: String::new(),
+            at: Instant::now(),
+        })
+    }
+
+    fn receipt(&self) -> Value {
+        json!({"token":self.id,"job":self.job,"chunkBytes":CHUNK})
+    }
+}
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Replacement {
@@ -238,6 +267,7 @@ struct State {
     library: Arc<Library>,
     error: Option<ApiError>,
     statuses: BTreeMap<String, Status>,
+    prepared_uploads: BTreeMap<String, Upload>,
     upload: Option<Upload>,
     prepared_runs: BTreeMap<u64, Instant>,
     queue: VecDeque<Work>,
@@ -270,6 +300,12 @@ struct Read {
 struct Begin {
     kind: String,
     bytes: usize,
+}
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StartUpload {
+    Reserved(Token),
+    Direct(Begin),
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -330,6 +366,7 @@ impl Manager {
                 library: Arc::new(library),
                 error,
                 statuses: BTreeMap::new(),
+                prepared_uploads: BTreeMap::new(),
                 upload: None,
                 prepared_runs: BTreeMap::new(),
                 queue: VecDeque::new(),
@@ -457,15 +494,20 @@ impl Manager {
         let mut state = self.state.lock().unwrap();
         // Applying a saved graph must remain possible when the separate library
         // cannot be opened. Source staging never replaces that damaged file.
-        let source_transfer = method == "subscriptions.uploadStart"
-            && input["kind"].as_str().is_some_and(staged_document)
-            || matches!(
-                method,
-                "subscriptions.uploadChunk" | "subscriptions.uploadCommit"
-            ) && state
+        let source_transfer = match method {
+            "subscriptions.uploadPrepare" | "subscriptions.uploadStart" => {
+                input["kind"].as_str().is_some_and(staged_document)
+                    || input["token"]
+                        .as_str()
+                        .and_then(|token| state.prepared_uploads.get(token))
+                        .is_some_and(|upload| staged_document(&upload.kind))
+            }
+            "subscriptions.uploadChunk" | "subscriptions.uploadCommit" => state
                 .upload
                 .as_ref()
-                .is_some_and(|u| staged_document(&u.kind));
+                .is_some_and(|u| staged_document(&u.kind)),
+            _ => false,
+        };
         if state.error.is_some()
             && !source_transfer
             && !matches!(
@@ -515,44 +557,54 @@ impl Manager {
                     json!({"version":version,"initialized":!text.is_empty(),"text":&text[p.offset..end],"nextOffset":end,"totalBytes":text.len(),"appliedSourceHash":applied_source_hash,"stashRestoreId":state.library.stash_restore_id}),
                 )
             }
-            "subscriptions.uploadStart" => {
-                let p: Begin = params(input)?;
-                if !["save", "context"].contains(&p.kind.as_str()) && !staged_document(&p.kind)
-                    || p.bytes > MAX_UPLOAD
-                    || p.kind == "source" && p.bytes > 64 * 1024 * 1024
-                {
-                    return Err(invalid("Invalid subscription upload."));
+            "subscriptions.uploadPrepare" => {
+                state
+                    .prepared_uploads
+                    .retain(|_, upload| upload.at.elapsed() < UPLOAD_LIFETIME);
+                if state.prepared_uploads.len() >= 8 {
+                    return Err(ApiError::new(
+                        "BUSY",
+                        "Too many subscription uploads are pending.",
+                    ));
                 }
+                let upload = Upload::prepare(params(input)?)?;
+                let receipt = upload.receipt();
+                state.prepared_uploads.insert(upload.id.clone(), upload);
+                Ok(receipt)
+            }
+            "subscriptions.uploadStart" => {
+                let request: StartUpload = params(input)?;
                 if state
                     .upload
                     .as_ref()
-                    .is_some_and(|u| u.at.elapsed() < Duration::from_secs(120))
+                    .is_some_and(|u| u.at.elapsed() < UPLOAD_LIFETIME)
                 {
                     return Err(ApiError::new(
                         "BUSY",
                         "Another subscription upload is in progress.",
                     ));
                 }
-                let id = crate::tun::random_id()?;
-                let job = u64::from_str_radix(&id[..13], 16)
-                    .map_err(|_| invalid("Cannot create subscription job identity."))?
-                    .max(1);
-                state.upload = Some(Upload {
-                    id: id.clone(),
-                    job,
-                    kind: p.kind,
-                    expected: p.bytes,
-                    text: String::new(),
-                    at: Instant::now(),
-                });
-                Ok(json!({"token":id,"job":job,"chunkBytes":CHUNK}))
+                let mut upload = match request {
+                    StartUpload::Reserved(p) => state
+                        .prepared_uploads
+                        .remove(&p.token)
+                        .filter(|u| u.at.elapsed() < UPLOAD_LIFETIME)
+                        .ok_or_else(|| {
+                            invalid("Missing or expired subscription upload reservation.")
+                        })?,
+                    StartUpload::Direct(p) => Upload::prepare(p)?,
+                };
+                upload.at = Instant::now();
+                let receipt = upload.receipt();
+                state.upload = Some(upload);
+                Ok(receipt)
             }
             "subscriptions.uploadChunk" => {
                 let p: Chunk = params(input)?;
                 let upload = state
                     .upload
                     .as_mut()
-                    .filter(|u| u.id == p.token && u.at.elapsed() < Duration::from_secs(120))
+                    .filter(|u| u.id == p.token && u.at.elapsed() < UPLOAD_LIFETIME)
                     .ok_or_else(|| invalid("Subscription upload expired."))?;
                 if p.offset != upload.text.len()
                     || p.text.len() > CHUNK
@@ -566,8 +618,16 @@ impl Manager {
             }
             "subscriptions.uploadAbort" => {
                 let p: Token = params(input)?;
+                state.prepared_uploads.remove(&p.token);
                 if state.upload.as_ref().is_some_and(|u| u.id == p.token) {
                     state.upload = None;
+                }
+                if state
+                    .source
+                    .as_ref()
+                    .is_some_and(|(id, _, _)| id == &p.token)
+                {
+                    state.source = None;
                 }
                 if state
                     .outbound_test_source
@@ -591,7 +651,7 @@ impl Manager {
                 let upload = state
                     .upload
                     .as_ref()
-                    .filter(|u| u.id == p.token && u.at.elapsed() < Duration::from_secs(120))
+                    .filter(|u| u.id == p.token && u.at.elapsed() < UPLOAD_LIFETIME)
                     .ok_or_else(|| invalid("Missing or expired subscription upload."))?;
                 if upload.text.len() != upload.expected {
                     return Err(invalid("Incomplete subscription upload."));
@@ -1280,6 +1340,63 @@ mod tests {
             Events::new(),
         )
     }
+    #[test]
+    fn an_unacknowledged_upload_start_can_be_aborted_without_holding_the_slot() {
+        let manager = manager();
+        let prepare = || {
+            manager
+                .handle(
+                    "subscriptions.uploadPrepare",
+                    json!({"kind":"source","bytes":2}),
+                )
+                .unwrap()
+        };
+        let first = prepare();
+        let second = prepare();
+        let first_token = json!({"token":first["token"]});
+        let second_token = json!({"token":second["token"]});
+        manager
+            .handle("subscriptions.uploadStart", first_token.clone())
+            .unwrap();
+        assert_eq!(
+            manager
+                .handle("subscriptions.uploadStart", second_token.clone())
+                .unwrap_err()
+                .code,
+            "BUSY"
+        );
+        manager
+            .handle("subscriptions.uploadAbort", first_token.clone())
+            .unwrap();
+        assert!(manager
+            .handle("subscriptions.uploadStart", first_token.clone())
+            .is_err());
+        manager
+            .handle("subscriptions.uploadStart", second_token.clone())
+            .unwrap();
+        manager
+            .handle("subscriptions.uploadAbort", first_token)
+            .unwrap();
+        manager
+            .handle(
+                "subscriptions.uploadChunk",
+                json!({"token":second["token"],"offset":0,"text":"{}"}),
+            )
+            .unwrap();
+        assert_eq!(
+            manager
+                .handle("subscriptions.uploadCommit", second_token)
+                .unwrap()["sourceGraphToken"],
+            second["token"]
+        );
+        let cancelled = prepare();
+        let token = json!({"token":cancelled["token"]});
+        manager
+            .handle("subscriptions.uploadAbort", token.clone())
+            .unwrap();
+        assert!(manager.handle("subscriptions.uploadStart", token).is_err());
+    }
+
     #[test]
     fn uploads_enforce_utf8_byte_offsets_and_consume_source_tokens_once() {
         let manager = manager();

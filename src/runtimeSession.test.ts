@@ -482,6 +482,50 @@ describe('runtime synchronization', () => {
 });
 
 describe('resource preparation before activation', () => {
+  it('holds the original Apply ticket during resource preparation and lets Stop supersede it', async () => {
+    const download = deferred<{ ready: boolean; busy: boolean }>();
+    const requested = deferred<void>();
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      switch (method) {
+        case 'service.sync': {
+          const sync = view(snapshot(1, 'running'));
+          sync.hello.capabilities = ['routing.commandReceipts'];
+          return sync;
+        }
+        case 'service.operationPrepare':
+          return { ticket: params?.method };
+        case 'resources.scheduleVersion':
+          return { instanceId: 'service-a', revision: 4 };
+        case 'resources.ensure':
+          requested.resolve();
+          return download.promise;
+        case 'core.stop':
+        case 'service.operationGet':
+          return {};
+        default:
+          throw new Error(method);
+      }
+    });
+    const session = new RuntimeSession(request as ServiceRequest);
+    await session.refresh();
+    const apply = session.run('config.applyAndStart', {
+      config: { routing: { domain: ['geosite:private'] } },
+      resources: [],
+    });
+    await requested.promise;
+    expect(request).toHaveBeenCalledWith('resources.ensure', {
+      files: [],
+      required: ['geosite.dat'],
+      base: { instanceId: 'service-a', revision: 4 },
+      routingTicket: 'config.applyAndStart',
+    });
+    await session.run('core.stop');
+    download.resolve({ ready: true, busy: false });
+    await expect(apply).resolves.toBe(routingCommandSuperseded);
+    expect(request.mock.calls.some(([method]) => method === 'config.applyAndStart')).toBe(false);
+    expect(session.getSnapshot().notice).toContain('Stop completed.');
+  });
+
   it('waits for asynchronous downloads and preserves the running config when preparation fails', async () => {
     vi.useFakeTimers();
     const env = service();

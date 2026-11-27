@@ -9,6 +9,7 @@ import {
   errorText,
   mutationOutcomeUnknown,
   serviceCall,
+  type ResourceScheduleVersion,
   type ResourceWarningReport,
 } from '../serviceClient';
 import {
@@ -92,11 +93,13 @@ export default function ResourceFields({
     }
   };
   const update = (files: ResourceFile[]) =>
-    run(() =>
-      serviceCall<ResourceStatus>('resources.update', {
+    run(async () => {
+      const base = await serviceCall<ResourceScheduleVersion>('resources.scheduleVersion');
+      return serviceCall<ResourceStatus>('resources.update', {
+        base,
         files: resourceFiles({ ...value, files }),
-      }),
-    );
+      });
+    });
   const importFile = async (file: File, entry: ResourceFile) => {
     if (!file.size || file.size > 128 * 1024 * 1024)
       throw new Error('Choose a nonempty DAT file up to 128 MiB.');

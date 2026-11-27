@@ -33,10 +33,11 @@ it('coalesces pending context without holding saves or route assignments behind 
     job = 0;
   const contexts: unknown[] = [];
   mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
-    if (method === 'subscriptions.uploadStart') {
+    if (method === 'subscriptions.uploadPrepare') {
       upload = '';
       return { token: String(p.kind), job: job + 1, chunkBytes: 512 };
     }
+    if (method === 'subscriptions.uploadStart') return {};
     if (method === 'subscriptions.uploadChunk') {
       upload += String(p.text);
       return {};
@@ -91,7 +92,8 @@ it('orders identity-only replacement after the saved library without staging a r
     finish = resolve;
   });
   mock.call.mockImplementation(async (method: string) => {
-    if (method === 'subscriptions.uploadStart') return { token: 'save', job: 1, chunkBytes: 512 };
+    if (method === 'subscriptions.uploadPrepare') return { token: 'save', job: 1, chunkBytes: 512 };
+    if (method === 'subscriptions.uploadStart') return {};
     if (method === 'subscriptions.uploadChunk') return {};
     if (method === 'subscriptions.uploadCommit') return { job: 1 };
     if (method === 'subscriptions.job') {
@@ -129,7 +131,8 @@ it('uploads Unicode by byte offsets without splitting a code point', async () =>
   let result = '',
     expected = 0;
   mock.call.mockImplementation(async (method: string, p: Record<string, unknown>) => {
-    if (method === 'subscriptions.uploadStart') return { token: 'token', chunkBytes: 5 };
+    if (method === 'subscriptions.uploadPrepare') return { token: 'token', chunkBytes: 5 };
+    if (method === 'subscriptions.uploadStart') return {};
     if (method === 'subscriptions.uploadChunk') {
       expect(p.offset).toBe(expected);
       expected += new TextEncoder().encode(String(p.text)).length;
@@ -159,16 +162,21 @@ it('restarts a chunked read instead of joining different library revisions', asy
   const { readSubscriptionDocument } = await import('./serviceSubscriptions');
   expect(await readSubscriptionDocument('stash')).toEqual({ text: 'new', version: 2 });
 });
-it('aborts an incomplete transfer and preserves the original upload failure', async () => {
-  mock.call.mockImplementation(async (method: string) => {
-    if (method === 'subscriptions.uploadStart') return { token: 'token', chunkBytes: 512 };
-    if (method === 'subscriptions.uploadChunk') throw new Error('Disconnected');
-    return {};
-  });
-  const { stageSubscriptionGraph } = await import('./serviceSubscriptions');
-  await expect(stageSubscriptionGraph('graph')).rejects.toThrow('Disconnected');
-  expect(mock.call).toHaveBeenLastCalledWith('subscriptions.uploadAbort', { token: 'token' });
-});
+it.each(['subscriptions.uploadStart', 'subscriptions.uploadChunk'])(
+  'releases an incomplete transfer after a lost %s reply',
+  async (failedMethod) => {
+    mock.call.mockImplementation(async (method: string) => {
+      if (method === 'subscriptions.uploadPrepare')
+        return { token: 'token', job: 42, chunkBytes: 512 };
+      if (method === failedMethod) throw new Error('Disconnected');
+      return {};
+    });
+    const { stageSubscriptionGraph } = await import('./serviceSubscriptions');
+    await expect(stageSubscriptionGraph('graph')).rejects.toThrow('Disconnected');
+    expect(mock.call).toHaveBeenCalledWith('subscriptions.uploadStart', { token: 'token' });
+    expect(mock.call).toHaveBeenLastCalledWith('subscriptions.uploadAbort', { token: 'token' });
+  },
+);
 
 function libraryServer(initialized = true) {
   const original: Stash = {
@@ -193,10 +201,11 @@ function libraryServer(initialized = true) {
         totalBytes: new TextEncoder().encode(remote ?? '').length,
         stashRestoreId,
       };
-    if (method === 'subscriptions.uploadStart') {
+    if (method === 'subscriptions.uploadPrepare') {
       upload = '';
       return { token: 'save', job: ++job, chunkBytes: 512 * 1024 };
     }
+    if (method === 'subscriptions.uploadStart') return {};
     if (method === 'subscriptions.uploadChunk') {
       upload += String(p.text);
       return {};

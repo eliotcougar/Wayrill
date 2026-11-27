@@ -28,7 +28,7 @@ async function settleSave() {
   const { token, job } = pending.receipt;
   // Commit and abort share the service's upload lock. Either the upload is
   // retired here, or the job already exists and must settle before we read.
-  await serviceCall('subscriptions.uploadAbort', { token });
+  await readSubscriptionProgress('subscriptions.uploadAbort', { token });
   try {
     await subscriptionJobResult(job);
   } catch (error) {
@@ -117,7 +117,8 @@ export async function readSubscriptionDocument(kind: 'stash' | 'applied') {
   throw new Error('Subscription document changed while reading.');
 }
 export async function readSubscriptionProgress<T>(
-  method: 'subscriptions.job' | 'subscriptions.cancel' | 'pool.status',
+  method:
+    'subscriptions.job' | 'subscriptions.cancel' | 'subscriptions.uploadAbort' | 'pool.status',
   params?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
@@ -130,7 +131,8 @@ export async function readSubscriptionProgress<T>(
       const failure = error as Partial<ServiceError> | null;
       const retry =
         (failure?.code === 'BUSY' && failure.retryable) ||
-        (method === 'subscriptions.cancel' && mutationOutcomeUnknown(error));
+        ((method === 'subscriptions.cancel' || method === 'subscriptions.uploadAbort') &&
+          mutationOutcomeUnknown(error));
       if (!retry || Date.now() >= deadline) throw error;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
@@ -175,11 +177,13 @@ async function transferSubscriptionDocument(
     kind === 'source' ? String(payload) : JSON.stringify(payload),
   );
   const started = await serviceCall<UploadReceipt & { chunkBytes: number }>(
-    'subscriptions.uploadStart',
+    'subscriptions.uploadPrepare',
     { kind, bytes: bytes.length },
   );
   let committed = false;
   try {
+    signal?.throwIfAborted();
+    await serviceCall('subscriptions.uploadStart', { token: started.token });
     for (let offset = 0; offset < bytes.length;) {
       signal?.throwIfAborted();
       let end = Math.min(offset + started.chunkBytes, bytes.length);
@@ -201,7 +205,9 @@ async function transferSubscriptionDocument(
     return result;
   } finally {
     if (!committed)
-      await serviceCall('subscriptions.uploadAbort', { token: started.token }).catch(() => {});
+      await readSubscriptionProgress('subscriptions.uploadAbort', { token: started.token }).catch(
+        () => {},
+      );
   }
 }
 // Only byte transfers share the service's single upload slot. Waiting for a

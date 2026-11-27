@@ -1,5 +1,11 @@
 import type { SubscriptionStatus } from './profiles/serviceSubscriptions';
-import { runtimeOperation, type RuntimeOperation, type NativeActivity } from './runtimeProgress';
+import {
+  canSupersedeRoutingCommand,
+  runtimeOperation,
+  type CommandStage,
+  type RuntimeOperation,
+  type NativeActivity,
+} from './runtimeProgress';
 import { mutationOutcomeUnknown } from './serviceClient';
 import { interruptible, waitForTestJob } from './outboundTestJobs';
 import { resourceDependencies } from './graph/resources';
@@ -52,7 +58,7 @@ export interface RuntimeState {
   busy: boolean;
   pendingOperation?: RuntimeOperation;
   nativeActivity?: NativeActivity;
-  commandStage?: 'resources' | 'request' | 'reconcile' | 'refresh';
+  commandStage?: CommandStage;
   error: string;
   errorAction?: string;
   notice: string;
@@ -422,23 +428,42 @@ export class RuntimeSession {
   ) => {
     if (
       this.state.busy &&
-      !(method === 'core.stop' && this.receiptWait && this.state.pendingOperation !== 'stop')
+      !(
+        method === 'core.stop' &&
+        canSupersedeRoutingCommand(this.state.pendingOperation, this.state.commandStage)
+      )
     )
       throw new Error('Wait for the current service operation to finish.');
     this.receiptWait?.abort();
     this.receiptWait = undefined;
     const command = ++this.command;
+    const current = () => this.command === command;
+    const operation = runtimeOperation(method);
     this.update({
       busy: true,
-      pendingOperation: runtimeOperation(method),
-      commandStage: 'request',
+      pendingOperation: operation,
+      commandStage: operation && operation !== 'stop' ? 'prepare' : 'request',
       error: '',
       notice: '',
     });
     let acknowledged = false;
     let dispatched = false;
-    let tracked = false;
+    const instanceId = this.state.snapshot?.instanceId;
+    const tracked =
+      !!instanceId && !!operation && this.state.capabilities.includes('routing.commandReceipts');
+    let ticket: string | undefined;
     try {
+      // Register the intent before any preflight can block on a slow download or
+      // graph transfer. A Stop from the tray can revoke this same ticket.
+      if (tracked) {
+        ticket = (
+          await this.request<{ ticket: string }>('service.operationPrepare', {
+            method,
+            instanceId,
+          })
+        ).ticket;
+      }
+      if (!current()) return routingCommandSuperseded;
       let payload = params;
       if (params.resources && params.config) {
         const { resources, ...rest } = params;
@@ -448,10 +473,12 @@ export class RuntimeSession {
           const deadline = Date.now() + 300_000;
           const base = await this.request<ResourceScheduleVersion>('resources.scheduleVersion');
           for (;;) {
+            if (!current()) return routingCommandSuperseded;
             const prepared = await this.request<{ ready: boolean; busy: boolean }>(
               'resources.ensure',
-              { files: resources, required, base },
+              { files: resources, required, base, ...(ticket ? { routingTicket: ticket } : {}) },
             );
+            if (!current()) return routingCommandSuperseded;
             if (prepared.ready && !prepared.busy) break;
             if (!prepared.busy || Date.now() > deadline)
               throw new Error('Resource files are not ready. Review Settings → Resource files.');
@@ -461,26 +488,16 @@ export class RuntimeSession {
         }
         payload = rest;
       }
-      this.update({ commandStage: 'request' });
+      if (operation && operation !== 'stop') this.update({ commandStage: 'prepare' });
       if (prepare) payload = { ...payload, ...(await prepare()) };
-      const instanceId = this.state.snapshot?.instanceId;
-      tracked =
-        !!instanceId &&
-        !!runtimeOperation(method) &&
-        this.state.capabilities.includes('routing.commandReceipts');
-      const ticket = tracked
-        ? (
-            await this.request<{ ticket: string }>('service.operationPrepare', {
-              method,
-              instanceId,
-            })
-          ).ticket
-        : undefined;
+      if (!current()) return routingCommandSuperseded;
+      this.update({ commandStage: 'request' });
       dispatched = true;
       let result: unknown;
       try {
         result = await this.request<unknown>(method, ticket ? { ...payload, ticket } : payload);
       } catch (error) {
+        if (!current()) return routingCommandSuperseded;
         if (!ticket || !instanceId || !mutationOutcomeUnknown(error)) throw error;
         const wait = new AbortController();
         this.receiptWait = wait;
@@ -495,6 +512,7 @@ export class RuntimeSession {
       acknowledged = true;
       this.update({ commandStage: 'refresh' });
       await this.refresh();
+      if (!current()) return routingCommandSuperseded;
       this.update({ notice: commandNotice(method, this.state.snapshot) });
       return result;
     } catch (error) {
@@ -506,6 +524,7 @@ export class RuntimeSession {
           /* Keep the command failure alongside offline state. */
         }
       }
+      if (!current()) return routingCommandSuperseded;
       this.update({
         errorAction: method,
         error: acknowledged
@@ -516,7 +535,11 @@ export class RuntimeSession {
       });
       throw error;
     } finally {
-      if (this.command === command)
+      if (ticket && !dispatched) {
+        // A failed or superseded preparation cannot leave an unused live ticket.
+        void this.request('service.operationGet', { ticket }).catch(() => {});
+      }
+      if (current())
         this.update({
           busy: false,
           pendingOperation: undefined,

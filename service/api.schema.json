@@ -15,6 +15,24 @@
     }
   ],
   "$defs": {
+    "resourceScheduleVersion": {
+      "type": "object",
+      "properties": {
+        "instanceId": { "type": "string" },
+        "revision": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["instanceId", "revision"],
+      "additionalProperties": false
+    },
+    "subscriptionUploadSpec": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["save", "context", "source", "outbound-tests"] },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 268435456 }
+      },
+      "required": ["kind", "bytes"],
+      "additionalProperties": false
+    },
     "routingActivity": {
       "type": "object",
       "properties": {
@@ -955,6 +973,7 @@
             "params": {
               "type": "object",
               "properties": {
+                "base": { "$ref": "#/$defs/resourceScheduleVersion" },
                 "files": {
                   "type": "array",
                   "maxItems": 256,
@@ -993,6 +1012,8 @@
             "params": {
               "type": "object",
               "properties": {
+                "base": { "$ref": "#/$defs/resourceScheduleVersion" },
+                "routingTicket": { "type": "string", "pattern": "^[0-9a-fA-F]{32}$" },
                 "files": {
                   "type": "array",
                   "maxItems": 256,
@@ -2254,30 +2275,10 @@
               "maximum": 18446744073709552000
             },
             "method": {
-              "const": "subscriptions.uploadStart"
+              "const": "subscriptions.uploadPrepare"
             },
             "params": {
-              "type": "object",
-              "properties": {
-                "kind": {
-                  "enum": [
-                    "save",
-                    "context",
-                    "source",
-                    "outbound-tests"
-                  ]
-                },
-                "bytes": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 268435456
-                }
-              },
-              "required": [
-                "kind",
-                "bytes"
-              ],
-              "additionalProperties": false
+              "$ref": "#/$defs/subscriptionUploadSpec"
             }
           },
           "required": [
@@ -2286,6 +2287,27 @@
             "method",
             "params"
           ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "apiVersion": { "const": 1 },
+            "id": { "type": "integer", "minimum": 0, "maximum": 18446744073709552000 },
+            "method": { "const": "subscriptions.uploadStart" },
+            "params": {
+              "oneOf": [
+                { "$ref": "#/$defs/subscriptionUploadSpec" },
+                {
+                  "type": "object",
+                  "properties": { "token": { "type": "string", "pattern": "^[0-9a-fA-F]{32}$" } },
+                  "required": ["token"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": ["apiVersion", "id", "method", "params"],
           "additionalProperties": false
         },
         {

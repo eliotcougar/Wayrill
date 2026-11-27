@@ -70,7 +70,7 @@ describe('protected document lifecycle', () => {
   });
   it('resumes the same startup load after a service restart without saving over the journal', async () => {
     mock.read
-      .mockRejectedValueOnce({ code: 'SERVICE_UNAVAILABLE', message: 'Starting' })
+      .mockRejectedValueOnce({ code: 'PROTECTED_STORAGE_BUSY', message: 'Draft file is locked' })
       .mockRejectedValueOnce({ code: 'SUBSCRIPTION_JOB_UNAVAILABLE', message: 'Lost job' })
       .mockResolvedValueOnce('restored workspace');
     const load = vi.fn();

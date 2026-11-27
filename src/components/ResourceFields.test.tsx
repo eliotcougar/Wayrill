@@ -55,12 +55,15 @@ it('keeps at most one status poll in flight and stops polling on close', async (
 });
 it('updates every URL source in one batch and rejects duplicate clicks before rerender', async () => {
   let finish!: (value: unknown) => void;
+  const base = { instanceId: 'service-a', revision: 3 };
   vi.mocked(serviceCall).mockImplementation((method) =>
-    method === 'resources.update'
-      ? new Promise<any>((resolve) => {
-          finish = resolve;
-        })
-      : Promise.resolve({ busy: false, files: [] }),
+    method === 'resources.scheduleVersion'
+      ? Promise.resolve(base)
+      : method === 'resources.update'
+        ? new Promise<any>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ busy: false, files: [] }),
   );
   const value = factoryResources();
   value.files.push({
@@ -96,6 +99,7 @@ it('updates every URL source in one batch and rejects duplicate clicks before re
     vi.mocked(serviceCall).mock.calls.filter(([method]) => method === 'resources.update'),
   ).toHaveLength(1);
   expect(serviceCall).toHaveBeenCalledWith('resources.update', {
+    base,
     files: resourceFiles({ ...value, files: value.files.filter((file) => file.url) }),
   });
   await act(() => finish({ busy: true, files: [] }));
@@ -103,11 +107,13 @@ it('updates every URL source in one batch and rejects duplicate clicks before re
 it('does not let an older poll overwrite an acknowledged update', async () => {
   let poll!: (v: unknown) => void;
   vi.mocked(serviceCall).mockImplementation((method) =>
-    method === 'resources.update'
-      ? Promise.resolve({ busy: true, files: [] })
-      : new Promise<any>((yes) => {
-          poll = yes;
-        }),
+    method === 'resources.scheduleVersion'
+      ? Promise.resolve({ instanceId: 'service-a', revision: 3 })
+      : method === 'resources.update'
+        ? Promise.resolve({ busy: true, files: [] })
+        : new Promise<any>((yes) => {
+            poll = yes;
+          }),
   );
   await act(async () =>
     root.render(<ResourceFields value={factoryResources()} onChange={() => {}} />),

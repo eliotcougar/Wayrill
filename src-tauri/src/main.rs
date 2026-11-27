@@ -46,21 +46,26 @@ async fn protected_read(
     app: tauri::AppHandle,
     key: String,
     lock: tauri::State<'_, Arc<VaultLock>>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, vault::ReadError> {
     if key == "pools" {
-        return Err("Pool settings are managed in Wayrill Pool.".into());
+        return Err(vault::ReadError::invalid(
+            "Pool settings are managed in Wayrill Pool.",
+        ));
     }
     let base = app
         .path()
         .app_local_data_dir()
-        .map_err(|_| "Cannot find app storage.")?;
+        .map_err(|_| vault::ReadError::invalid("Cannot find app storage."))?;
     let lock = lock.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = lock.write.lock().map_err(|_| "Storage is busy.")?;
+        let _guard = lock
+            .write
+            .lock()
+            .map_err(|_| vault::ReadError::invalid("Storage is unavailable."))?;
         vault::read(&base, &key)
     })
     .await
-    .map_err(|_| "Storage task failed.")?
+    .map_err(|_| vault::ReadError::invalid("Storage task failed."))?
 }
 #[tauri::command]
 async fn protected_write(

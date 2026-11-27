@@ -1,14 +1,14 @@
 // Fixed per-user storage slots. No caller-supplied filesystem paths.
 use std::{
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{self, Read, Write},
     os::windows::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     ptr,
     sync::atomic::{AtomicU64, Ordering},
 };
 use windows_sys::Win32::{
-    Foundation::LocalFree,
+    Foundation::{LocalFree, ERROR_BUSY, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION},
     Security::Cryptography::{
         CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     },
@@ -98,27 +98,74 @@ fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     }
     Ok(result)
 }
-pub fn read(base: &Path, key: &str) -> Result<Option<String>, String> {
-    let (name, limit) = slot(key)?;
+#[derive(Debug, serde::Serialize)]
+pub struct ReadError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ReadError {
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Self {
+            code: "PROTECTED_STORAGE_READ",
+            message: message.into(),
+        }
+    }
+
+    fn from_io(error: io::Error) -> Self {
+        let temporary = matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+        ) || matches!(
+            error.raw_os_error().map(|code| code as u32),
+            Some(ERROR_BUSY | ERROR_LOCK_VIOLATION | ERROR_SHARING_VIOLATION)
+        );
+        if temporary {
+            Self {
+                code: "PROTECTED_STORAGE_BUSY",
+                message: "Saved data is temporarily in use. Wayrill will try again.".into(),
+            }
+        } else {
+            Self::invalid("Cannot read protected storage.")
+        }
+    }
+}
+
+impl From<ReadError> for String {
+    fn from(error: ReadError) -> Self {
+        error.message
+    }
+}
+
+pub fn read(base: &Path, key: &str) -> Result<Option<String>, ReadError> {
+    let (name, limit) = slot(key).map_err(ReadError::invalid)?;
     read_document(&base.join(name), limit)
 }
-pub fn read_document(path: &Path, limit: usize) -> Result<Option<String>, String> {
-    let meta = match fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("Cannot read protected storage.".into()),
+pub fn read_document(path: &Path, limit: usize) -> Result<Option<String>, ReadError> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(ReadError::from_io(error)),
     };
-    if meta.len() > (limit + 65536) as u64 {
-        return Err("Protected storage exceeds its limit.".into());
+    let max_bytes = limit + 65536;
+    let metadata = file.metadata().map_err(ReadError::from_io)?;
+    if metadata.len() > max_bytes as u64 {
+        return Err(ReadError::invalid("Protected storage exceeds its limit."));
     }
-    let encrypted = fs::read(path).map_err(|_| "Cannot read protected storage.")?;
-    let clear = crypt(&encrypted, false)?;
+    let mut encrypted = Vec::with_capacity(metadata.len() as usize);
+    file.take((max_bytes + 1) as u64)
+        .read_to_end(&mut encrypted)
+        .map_err(ReadError::from_io)?;
+    if encrypted.len() > max_bytes {
+        return Err(ReadError::invalid("Protected storage exceeds its limit."));
+    }
+    let clear = crypt(&encrypted, false).map_err(ReadError::invalid)?;
     if clear.len() > limit {
-        return Err("Protected storage exceeds its limit.".into());
+        return Err(ReadError::invalid("Protected storage exceeds its limit."));
     }
     String::from_utf8(clear)
         .map(Some)
-        .map_err(|_| "Protected storage is not valid text.".into())
+        .map_err(|_| ReadError::invalid("Protected storage is not valid text."))
 }
 pub fn write(base: &Path, key: &str, text: &str) -> Result<(), String> {
     let (name, limit) = slot(key)?;
@@ -180,6 +227,34 @@ pub fn write_document(path: &Path, text: &str, limit: usize) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_sharing_violation_is_retryable_and_corrupt_ciphertext_is_terminal() {
+        let base = std::env::temp_dir().join(format!("wayrill-vault-read-{}", std::process::id()));
+        write(&base, "workspace", "saved draft").unwrap();
+        let path = base.join("workspace.dpapi");
+        let exclusive = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert_eq!(
+            read(&base, "workspace").unwrap_err().code,
+            "PROTECTED_STORAGE_BUSY"
+        );
+        drop(exclusive);
+        assert_eq!(
+            read(&base, "workspace").unwrap().as_deref(),
+            Some("saved draft")
+        );
+        fs::write(&path, b"not ciphertext").unwrap();
+        assert_eq!(
+            read(&base, "workspace").unwrap_err().code,
+            "PROTECTED_STORAGE_READ"
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"not ciphertext");
+        fs::remove_dir_all(&base).unwrap();
+    }
+
     #[test]
     fn stores_large_workspace_with_internal_subscription_snapshots() {
         let base = std::env::temp_dir().join(format!("wayrill-vault-pool-{}", std::process::id()));

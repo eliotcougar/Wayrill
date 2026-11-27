@@ -404,6 +404,15 @@ struct ScheduleVersion {
     instance_id: String,
     revision: u64,
 }
+
+fn schedule_changed() -> ApiError {
+    let mut error = ApiError::new(
+        "RESOURCE_SCHEDULE_CHANGED",
+        "The resource schedule changed. Try again using the current Resource files settings.",
+    );
+    error.retryable = true;
+    error
+}
 struct Upload {
     file: String,
     kind: String,
@@ -975,12 +984,25 @@ impl Manager {
             ));
         }
         if base.revision != self.schedule_revision {
-            let mut error = ApiError::new(
-                "RESOURCE_SCHEDULE_CHANGED",
-                "The resource schedule changed. Read the current revision before trying again.",
-            );
-            error.retryable = true;
-            return Err(error);
+            return Err(schedule_changed());
+        }
+        Ok(())
+    }
+    fn check_update_plans(&self, files: &[FilePlan]) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        for plan in files {
+            // A delayed command must not take the current destination from one
+            // revision and the URL or download path from another.
+            if state.stored.files.iter().any(|current| {
+                ((!plan.id.is_empty() && current.id == plan.id)
+                    || current.file.eq_ignore_ascii_case(&plan.file))
+                    && (!current.file.eq_ignore_ascii_case(&plan.file)
+                        || current.kind != plan.kind
+                        || current.url != plan.url
+                        || current.through_wayrill != plan.through_wayrill)
+            }) {
+                return Err(schedule_changed());
+            }
         }
         Ok(())
     }
@@ -1248,8 +1270,15 @@ impl Manager {
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
+        struct Update {
+            base: Option<ScheduleVersion>,
+            files: Vec<FilePlan>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct Ensure {
             base: Option<ScheduleVersion>,
+            routing_ticket: Option<String>,
             files: Vec<FilePlan>,
             required: Vec<String>,
         }
@@ -1282,7 +1311,7 @@ impl Manager {
         }
         if matches!(
             method,
-            "resources.browse" | "resources.ensure" | "resources.uploadBegin"
+            "resources.browse" | "resources.ensure" | "resources.update" | "resources.uploadBegin"
         ) {
             self.reconcile()?;
         }
@@ -1349,27 +1378,36 @@ impl Manager {
                 Ok(self.snapshot())
             }
             "resources.update" => {
-                let p: Files = params(input)?;
-                let files = self.current_plans(p.files)?;
-                self.start(
-                    files.into_iter().filter(|p| !p.url.is_empty()).collect(),
-                    false,
-                )
+                let p: Update = params(input)?;
+                if let Some(base) = &p.base {
+                    self.check_schedule_version(base)?;
+                }
+                validate_plans(&p.files)?;
+                let plans = p
+                    .files
+                    .into_iter()
+                    .filter(|p| !p.url.is_empty())
+                    .collect::<Vec<_>>();
+                self.check_update_plans(&plans)?;
+                self.start(plans, false)
             }
             "resources.ensure" => {
                 let mut p: Ensure = params(input)?;
+                if let Some(ticket) = p.routing_ticket.as_deref() {
+                    self.events.receipts.check_prepared_routing(ticket)?;
+                }
                 p.required.sort();
                 p.required.dedup();
                 if p.required.len() > 256 || p.required.iter().any(|f| !valid_name(f)) {
                     return Err(invalid("Invalid resource dependencies."));
                 }
                 validate_plans(&p.files)?;
-                if self
+                let renamed = self
                     .current_plans(p.files.clone())?
                     .iter()
                     .zip(&p.files)
-                    .any(|(current, expected)| current.file != expected.file)
-                {
+                    .any(|(current, expected)| current.file != expected.file);
+                if renamed {
                     let s = self.state.lock().unwrap();
                     if s.busy || self.upload_active() {
                         return Ok(json!({"ready":false,"busy":true}));
@@ -1438,6 +1476,11 @@ impl Manager {
                 let busy = s.busy;
                 drop(s);
                 if !plans.is_empty() && !busy {
+                    if !renamed {
+                        if let Some(base) = &p.base {
+                            self.check_schedule_version(base)?;
+                        }
+                    }
                     self.start(plans, false)?;
                 }
                 Ok(json!({"ready":missing.is_empty(),"busy":self.state.lock().unwrap().busy}))
@@ -1991,20 +2034,11 @@ mod transactional_tests {
         staged.file = "office.dat".into();
         staged.url = "https://example.invalid/never-requested.dat".into();
         staged.through_wayrill = true;
-        manager
+        let error = manager
             .handle("resources.update", json!({"files":[staged]}))
-            .unwrap();
-        manager.worker.take().unwrap().join().unwrap();
-        assert!(manager.state.lock().unwrap().stored.metadata["qa.dat"]
-            .last_error
-            .is_some());
-        assert!(!manager
-            .state
-            .lock()
-            .unwrap()
-            .stored
-            .metadata
-            .contains_key("office.dat"));
+            .unwrap_err();
+        assert_eq!(error.code, "RESOURCE_SCHEDULE_CHANGED");
+        assert!(manager.worker.is_none());
         let upload = manager
             .handle(
                 "resources.uploadBegin",
@@ -2602,6 +2636,47 @@ mod transactional_tests {
             )
             .is_ok());
     }
+    #[test]
+    fn a_delayed_download_cannot_use_the_old_source_for_a_renamed_file() {
+        let lab = Lab::new();
+        let mut manager = lab.manager();
+        let mut old = plan();
+        old.url = "https://old.example/geoip.dat".into();
+        old.fetch_on_use = true;
+        manager.configure(vec![old.clone()], true).unwrap();
+        let before = manager
+            .handle("resources.scheduleVersion", json!({}))
+            .unwrap();
+
+        let mut new = old.clone();
+        new.file = "renamed.dat".into();
+        new.url = "https://new.example/geoip.dat".into();
+        manager.configure(vec![new.clone()], true).unwrap();
+        let after = manager
+            .handle("resources.scheduleVersion", json!({}))
+            .unwrap();
+        let stale = manager.handle("resources.update", json!({"files":[old],"base":before}));
+        assert_eq!(stale.unwrap_err().code, "RESOURCE_SCHEDULE_CHANGED");
+        let legacy = manager.handle("resources.update", json!({"files":[old]}));
+        assert_eq!(legacy.unwrap_err().code, "RESOURCE_SCHEDULE_CHANGED");
+
+        old.file.clone_from(&new.file);
+        let stale_url = manager.handle("resources.update", json!({"files":[old],"base":after}));
+        assert_eq!(stale_url.unwrap_err().code, "RESOURCE_SCHEDULE_CHANGED");
+        let stale_preflight = manager.handle(
+            "resources.ensure",
+            json!({
+                "files":[old], "required":[new.file], "base":before
+            }),
+        );
+        assert_eq!(
+            stale_preflight.unwrap_err().code,
+            "RESOURCE_SCHEDULE_CHANGED"
+        );
+        assert!(manager.worker.is_none());
+        assert!(!lab.root.join("assets/renamed.dat").exists());
+    }
+
     #[test]
     fn a_late_resource_schedule_cannot_replace_a_newer_accepted_schedule() {
         let lab = Lab::new();

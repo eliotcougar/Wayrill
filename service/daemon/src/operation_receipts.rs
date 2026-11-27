@@ -13,6 +13,20 @@ use wayrill_protocol::{params, ApiError, Result};
 const DIAGNOSTIC: &str = "routing.diagnosticStart";
 const CAPACITY: usize = 64;
 
+fn preparation_lifetime(method: &str) -> Duration {
+    // The editor can wait up to five minutes for required DAT files before dispatch.
+    Duration::from_secs(
+        if matches!(
+            method,
+            "config.apply" | "config.applyAndStart" | "config.refreshOutbounds"
+        ) {
+            600
+        } else {
+            120
+        },
+    )
+}
+
 pub fn tracks_routing(method: &str) -> bool {
     matches!(
         method,
@@ -95,7 +109,7 @@ impl Receipts {
     fn prepare(&self, method: &str) -> Result<Value> {
         let ticket = crate::tun::random_id()?;
         let mut book = self.0.lock().unwrap();
-        book.entries.retain(|entry| !matches!(entry.phase, Phase::Prepared(at) if at.elapsed() > Duration::from_secs(120)));
+        book.entries.retain(|entry| !matches!(entry.phase, Phase::Prepared(at) if at.elapsed() > preparation_lifetime(&entry.method)));
         if book.entries.len() >= CAPACITY {
             let index = book
                 .entries
@@ -139,7 +153,7 @@ impl Receipts {
             .find(|entry| entry.ticket == ticket && entry.method == method)
             .ok_or_else(unavailable)?;
         match &entry.phase {
-            Phase::Prepared(at) if at.elapsed() <= Duration::from_secs(120) => {
+            Phase::Prepared(at) if at.elapsed() <= preparation_lifetime(method) => {
                 entry.phase = Phase::Queued
             }
             Phase::Finished(Err(error)) => return Err(error.clone()),
@@ -154,6 +168,20 @@ impl Receipts {
             receipts: self.clone(),
             ticket,
         }))
+    }
+
+    pub fn check_prepared_routing(&self, ticket: &str) -> Result<()> {
+        let book = self.0.lock().unwrap();
+        let entry = book
+            .entries
+            .iter()
+            .find(|entry| entry.ticket == ticket && tracks_routing(&entry.method))
+            .ok_or_else(unavailable)?;
+        match &entry.phase {
+            Phase::Prepared(at) if at.elapsed() <= preparation_lifetime(&entry.method) => Ok(()),
+            Phase::Finished(Err(error)) => Err(error.clone()),
+            _ => Err(unavailable()),
+        }
     }
 
     pub fn get_routing(&self, input: Value) -> Result<Value> {
@@ -362,6 +390,9 @@ mod tests {
     #[test]
     fn explicit_stop_prevents_queued_restart_but_does_not_cancel_a_diagnostic() {
         let receipts = Receipts::default();
+        let mut preparing_apply = receipts.prepare("config.applyAndStart").unwrap();
+        let apply_ticket = preparing_apply["ticket"].as_str().unwrap();
+        receipts.check_prepared_routing(apply_ticket).unwrap();
         let mut restart = receipts.prepare("core.restart").unwrap();
         let work = receipts
             .admit("core.restart", &mut restart)
@@ -373,6 +404,17 @@ mod tests {
             .unwrap()
             .unwrap();
         receipts.stop_pending_routing();
+        assert_eq!(
+            receipts
+                .check_prepared_routing(apply_ticket)
+                .unwrap_err()
+                .code,
+            "COMMAND_SUPERSEDED"
+        );
+        assert!(matches!(
+            receipts.admit("config.applyAndStart", &mut preparing_apply),
+            Err(error) if error.code == "COMMAND_SUPERSEDED"
+        ));
         assert_eq!(work.begin().unwrap_err().code, "COMMAND_SUPERSEDED");
         probe.begin().unwrap();
     }

@@ -13,6 +13,7 @@ function canRetryRead(error: unknown) {
     'BUSY',
     'DISCONNECTED',
     'OS_ERROR',
+    'PROTECTED_STORAGE_BUSY',
     'SERVICE_STOPPING',
     'SERVICE_UNAVAILABLE',
     'SUBSCRIPTION_JOB_UNAVAILABLE',

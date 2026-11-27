@@ -1,5 +1,5 @@
 import { isDisabledInbound } from './graph/inboundState';
-import { runtimeProgress } from './runtimeProgress';
+import { canSupersedeRoutingCommand, runtimeProgress } from './runtimeProgress';
 import { routingCommandSuperseded } from './runtimeSession';
 import { runtimePresentation } from './runtimePresentation';
 import { parseGraph, serializeGraph } from './graph/model';
@@ -27,7 +27,9 @@ export default function createGraphRuntimeActions(
     issues = checks.issues;
   const errors = issues.filter((i) => i.severity === 'error');
   const canStop =
-    (desktop && runtime.commandStage === 'reconcile' && runtime.pendingOperation !== 'stop') ||
+    (desktop &&
+      connected &&
+      canSupersedeRoutingCommand(runtime.pendingOperation, runtime.commandStage)) ||
     (serviceReady &&
       (!progress ||
         (snapshot.lifecycle?.recovering && snapshot.recovery?.desiredState === 'running')) &&
