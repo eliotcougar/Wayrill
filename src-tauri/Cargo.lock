@@ -4481,7 +4481,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill"
-version = "0.39.7"
+version = "0.39.10"
 dependencies = [
  "reqwest",
  "serde",
@@ -4501,7 +4501,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-diagnostics"
-version = "0.39.7"
+version = "0.39.10"
 dependencies = [
  "regex",
  "serde_json",
@@ -4509,7 +4509,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-ipc"
-version = "0.39.7"
+version = "0.39.10"
 dependencies = [
  "serde_json",
  "tokio",
@@ -4540,7 +4540,7 @@ dependencies = [
 
 [[package]]
 name = "wayrill-protocol"
-version = "0.39.7"
+version = "0.39.10"
 dependencies = [
  "serde",
  "serde_json",
