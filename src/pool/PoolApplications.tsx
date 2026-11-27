@@ -425,13 +425,16 @@ type BoundApplication = PoolApplicationIdentity & {
 export function PoolApplicationBindingEditor({
   applications,
   changes,
+  requiredChoiceMissing,
   onChange,
 }: {
   applications: BoundApplication[];
   changes: PoolApplicationChanges;
+  requiredChoiceMissing: boolean;
   onChange: (id: string, binding: PoolApplicationBinding | null) => void;
 }) {
-  const { catalog, error, loading, refresh } = useWindowsCatalog();
+  const [expanded, setExpanded] = useState(requiredChoiceMissing);
+  const { catalog, error, loading, refresh } = useWindowsCatalog(requiredChoiceMissing || expanded);
   const [editing, setEditing] = useState<string>();
   const [kind, setKind] = useState<PoolApplicationBinding['kind']>('process');
   const [query, setQuery] = useState('');
@@ -451,14 +454,8 @@ export function PoolApplicationBindingEditor({
   return (
     <details
       className="editor-advanced"
-      open={
-        applications.some(
-          ({ identities, binding, detection, id }) =>
-            !identities.length &&
-            !detection?.path &&
-            !(Object.hasOwn(changes, id) ? changes[id] : binding),
-        ) || undefined
-      }
+      open={requiredChoiceMissing || undefined}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
       <summary>Applications on this PC ({applications.length})</summary>
       <p className="field-help">

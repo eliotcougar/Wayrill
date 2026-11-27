@@ -272,12 +272,13 @@ and closing the window discards the simulation.
    code. Wayrill shows its folder or URL. Older multiline invitations still work.
    If you received the private key separately, enter it and use **Enter folder
    or URL manually** to supply the source.
-2. Choose **Proxy** for apps you point at a local listener, **TUN** for
-   whole-computer capture, or **Both**. If you already have custom inbounds,
+2. Under **Local capture**, choose **Proxy** for apps you point at a local
+   listener, **TUN** for whole-computer capture, or **Both**. If you already have custom inbounds,
    **Keep existing inbounds** preserves them. Choose **Review configuration**.
-3. Check the selected graph and where each local input goes. When several
-   graphs are available, choose one for this computer. Expand **Customize layers
-   and outbounds** or **Inbound assignments** if you need different choices.
+3. Check the graph and where each local input goes. When several graphs are
+   available, choose one for this computer. Use **More options** to change
+   capture, layers, outbounds, or the update interval. If a local inbound
+   needs a route, **Inbound assignments** opens automatically.
    **Start routing if stopped** controls whether Wayrill starts routing during
    enrollment. Choose **Connect to Pool** to apply the reviewed configuration.
 4. If you chose Proxy, use the shown address and port in your apps or open
@@ -287,7 +288,7 @@ and closing the window discards the simulation.
    capture later.
 
 After enrollment, refreshes keep the existing inbounds and their settings.
-To change them, choose **Edit configuration choices → Change local capture**.
+To change them, choose **Edit configuration choices → More options → Local capture**.
 Wayrill saves assignments by node ID. Renaming or moving a placeholder
 preserves its assignments. A new placeholder stays unused until assigned.
 If a publisher recreates a capture placeholder, Wayrill can reconnect it when
@@ -298,11 +299,11 @@ If the intended path is unclear, the current routing stays in place.
 
 | What you want to change | Where to change it | What the next delivery does |
 | --- | --- | --- |
-| Use the administrator’s current default graph, even if it changes | **Edit configuration choices → Graph for this computer → Follow Pool default** | Follows the published default. Select a named graph to keep using that template. |
-| Include or exclude an optional Stash | **Edit configuration choices → Customize layers and outbounds → Stash layers** | Keeps that preference on this computer, even when you follow the Pool’s changing default graph. Other Stashes continue to follow their published defaults. |
-| Choose a different traffic filter, DNS filter or outbound | **Edit configuration choices → Customize layers and outbounds** | Pins this graph so the chosen filter or outbound stays attached to the intended node. Other filters can still follow their published defaults. Selecting **Follow Pool default** again clears graph-specific selections and keeps your Stash preferences. |
+| Use the administrator’s current default graph, even if it changes | Under **Graph for this computer**, choose **Follow Pool default**. With a single graph, this control is under **More options**. | Follows the published default. Select a named graph to keep using that template. |
+| Include or exclude an optional Stash | **More options → Stashes, filters, and outbounds → Stash layers** | Keeps that preference on this computer, even when you follow the Pool’s changing default graph. Other Stashes continue to follow their published defaults. |
+| Choose a different traffic filter, DNS filter or outbound | **More options → Stashes, filters, and outbounds** | Pins this graph so the chosen filter or outbound stays attached to the intended node. Other filters can still follow their published defaults. Selecting **Follow Pool default** again clears graph-specific selections and keeps your Stash preferences. |
 | Add a domain, IP or application exception | Open the traffic filter and add a personal **Before** or **After** rule | Carries your rules into the updated filter. |
-| Add a static DNS record, tune DNS caching or probing, or change an independent outbound’s socket and transport defaults | Edit the node and **Apply** | Keeps your changed fields on that node. Static DNS records merge by host, so a local printer entry and the Pool’s updated bootstrap addresses can coexist. Under **Edit configuration choices → Personal node settings**, clear individual preferences to resume following the Pool. |
+| Add a static DNS record, tune DNS caching or probing, or change an independent outbound’s socket and transport defaults | Edit the node and **Apply** | Keeps your changed fields on that node. Static DNS records merge by host, so a local printer entry and the Pool’s updated bootstrap addresses can coexist. Under **More options → Personal node settings**, clear individual preferences to resume following the Pool. |
 | Use a different log level, domain strategy, UDP buffer size or primary geofile | Change the value or primary file in **Global defaults**, then save and apply | Editing selects **Use my … on this computer** for that setting. You can also check it to keep the current value. Clear it to follow the Pool again. |
 
 Personal node settings belong to a particular graph and node. A newly selected

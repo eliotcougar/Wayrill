@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import Dialog from '../components/Dialog';
 import './pool.css';
 import { parseGraph } from '../graph/model';
@@ -72,14 +72,47 @@ type LiveConnection = {
 
 const captureChoices = [
   { id: 'proxy', name: 'Proxy', help: 'For apps you point at the local proxy.' },
-  { id: 'tun', name: 'TUN', help: 'Capture traffic from this computer.' },
-  { id: 'both', name: 'Both', help: 'Use system-wide capture and a local proxy listener.' },
+  { id: 'tun', name: 'TUN', help: 'Capture traffic across this PC.' },
+  { id: 'both', name: 'Both', help: 'Capture traffic across this PC and run a local proxy.' },
   {
     id: 'current',
     name: 'Keep existing inbounds',
     help: 'Reuse the capture and listeners in the applied graph.',
   },
 ] as const;
+
+function CaptureModeField({
+  value,
+  canReuseInbounds,
+  onChange,
+}: {
+  value: PoolCapture;
+  canReuseInbounds: boolean;
+  onChange: (mode: PoolCapture) => void;
+}) {
+  const selected = captureChoices.find(({ id }) => id === value);
+  return (
+    <label className="editor-field">
+      <span>Local capture</span>
+      <select
+        value={value}
+        onChange={(event) => {
+          const choice = captureChoices.find(({ id }) => id === event.currentTarget.value);
+          if (choice) onChange(choice.id);
+        }}
+      >
+        {captureChoices
+          .filter(({ id }) => id !== 'current' || canReuseInbounds || value === id)
+          .map(({ id, name }) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+      </select>
+      {selected && <small className="field-help">{selected.help}</small>}
+    </label>
+  );
+}
 
 export default function PoolConnection({
   onClose,
@@ -96,7 +129,7 @@ export default function PoolConnection({
   const [capture, setCapture] = useState<PoolCapture>('proxy');
   const [start, setStart] = useState(true);
   const [preview, setPreview] = useState<PoolPreview & { capture: PoolCapture }>();
-  const [customize, setCustomize] = useState(false);
+  const [showLayerChoices, setShowLayerChoices] = useState(false);
   const [selection, setSelection] = useState<PoolSelection>();
   const [activity, setActivity] = useState('');
   const busy = !!activity;
@@ -109,7 +142,6 @@ export default function PoolConnection({
   const [checkResult, setCheckResult] = useState<{ at?: number | null; message: string }>();
   const pending = useRef(false);
   const [intervalDraft, setIntervalDraft] = useState<string>();
-  const captureFieldId = useId();
   const interval = intervalDraft ?? String(status?.connection?.refreshMinutes ?? 5);
   const refreshMinutes = Number(interval);
   const intervalValid =
@@ -180,7 +212,6 @@ export default function PoolConnection({
       if (!preview) setApplicationChanges({});
       setCapture(mode);
       setSelection(next.selection);
-      if (!choice) setCustomize(false);
       return;
     }
     const { job } = await serviceCall<{ job: number }>('pool.preview', {
@@ -205,7 +236,6 @@ export default function PoolConnection({
     if (!preview || preview.selection?.graph !== next.selection?.graph || latest) setResets({});
     if (!connected) setCapture(mode);
     setSelection(next.selection);
-    if (!choice) setCustomize(connected);
   }
 
   async function command(method: string, params?: Record<string, unknown>) {
@@ -275,6 +305,82 @@ export default function PoolConnection({
     !!address.trim() &&
     invitePattern.test(invite.trim()) &&
     (!!simulation || (!!status && revision !== undefined));
+  const graphChoice = options && selection && (
+    <label className="editor-field">
+      <span>Graph for this computer</span>
+      <select
+        value={selection.followDefault ? '@default' : selection.graph}
+        onChange={(event) => {
+          const graph = event.currentTarget.value;
+          const followDefault = graph === '@default';
+          const target = followDefault ? options.defaultGraph : graph;
+          const choice = {
+            ...(target === selection.graph && !followDefault
+              ? selection
+              : {
+                  stashes: selection.stashes,
+                  stashOverrides: selection.stashOverrides,
+                  deviceLayers: selection.deviceLayers,
+                }),
+            graph: target,
+            followDefault,
+          };
+          void run(
+            () => inspect(connected, choice, choice.graph === selection.graph),
+            'Loading graph…',
+          );
+        }}
+      >
+        <option value="@default">
+          Follow Pool default · {options.graphs.find((g) => g.id === options.defaultGraph)?.name}
+        </option>
+        {options.graphs.map(({ id, name }) => (
+          <option key={id} value={id}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  function reviewDefaults() {
+    if (!options || !selection) return;
+    void run(
+      () =>
+        inspect(
+          connected,
+          {
+            graph: options.defaultGraph,
+            followDefault: true,
+            deviceLayers: selection.deviceLayers,
+          },
+          selection.graph === options.defaultGraph,
+        ),
+      'Reviewing Pool defaults…',
+    );
+  }
+  const applicationBindings = !!preview?.applications?.length && (
+    <PoolApplicationBindingEditor
+      applications={preview.applications}
+      changes={applicationChanges}
+      requiredChoiceMissing={!!applicationChoiceMissing}
+      onChange={(id, binding) =>
+        setApplicationChanges((current) => ({ ...current, [id]: binding }))
+      }
+    />
+  );
+  const enabledInbounds = preview?.inbounds.filter(({ enabled }) => enabled) ?? [];
+  const connectionHistory = status?.connection && (
+    <>
+      <p className="field-help">
+        {status.lastCheckAt
+          ? `Last checked ${new Date(status.lastCheckAt).toLocaleString()}.`
+          : 'Awaiting the first update check since the service started.'}
+      </p>
+      <p className="field-help">
+        Pool choices last applied {new Date(status.connection.appliedAt).toLocaleString()}.
+      </p>
+    </>
+  );
 
   async function connect() {
     if (!preview || !complete || applicationChoiceMissing || options?.reviewRequired) return;
@@ -308,6 +414,7 @@ export default function PoolConnection({
     }
     live?.onChoicesApplied();
     setPreview(undefined);
+    setShowLayerChoices(false);
     setCapture('current');
     setInvite('');
     setIntervalDraft(undefined);
@@ -330,7 +437,11 @@ export default function PoolConnection({
       }
       onClose={onClose}
       busy={busy}
-      className="pool-dialog"
+      className={
+        !disconnect && (preview || justConnected || (!connected && !recovering))
+          ? 'pool-dialog pool-join-dialog dialog--compact'
+          : 'pool-dialog'
+      }
       footer={
         disconnect ? (
           <></>
@@ -341,6 +452,7 @@ export default function PoolConnection({
               disabled={busy || status?.busy}
               onClick={() => {
                 setPreview(undefined);
+                setShowLayerChoices(false);
                 setFailure('');
               }}
             >
@@ -432,54 +544,18 @@ export default function PoolConnection({
           </button>
         </div>
       ) : preview ? (
-        <fieldset disabled={busy || status?.busy}>
-          <legend>Routing setup</legend>
-          {options && selection ? (
-            <label className="editor-field">
-              <span>Graph for this computer</span>
-              <select
-                value={selection.followDefault ? '@default' : selection.graph}
-                onChange={(event) => {
-                  const graph = event.currentTarget.value;
-                  const followDefault = graph === '@default';
-                  const target = followDefault ? options.defaultGraph : graph;
-                  const choice = {
-                    ...(target === selection.graph && !followDefault
-                      ? selection
-                      : {
-                          stashes: selection.stashes,
-                          stashOverrides: selection.stashOverrides,
-                          deviceLayers: selection.deviceLayers,
-                        }),
-                    graph: target,
-                    followDefault,
-                  };
-                  void run(
-                    () => inspect(connected, choice, choice.graph === selection.graph),
-                    'Loading graph…',
-                  );
-                }}
-              >
-                <option value="@default">
-                  Follow Pool default ·{' '}
-                  {options.graphs.find((g) => g.id === options.defaultGraph)?.name}
-                </option>
-                {options.graphs.map(({ id, name }) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <fieldset className="pool-join-fields" aria-label="Routing setup" disabled={blocked}>
+          {options && options.graphs.length > 1 && graphChoice ? (
+            graphChoice
           ) : (
-            <p>
+            <p className="pool-review-graph">
+              <span className="field-help">Graph</span>
               <strong>{preview.name}</strong>
             </p>
           )}
-          <ul className="pool-route-summary" aria-label="Local routing">
-            {preview.inbounds
-              .filter(({ enabled }) => enabled)
-              .map((inbound) => {
+          {!!enabledInbounds.length && (
+            <ul className="pool-route-summary pool-local-routes" aria-label="Local routing">
+              {enabledInbounds.map((inbound) => {
                 const target = ownValue(assignments, inbound.id);
                 const route = preview.placeholders.find(({ id }) => id === target);
                 return (
@@ -489,305 +565,39 @@ export default function PoolConnection({
                     <span>
                       {route
                         ? `${route.name}${route.destination ? ` → ${route.destination}` : ''}`
-                        : 'Choose an entry below'}
+                        : 'Route required'}
                     </span>
                   </li>
                 );
               })}
-          </ul>
-          {!!preview.applications?.length && (
-            <PoolApplicationBindingEditor
-              applications={preview.applications}
-              changes={applicationChanges}
-              onChange={(id, binding) =>
-                setApplicationChanges((current) => ({ ...current, [id]: binding }))
-              }
-            />
+            </ul>
           )}
-          <details className="editor-advanced">
-            <summary>Change local capture</summary>
-            <label className="editor-field">
-              <span>Capture mode</span>
-              <select
-                value={preview.capture}
-                onChange={(event) => {
-                  const mode = captureChoices.find(
-                    ({ id }) => id === event.currentTarget.value,
-                  )?.id;
-                  if (mode)
-                    void run(
-                      () => inspect(connected, selection, false, mode),
-                      'Checking capture choices…',
-                    );
-                }}
-              >
-                {captureChoices
-                  .filter(({ id }) => id !== 'current' || connected || live?.canReuseInbounds)
-                  .map(({ id, name }) => (
-                    <option key={id} value={id}>
-                      {name}
-                    </option>
+          {options?.reviewRequired && (
+            <div className="notice notice--warning">
+              <p>A previous selection is unavailable.</p>
+              {!!options.unavailable.length && (
+                <ul>
+                  {options.unavailable.map((message, index) => (
+                    <li key={index}>{message}</li>
                   ))}
-              </select>
-            </label>
-            <p className="field-help">
-              Proxy, TUN and Both use standard local settings. Keep existing inbounds to preserve
-              custom settings.
-            </p>
-          </details>
-          {preview.settings && (
-            <details className="editor-advanced">
-              <summary>App settings provided by this Pool</summary>
-              <PoolSettingSummary settings={preview.settings} />
-            </details>
-          )}
-          {options && selection && (
-            <>
-              {options.reviewRequired && (
-                <div className="notice notice--warning">
-                  <p>
-                    A previous selection is unavailable. Choose a replacement or use the graph
-                    defaults.
-                  </p>
-                  {!!options.unavailable?.length && (
-                    <ul>
-                      {options.unavailable.map((message, index) => (
-                        <li key={index}>{message}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <button
-                    className="secondary-button"
-                    onClick={() =>
-                      void run(() => inspect(connected, selection), 'Reviewing remaining choices…')
-                    }
-                  >
-                    Review with available choices
-                  </button>
-                </div>
+                </ul>
               )}
-              {customizationAvailable && (
-                <button
-                  className="secondary-button"
-                  aria-expanded={customize}
-                  onClick={() => setCustomize(!customize)}
-                >
-                  {customize ? 'Hide optional choices' : 'Customize layers and outbounds…'}
-                </button>
-              )}
-              {customize && customizationAvailable && (
-                <>
-                  {!!options.stashes.length && (
-                    <fieldset>
-                      <legend>Stash layers</legend>
-                      {options.stashes.map(({ id, name }) => (
-                        <label key={id} className="editor-field">
-                          <span>{name}</span>
-                          <select
-                            value={
-                              Object.hasOwn(stashPreferences, id)
-                                ? stashPreferences[id]
-                                  ? 'include'
-                                  : 'exclude'
-                                : ''
-                            }
-                            onChange={(event) => {
-                              const value = event.currentTarget.value;
-                              const next = { ...stashPreferences, [id]: value === 'include' };
-                              if (!value) delete next[id];
-                              void run(() =>
-                                inspect(connected, {
-                                  ...selection,
-                                  stashes: undefined,
-                                  stashOverrides: next,
-                                }),
-                              );
-                            }}
-                          >
-                            <option value="">
-                              Follow Pool ·{' '}
-                              {(options.defaultStashes ?? options.activeStashes).includes(id)
-                                ? 'included'
-                                : 'optional'}
-                            </option>
-                            <option value="include">Include on this computer</option>
-                            <option value="exclude">Exclude on this computer</option>
-                          </select>
-                        </label>
-                      ))}
-                    </fieldset>
-                  )}
-                  {options.filters
-                    .filter(({ choices, defaultLayer }) => choices.length || defaultLayer)
-                    .map(({ id, name, choices, defaultLayer }) => (
-                      <label className="editor-field" key={id}>
-                        <span>{name}</span>
-                        <select
-                          value={
-                            Object.hasOwn(filterPreferences, id)
-                              ? (filterPreferences[id] ?? '@rules')
-                              : ''
-                          }
-                          onChange={(event) => {
-                            const value = event.currentTarget.value;
-                            const next = {
-                              ...filterPreferences,
-                              [id]: value === '@rules' ? null : value,
-                            };
-                            if (!value) delete next[id];
-                            void run(() =>
-                              inspect(connected, {
-                                ...selection,
-                                filters: undefined,
-                                filterOverrides: next,
-                                followDefault: false,
-                              }),
-                            );
-                          }}
-                        >
-                          <option value="">
-                            Follow Pool ·{' '}
-                            {defaultLayer
-                              ? (choices.find((c) => c.id === defaultLayer)?.name ??
-                                'unavailable filter')
-                              : 'graph rules'}
-                          </option>
-                          <option value="@rules">Always use graph rules</option>
-                          {choices.map(({ id, name }) => (
-                            <option key={id} value={id}>
-                              {name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
-                  {options.outbounds
-                    .filter(({ accepts }) => accepts.length > 0)
-                    .map(({ id, name, accepts }) => (
-                      <PoolOutboundChoice
-                        key={id}
-                        name={name}
-                        accepts={accepts}
-                        entries={options.entries}
-                        value={ownValue(selection.outbounds, id)}
-                        onChange={(link) => {
-                          const outbounds = new Map(Object.entries(selection.outbounds ?? {}));
-                          if (link) outbounds.set(id, link);
-                          else outbounds.delete(id);
-                          void run(() =>
-                            inspect(connected, {
-                              ...selection,
-                              outbounds: Object.fromEntries(outbounds),
-                              followDefault: false,
-                            }),
-                          );
-                        }}
-                      />
-                    ))}
-                </>
-              )}
-              {(options.reviewRequired ||
-                !defaultChoice ||
-                (connected && !selection.followDefault)) && (
+              <div className="pool-dialog-actions">
                 <button
                   className="secondary-button"
                   onClick={() =>
-                    void run(() =>
-                      inspect(
-                        connected,
-                        {
-                          graph: options.defaultGraph,
-                          followDefault: true,
-                          deviceLayers: selection.deviceLayers,
-                        },
-                        selection.graph === options.defaultGraph,
-                      ),
-                    )
+                    void run(() => inspect(connected, selection), 'Reviewing remaining choices…')
                   }
                 >
+                  Review with available choices
+                </button>
+                <button className="secondary-button" onClick={reviewDefaults}>
                   Use Pool defaults
                 </button>
-              )}
-            </>
+              </div>
+            </div>
           )}
-          {!!options?.deviceLayers?.length && selection && (
-            <fieldset className="pool-assignments" disabled={busy}>
-              <legend>Optional Windows settings</legend>
-              <p className="field-help">
-                Choose which layers to apply on this PC. Your choices carry over to future Pool
-                updates.
-              </p>
-              {options.deviceLayers.map(({ id, name, data }) => (
-                <div className="pool-assignment" key={id}>
-                  <label className="check-control">
-                    <input
-                      type="checkbox"
-                      checked={selection.deviceLayers?.includes(id) ?? false}
-                      onChange={(event) => {
-                        const selected = new Set(selection.deviceLayers);
-                        if (event.currentTarget.checked) selected.add(id);
-                        else selected.delete(id);
-                        setSelection({ ...selection, deviceLayers: [...selected] });
-                      }}
-                    />
-                    <span>
-                      {name}{' '}
-                      <small>
-                        {data.kind === 'loopback' ? 'Loopback exemptions' : 'App protection'}
-                      </small>
-                    </span>
-                  </label>
-                  <details className="editor-advanced">
-                    <summary>Review targets</summary>
-                    {data.kind === 'app-protection' && !data.protection.enabled ? (
-                      <p className="field-help">
-                        This layer currently supplies no active protection.
-                      </p>
-                    ) : (
-                      <ul>
-                        {(data.kind === 'loopback'
-                          ? data.packages
-                          : data.protection.applications.map(({ value }) => value)
-                        ).map((value) => (
-                          <li key={value} className="field-help">
-                            {value}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </details>
-                </div>
-              ))}
-            </fieldset>
-          )}
-          {!!preview.personalSettings?.length && (
-            <details className="editor-advanced">
-              <summary>Personal node settings ({preview.personalSettings.length})</summary>
-              <p className="field-help">
-                Checked settings keep your value as this graph updates. Clear a setting and apply
-                your choices to use the Pool value again.
-              </p>
-              {preview.personalSettings.map(({ nodeId, node, key, field }) => (
-                <label key={JSON.stringify([nodeId, key])} className="check-control">
-                  <input
-                    type="checkbox"
-                    checked={!Object.hasOwn(resets, nodeId) || !resets[nodeId].includes(key)}
-                    onChange={(event) => {
-                      const keep = event.currentTarget.checked;
-                      setResets((current) => {
-                        const keys = Object.hasOwn(current, nodeId) ? current[nodeId] : [];
-                        return {
-                          ...current,
-                          [nodeId]: keep ? keys.filter((k) => k !== key) : [...keys, key],
-                        };
-                      });
-                    }}
-                  />
-                  {node} · {field}
-                </label>
-              ))}
-            </details>
-          )}
+          {applicationChoiceMissing && applicationBindings}
           {(!complete ||
             preview.inbounds.some(
               (inbound) => (inbound.targets?.length ?? preview.placeholders.length) > 1,
@@ -840,13 +650,238 @@ export default function PoolConnection({
               </div>
             </details>
           )}
+          <details className="editor-advanced">
+            <summary>More options</summary>
+            {options?.graphs.length === 1 && graphChoice}
+            <CaptureModeField
+              value={preview.capture}
+              canReuseInbounds={connected || !!live?.canReuseInbounds}
+              onChange={(mode) =>
+                void run(
+                  () => inspect(connected, selection, false, mode),
+                  'Checking capture choices…',
+                )
+              }
+            />
+            {!applicationChoiceMissing && applicationBindings}
+            {preview.settings && (
+              <details className="editor-advanced">
+                <summary>App settings provided by this Pool</summary>
+                <PoolSettingSummary settings={preview.settings} />
+              </details>
+            )}
+            {options && selection && (
+              <>
+                {customizationAvailable && (
+                  <details
+                    className="editor-advanced"
+                    open={showLayerChoices}
+                    onToggle={(event) => setShowLayerChoices(event.currentTarget.open)}
+                  >
+                    <summary>Stashes, filters, and outbounds</summary>
+                    {showLayerChoices && (
+                      <>
+                        {!!options.stashes.length && (
+                          <fieldset>
+                            <legend>Stash layers</legend>
+                            {options.stashes.map(({ id, name }) => (
+                              <label key={id} className="editor-field">
+                                <span>{name}</span>
+                                <select
+                                  value={
+                                    Object.hasOwn(stashPreferences, id)
+                                      ? stashPreferences[id]
+                                        ? 'include'
+                                        : 'exclude'
+                                      : ''
+                                  }
+                                  onChange={(event) => {
+                                    const value = event.currentTarget.value;
+                                    const next = { ...stashPreferences, [id]: value === 'include' };
+                                    if (!value) delete next[id];
+                                    void run(() =>
+                                      inspect(connected, {
+                                        ...selection,
+                                        stashes: undefined,
+                                        stashOverrides: next,
+                                      }),
+                                    );
+                                  }}
+                                >
+                                  <option value="">
+                                    Follow Pool ·{' '}
+                                    {(options.defaultStashes ?? options.activeStashes).includes(id)
+                                      ? 'included'
+                                      : 'optional'}
+                                  </option>
+                                  <option value="include">Include on this computer</option>
+                                  <option value="exclude">Exclude on this computer</option>
+                                </select>
+                              </label>
+                            ))}
+                          </fieldset>
+                        )}
+                        {options.filters
+                          .filter(({ choices, defaultLayer }) => choices.length || defaultLayer)
+                          .map(({ id, name, choices, defaultLayer }) => (
+                            <label className="editor-field" key={id}>
+                              <span>{name}</span>
+                              <select
+                                value={
+                                  Object.hasOwn(filterPreferences, id)
+                                    ? (filterPreferences[id] ?? '@rules')
+                                    : ''
+                                }
+                                onChange={(event) => {
+                                  const value = event.currentTarget.value;
+                                  const next = {
+                                    ...filterPreferences,
+                                    [id]: value === '@rules' ? null : value,
+                                  };
+                                  if (!value) delete next[id];
+                                  void run(() =>
+                                    inspect(connected, {
+                                      ...selection,
+                                      filters: undefined,
+                                      filterOverrides: next,
+                                      followDefault: false,
+                                    }),
+                                  );
+                                }}
+                              >
+                                <option value="">
+                                  Follow Pool ·{' '}
+                                  {defaultLayer
+                                    ? (choices.find((c) => c.id === defaultLayer)?.name ??
+                                      'unavailable filter')
+                                    : 'graph rules'}
+                                </option>
+                                <option value="@rules">Always use graph rules</option>
+                                {choices.map(({ id, name }) => (
+                                  <option key={id} value={id}>
+                                    {name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ))}
+                        {options.outbounds
+                          .filter(({ accepts }) => accepts.length > 0)
+                          .map(({ id, name, accepts }) => (
+                            <PoolOutboundChoice
+                              key={id}
+                              name={name}
+                              accepts={accepts}
+                              entries={options.entries}
+                              value={ownValue(selection.outbounds, id)}
+                              onChange={(link) => {
+                                const outbounds = new Map(
+                                  Object.entries(selection.outbounds ?? {}),
+                                );
+                                if (link) outbounds.set(id, link);
+                                else outbounds.delete(id);
+                                void run(() =>
+                                  inspect(connected, {
+                                    ...selection,
+                                    outbounds: Object.fromEntries(outbounds),
+                                    followDefault: false,
+                                  }),
+                                );
+                              }}
+                            />
+                          ))}
+                      </>
+                    )}
+                  </details>
+                )}
+                {!options.reviewRequired &&
+                  (!defaultChoice || (connected && !selection.followDefault)) && (
+                    <button className="secondary-button" onClick={reviewDefaults}>
+                      Use Pool defaults
+                    </button>
+                  )}
+              </>
+            )}
+            {!!preview.personalSettings?.length && (
+              <details className="editor-advanced">
+                <summary>Personal node settings ({preview.personalSettings.length})</summary>
+                <p className="field-help">
+                  Checked settings keep your value as this graph updates. Clear a setting and apply
+                  your choices to use the Pool value again.
+                </p>
+                {preview.personalSettings.map(({ nodeId, node, key, field }) => (
+                  <label key={JSON.stringify([nodeId, key])} className="check-control">
+                    <input
+                      type="checkbox"
+                      checked={!Object.hasOwn(resets, nodeId) || !resets[nodeId].includes(key)}
+                      onChange={(event) => {
+                        const keep = event.currentTarget.checked;
+                        setResets((current) => {
+                          const keys = Object.hasOwn(current, nodeId) ? current[nodeId] : [];
+                          return {
+                            ...current,
+                            [nodeId]: keep ? keys.filter((k) => k !== key) : [...keys, key],
+                          };
+                        });
+                      }}
+                    />
+                    {node} · {field}
+                  </label>
+                ))}
+              </details>
+            )}
+            {!connected && !simulation && intervalField}
+          </details>
+          {!!options?.deviceLayers?.length && selection && (
+            <fieldset className="pool-join-windows">
+              <legend>Optional Windows settings</legend>
+              {options.deviceLayers.map(({ id, name, data }) => (
+                <div className="pool-assignment" key={id}>
+                  <label className="check-control check-control--compact">
+                    <input
+                      type="checkbox"
+                      checked={selection.deviceLayers?.includes(id) ?? false}
+                      onChange={(event) => {
+                        const selected = new Set(selection.deviceLayers);
+                        if (event.currentTarget.checked) selected.add(id);
+                        else selected.delete(id);
+                        setSelection({ ...selection, deviceLayers: [...selected] });
+                      }}
+                    />
+                    <span>
+                      {name}{' '}
+                      <small>
+                        {data.kind === 'loopback' ? 'Loopback exemptions' : 'App protection'}
+                      </small>
+                    </span>
+                  </label>
+                  <details className="editor-advanced">
+                    <summary>Targets</summary>
+                    {data.kind === 'app-protection' && !data.protection.enabled ? (
+                      <p className="field-help">
+                        This layer currently supplies no active protection.
+                      </p>
+                    ) : (
+                      <ul>
+                        {(data.kind === 'loopback'
+                          ? data.packages
+                          : data.protection.applications.map(({ value }) => value)
+                        ).map((value) => (
+                          <li key={value} className="field-help">
+                            {value}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </details>
+                </div>
+              ))}
+            </fieldset>
+          )}
           {!connected && !simulation && (
             <>
-              <p className="field-help">
-                Connecting replaces the applied routing graph and allows future updates from this
-                Pool.
-              </p>
-              <label className="check-control">
+              <p className="field-help">Connecting replaces the current routing graph.</p>
+              <label className="check-control check-control--compact">
                 <input
                   type="checkbox"
                   checked={start}
@@ -854,48 +889,35 @@ export default function PoolConnection({
                 />
                 Start routing if stopped
               </label>
-              <details className="editor-advanced">
-                <summary>Update interval</summary>
-                {intervalField}
-                {!intervalValid && (
-                  <p className="field-message error">
-                    Enter a whole number from 1 to 1,440 minutes.
-                  </p>
-                )}
-              </details>
+              {!intervalValid && (
+                <p role="alert" className="field-message error">
+                  In More options, set the update interval to a whole number from 1 to 1,440
+                  minutes.
+                </p>
+              )}
             </>
           )}
         </fieldset>
       ) : status?.connection ? (
-        <fieldset disabled={busy || status.busy}>
-          <legend>{status.connection.poolName ?? status.connection.name}</legend>
+        <fieldset
+          className={justConnected ? 'pool-join-fields' : undefined}
+          aria-label={justConnected ? 'Pool connection' : undefined}
+          disabled={busy || status.busy}
+        >
+          {justConnected ? (
+            <p role="status">
+              Connected to <strong>{status.connection.poolName ?? status.connection.name}</strong>.
+            </p>
+          ) : (
+            <legend>{status.connection.poolName ?? status.connection.name}</legend>
+          )}
           {status.connection.poolName && status.connection.poolName !== status.connection.name && (
             <p className="field-help">Applied graph · {status.connection.name}</p>
           )}
-          {justConnected && (
-            <div className="notice">
-              <p role="status">Connected. This computer’s configuration is applied.</p>
-              {!!justConnected.proxy.length && (
-                <>
-                  <p>
-                    When routing is running, point your apps at {justConnected.proxy.join(' or ')}{' '}
-                    to use the local proxy.
-                  </p>
-                  <button className="secondary-button" onClick={live?.onOpenCaptureSettings}>
-                    Open Windows capture settings
-                  </button>
-                </>
-              )}
-            </div>
+          {!!justConnected?.proxy.length && (
+            <p className="field-help">Local proxy · {justConnected.proxy.join(' or ')}</p>
           )}
-          <p className="field-help">
-            {status.lastCheckAt
-              ? `Last checked ${new Date(status.lastCheckAt).toLocaleString()}.`
-              : 'Awaiting the first update check since the service started.'}
-          </p>
-          <p className="field-help">
-            Pool choices last applied {new Date(status.connection.appliedAt).toLocaleString()}.
-          </p>
+          {!justConnected && connectionHistory}
           {checkResult && checkResult.at === status.lastCheckAt && !failure && !status.error && (
             <p role="status">{checkResult.message}</p>
           )}
@@ -907,6 +929,11 @@ export default function PoolConnection({
             >
               Test outbounds
             </button>
+            {!!justConnected?.proxy.length && (
+              <button className="secondary-button" onClick={live?.onOpenCaptureSettings}>
+                Open Windows capture settings
+              </button>
+            )}
             {!live?.showingApplied && (
               <button className="secondary-button" onClick={live?.onShowGraph}>
                 Show applied Pool graph
@@ -927,7 +954,7 @@ export default function PoolConnection({
               Check for updates
             </button>
           </div>
-          {status.connection.personalSettings && (
+          {!justConnected && status.connection.personalSettings && (
             <p className="field-help">
               You can change local capture, Global defaults, DNS and probe settings, and add
               personal Before or After traffic rules while continuing to receive Pool updates. Use
@@ -936,6 +963,7 @@ export default function PoolConnection({
           )}
           <details className="editor-advanced">
             <summary>Connection settings</summary>
+            {justConnected && connectionHistory}
             <p className="field-help">{status.connection.address}</p>
             <p className="field-help">Pool updates keep existing inbounds and their assignments.</p>
             {intervalField}
@@ -983,118 +1011,94 @@ export default function PoolConnection({
           </details>
         </fieldset>
       ) : (
-        <>
-          <fieldset disabled={blocked}>
-            <legend>Invitation</legend>
-            {simulation ? (
-              <p>
-                <strong>{simulation.user}</strong> · {address}
-              </p>
-            ) : (
-              <>
-                <label className="editor-field">
-                  <span>Invitation or private access key</span>
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    maxLength={poolInvitationMaxLength}
-                    value={invite}
-                    autoFocus
-                    placeholder="Paste or scan your invitation code"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      if (acceptInvitation(value)) return;
-                      setInvite(value);
-                      if (!address && invitePattern.test(value.trim())) setManual(true);
-                    }}
-                    onPaste={(event) => {
-                      if (acceptInvitation(event.clipboardData.getData('text')))
-                        event.preventDefault();
-                    }}
-                  />
-                </label>
-                {!manual && address && <p className="field-help">Invitation source · {address}</p>}
+        <fieldset className="pool-join-fields" aria-label="Pool invitation" disabled={blocked}>
+          {simulation ? (
+            <p>
+              <strong>{simulation.user}</strong> · {address}
+            </p>
+          ) : (
+            <>
+              <label className="editor-field">
+                <span>Invitation or private access key</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  maxLength={poolInvitationMaxLength}
+                  value={invite}
+                  autoFocus
+                  placeholder="Paste or scan your invitation code"
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    if (acceptInvitation(value)) return;
+                    setInvite(value);
+                    if (!address && invitePattern.test(value.trim())) setManual(true);
+                  }}
+                  onPaste={(event) => {
+                    if (acceptInvitation(event.clipboardData.getData('text')))
+                      event.preventDefault();
+                  }}
+                />
+              </label>
+              <div className="pool-invitation-source">
+                {!manual && address && <p className="field-help">{address}</p>}
                 <button
-                  className="secondary-button"
+                  className="secondary-button button--small"
                   aria-expanded={manual}
                   onClick={() => setManual(!manual)}
                 >
                   {manual
                     ? 'Hide source details'
                     : address
-                      ? 'Edit invitation source…'
+                      ? 'Edit source…'
                       : 'Enter folder or URL manually…'}
                 </button>
-                {manual && (
-                  <>
-                    <label className="editor-field">
-                      <span>Source</span>
-                      <select
-                        value={kind}
-                        onChange={(event) => {
-                          setKind(event.currentTarget.value === 'url' ? 'url' : 'folder');
-                          setAddress('');
-                        }}
-                      >
-                        <option value="folder">Folder</option>
-                        <option value="url">URL</option>
-                      </select>
-                    </label>
-                    <label className="editor-field">
-                      <span>{kind === 'folder' ? 'Pool folder' : 'Pool folder URL'}</span>
-                      <input
-                        value={address}
-                        maxLength={2048}
-                        onChange={(event) => setAddress(event.currentTarget.value)}
-                      />
-                    </label>
-                    {kind === 'folder' && (
-                      <button
-                        className="secondary-button"
-                        onClick={() =>
-                          void run(async () => {
-                            const chosen = await choosePoolFolder();
-                            if (chosen) setAddress(chosen);
-                          }, 'Choosing a Pool folder…')
-                        }
-                      >
-                        Choose folder…
-                      </button>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-          </fieldset>
-          <fieldset disabled={blocked}>
-            <legend>How should Wayrill capture traffic?</legend>
-            <div className="pool-capture-choices">
-              {captureChoices
-                .filter(({ id }) => id !== 'current' || live?.canReuseInbounds)
-                .map(({ id, name, help }) => (
-                  <label key={id} className="pool-capture-choice">
-                    <input
-                      type="radio"
-                      name={captureFieldId}
-                      value={id}
-                      checked={capture === id}
-                      onChange={() => setCapture(id)}
-                    />
-                    <span>
-                      <strong>{name}</strong>
-                      <small>{help}</small>
-                    </span>
+              </div>
+              {manual && (
+                <div className="pool-source-fields">
+                  <label className="editor-field">
+                    <span>Source</span>
+                    <select
+                      value={kind}
+                      onChange={(event) => {
+                        setKind(event.currentTarget.value === 'url' ? 'url' : 'folder');
+                        setAddress('');
+                      }}
+                    >
+                      <option value="folder">Folder</option>
+                      <option value="url">URL</option>
+                    </select>
                   </label>
-                ))}
-            </div>
-          </fieldset>
-          {simulation && (
-            <p className="field-help">
-              You can inspect the subscriber’s graph without starting routing or changing this
-              computer’s settings.
-            </p>
+                  <label className="editor-field">
+                    <span>{kind === 'folder' ? 'Pool folder' : 'Pool folder URL'}</span>
+                    <input
+                      value={address}
+                      maxLength={2048}
+                      onChange={(event) => setAddress(event.currentTarget.value)}
+                    />
+                  </label>
+                  {kind === 'folder' && (
+                    <button
+                      className="secondary-button"
+                      onClick={() =>
+                        void run(async () => {
+                          const chosen = await choosePoolFolder();
+                          if (chosen) setAddress(chosen);
+                        }, 'Choosing a Pool folder…')
+                      }
+                    >
+                      Browse…
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           )}
-        </>
+          <CaptureModeField
+            value={capture}
+            canReuseInbounds={!!live?.canReuseInbounds}
+            onChange={setCapture}
+          />
+        </fieldset>
       )}
       {busy || status?.busy ? (
         <p role="status" className="field-help">

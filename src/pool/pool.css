@@ -2,6 +2,14 @@
   width: min(620px, calc(100vw - 32px));
 }
 
+.app-dialog.pool-join-dialog {
+  max-height: calc(100vh - 32px);
+}
+
+.pool-join-dialog > .dialog-body {
+  padding: var(--space-4) var(--space-5);
+}
+
 .app-dialog.pool-stash-dialog {
   width: min(840px, calc(100vw - 32px));
 }
@@ -71,43 +79,68 @@
   margin-top: var(--space-3);
 }
 
-.pool-capture-choices {
+.pool-dialog .pool-join-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
+  padding: 0;
+  border: 0;
 }
 
-.pool-capture-choice {
+.pool-join-fields > :is(.editor-field, .editor-advanced, .pool-join-windows, p, ul) {
+  margin: 0;
+}
+
+.pool-invitation-source,
+.pool-review-graph {
   display: flex;
-  align-items: start;
+  flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--control-radius);
-  cursor: pointer;
 }
 
-.pool-capture-choice:has(:checked) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+.pool-invitation-source > p {
+  flex: 1 1 150px;
+  margin: 0;
 }
 
-.pool-capture-choice:has([value='current']) {
-  grid-column: 1 / -1;
+.pool-source-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
 }
 
-@media (max-width: 530px) {
-  .pool-capture-choices {
-    grid-template-columns: 1fr;
-  }
+.pool-source-fields > .editor-field {
+  margin: 0;
 }
 
-.pool-capture-choice > span {
+.pool-source-fields > .editor-field:has(input) {
+  flex: 1 1 150px;
+}
+
+.pool-join-windows > .pool-assignment {
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
 }
 
-.pool-capture-choice small,
+.pool-join-windows .editor-advanced {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.pool-join-windows summary {
+  min-height: var(--space-6);
+  justify-content: flex-end;
+}
+
+.pool-join-windows ul {
+  padding-inline-start: var(--space-4);
+  overflow-wrap: anywhere;
+}
+
 .pool-route-summary span {
   color: var(--text-secondary);
 }
@@ -127,6 +160,14 @@
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
+}
+
+.pool-local-routes {
+  gap: 0;
+}
+
+.pool-local-routes > li:last-child {
+  border-bottom: 0;
 }
 
 .pool-stash-groups {
