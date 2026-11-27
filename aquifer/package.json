@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
-    "@xyflow/react": "^12.12.1",
+    "@xyflow/react": "^13.0.3",
     "libavoid-js": "0.4.5",
     "lucide-react": "^1.73.0",
     "react": "^19.3.1",
